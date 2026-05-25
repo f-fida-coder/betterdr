@@ -6,23 +6,28 @@ const Header = ({ onLogin, isLoggedIn }) => {
     const [password, setPassword] = useState('');
     const [isLoggingIn, setIsLoggingIn] = useState(false);
     const [showMobileLogin, setShowMobileLogin] = useState(false);
+    // Inline error message. Native alert() was unreliable on mobile —
+    // the dialog could appear behind the modal overlay or get dismissed
+    // by the keyboard, hiding messages like "invalid password" or
+    // "no VPNs allowed." Rendered inline in the form instead.
+    const [errorMessage, setErrorMessage] = useState('');
 
     const handleLogin = async () => {
+        setErrorMessage('');
         if (username && password) {
             setIsLoggingIn(true);
             try {
-                // Frontend only login - accept any credentials
                 await onLogin(username, password);
                 setUsername('');
                 setPassword('');
                 setShowMobileLogin(false);
             } catch (error) {
-                alert(error.message);
+                setErrorMessage(error?.message || 'Login failed. Please try again.');
             } finally {
                 setIsLoggingIn(false);
             }
         } else {
-            alert("Please enter username and password");
+            setErrorMessage('Please enter username and password');
         }
     };
 
@@ -32,8 +37,13 @@ const Header = ({ onLogin, isLoggedIn }) => {
         }
     };
 
+    const closeMobileLogin = () => {
+        setShowMobileLogin(false);
+        setErrorMessage('');
+    };
+
     return (
-        <header className="main-header">
+        <header className={`main-header${!isLoggedIn ? ' is-mobile-loggedout' : ''}`}>
             <div className="logo">
                 <picture>
                     <source srcSet="/logo.webp" type="image/webp" />
@@ -48,10 +58,40 @@ const Header = ({ onLogin, isLoggedIn }) => {
             </div>
 
             {!isLoggedIn ? (
-                <button className="mobile-login-btn mobile-only" onClick={() => setShowMobileLogin(!showMobileLogin)}>LOGIN</button>
+                <div className="mobile-inline-login">
+                    <input
+                        type="text"
+                        placeholder="Login ID"
+                        value={username}
+                        onChange={(e) => { setUsername(e.target.value); if (errorMessage) setErrorMessage(''); }}
+                        onKeyPress={handleKeyPress}
+                        className="mobile-inline-input"
+                        autoComplete="username"
+                    />
+                    <input
+                        type="password"
+                        placeholder="Password"
+                        value={password}
+                        onChange={(e) => { setPassword(e.target.value); if (errorMessage) setErrorMessage(''); }}
+                        onKeyPress={handleKeyPress}
+                        className="mobile-inline-input"
+                        autoComplete="current-password"
+                    />
+
+                    {errorMessage && (
+                        <div role="alert" className="mobile-inline-error">{errorMessage}</div>
+                    )}
+                    <button
+                        className="mobile-inline-submit"
+                        onClick={handleLogin}
+                        disabled={isLoggingIn}
+                    >
+                        {isLoggingIn ? 'SIGNING IN...' : 'LOGIN'}
+                    </button>
+                </div>
             ) : null}
 
-            <div className="login-section desktop-only">
+            <div className="login-section desktop-only" style={{ position: 'relative' }}>
                 {!isLoggedIn ? (
                     <>
                         <div className="input-group">
@@ -60,7 +100,7 @@ const Header = ({ onLogin, isLoggedIn }) => {
                                 placeholder="Username"
                                 id="loginId"
                                 value={username}
-                                onChange={(e) => setUsername(e.target.value)}
+                                onChange={(e) => { setUsername(e.target.value); if (errorMessage) setErrorMessage(''); }}
                                 onKeyPress={handleKeyPress}
                             />
                             <input
@@ -68,7 +108,7 @@ const Header = ({ onLogin, isLoggedIn }) => {
                                 placeholder="Password"
                                 id="password"
                                 value={password}
-                                onChange={(e) => setPassword(e.target.value)}
+                                onChange={(e) => { setPassword(e.target.value); if (errorMessage) setErrorMessage(''); }}
                                 onKeyPress={handleKeyPress}
                             />
                         </div>
@@ -79,6 +119,28 @@ const Header = ({ onLogin, isLoggedIn }) => {
                         >
                             {isLoggingIn ? 'LOGGING IN...' : 'SIGN IN'}
                         </button>
+                        {errorMessage && (
+                            <div
+                                role="alert"
+                                style={{
+                                    position: 'absolute',
+                                    top: 'calc(100% + 6px)',
+                                    right: 0,
+                                    background: '#fef2f2',
+                                    border: '1px solid #fecaca',
+                                    color: '#b91c1c',
+                                    padding: '8px 12px',
+                                    borderRadius: '6px',
+                                    fontSize: '13px',
+                                    fontWeight: 600,
+                                    whiteSpace: 'nowrap',
+                                    boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
+                                    zIndex: 50,
+                                }}
+                            >
+                                {errorMessage}
+                            </div>
+                        )}
                     </>
                 ) : (
                     <button
@@ -161,16 +223,15 @@ const Header = ({ onLogin, isLoggedIn }) => {
                             maxWidth: '400px',
                             borderRadius: '12px',
                             boxShadow: '0 30px 100px rgba(0,0,0,0.9)',
-                            padding: '30px',
+                            padding: '28px 24px 24px',
                             display: 'flex',
                             flexDirection: 'column',
-                            gap: '15px',
+                            gap: '14px',
                             animation: 'fadeIn 0.4s ease-out'
                         }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                <h2 style={{ margin: 0, color: '#000', fontSize: '22px', fontWeight: 'bold' }}>SIGN IN</h2>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '4px' }}>
                                 <span
-                                    onClick={() => setShowMobileLogin(false)}
+                                    onClick={closeMobileLogin}
                                     style={{
                                         cursor: 'pointer',
                                         fontSize: '28px',
@@ -183,75 +244,119 @@ const Header = ({ onLogin, isLoggedIn }) => {
                                 </span>
                             </div>
 
+                            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}>
+                                <picture>
+                                    <source srcSet="/logo.webp" type="image/webp" />
+                                    <img
+                                        src="/logo.png"
+                                        alt="bettorplays247"
+                                        style={{ width: '160px', height: 'auto' }}
+                                    />
+                                </picture>
+                            </div>
+
                             {!isLoggedIn ? (
                                 <>
-                                    <input
-                                        type="text"
-                                        placeholder="Username"
-                                        value={username}
-                                        onChange={(e) => setUsername(e.target.value)}
-                                        onKeyPress={handleKeyPress}
-                                        style={{
-                                            width: '100%',
-                                            padding: '12px 15px',
-                                            borderRadius: '4px',
-                                            border: '1px solid #ccc',
-                                            fontSize: '16px',
-                                            color: '#333',
-                                            background: 'white',
-                                            boxSizing: 'border-box'
-                                        }}
-                                    />
-                                    <input
-                                        type="password"
-                                        placeholder="Password"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        onKeyPress={handleKeyPress}
-                                        style={{
-                                            width: '100%',
-                                            padding: '12px 15px',
-                                            borderRadius: '4px',
-                                            border: '1px solid #ccc',
-                                            fontSize: '16px',
-                                            color: '#333',
-                                            background: 'white',
-                                            boxSizing: 'border-box'
-                                        }}
-                                    />
-                                    <button 
-                                        className="btn-login" 
+                                    <div style={{ position: 'relative', width: '100%' }}>
+                                        <input
+                                            type="text"
+                                            placeholder="Login ID"
+                                            value={username}
+                                            onChange={(e) => { setUsername(e.target.value); if (errorMessage) setErrorMessage(''); }}
+                                            onKeyPress={handleKeyPress}
+                                            style={{
+                                                width: '100%',
+                                                padding: '14px 44px 14px 16px',
+                                                borderRadius: '8px',
+                                                border: '1px solid #ccc',
+                                                fontSize: '16px',
+                                                color: '#333',
+                                                background: 'white',
+                                                boxSizing: 'border-box'
+                                            }}
+                                        />
+                                        <i
+                                            className="fa-solid fa-key"
+                                            style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', fontSize: 16, pointerEvents: 'none' }}
+                                        />
+                                    </div>
+                                    <div style={{ position: 'relative', width: '100%' }}>
+                                        <input
+                                            type="password"
+                                            placeholder="Password"
+                                            value={password}
+                                            onChange={(e) => { setPassword(e.target.value); if (errorMessage) setErrorMessage(''); }}
+                                            onKeyPress={handleKeyPress}
+                                            style={{
+                                                width: '100%',
+                                                padding: '14px 44px 14px 16px',
+                                                borderRadius: '8px',
+                                                border: '1px solid #ccc',
+                                                fontSize: '16px',
+                                                color: '#333',
+                                                background: 'white',
+                                                boxSizing: 'border-box'
+                                            }}
+                                        />
+                                        <i
+                                            className="fa-solid fa-key"
+                                            style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', fontSize: 16, pointerEvents: 'none' }}
+                                        />
+                                    </div>
+
+                                    {errorMessage && (
+                                        <div
+                                            role="alert"
+                                            style={{
+                                                background: '#fef2f2',
+                                                border: '1px solid #fecaca',
+                                                color: '#b91c1c',
+                                                padding: '10px 12px',
+                                                borderRadius: '8px',
+                                                fontSize: '14px',
+                                                fontWeight: 600,
+                                                lineHeight: 1.35,
+                                                textAlign: 'center',
+                                            }}
+                                        >
+                                            {errorMessage}
+                                        </div>
+                                    )}
+
+                                    <button
+                                        className="btn-login"
                                         onClick={handleLogin}
                                         style={{
                                             width: '100%',
-                                            padding: '12px',
-                                            background: '#dc3545',
+                                            padding: '14px',
+                                            background: '#ef4444',
                                             color: 'white',
                                             border: 'none',
-                                            borderRadius: '4px',
-                                            fontSize: '16px',
+                                            borderRadius: '8px',
+                                            fontSize: '17px',
                                             fontWeight: 'bold',
+                                            letterSpacing: '0.5px',
                                             cursor: isLoggingIn ? 'not-allowed' : 'pointer',
                                             opacity: isLoggingIn ? 0.7 : 1
                                         }}
                                     >
-                                        {isLoggingIn ? 'SIGNING IN...' : 'SIGN IN'}
+                                        {isLoggingIn ? 'SIGNING IN...' : 'LOGIN'}
                                     </button>
                                 </>
                             ) : (
                                 <div style={{ textAlign: 'center', color: '#000' }}>
                                     <div style={{ marginBottom: '15px', fontWeight: 'bold', fontSize: '18px' }}>WELCOME BACK</div>
-                                    <button 
-                                        className="btn-login" 
-                                        onClick={() => setShowMobileLogin(false)}
+                                    <button
+                                        className="btn-login"
+                                        onClick={closeMobileLogin}
                                         style={{
                                             width: '100%',
-                                            padding: '12px',
-                                            background: '#dc3545',
+                                            padding: '14px',
+                                            background: '#ef4444',
                                             color: 'white',
                                             border: 'none',
-                                            borderRadius: '4px',
-                                            fontSize: '16px',
+                                            borderRadius: '8px',
+                                            fontSize: '17px',
                                             fontWeight: 'bold',
                                             cursor: 'pointer'
                                         }}

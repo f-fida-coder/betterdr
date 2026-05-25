@@ -7,7 +7,7 @@ const LandingPage = ({ onLogin, isLoggedIn }) => {
     const [activeLeague, setActiveLeague] = useState('all');
 
     return (
-        <div className="landing-page">
+        <div className={`landing-page${!isLoggedIn ? ' is-loggedout' : ''}`}>
             <Header onLogin={onLogin} isLoggedIn={isLoggedIn} />
             <LeagueNav activeLeague={activeLeague} onSelectLeague={setActiveLeague} />
             <Hero />

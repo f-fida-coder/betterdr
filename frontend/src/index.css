@@ -1025,7 +1025,8 @@ body::after {
 .mobile-only,
 .mobile-login-trigger,
 .mobile-login-buttons,
-.mobile-header-container {
+.mobile-header-container,
+.mobile-inline-login {
   display: none !important;
 }
 
@@ -1094,6 +1095,161 @@ body::after {
     letter-spacing: 0.5px;
     margin-left: auto;
     z-index: 10;
+  }
+
+  /* Inline login (logged-out mobile): logo centered, form stacked below.
+     Replaces the old "LOGIN" trigger + modal so the form is visible
+     immediately on landing, matching the bettorjuice365 layout. */
+  .main-header.is-mobile-loggedout {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    padding: 24px 18px 22px;
+    position: static;
+    /* Navy base + symmetrical red wedge accents that fade into the hero below,
+       mimicking the "arena lights" feel of the bettorjuice365 reference. */
+    background:
+      radial-gradient(ellipse 60% 100% at 0% 100%, rgba(220, 38, 38, 0.22) 0%, transparent 55%),
+      radial-gradient(ellipse 60% 100% at 100% 100%, rgba(220, 38, 38, 0.22) 0%, transparent 55%),
+      radial-gradient(ellipse 100% 70% at 50% 0%, rgba(64, 88, 168, 0.35) 0%, transparent 70%),
+      linear-gradient(180deg, #141a33 0%, #0d1226 60%, #0a0d1f 100%);
+    border-bottom: none;
+    box-shadow: 0 1px 0 rgba(220, 38, 38, 0.4), 0 10px 24px -16px rgba(220, 38, 38, 0.5);
+  }
+
+  .main-header.is-mobile-loggedout .logo {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    margin: 10px 0 14px;
+  }
+
+  .main-header.is-mobile-loggedout .logo img {
+    height: 110px;
+    width: auto;
+    filter: drop-shadow(0 6px 20px rgba(0, 0, 0, 0.6));
+  }
+
+  /* Hide the league nav on the logged-out mobile landing — the bettorjuice365
+     layout flows form -> red divider -> banner cards with no nav strip. */
+  .landing-page.is-loggedout .league-nav {
+    display: none !important;
+  }
+
+  .mobile-inline-login {
+    display: flex !important;
+    flex-direction: column;
+    gap: 14px;
+    width: 100%;
+    max-width: 340px;
+    margin: 0 auto;
+  }
+
+  .mobile-inline-input-wrap {
+    position: relative;
+    width: 100%;
+  }
+
+  /* Scoped overrides: the global `.landing-page input::placeholder` and
+     `.landing-page input:focus` rules are designed for dark glass inputs
+     and would make our white inputs unreadable. Lock these styles down. */
+  .mobile-inline-input,
+  .landing-page .mobile-inline-input {
+    width: 100% !important;
+    height: 36px !important;
+    padding: 0 14px !important;
+    border-radius: 8px !important;
+    border: 1px solid #d1d5db !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    font-size: 15px !important;
+    font-weight: 500 !important;
+    line-height: 1 !important;
+    box-sizing: border-box !important;
+    outline: none !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    /* Soft lift — subtle outer shadow + inner highlight, matches bettorjuice365's
+       slightly-raised input feel. */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+  }
+
+  .mobile-inline-input::placeholder,
+  .landing-page .mobile-inline-input::placeholder {
+    color: #9ca3af !important;
+    opacity: 1 !important;
+    font-weight: 500 !important;
+  }
+
+  .mobile-inline-input:focus,
+  .landing-page .mobile-inline-input:focus {
+    background: #ffffff !important;
+    border-color: #dc2626 !important;
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.18), 0 2px 4px rgba(0, 0, 0, 0.18) !important;
+  }
+
+  /* Key icons hidden on mobile per spec — only show on wider viewports if ever
+     reused. The inputs read cleaner on phones without the trailing decoration. */
+  .mobile-inline-icon {
+    display: none;
+  }
+
+  .mobile-inline-submit {
+    width: 100%;
+    height: 36px;
+    margin-top: 0;
+    /* Pure flat saturated red, no gradient. Matches the reference cleanly. */
+    background: #ee1c25;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    cursor: pointer;
+    text-transform: uppercase;
+    box-shadow: none;
+    transition: background 0.12s ease, transform 0.08s ease;
+  }
+
+  .mobile-inline-submit:hover {
+    background: #d4151d;
+  }
+
+  .mobile-inline-submit:active {
+    transform: translateY(1px);
+    background: #b81117;
+  }
+
+  .mobile-inline-submit:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    background: #ee1c25;
+  }
+
+  /* Thin red separator line below the form — same as the divider between the
+     login area and the hero carousel in the bettorjuice365 reference. */
+  .mobile-inline-login::after {
+    content: '';
+    display: block;
+    height: 1px;
+    width: 100%;
+    margin-top: 16px;
+    background: linear-gradient(90deg, transparent, #ee1c25 30%, #ee1c25 70%, transparent);
+    box-shadow: 0 0 8px rgba(238, 28, 37, 0.55);
+  }
+
+  .mobile-inline-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #b91c1c;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+    line-height: 1.35;
   }
 
   .mobile-join-btn {
@@ -1242,12 +1398,80 @@ body::after {
     padding: 20px;
   }
 
-  /* Promo cards mobile */
+  /* Tagline block — tighter spacing on mobile so it doesn't shove the footer
+     off-screen with 60px-each side margins. */
+  .banner-content-centered {
+    margin: 28px auto 24px;
+    padding: 0 20px;
+  }
+
+  .banner-logo {
+    height: 50px;
+    margin-bottom: 14px;
+  }
+
+  .banner-divider {
+    margin-bottom: 14px;
+  }
+
+  .banner-tagline {
+    font-size: 12px;
+    letter-spacing: 2.5px;
+  }
+
+  /* Footer — stack vertically on mobile and let link row wrap cleanly. */
+  .main-footer {
+    padding: 28px 18px 32px !important;
+    margin-top: 24px;
+  }
+
+  .footer-content {
+    flex-direction: column !important;
+    gap: 18px;
+    padding: 0 !important;
+    text-align: center;
+    align-items: center !important;
+  }
+
+  .footer-left {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .footer-logo {
+    height: 36px;
+  }
+
+  .copyright {
+    margin-top: 0 !important;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .footer-right {
+    display: flex !important;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px 18px !important;
+    width: 100%;
+  }
+
+  .footer-right span {
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+
+  /* Promo cards mobile — stack vertically for full-bleed banner feel like
+     the bettorjuice365 reference (instead of cramped side-by-side thumbs). */
   .promo-flex-row {
     display: flex;
-    gap: 12px;
-    margin-top: 15px;
-    height: 180px;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 16px;
+    height: auto;
     padding: 0 15px;
     width: 100%;
     box-sizing: border-box;
@@ -1255,17 +1479,31 @@ body::after {
   }
 
   .promo-card {
-    flex: 1;
-    border-radius: 12px;
+    flex: 1 1 auto;
+    height: 200px;
+    border-radius: 14px;
     min-width: 0;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  }
+
+  .promo-text {
+    bottom: 16px;
+    left: 16px;
   }
 
   .promo-text h3 {
-    font-size: 16px;
+    font-size: 22px;
   }
 
   .promo-text p {
-    font-size: 12px;
+    font-size: 13px;
+  }
+
+  .promo-badge {
+    top: 14px;
+    left: 14px;
+    font-size: 11px;
+    padding: 4px 10px;
   }
 
   /* League nav mobile */
