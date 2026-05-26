@@ -113,16 +113,16 @@ final class SportsbookHealth
     }
 
     /**
-     * Lightweight health bump for the on-demand refresh path
-     * (OddsSyncService::syncSingleSport). The worker's full updateMatches()
-     * goes through recordSyncSuccess() and owns runId/source/runCount; this
-     * helper only refreshes the success timestamps and clears the snapshot
-     * cache so the public staleness gate stops blocking betting after a
-     * successful user-triggered refresh. Worker run metadata (lastFinishedAt,
-     * lastSource, runCount) is intentionally untouched so dashboards can
-     * still tell that the worker hasn't run.
+     * Lightweight health bump for the on-demand single-sport refresh path.
+     * The worker's full refresh goes through recordSyncSuccess() and owns
+     * runId/source/runCount; this helper only refreshes the success
+     * timestamps and clears the snapshot cache so the public staleness gate
+     * stops blocking betting after a successful user-triggered refresh.
+     * Worker run metadata (lastFinishedAt, lastSource, runCount) is
+     * intentionally untouched so dashboards can still tell that the worker
+     * hasn't run.
      */
-    public static function recordOddsApiSuccess(SqlRepository $db, bool $scoresAlsoOk = false): void
+    public static function recordOddsSourceSuccess(SqlRepository $db, bool $scoresAlsoOk = false): void
     {
         $now = SqlRepository::nowUtc();
         $existing = self::healthDoc($db, self::SYNC_DOC_ID);

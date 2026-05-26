@@ -2540,7 +2540,7 @@ const ModeBetPanel = ({
                                     {sel.isLive && (
                                         // LIVE BET pill — flagged at add-to-slip
                                         // time from match.isLive, which is true
-                                        // whenever the upstream odds API reports
+                                        // whenever the upstream odds source reports
                                         // status='live' or score.event_status
                                         // contains IN_PROGRESS / LIVE. Surfaces
                                         // here so the user sees that this leg

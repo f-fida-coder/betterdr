@@ -32,7 +32,7 @@ const formatStartTime = (iso) => {
 };
 
 /**
- * Map an odds-api sport key (e.g. `americanfootball_ncaaf_championship_winner`,
+ * Map a sport key (e.g. `americanfootball_ncaaf_championship_winner`,
  * `golf_masters_tournament_winner`) to the family/division it belongs to.
  * Returned `id` is the grouping key (stable across renders); `label` and
  * `emoji` drive the division heading the player sees.
@@ -114,7 +114,7 @@ const OutrightsView = ({ sportKey = '', title = 'Futures' }) => {
     }, [sportKey]);
 
     // Group rows by sport DIVISION (Football, Baseball, Basketball, …),
-    // not by raw odds-api sport key. Two NFL + NCAAF futures should sit
+    // not by raw sport key. Two NFL + NCAAF futures should sit
     // under one "FOOTBALL" heading; NBA + WNBA under "BASKETBALL"; the
     // three golf majors under "GOLF"; etc.
     const groups = useMemo(() => {

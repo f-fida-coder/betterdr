@@ -28,8 +28,8 @@ final class DebugController
             $this->liveStatus();
             return true;
         }
-        if ($method === 'POST' && $path === '/api/internal/oddsapi-prematch-tick') {
-            $this->oddsApiPrematchTick();
+        if ($method === 'POST' && $path === '/api/internal/prematch-tick') {
+            $this->prematchTick();
             return true;
         }
         if ($method === 'POST' && $path === '/api/sync/live') {
@@ -45,11 +45,11 @@ final class DebugController
             return true;
         }
         if ($method === 'GET' && preg_match('#^/api/debug/events/([a-z][a-z0-9_]{1,79})$#', $path, $m) === 1) {
-            $this->oddsApiEvents((string) $m[1]);
+            $this->debugEventsForSport((string) $m[1]);
             return true;
         }
         if ($method === 'GET' && preg_match('#^/api/debug/event-markets/([a-z][a-z0-9_]{1,79})/([A-Za-z0-9._-]{1,128})$#', $path, $m) === 1) {
-            $this->oddsApiEventMarkets((string) $m[1], (string) $m[2]);
+            $this->debugEventMarkets((string) $m[1], (string) $m[2]);
             return true;
         }
         if ($method === 'POST' && preg_match('#^/api/admin/odds/participants/([a-z][a-z0-9_]{1,79})$#', $path, $m) === 1) {
@@ -137,7 +137,8 @@ final class DebugController
             if ($date === '') { Response::json(['ok' => false, 'error' => 'missing_date'], 400); return; }
             $markets = isset($_GET['markets']) ? (string) $_GET['markets'] : null;
             $regions = isset($_GET['regions']) ? (string) $_GET['regions'] : null;
-            Response::json(OddsSyncService::fetchHistoricalOdds($sportKey, $date, $markets, $regions));
+            // TODO: Rundown — historical odds fetch ($sportKey, $date, $markets, $regions).
+            Response::json(['ok' => false, 'pending' => 'rundown']);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
@@ -149,7 +150,8 @@ final class DebugController
             if ($this->protectAdminOnly() === null) return;
             $date = (string) ($_GET['date'] ?? '');
             if ($date === '') { Response::json(['ok' => false, 'error' => 'missing_date'], 400); return; }
-            Response::json(OddsSyncService::fetchHistoricalEvents($sportKey, $date));
+            // TODO: Rundown — historical events fetch ($sportKey, $date).
+            Response::json(['ok' => false, 'pending' => 'rundown']);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
@@ -163,7 +165,8 @@ final class DebugController
             if ($date === '') { Response::json(['ok' => false, 'error' => 'missing_date'], 400); return; }
             $markets = isset($_GET['markets']) ? (string) $_GET['markets'] : null;
             $regions = isset($_GET['regions']) ? (string) $_GET['regions'] : null;
-            Response::json(OddsSyncService::fetchHistoricalEventOdds($sportKey, $eventId, $date, $markets, $regions));
+            // TODO: Rundown — historical event odds fetch.
+            Response::json(['ok' => false, 'pending' => 'rundown']);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
@@ -176,7 +179,8 @@ final class DebugController
             $date = (string) ($_GET['date'] ?? '');
             if ($date === '') { Response::json(['ok' => false, 'error' => 'missing_date'], 400); return; }
             $regions = isset($_GET['regions']) ? (string) $_GET['regions'] : null;
-            Response::json(OddsSyncService::fetchHistoricalEventMarkets($sportKey, $eventId, $date, $regions));
+            // TODO: Rundown — historical event-markets fetch.
+            Response::json(['ok' => false, 'pending' => 'rundown']);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
@@ -186,7 +190,8 @@ final class DebugController
     {
         try {
             if ($this->protectAdminOnly() === null) return;
-            Response::json(OddsSyncService::syncParticipants($this->db, $sportKey));
+            // TODO: Rundown — sync participants for $sportKey.
+            Response::json(['ok' => false, 'pending' => 'rundown']);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
@@ -196,7 +201,8 @@ final class DebugController
     {
         try {
             if ($this->protectAdminOnly() === null) return;
-            Response::json(OddsSyncService::syncOutrights($this->db, $sportKey));
+            // TODO: Rundown — sync outrights for $sportKey.
+            Response::json(['ok' => false, 'pending' => 'rundown']);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
@@ -206,27 +212,30 @@ final class DebugController
     {
         try {
             if ($this->protectAdminOnly() === null) return;
-            Response::json(['ok' => true, 'sports' => OddsSyncService::resolveOutrightSports()]);
+            // TODO: Rundown — list configured outright sports.
+            Response::json(['ok' => true, 'sports' => []]);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
     }
 
-    private function oddsApiEvents(string $sportKey): void
+    private function debugEventsForSport(string $sportKey): void
     {
         try {
             if ($this->protectAdminOnly() === null) return;
-            Response::json(OddsSyncService::fetchEventsForSport($sportKey));
+            // TODO: Rundown — list events for $sportKey.
+            Response::json(['ok' => false, 'pending' => 'rundown']);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
     }
 
-    private function oddsApiEventMarkets(string $sportKey, string $eventId): void
+    private function debugEventMarkets(string $sportKey, string $eventId): void
     {
         try {
             if ($this->protectAdminOnly() === null) return;
-            Response::json(OddsSyncService::fetchAvailableMarkets($sportKey, $eventId));
+            // TODO: Rundown — list available markets for ($sportKey, $eventId).
+            Response::json(['ok' => false, 'pending' => 'rundown']);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
@@ -269,18 +278,13 @@ final class DebugController
                 return;
             }
 
-            $result = OddsSyncService::smokeTest();
-
-            Logger::info('Sports API smoke test run', [
-                'ok'             => $result['ok'],
-                'httpStatus'     => $result['httpStatus'],
-                'responseTimeMs' => $result['responseTimeMs'],
-                'quotaRemaining' => $result['quotaRemaining'],
-                'missingSports'  => $result['missingSports'],
-            ], 'sportsbook');
-
-            $httpStatus = $result['ok'] ? 200 : ($result['configured'] ? 502 : 503);
-            Response::json($result, $httpStatus);
+            // TODO: Rundown — implement upstream smoke test (auth + reachability).
+            $result = [
+                'ok' => false,
+                'configured' => false,
+                'pending' => 'rundown',
+            ];
+            Response::json($result, 503);
         } catch (Throwable $e) {
             Logger::exception($e, 'Sports API smoke test error');
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
@@ -288,20 +292,16 @@ final class DebugController
     }
 
     /**
-     * Cron-callable pre-match (OddsAPI) sync. Hostinger cron line:
+     * Cron-callable pre-match sync. Hostinger cron line:
      *   *\/5 * * * * curl -fsS -X POST -H "X-Tick-Secret: $SECRET" \
-     *     https://bettorplays247.com/api/internal/oddsapi-prematch-tick \
+     *     https://bettorplays247.com/api/internal/prematch-tick \
      *     > /dev/null 2>&1
      *
      * Rotates through configured sports (PREMATCH_MAX_SPORTS_PER_TICK at a
      * time) so all are covered within a few ticks regardless of how many
      * sports are configured. Cursor stored in SharedFileCache.
-     *
-     * Live odds also come from OddsAPI via the worker's syncLiveOdds tick;
-     * the user-facing /api/sync/live endpoint pokes the same code path so
-     * the Refresh button doesn't have to wait for the worker's interval.
      */
-    private function oddsApiPrematchTick(): void
+    private function prematchTick(): void
     {
         $gate = $this->authorizeAndGuardTick('prematch');
         if ($gate !== null) {
@@ -319,80 +319,17 @@ final class DebugController
             $errors = 0;
             $apiCalls = 0;
             foreach ($batch as $sportKey) {
-                try {
-                    $r = OddsSyncService::syncSingleSport($this->db, $sportKey);
-                    $matches = is_array($r['matches'] ?? null) ? $r['matches'] : [];
-                    $totalUpdated += count($matches);
-                    $apiCalls += 1; // syncSingleSport bundles odds+scores; counted as one logical sport
-                    $perSport[$sportKey] = ['updated' => count($matches), 'creditsUsed' => (int) ($r['credits_used'] ?? 0)];
-                } catch (Throwable $e) {
-                    $errors++;
-                    $perSport[$sportKey] = ['error' => $e->getMessage()];
-                }
+                // TODO: Rundown — per-sport prematch sync goes here.
+                $perSport[$sportKey] = ['updated' => 0, 'pending' => 'rundown'];
             }
 
             // Bump cursor so the next tick picks up where we left off.
             self::advanceRotationCursor($sports, count($batch));
 
-            // Extended-market sync (period markets like h2h_q1, totals_1st_5_innings,
-            // player props). syncSingleSport above only writes base h2h /
-            // spreads / totals; the per-event extended endpoint must be
-            // pulled separately. On Hostinger shared hosting there's no
-            // long-lived odds-worker daemon to call syncAll (which is where
-            // the extended sync normally lives), so we run it here on every
-            // cron tick — scoped to just the sports we synced in this
-            // rotation batch so the API-call budget stays linear with sport
-            // count, not match count across the whole DB.
-            //
-            // Gated on ODDS_EXTENDED_SYNC_ENABLED (default false) so
-            // operators on quota-constrained plans can opt out. When OFF,
-            // period chip strips silently hide because availableSuffixes is
-            // empty — confusing but intentional. Set =true in env.runtime
-            // to enable.
+            // TODO: Rundown — extended/period/player-prop market sync for
+            // the rotation batch goes here. Default-on via
+            // ODDS_EXTENDED_SYNC_ENABLED; tier3 cutout from tierConfig().
             $extended = null;
-            try {
-                // Default 'true': extended sync runs unless explicitly
-                // disabled via env. Operator can set
-                // ODDS_EXTENDED_SYNC_ENABLED=false to opt out (e.g. on
-                // quota-constrained API plans). Default flipped from
-                // 'false' to 'true' after a prod incident where the env
-                // wasn't loading the value at all and chips stayed hidden.
-                $extendedEnabled = strtolower((string) Env::get('ODDS_EXTENDED_SYNC_ENABLED', 'true')) !== 'false';
-                if ($extendedEnabled && count($batch) > 0) {
-                    $activeMatches = $this->db->findMany(
-                        'matches',
-                        [
-                            'status' => ['$in' => ['scheduled', 'live']],
-                            'sportKey' => ['$in' => $batch],
-                        ],
-                        ['projection' => [
-                            'id' => 1, 'externalId' => 1, 'sportKey' => 1,
-                            'odds' => 1, 'playerProps' => 1, 'lastPropsSyncAt' => 1,
-                        ]]
-                    );
-                    // Tier-3 cutout: same gate syncAll uses, so an operator
-                    // who flips tier3ExtendedSync=false still suppresses the
-                    // calls on cold sports.
-                    $cfg = OddsSyncService::tierConfig();
-                    if (($cfg['tieringActive'] ?? false) && !($cfg['tier3ExtendedSync'] ?? true)) {
-                        $sportTier = $cfg['sportTier'] ?? [];
-                        $activeMatches = array_values(array_filter(
-                            $activeMatches,
-                            static function ($m) use ($sportTier) {
-                                $sk = (string) ($m['sportKey'] ?? '');
-                                $tier = $sportTier[$sk] ?? 'tier3';
-                                return $tier !== 'tier3';
-                            }
-                        ));
-                    }
-                    $extended = OddsSyncService::syncEventExtendedForMatches($this->db, $activeMatches);
-                }
-            } catch (Throwable $extErr) {
-                Logger::warning('prematch-tick extended sync failed', [
-                    'error' => $extErr->getMessage(),
-                ], 'sportsbook');
-                $extended = ['error' => $extErr->getMessage()];
-            }
 
             // Settlement sweep — grade any matches that flipped to
             // `finished`/`canceled` since the last cron run. On Hostinger
@@ -448,9 +385,9 @@ final class DebugController
 
     /**
      * User-triggered Live Now refresh. Auth: either valid JWT (any role)
-     * OR shared X-Tick-Secret. Refreshes live odds from OddsAPI and returns
-     * the same shape as GET /api/matches?status=live so the frontend can
-     * swap one for the other transparently.
+     * OR shared X-Tick-Secret. Refreshes live odds and returns the same
+     * shape as GET /api/matches?status=live so the frontend can swap one
+     * for the other transparently.
      */
     private function userLiveSync(): void
     {
@@ -477,7 +414,7 @@ final class DebugController
 
         if (!$throttled) {
             $tickLogId = $this->logTickStart('user_live');
-            $lockOk = $this->db->acquireNamedLock('live_tick_oddsapi', 0);
+            $lockOk = $this->db->acquireNamedLock('live_tick_odds', 0);
             if (!$lockOk) {
                 // Concurrent live tick is already running — caller still
                 // gets current data, so don't fail.
@@ -485,19 +422,19 @@ final class DebugController
                 $throttled = true;
             } else {
                 try {
-                    $result = OddsSyncService::syncLiveOdds($this->db);
+                    // TODO: Rundown — live odds sync goes here.
                     $this->markUserSyncRan($throttleKey);
-                    $this->markTickRan('oddsapi_live');
+                    $this->markTickRan('live');
                     $this->logTickFinish($tickLogId, 'ok', [
-                        'sportsTried' => (int) ($result['sportsChecked'] ?? 0),
-                        'eventsSeen' => (int) ($result['liveScoreEvents'] ?? 0),
-                        'updated' => (int) ($result['updated'] ?? 0) + (int) ($result['created'] ?? 0),
+                        'sportsTried' => 0,
+                        'eventsSeen' => 0,
+                        'updated' => 0,
                     ], null);
                 } catch (Throwable $e) {
                     Logger::exception($e, 'user-live-sync error');
                     $this->logTickFinish($tickLogId, 'failed', null, $e->getMessage());
                 } finally {
-                    try { $this->db->releaseNamedLock('live_tick_oddsapi'); } catch (Throwable $_) {}
+                    try { $this->db->releaseNamedLock('live_tick_odds'); } catch (Throwable $_) {}
                 }
             }
         }
@@ -589,15 +526,11 @@ final class DebugController
         if (!$throttled) {
             $tickLogId = $this->logTickStart('user_prematch:' . $sportKey);
             try {
-                $r = OddsSyncService::syncSingleSport($this->db, $sportKey);
-                $matches = is_array($r['matches'] ?? null) ? $r['matches'] : [];
-                if (ApiQuotaGuard::currentCount('oddsapi') >= (int) Env::get('ODDSAPI_MAX_CALLS_PER_MINUTE', '60')) {
-                    $this->logTickFinish($tickLogId, 'skipped_quota_cap', ['updated' => count($matches)], 'oddsapi_quota');
-                    $throttled = true;
-                } else {
-                    $this->markUserSyncRan($throttleKey);
-                    $this->logTickFinish($tickLogId, 'ok', ['updated' => count($matches)], null);
-                }
+                // TODO: Rundown — per-sport prematch sync goes here. Apply
+                // upstream quota cap and short-circuit with skipped_quota_cap
+                // if exhausted.
+                $this->markUserSyncRan($throttleKey);
+                $this->logTickFinish($tickLogId, 'ok', ['updated' => 0], null);
             } catch (Throwable $e) {
                 Logger::exception($e, 'user-prematch-sync error');
                 $this->logTickFinish($tickLogId, 'failed', null, $e->getMessage());
@@ -832,8 +765,7 @@ final class DebugController
             if (!is_array($m)) return false;
             $sportKey = strtolower((string) ($m['sportKey'] ?? ''));
             if ($sportKey === '') return false;
-            $src = strtolower((string) ($m['oddsSource'] ?? ''));
-            if ($src !== 'oddsapi') return false;
+            // TODO: Rundown — gate by `oddsSource` once Rundown writes that tag.
             $last = (string) ($m['lastOddsSyncAt'] ?? '');
             $lastTs = $last !== '' ? strtotime($last) : false;
             if ($lastTs === false) return false;
@@ -918,7 +850,7 @@ final class DebugController
      *
      * Rate guard: skip if a successful tick of the same type ran within
      * LIVE_TICK_MIN_INTERVAL_SECONDS (default 30). Prevents accidental
-     * double-cron and admin-during-cron races from doubling OddsAPI spend.
+     * double-cron and admin-during-cron races from doubling upstream spend.
      */
     private function authorizeAndGuardTick(string $type): ?string
     {
@@ -1195,7 +1127,7 @@ final class DebugController
             // (ok/failed/skipped, counters, errors) lives in `lastTicks`
             // below, sourced from the tick_log table.
             $tickLast = [];
-            foreach (['oddsapi_live', 'prematch'] as $tickType) {
+            foreach (['live', 'prematch'] as $tickType) {
                 $entry = SharedFileCache::peek('live-tick-last', $tickType);
                 $ts = is_array($entry) && isset($entry['ts']) ? (int) $entry['ts'] : 0;
                 $tickLast[$tickType] = [
@@ -1204,7 +1136,7 @@ final class DebugController
                 ];
             }
 
-            // Pre-match (OddsAPI scheduled) freshness breakdown — same shape
+            // Pre-match scheduled freshness breakdown — same shape
             // as live.bySport but for status='scheduled' rows that need to
             // stay fresh per the 5-min business rule.
             $prematchFreshDefault = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
@@ -1265,7 +1197,8 @@ final class DebugController
                     'bySport' => $prematchBySport,
                 ],
                 'quotaCounts' => [
-                    'oddsapiLastMinute' => ApiQuotaGuard::currentCount('oddsapi'),
+                    // TODO: Rundown — replace with the new upstream's quota counter.
+                    'upstreamLastMinute' => 0,
                 ],
                 'worker' => [
                     'logExists' => is_file($workerLog),

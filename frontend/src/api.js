@@ -654,7 +654,7 @@ export const getOutrightSports = async () => {
 
 /**
  * On-demand Live Now sync. POSTs to /api/sync/live which synchronously
- * pokes OddsAPI's live endpoint, then returns the same shape as
+ * pokes the upstream live endpoint, then returns the same shape as
  * GET /api/matches?status=live. The endpoint NEVER errors: even when
  * throttled or quota-capped, it
  * returns 200 with the latest cached rows and an X-Sync-Throttled: 1
@@ -681,7 +681,7 @@ export const syncLiveMatches = async (options = {}) => {
 /**
  * On-demand pre-match sync for one sport. Same throttle semantics as
  * syncLiveMatches. Used by the sidebar sport-tab click handler so
- * switching to NBA/SOCCER/etc. fires a fresh OddsAPI pull alongside the
+ * switching to NBA/SOCCER/etc. fires a fresh upstream pull alongside the
  * normal cached fetch.
  */
 export const syncPrematchSport = async (sportKey, options = {}) => {
@@ -792,7 +792,7 @@ export const getAvailableSports = async ({ signal, timeoutMs = 5000 } = {}) => {
 
 /**
  * Lazy-load player props + extended markets for a single match. Triggers a
- * per-event Odds API fetch on the backend if the cached payload is stale.
+ * per-event upstream fetch on the backend if the cached payload is stale.
  */
 export const getMatchProps = async (matchId) => {
     if (!matchId) return { extendedMarkets: [], playerProps: [], cached: false };

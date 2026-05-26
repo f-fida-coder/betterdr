@@ -77,7 +77,7 @@ test('explicit status="live" → LIVE (canonical signal)', () => {
     assert.equal(r, true);
 });
 
-test('score.event_status="STATUS_IN_PROGRESS" → LIVE (raw OddsAPI signal)', () => {
+test('score.event_status="STATUS_IN_PROGRESS" → LIVE (raw upstream signal)', () => {
     const r = isLiveSnapshot({
         status: 'scheduled',
         score: { event_status: 'STATUS_IN_PROGRESS' },

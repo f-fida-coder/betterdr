@@ -45,7 +45,7 @@ function liveFilterStub(int $now, int $prematchMaxAge, int $liveMaxAgeForSport):
         if ($lastTs === false) return false;
 
         if ($status === 'live') {
-            if (strtolower((string) ($match['oddsSource'] ?? '')) !== 'oddsapi') return false;
+            // TODO: Rundown — gate by `oddsSource` once Rundown writes that tag.
             return ($now - $lastTs) <= $liveMaxAgeForSport;
         }
         if ($status === 'scheduled') {
@@ -85,7 +85,6 @@ function liveFixture(array $overrides = []): array
     return array_merge([
         'status' => 'live',
         'sportKey' => 'baseball_mlb',
-        'oddsSource' => 'oddsapi',
         'lastOddsSyncAt' => date('c', $now - 30),
         'startTime' => date('c', $now - 60 * 30),
     ], $overrides);
@@ -95,7 +94,7 @@ TestRunner::run('live filter — canonical status=live, fresh odds', function ()
     $now = time();
     $filter = liveFilterStub($now, 300, 90);
     $m = liveFixture(['lastOddsSyncAt' => date('c', $now - 20)]);
-    TestRunner::assertTrue($filter($m), 'fresh oddsapi-live row kept');
+    TestRunner::assertTrue($filter($m), 'fresh live row kept');
 });
 
 TestRunner::run('live filter — status=live but odds stale (>90s)', function (): void {
@@ -103,13 +102,6 @@ TestRunner::run('live filter — status=live but odds stale (>90s)', function ()
     $filter = liveFilterStub($now, 300, 90);
     $m = liveFixture(['lastOddsSyncAt' => date('c', $now - 120)]);
     TestRunner::assertFalse($filter($m), 'stale live row dropped');
-});
-
-TestRunner::run('live filter — status=live but oddsSource != oddsapi', function (): void {
-    $now = time();
-    $filter = liveFilterStub($now, 300, 90);
-    $m = liveFixture(['oddsSource' => 'unknown']);
-    TestRunner::assertFalse($filter($m), 'non-oddsapi live row dropped');
 });
 
 TestRunner::run('AUTO-PROMOTE: scheduled + startTime in past + fresh odds → kept', function (): void {
@@ -120,7 +112,6 @@ TestRunner::run('AUTO-PROMOTE: scheduled + startTime in past + fresh odds → ke
         'status' => 'scheduled',
         'startTime' => date('c', $now - 60 * 10),
         'lastOddsSyncAt' => date('c', $now - 60),  // 1 min ago — within pre-match window
-        'oddsSource' => 'oddsapi',  // doesn't matter for scheduled branch
     ]);
     TestRunner::assertTrue($filter($m), 'auto-promoted scheduled row kept');
 });

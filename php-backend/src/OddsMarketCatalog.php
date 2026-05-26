@@ -3,11 +3,11 @@
 declare(strict_types=1);
 
 /**
- * Central registry of The Odds API market keys per sport.
+ * Central registry of upstream market keys per sport.
  *
- * "core" markets work via the bulk /v4/sports/{sport}/odds endpoint.
+ * "core" markets work via the bulk per-sport odds endpoint.
  * "extended" markets (periods, alternates, team totals) require the
- * per-event /v4/sports/{sport}/events/{eventId}/odds endpoint.
+ * per-event odds endpoint.
  * "props" are player props; also per-event only; largest credit cost.
  */
 final class OddsMarketCatalog
@@ -450,7 +450,7 @@ final class OddsMarketCatalog
                 'player_points_assists', 'player_rebounds_assists',
             ],
         ],
-        // Tennis fallback for ATP/WTA tournaments. The Odds API only exposes
+        // Tennis fallback for ATP/WTA tournaments. Upstream only exposes
         // featured markets for tennis — per-set markets, set betting, and
         // player props (aces, games_won, etc.) all return INVALID_MARKET.
         // Verified against /v4/sports/tennis_atp_french_open/events/<id>/odds
@@ -470,7 +470,7 @@ final class OddsMarketCatalog
         // player_top_batsman/bowler, player_man_of_the_match, totals_1st_*_overs,
         // total_sixes/fours/runs/wickets, top_run_scorer, top_wicket_taker,
         // super_over, tie_yes_no, first_innings_total, toss_winner, etc.
-        // odds-api only exposes generic markets for cricket. Catalog kept
+        // Upstream only exposes generic markets for cricket. Catalog kept
         // minimal so extended sync doesn't waste calls on 422s.
         'cricket_default' => [
             'extended' => [
@@ -485,7 +485,7 @@ final class OddsMarketCatalog
         // returns INVALID_MARKET** — method_of_victory, round_betting,
         // fight_to_go_distance, fight_result_method, winning_round,
         // total_rounds, fight_outcome, method_of_finish, winner_method,
-        // fighter_to_win_by_ko/submission/decision. odds-api only exposes
+        // fighter_to_win_by_ko/submission/decision. Upstream only exposes
         // generic h2h + alt lines for combat. Catalog kept minimal so
         // extended sync doesn't waste calls on 422s.
         'mma_mixed_martial_arts' => [

@@ -35,7 +35,7 @@ require_once __DIR__ . '/../src/RoundRobinService.php';
 require_once __DIR__ . '/../src/OddsMarketCatalog.php';
 require_once __DIR__ . '/../src/ApiQuotaGuard.php';
 require_once __DIR__ . '/../src/TeamNormalizer.php';
-require_once __DIR__ . '/../src/OddsSyncService.php';
+// TODO: Rundown — odds-source service include goes here.
 require_once __DIR__ . '/../src/AuthController.php';
 require_once __DIR__ . '/../src/WalletController.php';
 require_once __DIR__ . '/../src/BetsController.php';
@@ -256,18 +256,7 @@ if ($contentLength > 1_048_576) {
         }
     }
 
-    // Sports API — warn if enabled but key is absent/placeholder
-    $sportsEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
-    if ($sportsEnabled) {
-        $oddsKey = (string) Env::get('ODDS_API_KEY', '');
-        if ($oddsKey === '' || $isPlaceholder($oddsKey)) {
-            if ($isProd) {
-                $errors[] = 'ODDS_API_KEY is missing or placeholder — sports data will not sync';
-            } else {
-                $warnings[] = 'ODDS_API_KEY not configured';
-            }
-        }
-    }
+    // TODO: Rundown — re-add env-var validation for the new odds source here.
 
     // Stripe — warn if placeholders (don't hard-fail; operator may use manual cashier)
     $stripeKey     = (string) Env::get('STRIPE_SECRET_KEY', '');
@@ -756,15 +745,7 @@ if (!$authNativeEnabled) {
 
 
 if ($nativeError !== null) {
-    if (str_starts_with($uriPath, '/api/matches')) {
-        try {
-            if (OddsSyncService::handleMatchesFallbackRoute($method, $uriPath)) {
-                exit;
-            }
-        } catch (Throwable $fallbackError) {
-            // Keep original error handling path below if fallback fails.
-        }
-    }
+    // TODO: Rundown — /api/matches fallback route handler goes here.
 
     if (str_starts_with($uriPath, '/api/casino')) {
         try {

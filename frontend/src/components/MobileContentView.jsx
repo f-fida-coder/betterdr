@@ -46,7 +46,7 @@ const MONTHS_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'S
 // label is kept for accessibility (title/aria-label) since "fa-basketball"
 // alone reads badly to a screen reader.
 //
-// Keys are matched against the OddsAPI sportKey prefix so all NFL/NCAAF
+// Keys are matched against the sportKey prefix so all NFL/NCAAF
 // rows collapse under one "football" tab, all NBA/WNBA/NCAAB under
 // "basketball", etc. — matches what players intuit from the icons.
 // Emoji icons render as full-color glyphs natively on every modern OS —
@@ -286,7 +286,7 @@ const TICK_MS = 30 * 1000;
 
 const FULL_PERIOD = { id: 'full', label: 'Game', suffix: '' };
 
-// Periods available per sport. Suffixes match Odds API market key conventions
+// Periods available per sport. Suffixes match the upstream market key conventions
 // (e.g. `h2h_h1`, `spreads_q1`, `totals_1st_5_innings`). Entries whose
 // suffix doesn't appear in returned markets are filtered out before render.
 const BASKETBALL_PERIODS = [
@@ -335,7 +335,7 @@ const PERIOD_CONFIG = {
     soccer: SOCCER_PERIODS,
 };
 
-// Map Odds API sport slugs (from dynamic `api-*` sidebar items) to the
+// Map sport slugs (from dynamic `api-*` sidebar items) to the
 // period preset. Without this, selecting "BASEBALL KBO" etc. from the
 // auto-injected sidebar entries would only show the "Game" tab even
 // when F1/F5 markets exist in the data.
@@ -547,7 +547,7 @@ const MobileContentView = ({
     const primarySport = selectedSports?.[0] ?? null;
     // Real-league selections (excludes virtual buckets). Drives the
     // multi-sport keyword filter and intended-sync set: any league the
-    // user checked contributes its keywords / OddsAPI keys here so the
+    // user checked contributes its keywords / sport keys here so the
     // mobile content view renders the union of all checked leagues.
     const realSelected = React.useMemo(
         () => (selectedSports || []).filter((id) => id && id !== 'commercial-live' && id !== 'up-next'),
@@ -568,7 +568,7 @@ const MobileContentView = ({
     const scopeKey = selectedSports.join('|');
     const rawMatches = useMatches({ status: statusFilter, scopeKey });
 
-    // Resolve every checked league to its OddsAPI sport key(s) so the
+    // Resolve every checked league to its sport key(s) so the
     // freshness sync fires for ALL selections, not just the first one.
     // Static-tree items use their declared sportKeys; auto-injected
     // `api-<slug>` ids decode the key from the slug.
@@ -1038,7 +1038,7 @@ const MobileContentView = ({
                 team1: awayName,
                 team2: homeName,
                 // Short names + records come pre-computed from the backend
-                // (TeamNormalizer joins short names from OddsAPI; records
+                // (TeamNormalizer joins short names from the odds feed; records
                 // come from the ESPN scoreboard side-channel). Falling
                 // back to the full name preserves the old behavior when a
                 // row predates the normalization layer.
@@ -1097,8 +1097,8 @@ const MobileContentView = ({
                 // Carried through so the MatchCard can render "Updated N min ago"
                 // without having to reach into rawMatch. ONLY lastOddsSyncAt
                 // — never falling back to lastUpdated, because the live
-                // score-only writer at OddsSyncService::updateExistingMatchFromScoreEvent
-                // bumps lastUpdated but NOT lastOddsSyncAt. A fallback there
+                // score-only writer bumps lastUpdated but NOT lastOddsSyncAt.
+                // A fallback there
                 // would lie about odds freshness on a row whose score was
                 // just refreshed but whose odds are minutes old.
                 lastOddsSyncAt: match.lastOddsSyncAt || null,
@@ -1301,7 +1301,7 @@ const MobileContentView = ({
         };
     }, []);
 
-    // Collect every distinct Odds API sportKey present in the visible
+    // Collect every distinct sportKey present in the visible
     // matches. Mobile content views can mix leagues under one heading
     // (NBA + WNBA, multiple soccer leagues, etc.); refreshing only the
     // first match's sportKey leaves the others stale, so the button
@@ -1318,7 +1318,7 @@ const MobileContentView = ({
     const { trigger: triggerSportRefresh, isRefreshing: isSportRefreshing, cooldownRemainingSec } = useSportOddsRefresh(visibleSportKeys, { showToast });
 
     // LIVE NOW open (mobile): mirror SportContentView and fire a
-    // synchronous OddsAPI live sync so the first paint shows the freshest
+    // synchronous live odds sync so the first paint shows the freshest
     // odds possible. Backend's 15s per-IP throttle on /api/sync/live silently
     // collapses redundant calls, so re-mounting LIVE NOW or rapid back/forth
     // navigation never hammers the upstream.
@@ -1441,7 +1441,7 @@ const MobileContentView = ({
                 // the leg as LIVE BET. Sourced from the same match doc
                 // the card derived its `match.isLive` from (status==='live'
                 // OR upstream event_status contains IN_PROGRESS / LIVE),
-                // so it tracks whatever the upstream odds API reports.
+                // so it tracks whatever the upstream odds source reports.
                 isLive: !!meta?.isLive,
                 // sportKey passed straight through so per-mode sport gates
                 // in the slip (teaser → football+basketball only) work

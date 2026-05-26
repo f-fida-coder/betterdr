@@ -577,7 +577,7 @@ final class BetSettlementService
         }
 
         // Primary signal: the score itself has not moved for the freeze
-        // window. OddsSyncService bumps lastScoreChangedAt only when the
+        // window. The odds sync bumps lastScoreChangedAt only when the
         // home/away values actually change, so this is robust against the
         // upstream feed re-stamping the same final score every poll — the
         // failure mode that left lastUpdated permanently fresh and kept
@@ -670,7 +670,7 @@ final class BetSettlementService
                             'score' => $match['score'] ?? null,
                         ], 'bets');
                     } elseif (self::shouldTryFallbackScore($match)) {
-                        // OddsAPI's /scores feed never published a final for
+                        // The upstream odds source never published a final for
                         // this match (KBO and similar international leagues
                         // are the common offenders). Try ESPN as a backup
                         // before giving up — if it returns a score, the

@@ -385,28 +385,10 @@ final class MatchesController
                 return ($now - $lastTs) <= $prematchMaxAge;
             }));
         } elseif ($desiredStatus === 'live') {
-            // Live Now is OddsAPI-backed. Two acceptance paths:
-            //
-            //   (1) Status flipped to 'live' by OddsSyncService::syncLiveOdds.
-            //       This is the canonical signal — used whenever the live
-            //       sync has actually run and OddsAPI returned an in-play
-            //       score event for the match.
-            //
+            // Live Now acceptance paths:
+            //   (1) Status flipped to 'live' by the odds sync.
             //   (2) AUTO-PROMOTED "effectively live": status still='scheduled'
             //       BUT the game's startTime has passed and odds are fresh.
-            //       This catches the window between kickoff and the live
-            //       sync flipping the row — a window that could span several
-            //       minutes for sports without minute-by-minute score
-            //       updates (or whenever OddsAPI's /scores endpoint hasn't
-            //       populated the `scores` array yet). Without this branch,
-            //       Live Now shows EMPTY during peak game time even though
-            //       the matches are right there in the DB with fresh prices.
-            //       Player-reported bug: "Live shows no games but games are
-            //       on right now."
-            //
-            // The SQL-layer dbFilter already loads scheduled rows for this
-            // branch (see line ~181), so this filter just decides which of
-            // the two camps each row joins.
             $now = time();
             $prematchMaxAge = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
             $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $prematchMaxAge): bool {
@@ -418,10 +400,7 @@ final class MatchesController
                 if ($lastTs === false) return false;
 
                 if ($status === 'live') {
-                    // Canonical path: live odds come from OddsAPI. Rows
-                    // tagged with any other `oddsSource` are dropped.
-                    $src = strtolower((string) ($match['oddsSource'] ?? ''));
-                    if ($src !== 'oddsapi') return false;
+                    // TODO: Rundown — gate by `oddsSource` once Rundown writes that tag.
                     $maxAge = self::liveFreshnessSecondsForSport($sportKey);
                     return ($now - $lastTs) <= $maxAge;
                 }
@@ -463,13 +442,11 @@ final class MatchesController
             // the row's odds must be fresh enough to bet on.
             //
             // Freshness is read from `lastOddsSyncAt` ONLY — NEVER
-            // `lastUpdated` or `updatedAt`. The score-only writer at
-            // OddsSyncService::updateExistingMatchFromScoreEvent
-            // intentionally bumps lastUpdated/lastScoreSyncAt without
-            // touching lastOddsSyncAt, so any code that falls back to
-            // those fields would treat a score-fresh / odds-stale row
-            // as bet-able. That is the regression that produced the
-            // "LIVE · 39m ago" badge in the wild.
+            // `lastUpdated` or `updatedAt`. Score-only writers must bump
+            // lastUpdated/lastScoreSyncAt without touching lastOddsSyncAt,
+            // otherwise a score-fresh / odds-stale row would be treated
+            // as bet-able. That regression produced the "LIVE · 39m ago"
+            // badge in the wild.
             //
             // Window selection:
             //   * status='live' OR (status='scheduled' AND kickoff has
@@ -567,7 +544,7 @@ final class MatchesController
         }
 
         // Sport filter: matches either `sport` (title, e.g. "IPL") or
-        // `sportKey` (Odds API slug, e.g. "cricket_ipl"). Substring match
+        // `sportKey` (upstream slug, e.g. "cricket_ipl"). Substring match
         // is intentional so a single keyword catches title variants.
         if ($sportFilter !== '' || $sportKeyFilter !== '') {
             $needleSport = strtolower($sportFilter);
@@ -603,7 +580,7 @@ final class MatchesController
 
     /**
      * Ensure every match row served to the frontend carries `homeTeamShort`
-     * and `awayTeamShort`. Idempotent — does nothing if the OddsAPI sync
+     * and `awayTeamShort`. Idempotent — does nothing if the odds sync
      * already populated them.
      *
      * @param array<string, mixed> $match
@@ -642,20 +619,18 @@ final class MatchesController
     }
 
     /**
-     * Lazy-load extended markets + player props for a single match. Triggers a
-     * per-event fetch against The Odds API if the cached props are stale.
+     * Lazy-load extended markets + player props for a single match.
      */
     private function getMatchProps(string $id): void
     {
         try {
-            $result = OddsSyncService::ensureEventExtendedOdds($this->db, $id);
+            // TODO: Rundown — fetch extended markets / player props for $id.
             $payload = [
                 'matchId' => $id,
-                'cached' => (bool) ($result['cached'] ?? false),
-                'extendedMarkets' => is_array($result['markets'] ?? null) ? $result['markets'] : [],
-                'playerProps' => is_array($result['playerProps'] ?? null) ? $result['playerProps'] : [],
+                'cached' => false,
+                'extendedMarkets' => [],
+                'playerProps' => [],
             ];
-            // Match props are live odds too — never serve from CDN/browser cache.
             Response::json($payload, 200, self::NO_STORE_HEADER);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server Error fetching props'], 500);
@@ -734,7 +709,7 @@ final class MatchesController
     private function computeAvailableSports(): array
     {
         // Only include sports whose matches have at least one posted odds
-        // market. Upstream (Odds API) frequently returns events for minor
+        // market. Upstream frequently returns events for minor
         // leagues with zero bookmaker coverage in the configured region;
         // emitting those in the sidebar leads to empty "CRICKET PSL"
         // style entries that click through to nothing.
@@ -793,8 +768,8 @@ final class MatchesController
                 return;
             }
 
-            $results = OddsSyncService::updateMatches($this->db, 'public_admin');
-            Response::json(['message' => 'Manual odds fetch completed', 'results' => $results]);
+            // TODO: Rundown — trigger a manual full-odds refresh and return results.
+            Response::json(['message' => 'Manual odds fetch — pending Rundown integration', 'results' => []]);
         } catch (Throwable $e) {
             Response::json(['message' => $e->getMessage() ?: 'Server error manual odds fetch'], 500);
         }
@@ -879,11 +854,12 @@ final class MatchesController
 
         // In-flight dedup: first caller runs the upstream fetch; concurrent
         // callers within the 20s window get the cached payload from that call.
+        // TODO: Rundown — on-demand single-sport refresh goes here.
         $result = SharedFileCache::remember(
             'sportsbook-on-demand-refresh',
             $sportKey,
             $dedupWindow,
-            fn(): array => OddsSyncService::syncSingleSport($this->db, $sportKey)
+            fn(): array => ['success' => false, 'pending' => 'rundown']
         );
 
         $elapsedMs = (int) round((microtime(true) - $startedAt) * 1000);
@@ -998,11 +974,12 @@ final class MatchesController
         $allMatches = [];
         $latestUpdated = null;
         foreach ($sportKeys as $sportKey) {
+            // TODO: Rundown — on-demand per-sport refresh (multi-sport loop).
             $result = SharedFileCache::remember(
                 'sportsbook-on-demand-refresh',
                 $sportKey,
                 $dedupWindow,
-                fn(): array => OddsSyncService::syncSingleSport($this->db, $sportKey)
+                fn(): array => ['success' => false, 'pending' => 'rundown']
             );
             $success = (bool) ($result['success'] ?? false);
             if ($success) {
@@ -1219,7 +1196,7 @@ final class MatchesController
                     $lockHandoff
                 ): void {
                     try {
-                        OddsSyncService::updateMatches($db, 'public_matches_async');
+                        // TODO: Rundown — deferred async full odds refresh goes here.
                         $finishedAt = SqlRepository::nowUtc();
                         $this->writePublicRefreshState($state, [
                             'lastRefreshAttemptAt' => $attemptedAt,
@@ -1268,7 +1245,7 @@ final class MatchesController
             }
 
             try {
-                OddsSyncService::updateMatches($this->db, 'public_matches');
+                // TODO: Rundown — synchronous full odds refresh goes here.
                 $finishedAt = SqlRepository::nowUtc();
                 $postSnapshot = $this->refreshSnapshotMeta($cacheTtl);
 

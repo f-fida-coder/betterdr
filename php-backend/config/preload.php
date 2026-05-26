@@ -72,7 +72,7 @@ $hotClasses = [
     'OddsMarketCatalog.php',
     'TeamNormalizer.php',
     'ApiQuotaGuard.php',
-    'OddsSyncService.php',
+    // TODO: Rundown — preload the new odds-source service here.
 
     // ─── Bet / settlement rules ──────────────────────────────────────────
     'BetModeRules.php',

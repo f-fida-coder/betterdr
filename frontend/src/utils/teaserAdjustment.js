@@ -87,7 +87,7 @@ export const teaserPointsForSport = (type, sportGroup) => {
 };
 
 /**
- * Map a sport key (Odds API style) or static-tree sport id to the
+ * Map a sport key or static-tree sport id to the
  * teaser sport group used by pointsBySport. Returns null when the
  * sport doesn't have a teaser product. Mirrors
  * BetModeRules::teaserSportGroup on the backend so frontend +

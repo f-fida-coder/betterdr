@@ -101,9 +101,9 @@ ODDS_TIER3_CRON_MINUTES=30    # Tier 3 sports (slower updates)
 
 ### B. Odds Sync Settlement
 
-**File:** [php-backend/src/OddsSyncService.php](php-backend/src/OddsSyncService.php), `updateMatches()`
+**File:** Odds-source sync service (TODO: Rundown), `updateMatches()`
 
-**Trigger:** After updating odds from API
+**Trigger:** After updating odds from the upstream source
 ```
 Line ~664: $sweep = BetSettlementService::settlePendingMatches($db, 250, 'system');
 ```
@@ -248,7 +248,7 @@ const settledTimestamp = (bet) => bet?.settledAt || bet?.updatedAt || bet?.creat
 
 ### How Matches Transition to Finished
 
-1. **Odds API Sync** → Posts final score → `status` flips to 'finished'
+1. **Upstream Odds Sync** → Posts final score → `status` flips to 'finished'
 2. **Manual Admin Override** → Can manually set `status='finished'`
 3. **Stuck-Pending Heal** → Force-finish if all signals agree game is over
 
@@ -453,9 +453,9 @@ Returns:
 - User pendingBalance += $100
 
 **T+3h45m (Game A finishes with final score):**
-- Odds API sync detects score change
+- Upstream odds sync detects score change
 - Updates Match A with status='finished', final score
-- `OddsSyncService::updateMatches()` → `BetSettlementService::settlePendingMatches()`
+- Odds-source `updateMatches()` → `BetSettlementService::settlePendingMatches()`
 - Settlement finds all pending bets on Match A
 - For each:
   - Lock bet + user
@@ -465,7 +465,7 @@ Returns:
 - Bets remain status='pending' (multi-leg)
 
 **T+4h (Game B finishes):**
-- Odds API sync detects Match B score
+- Upstream odds sync detects Match B score
 - `BetSettlementService::settlePendingMatches()` called
 - Settlement finds parlay with both legs now graded:
   - Game A: won

@@ -1182,7 +1182,7 @@ const MyBetsView = () => {
             // matches are actually finished. This runs alongside the
             // on-read settlement sweep (5s throttle) and catches bets
             // stuck on matches that never marked 'completed' from the
-            // odds API. Errors are logged but don't block bet display.
+            // upstream odds source. Errors are logged but don't block bet display.
             void regradeStuckBets(token);
         } catch (err) {
             console.error('Failed to fetch bets:', err);

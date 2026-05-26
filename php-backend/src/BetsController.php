@@ -2134,30 +2134,10 @@ final class BetsController
         $sportKey = (string) ($match['sportKey'] ?? '');
         $lastOddsAt = (string) ($match['lastOddsSyncAt'] ?? $match['lastUpdated'] ?? '');
         $oddsAge = $lastOddsAt !== '' ? max(0, time() - (int) strtotime($lastOddsAt)) : PHP_INT_MAX;
-        if ($sportKey !== '' && $oddsAge > $betTimeFreshSecs && class_exists('OddsSyncService')) {
-            $dedupWindow = max(1, (int) Env::get('ODDS_REFRESH_DEDUP_WINDOW_SECONDS', '20'));
-            try {
-                SharedFileCache::remember(
-                    'sportsbook-on-demand-refresh',
-                    $sportKey,
-                    $dedupWindow,
-                    fn(): array => OddsSyncService::syncSingleSport($this->db, $sportKey)
-                );
-                // Re-read the now-updated row so the price comparison below
-                // sees the freshest odds. If the upstream call failed, the
-                // existing row stays in place and validation continues
-                // against the older DB price (fail-open on upstream issues
-                // is better than blocking all bets when the API hiccups).
-                $refreshed = $this->db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
-                if (is_array($refreshed)) {
-                    $match = $refreshed;
-                }
-            } catch (Throwable $_) {
-                // Swallow upstream errors — proceed with the existing match
-                // row. The official-odds check below still runs and ODDS_CHANGED
-                // still throws if the price moved beyond the client's quote.
-            }
-        }
+        // TODO: Rundown — on-demand per-sport odds refresh at bet-time goes here.
+        // Triggered when $sportKey !== '' && $oddsAge > $betTimeFreshSecs.
+        // After refresh, re-read the matches row so the price check below sees
+        // the freshest odds. Fail-open on upstream errors.
 
         $match = SportsbookHealth::applyBettingAvailability($this->db, $match);
         if (($match['isBettable'] ?? false) !== true) {
@@ -2184,22 +2164,9 @@ final class BetsController
         // keys but the match was never expanded (or expansion expired),
         // refresh on demand and re-look up so the user can actually place
         // the bet they were just shown.
-        if ($market === null && $this->isExtendedMarketKey($normalizedType) && class_exists('OddsSyncService')) {
-            try {
-                OddsSyncService::ensureEventExtendedOdds($this->db, (string) ($match['id'] ?? ''));
-                $refreshed = $this->db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
-                if (is_array($refreshed)) {
-                    $match = SportsbookHealth::applyBettingAvailability($this->db, $refreshed);
-                    $oddsRoot = $match['odds'] ?? [];
-                    $markets = $this->collectMatchMarkets($match);
-                    $market = $this->findMarket($markets, $normalizedType);
-                }
-            } catch (Throwable $_) {
-                // Fail-open: leave $market null so the existing UNAVAILABLE
-                // error fires below — better than blocking placement on a
-                // transient upstream hiccup.
-            }
-        }
+        // TODO: Rundown — lazy fetch of extended/player-prop markets for
+        // $match when $normalizedType references an extended key. After
+        // upstream fetch, re-read the matches row and re-resolve $market.
 
         if ($market === null && is_array($oddsRoot) && !isset($oddsRoot['markets'])) {
             $outcomes = [];
@@ -2666,7 +2633,7 @@ final class BetsController
     {
         if ($this->isPlayerPropKey($key)) return true;
         if (str_contains($key, 'alternate')) return true;
-        // Period suffixes Odds API uses: _h1, _h2, _q1..q4, _p1..p3,
+        // Period suffixes the upstream uses: _h1, _h2, _q1..q4, _p1..p3,
         // _1st_5_innings, _1st_inning, _1st_3_innings, etc.
         if (preg_match('/_(h1|h2|q[1-4]|p[1-3]|\d+(st|nd|rd|th)_)/i', $key) === 1) return true;
         return false;

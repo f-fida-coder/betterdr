@@ -25,7 +25,7 @@ declare(strict_types=1);
  *     - matchType: 'outrights'     (distinguishes from h2h/spreads/totals)
  *     - matchId: ''                (outright legs have no match)
  *     - outrightId: <outrights.id> (links back to the outrights row)
- *     - outrightEventId: <event_id> (odds-api event id, for audits)
+ *     - outrightEventId: <event_id> (upstream event id, for audits)
  *     - selection: 'Los Angeles Rams' (the outcome name picked)
  *     - acceptedPrice: 8.0         (decimal odds at placement)
  *     - status: 'pending'
@@ -348,7 +348,7 @@ final class OutrightSettlementService
                 // pending → won/lost/void without a refresh. Fired AFTER
                 // commit so a failed broadcast can never roll back the
                 // money-touching write. class_exists guard mirrors the
-                // pattern in OddsSyncService — settlement must keep working
+                // pattern in the odds sync — settlement must keep working
                 // in environments where the realtime module is absent.
                 if (class_exists('RealtimeEventBus')) {
                     try {

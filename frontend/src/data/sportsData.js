@@ -7,7 +7,7 @@
  *   kept in the tree (for future activation) but hidden by filterActiveChildren().
  *
  *   Items marked type: 'futures' or type: 'props-plus' are PLACEHOLDERS:
- *   the Odds API markets config (h2h, spreads, totals) does NOT include
+ *   the upstream markets config (h2h, spreads, totals) does NOT include
  *   futures/props markets. These are shown for navigation structure but
  *   will display the parent sport's standard matches until those markets
  *   are separately configured.
@@ -15,8 +15,7 @@
  * Currently configured sport keys (ODDS_ALLOWED_SPORTS default):
  *   basketball_nba, americanfootball_nfl, soccer_epl, baseball_mlb, icehockey_nhl
  *
- * Currently configured markets (ODDS_API_MARKETS default):
- *   h2h, spreads, totals
+ * Currently configured markets (default): h2h, spreads, totals
  */
 
 export const CONFIGURED_SPORT_KEYS = new Set([
@@ -183,7 +182,7 @@ export const getSportKeywords = (id) => {
     const normalized = id.toString().toLowerCase();
 
     // Dynamic sidebar entries auto-injected from /api/matches/sports are
-    // keyed `api-<slug-with-dashes>`. Convert back to the Odds API slug
+    // keyed `api-<slug-with-dashes>`. Convert back to the canonical slug
     // so match.sportKey comparisons in consumers can succeed.
     if (normalized.startsWith('api-')) {
         const slug = normalized.slice(4).replace(/-/g, '_');
@@ -257,7 +256,7 @@ export const matchesSportKeyword = (haystack, keyword) => {
 };
 
 /**
- * Map of canonical OddsAPI sportKey → human-readable league label, derived
+ * Map of canonical sportKey → human-readable league label, derived
  * from the leaf nodes in `sportsData`. Used by the multi-sport list view to
  * print short league labels (e.g. "MLB", "NBA") in section headers above each league's matches.
  *
@@ -323,7 +322,7 @@ export const findSportItemById = (id) => {
 };
 
 /**
- * Map an Odds API sport-key prefix (the part before the first `_`,
+ * Map a sport-key prefix (the part before the first `_`,
  * e.g. `soccer` in `soccer_argentina_primera_division`) to the parent
  * sport id used in the static sportsData tree. Used to nest leagues
  * the backend reports — but the static tree doesn't enumerate — under
@@ -366,7 +365,7 @@ const FALLBACK_PARENTS = {
     politics: { id: 'politics', label: 'POLITICS', icon: 'fa-solid fa-landmark', selectable: false },
 };
 
-const ODDS_API_SPORT_KEY_RE = /^[a-z]+_[a-z0-9_]+$/;
+const SPORT_KEY_RE = /^[a-z]+_[a-z0-9_]+$/;
 
 const prettifyLeagueSuffix = (suffix) => String(suffix || '')
     .split('_')
@@ -421,7 +420,7 @@ export const buildMergedSportsTree = (liveSet) => {
 
     Array.from(liveSet).forEach((value) => {
         const key = String(value || '').toLowerCase();
-        if (!ODDS_API_SPORT_KEY_RE.test(key)) return;
+        if (!SPORT_KEY_RE.test(key)) return;
         if (covered.has(key)) return;
 
         const prefix = key.split('_')[0];

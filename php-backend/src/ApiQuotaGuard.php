@@ -3,10 +3,10 @@
 declare(strict_types=1);
 
 /**
- * Per-API minute-window call cap. Hard ceiling that protects OddsAPI
- * spend when on-demand syncs (Refresh button, sport-tab clicks) could
- * otherwise stack on top of cron ticks under load or during a misbehaving
- * client loop.
+ * Per-API minute-window call cap. Hard ceiling that protects upstream
+ * odds-source spend when on-demand syncs (Refresh button, sport-tab clicks)
+ * could otherwise stack on top of cron ticks under load or during a
+ * misbehaving client loop.
  *
  * Storage: SharedFileCache (file-based, no Redis dependency). Keeps a
  * sliding 60s window of call timestamps per api name. Concurrent writers
@@ -29,7 +29,7 @@ final class ApiQuotaGuard
      * (and the slot is recorded), false if the cap was exceeded — caller
      * must NOT make the API call in the latter case.
      *
-     * @param string $api    e.g. 'oddsapi'
+     * @param string $api    short identifier for the upstream provider
      * @param int    $maxPerMinute hard cap; <= 0 disables the guard.
      */
     public static function reserve(string $api, int $maxPerMinute): bool

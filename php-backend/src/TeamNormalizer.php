@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 /**
  * Single source of truth for the short team name + record fields rendered on
- * the public odds board. The OddsAPI sync (pre-match feed) pushes through
+ * the public odds board. The odds sync (pre-match feed) pushes through
  * these helpers so the matches doc always carries `homeTeamShort` /
  * `awayTeamShort` regardless of which feed last touched the row.
  */
@@ -138,7 +138,7 @@ final class TeamNormalizer
     }
 
     /**
-     * Detect whether the OddsAPI sportKey sport tracks ties separately so
+     * Detect whether the sportKey sport tracks ties separately so
      * frontends can decide on display formatting if they ever build a
      * record string from a wins/losses/ties tuple themselves.
      */

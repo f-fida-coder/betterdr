@@ -385,7 +385,7 @@ const DashboardSidebar = ({
 
     // Walk the merged sport tree (static catalog + backend-discovered
     // leagues) and find the first leaf whose sportKeys array contains the
-    // given Odds API sport key. Used to map a match → selectable sidebar id.
+    // given sport key. Used to map a match → selectable sidebar id.
     const findLeafBySportKey = (sportKey) => {
         const target = String(sportKey || '').toLowerCase();
         if (!target) return null;

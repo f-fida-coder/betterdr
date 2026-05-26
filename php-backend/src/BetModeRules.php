@@ -209,7 +209,7 @@ final class BetModeRules
     ];
 
     /**
-     * Map a sport key (Odds API style) or static-tree sport id to the
+     * Map a sport key or static-tree sport id to the
      * teaser sport group used by teaser type pointsBySport entries.
      * Returns null when the sport doesn't have a teaser product (baseball,
      * hockey, soccer, etc.). Single source of truth so frontend +

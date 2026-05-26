@@ -12098,8 +12098,8 @@ final class AdminCoreController
             if ($actor === null) {
                 return;
             }
-            $results = OddsSyncService::updateMatches($this->db, 'admin_refresh');
-            Response::json(['message' => 'Odds refreshed successfully', 'results' => $results]);
+            // TODO: Rundown — admin "Refresh Odds" full sync goes here.
+            Response::json(['message' => 'Odds refresh — pending Rundown integration', 'results' => []]);
         } catch (Throwable $e) {
             Response::json(['message' => $e->getMessage() ?: 'Server error refreshing odds'], 500);
         }
@@ -12112,8 +12112,8 @@ final class AdminCoreController
             if ($actor === null) {
                 return;
             }
-            $results = OddsSyncService::updateMatches($this->db, 'admin_manual');
-            Response::json(['message' => 'Manual odds fetch completed', 'results' => $results]);
+            // TODO: Rundown — admin "Manual Fetch Odds" full sync goes here.
+            Response::json(['message' => 'Manual odds fetch — pending Rundown integration', 'results' => []]);
         } catch (Throwable $e) {
             Response::json(['message' => $e->getMessage() ?: 'Server error manual odds fetch'], 500);
         }
@@ -12141,9 +12141,10 @@ final class AdminCoreController
             if ($actor === null) {
                 return;
             }
+            // TODO: Rundown — circuit-breaker status snapshot goes here.
             Response::json([
                 'ok' => true,
-                'circuitBreaker' => OddsSyncService::getCircuitBreakerStatus(),
+                'circuitBreaker' => null,
             ]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching circuit breaker state'], 500);
@@ -12168,7 +12169,8 @@ final class AdminCoreController
                 $reason = 'manual_admin_open';
             }
 
-            $snapshot = OddsSyncService::forceOpenCircuitBreaker($seconds, $reason);
+            // TODO: Rundown — force-open the upstream circuit breaker for $seconds.
+            $snapshot = null;
 
             $this->db->insertOne('admin_audit_log', [
                 'action' => 'odds_circuit_breaker_open',
@@ -12207,7 +12209,8 @@ final class AdminCoreController
                 $reason = 'manual_admin_reset';
             }
 
-            $snapshot = OddsSyncService::resetCircuitBreaker($reason);
+            // TODO: Rundown — reset the upstream circuit breaker.
+            $snapshot = null;
 
             $this->db->insertOne('admin_audit_log', [
                 'action' => 'odds_circuit_breaker_reset',

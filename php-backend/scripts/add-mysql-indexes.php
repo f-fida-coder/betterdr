@@ -144,7 +144,7 @@ $indexes = [
         'idx_matches_j_external_id' => [
             'columns' => ['j_external_id'],
             'type' => 'INDEX',
-            'description' => 'OddsSyncService upsert lookups by externalId',
+            'description' => 'Odds-source upsert lookups by externalId',
         ],
         'idx_matches_j_last_updated' => [
             'columns' => ['j_last_updated_dt'],

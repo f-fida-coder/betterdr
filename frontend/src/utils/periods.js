@@ -2,13 +2,13 @@
  * Period (half/quarter/inning/period) catalog + matchers.
  *
  * Shared by MobileContentView (mobile chip strip) and SportContentView
- * (desktop chip strip). Suffixes match Odds API market key conventions:
+ * (desktop chip strip). Suffixes match the upstream market key conventions:
  * `h2h_h1`, `spreads_q1`, `totals_1st_5_innings`, `h2h_p2`, etc.
  *
  * Public API:
  *   FULL_PERIOD                                  // { id, label, suffix:'' }
  *   getPeriodsForSport(sportId)                  // sidebar id → preset array
- *   getPeriodsForSportKey(odd-api sport key)     // sportKey → preset array
+ *   getPeriodsForSportKey(sportKey)              // sportKey → preset array
  *   getPeriodsForSports(realSelected, fallback)  // union across selections
  *   scanMarketsForSuffixes(markets, set)         // populate set with detected suffixes
  *

@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Backup score lookup for matches OddsAPI's /scores feed never filled in.
+ * Backup score lookup for matches the upstream odds feed never filled in.
  *
  * The primary failure mode this fixes is "the game ended hours ago but our
  * matches row still has score_home/score_away = null". When that happens the
@@ -14,7 +14,7 @@ declare(strict_types=1);
  * Strategy: hit ESPN's public scoreboard JSON for the same sport+date, match
  * by normalized team name, and write the final score back onto our matches
  * row. ESPN covers KBO, NPB, every US major, plus a long tail of niche
- * leagues — the exact gap OddsAPI sometimes leaves open.
+ * leagues — the exact gap the primary odds feed sometimes leaves open.
  *
  * Money safety: this service NEVER calls BetSettlementService directly. It
  * only writes the score onto the match row + sets status='finished' when
@@ -25,7 +25,7 @@ declare(strict_types=1);
 final class FallbackScoreService
 {
     /**
-     * OddsAPI sport_key → ESPN scoreboard path (`sport/league` segment).
+     * sport_key → ESPN scoreboard path (`sport/league` segment).
      *
      * Sports without ESPN coverage are simply absent from this map; the
      * service returns null for them so the caller falls back to "operator
@@ -66,8 +66,8 @@ final class FallbackScoreService
 
     /**
      * Look up a final score for a single match. Returns the canonical
-     * shape OddsSyncService::extractScoreAndStatus produces, or null when
-     * no fallback exists or the score isn't published yet.
+     * shape the odds-source score extractor produces, or null when no
+     * fallback exists or the score isn't published yet.
      *
      * @param array<string,mixed> $match
      * @return array{status:string, score:array{score_home:float, score_away:float, event_status?:string}}|null

@@ -112,7 +112,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     // when switching sports before the new fetch lands.
     const fetchSettledForScopeRef = React.useRef(false);
     const rawMatches = useMatches({ status, scopeKey: `${sportId || 'all'}:${filter || ''}:${limit || 0}`, limit });
-    // Collect every distinct Odds API sportKey present in the visible
+    // Collect every distinct sportKey present in the visible
     // matches. Views can mix leagues under one heading (e.g. NBA + WNBA,
     // or several soccer leagues) — refreshing only the first match's
     // sportKey leaves the others stale, so the refresh button needs the
@@ -164,7 +164,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     const liveSyncLastClickRef = React.useRef(0);
 
     const handleRefreshClick = React.useCallback(() => {
-        // Live Now path: synchronous OddsAPI live sync via POST
+        // Live Now path: synchronous live odds sync via POST
         // /api/sync/live. The endpoint returns fresh rows (or cached ones
         // if throttled) in a single round-trip. Once it resolves, fire
         // matches:force-refetch so useMatches re-reads from the now-fresh
@@ -216,7 +216,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         });
     }, [status, triggerRefresh, visibleSportKeys, liveSyncSpinning, showToast]);
 
-    // Resolve OddsAPI sportKey(s) directly from sportId via sportsData,
+    // Resolve sportKey(s) directly from sportId via sportsData,
     // BEFORE any matches arrive. This lets the sport-tab parallel sync
     // fire on first mount (when content.matches is still empty) instead
     // of waiting for matches to load — the previous version short-
@@ -228,7 +228,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             return item.sportKeys.map((k) => String(k).toLowerCase());
         }
         // Dynamic api-* entries (auto-injected from /api/matches/sports) are
-        // not in sportsData, so derive the OddsAPI sport key from the id —
+        // not in sportsData, so derive the sport key from the id —
         // otherwise on-demand sync never fires for these and the user has
         // to wait for the next cron tick to see fresh odds.
         if (typeof sportId === 'string' && sportId.startsWith('api-')) {
@@ -250,7 +250,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     const rawMatchesRef = React.useRef(rawMatches);
     React.useEffect(() => { rawMatchesRef.current = rawMatches; }, [rawMatches]);
 
-    // LIVE NOW open: fire a synchronous OddsAPI live sync so the first
+    // LIVE NOW open: fire a synchronous live odds sync so the first
     // paint shows the freshest possible odds instead of waiting up to 30s
     // for AUTO_POLL or for the worker's next live tick. Backend has a 15s
     // per-IP throttle on /api/sync/live, so re-mounting cheaply skips the

@@ -1,9 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(curl -s 'https://api.the-odds-api.com/v4/sports/tennis_atp_madrid_open/scores?apiKey=36509f41fa6f6e51b4a789e54a4c295f&dateFormat=iso')",
+      
       "Bash(python3 -c ' *)",
-      "Bash(curl -s 'https://api.the-odds-api.com/v4/sports/tennis_atp_madrid_open/odds?apiKey=36509f41fa6f6e51b4a789e54a4c295f&regions=us&markets=h2h&oddsFormat=decimal')",
+     
       "Bash(grep -rn -iE \"live.{0,8}score|livescore\" /Users/mac/Desktop/betterdr/frontend/src/ --include=\"*.jsx\" --include=\"*.js\" -l)",
       "Bash(grep -rn -iE \"live.{0,3}scor|scoreboard\" /Users/mac/Desktop/betterdr/frontend/src/ --include=\"*.jsx\" --include=\"*.js\" -l)",
       "Bash(grep -n -iE \"scoreboard|live.{0,3}scor\" /Users/mac/Desktop/betterdr/frontend/src/components/DashboardHeader.jsx)",
@@ -18,7 +18,9 @@
       "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" \"http://localhost:5000/api/matches/sports\")",
       "Bash(npx --yes esbuild --loader:.jsx=jsx --loader:.js=jsx frontend/src/hooks/useSportOddsRefresh.js)",
       "Bash(npx --yes esbuild --loader:.jsx=jsx --loader:.js=jsx frontend/src/components/MobileContentView.jsx)",
-      "Bash(npx --yes esbuild --loader:.jsx=jsx --loader:.js=jsx frontend/src/components/DashboardMain.jsx)"
+      "Bash(npx --yes esbuild --loader:.jsx=jsx --loader:.js=jsx frontend/src/components/DashboardMain.jsx)",
+      "Bash(claude mcp *)",
+      "mcp__mysql__mysql_query"
     ]
   }
 }

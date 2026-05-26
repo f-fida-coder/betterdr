@@ -14,7 +14,7 @@ Hostinger (shared hosting) has specific setup requirements for running a Node.js
   - `json` — API responses
   - `fileinfo` — file operations
   - `openssl` — JWT + HTTPS
-  - `curl` — OddsAPI + external requests
+  - `curl` — upstream odds source + external requests
   - `redis` — optional, for cache layer (Redis add-on)
 
 **Check in Hostinger Control Panel**:
@@ -58,7 +58,7 @@ Minute: */1
 Email: your-email@domain.com (errors only)
 ```
 
-**Why**: The main worker runs `OddsSyncService::updateMatches()` to fetch fresh odds from OddsAPI and write to MySQL. Every 90 seconds it syncs odds, settles matches, and updates balances.
+**Why**: The main worker fetches fresh odds from the upstream source and writes them to MySQL. Every 90 seconds it syncs odds, settles matches, and updates balances. (TODO: Rundown — wire the new sync command path here.)
 
 ### Job 2: Watchdog (Monitor worker health)
 ```
@@ -97,7 +97,7 @@ ODDS_CRON_MINUTES=1.5
 # Live odds sync: optimized for sub-20s updates
 USER_LIVE_SYNC_MIN_INTERVAL_SECONDS=15
 LIVE_TICK_MIN_INTERVAL_SECONDS=5
-LIVE_ODDS_ODDSAPI=true
+# TODO: Rundown — primary live + prematch odds source toggle.
 
 # Hostinger Cron Tick Secret (used for internal tick endpoints if needed)
 # Generate: openssl rand -hex 32
@@ -114,11 +114,7 @@ MYSQL_PASSWORD=SECURE_PASSWORD_HERE
 JWT_SECRET=GENERATE_WITH_openssl_rand_hex_32
 CORS_ORIGIN=https://yourdomain.com
 
-# OddsAPI (The Odds API)
-ODDS_API_KEY=YOUR_KEY_FROM_THEODDSAPI_COM
-ODDS_API_REGIONS=us
-ODDS_API_MARKETS=h2h,spreads,totals
-ODDS_API_ODDS_FORMAT=american
+# TODO: Rundown — add the new odds-source env block here.
 ODDS_ALLOWED_SPORTS=basketball_nba,americanfootball_nfl,soccer_epl,baseball_mlb,icehockey_nhl
 SPORTS_API_ENABLED=true
 ODDS_SCORES_ENABLED=true
@@ -163,7 +159,7 @@ cp frontend/.env.production.example frontend/.env.production
 
 # Edit .env with your Hostinger MySQL credentials
 nano php-backend/.env
-# Fill in: MYSQL_HOST, DB_NAME, DB_USER, DB_PASSWORD, JWT_SECRET, ODDS_API_KEY, etc.
+# Fill in: MYSQL_HOST, DB_NAME, DB_USER, DB_PASSWORD, JWT_SECRET, Rundown creds, etc.
 
 nano frontend/.env.production
 # Fill in: VITE_API_URL (your domain), VITE_MATCHES_POLL_LIVE_MS, etc.
@@ -261,7 +257,7 @@ DB_IDLE_TIMEOUT_SECONDS=60
 
 ### Odds Not Updating?
 1. Check cron logs: Hostinger > Cron Jobs > View Logs
-2. Verify `ODDS_API_KEY` is correct and has quota left
+2. Verify Rundown credentials are correct and the account has quota left
 3. Check MySQL: `php php-backend/scripts/verify-schema.php`
 4. Review: `php-backend/logs/worker.log`
 
