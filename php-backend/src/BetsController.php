@@ -600,6 +600,11 @@ final class BetsController
 
             $this->db->beginTransaction();
             try {
+                // SELECT ... FOR UPDATE acquires a row-level lock inside this
+                // transaction.  Any concurrent request for the same user will
+                // block here until this transaction commits/rolls back, so the
+                // balance/pending values we read below are guaranteed fresh
+                // and exclusive — eliminating the double-spend race condition.
                 $lockedUser = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id((string) $user['id'])]);
                 if ($lockedUser === null) {
                     $this->db->rollback();
@@ -684,6 +689,8 @@ final class BetsController
                 $newBalance  = $isCreditAccount ? $balance : ($balance - $realPortion);
                 $newPending  = $pending + $realPortion;
                 $newFreeplay = $freeplayBalance - $freeplayApplied;
+
+                $newFreeplay = max(0.0, $newFreeplay);
 
                 $userUpdateFields = [
                     'balance'         => $newBalance,

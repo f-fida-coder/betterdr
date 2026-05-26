@@ -27,7 +27,7 @@ const filterActiveChildren = (children, liveSet) => {
     });
 };
 
-const SidebarItem = ({
+const SidebarItem = React.memo(({
     item,
     level,
     selectedIds,
@@ -164,7 +164,7 @@ const SidebarItem = ({
             )}
         </div>
     );
-};
+});
 
 const DashboardSidebar = ({
     selectedSports = [],

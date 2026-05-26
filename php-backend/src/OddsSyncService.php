@@ -2436,7 +2436,7 @@ final class OddsSyncService
                 $headersByKey[$key] = [];
                 curl_setopt_array($ch, [
                     CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_TIMEOUT => 20,
+                    CURLOPT_TIMEOUT => 10,
                     CURLOPT_CONNECTTIMEOUT => 5,
                     CURLOPT_HEADERFUNCTION => static function ($curl, string $headerLine) use (&$headersByKey, $key): int {
                         $trimmed = trim($headerLine);
@@ -2520,7 +2520,7 @@ final class OddsSyncService
         $headers = [];
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 20,
+            CURLOPT_TIMEOUT => 10,
             CURLOPT_CONNECTTIMEOUT => 5,
             CURLOPT_HEADERFUNCTION => static function ($curl, string $headerLine) use (&$headers): int {
                 $trimmed = trim($headerLine);

@@ -338,6 +338,12 @@ final class OutrightSettlementService
 
                 $db->commit();
 
+                // Invalidate APCu user cache so subsequent requests see
+                // the updated balance immediately (not stale for 15s).
+                if (function_exists('apcu_delete')) {
+                    @apcu_delete('ua:users:' . $userId);
+                }
+
                 // Realtime push so the player's open My Bets list flips
                 // pending → won/lost/void without a refresh. Fired AFTER
                 // commit so a failed broadcast can never roll back the

@@ -8422,17 +8422,17 @@ final class CasinoController
             throw new InvalidArgumentException('Not enough cards remaining to complete the stud poker hand');
         }
 
-        $keys = array_rand($deckCodes, $count);
-        if (!is_array($keys)) {
-            $keys = [$keys];
-        }
-
+        // CSPRNG Fisher-Yates partial shuffle to pick $count cards
+        $pool = array_values($deckCodes);
+        $poolSize = count($pool);
         $picked = [];
-        foreach ($keys as $key) {
-            $picked[] = (string) $deckCodes[$key];
+        for ($i = 0; $i < $count; $i++) {
+            $j = random_int($i, $poolSize - 1);
+            [$pool[$i], $pool[$j]] = [$pool[$j], $pool[$i]];
+            $picked[] = (string) $pool[$i];
         }
 
-        return array_values($picked);
+        return $picked;
     }
 
     private function calculateStudPokerRaiseReturn(float $anteBet, array $playerEval, array $dealerEval, string $result): float

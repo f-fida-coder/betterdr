@@ -124,7 +124,7 @@ class SlotGame {
 
     private function getWeightedRandom($weights) {
         $totalWeight = array_sum($weights);
-        $randomNumber = mt_rand(1, $totalWeight);
+        $randomNumber = random_int(1, $totalWeight);
         $currentWeight = 0;
         foreach ($weights as $index => $weight) {
             $currentWeight += $weight;
@@ -168,11 +168,11 @@ class SlotGame {
 
     private function generateLostResult() {
         $losingSymbols = ['1','2','3','4','5'];
-        $result = [];        
+        $result = [];
         for ($i = 0; $i < 5; $i++) {
             $column = [];
             for ($j = 0; $j < 3; $j++) {
-                $column[] = $losingSymbols[array_rand($losingSymbols)];
+                $column[] = $losingSymbols[random_int(0, count($losingSymbols) - 1)];
             }
             $result[] = $column;
         }

@@ -296,7 +296,7 @@ final class BetSettlementService
                         // to balance for cash accounts (credit accounts'
                         // real portion was held in pending only, so freeing
                         // pending alone is the correct restore).
-                        $newFreeplayBalance = $freeplayBalance + $freeplayUsed;
+                        $newFreeplayBalance = max(0.0, $freeplayBalance + $freeplayUsed);
                         $balanceRefund = $isCreditAccount ? 0.0 : $realPortion;
                         if ($freeplayUsed > 0) {
                             $userUpdate['freeplayBalance'] = (float) round($newFreeplayBalance);
@@ -373,6 +373,12 @@ final class BetSettlementService
 
                     $results['settledBetIds'][] = $betId;
                     $db->commit();
+
+                    // Invalidate APCu user cache so subsequent requests see
+                    // the updated balance immediately (not stale for 15s).
+                    if (function_exists('apcu_delete')) {
+                        @apcu_delete('ua:users:' . $userId);
+                    }
 
                     // Realtime push so the player's open My Bets list flips
                     // pending → won/lost/void without waiting for the 5s

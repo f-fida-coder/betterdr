@@ -61,14 +61,22 @@ final class CircuitBreaker
             $result = $callback();
             $elapsed = (microtime(true) - $start) * 1000;
 
-            // Do not fail successful calls that exceeded the soft timeout.
-            // The previous behaviour converted slow-but-successful queries into
-            // exceptions, inflating 5xx rates under load.
+            // Track slow-but-successful calls as failures so the circuit
+            // opens before slow queries exhaust all FPM workers.  The previous
+            // soft-timeout approach logged but never tripped the breaker,
+            // allowing cascading slowdowns under load.
             if ($elapsed > $timeoutMs) {
-                error_log('CircuitBreaker soft-timeout key=' . $key . ' elapsedMs=' . (int) $elapsed . ' thresholdMs=' . $timeoutMs);
+                error_log('CircuitBreaker timeout key=' . $key . ' elapsedMs=' . (int) $elapsed . ' thresholdMs=' . $timeoutMs);
+                $this->recordFailure($key);
+                if ($this->getFailureCount($key) >= self::FAILURE_THRESHOLD) {
+                    $this->openCircuit($key);
+                }
+                // Still return the result — the call succeeded, but we've
+                // moved closer to opening the circuit for future calls.
+                return $result;
             }
 
-            // Success - reset failures
+            // Success within timeout - reset failures
             $this->recordSuccess($key);
             return $result;
         } catch (Throwable $e) {

@@ -33,7 +33,7 @@ import { buildApiUrl as _internalBuildApiUrl } from '../api';
  */
 export default function useLiveSyncPoll({
     enabled = true,
-    intervalMs = 3500,
+    intervalMs = 5000,
     channels = 'odds:sport:sync,odds:sport:score,odds:sync,bet:settled',
 } = {}) {
     const cursorRef = useRef('');

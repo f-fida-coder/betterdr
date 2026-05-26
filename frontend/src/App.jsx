@@ -230,7 +230,7 @@ function AppInner() {
   // window for new data.
   useLiveSyncPoll({
     enabled: isLoggedIn && !realtimeConnected,
-    intervalMs: 3500,
+    intervalMs: 5000,
   });
 
   const seedSessionState = useCallback(({ token: nextToken = '', user: nextUser = null, role: nextRole = '' } = {}) => {

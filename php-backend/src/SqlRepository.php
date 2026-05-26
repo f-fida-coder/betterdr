@@ -62,7 +62,7 @@ final class SqlRepository
         if (!isset(self::$sessionInitializedPdoIds[$pdoId])) {
             try {
                 $this->pdo->exec("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
-                $this->pdo->exec("SET SESSION max_execution_time = 30000");     // 30s for SELECT queries
+                $this->pdo->exec("SET SESSION max_execution_time = 5000");      // 5s for SELECT queries
                 $this->pdo->exec("SET SESSION net_read_timeout = 120");         // 2min for reads
                 $this->pdo->exec("SET SESSION net_write_timeout = 120");        // 2min for writes
                 $this->pdo->exec("SET SESSION optimizer_switch = 'index_merge=on,index_merge_union=on,index_merge_sort_union=on,index_merge_intersection=on'");
