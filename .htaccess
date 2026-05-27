@@ -1,0 +1,43 @@
+# public_html/.htaccess
+# The repo is deployed to ~/public_html/, but the actual built frontend lives in
+# dist/. This file (a) blocks web access to source/secret files that the git
+# deploy dumps at the root, and (b) routes all non-API traffic into dist/.
+
+RewriteEngine On
+
+# === SECURITY: block sensitive files & folders from web access ===
+
+# Hidden dotfiles/folders (.env, .git, .claude, .serena, etc.) — except .well-known
+RewriteCond %{REQUEST_URI} !^/\.well-known
+RewriteRule (^|/)\.(env|env\..*|git|claude|qwen|serena|sixth|DS_Store|editorconfig|gitignore)(/|$) - [F,L]
+
+# Dev/source folders that shouldn't be web-served
+RewriteRule ^(frontend|node_modules|scripts|tests|docs|memory|src)(/|$) - [F,L]
+
+# Block direct web access to the PHP backend tree. Backend is loaded via
+# api/index.php's require_once at the filesystem level, not via direct URL.
+RewriteRule ^php-backend(/|$) - [F,L]
+
+# Lockfiles, build manifests, docs, raw SQL
+<FilesMatch "^(composer\.(json|lock)|package(-lock)?\.json|bundle-stats\.html)$">
+    Require all denied
+</FilesMatch>
+<FilesMatch "\.(md|sql|sh|log)$">
+    Require all denied
+</FilesMatch>
+
+# === ROUTING ===
+
+# When someone hits "/", serve dist/index.html
+DirectoryIndex dist/index.html
+
+# Real files/folders at public_html level pass through normally
+# (api/, games/, favicon, etc.)
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Don't double-prefix anything already pointing into dist/
+RewriteCond %{REQUEST_URI} !^/dist/
+# Everything else (SPA routes like /sportsbook, /casino) → dist/
+RewriteRule ^(.*)$ dist/$1 [L]

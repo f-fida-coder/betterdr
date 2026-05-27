@@ -1,0 +1,12 @@
+# Deny ALL direct web access to php-backend/.
+# The backend is loaded via api/index.php's `require_once` at the filesystem
+# level, never over HTTP. Blocking direct URLs prevents accidentally exposing
+# source files, configs, scripts, or logs.
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order Deny,Allow
+    Deny from all
+</IfModule>
