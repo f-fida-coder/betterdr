@@ -5,8 +5,8 @@
  */
 
 $host = 'srv2052.hstgr.io';
-$db = 'u487877829_bettor_bets_24';
-$user = 'u487877829_bettor_bets';
+$db = 'u487877829_better_dr';
+$user = 'u487877829_bettordr';
 $pass = 'Bettor.ok12';
 $port = 3306;
 

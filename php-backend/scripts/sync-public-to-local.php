@@ -19,8 +19,8 @@ Env::load(dirname(__DIR__, 2), dirname(__DIR__));
 // ── Remote (public) DB credentials ──────────────────────────
 $remoteHost = '148.222.53.30';
 $remotePort = 3306;
-$remoteDb   = 'u487877829_bettor_bets_24';
-$remoteUser = 'u487877829_bettor_bets';
+$remoteDb   = 'u487877829_better_dr';
+$remoteUser = 'u487877829_bettordr';
 $remotePass = 'Bettor.ok12';
 
 // ── Local DB credentials (from .env) ────────────────────────
