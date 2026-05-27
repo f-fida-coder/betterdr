@@ -376,6 +376,13 @@ final class MatchesController
             $now = time();
             $prematchMaxAge = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
             $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $prematchMaxAge): bool {
+                // Source gate: hide rows tagged with a stopped upstream
+                // (legacy odds-api leftovers) — kept in the DB for any
+                // historical bet refs but excluded from public listings.
+                // Allow empty/null + both 'therundown' and the older
+                // 'rundown' tag during the migration window.
+                $source = strtolower((string) ($match['oddsSource'] ?? ''));
+                if ($source === 'oddsapi') return false;
                 $startTime = (string) ($match['startTime'] ?? '');
                 $parsed = $startTime !== '' ? strtotime($startTime) : false;
                 if ($parsed !== false && $parsed <= $now) return false;
@@ -400,10 +407,11 @@ final class MatchesController
                 if ($lastTs === false) return false;
 
                 if ($status === 'live') {
-                    // Hide rows from any upstream we've stopped writing to —
-                    // keeps stale odds-api leftovers out of Live Now.
+                    // Hide rows from the legacy odds-api upstream we've
+                    // stopped writing to — keeps their stale snapshots out
+                    // of Live Now.
                     $source = strtolower((string) ($match['oddsSource'] ?? ''));
-                    if ($source !== '' && $source !== RundownEventMapper::ODDS_SOURCE_TAG) return false;
+                    if ($source === 'oddsapi') return false;
                     $maxAge = self::liveFreshnessSecondsForSport($sportKey);
                     return ($now - $lastTs) <= $maxAge;
                 }
@@ -413,6 +421,10 @@ final class MatchesController
                     // and odds must be fresh on the PRE-match cadence (these
                     // rows are synced by the prematch worker, not the live
                     // worker, so the 90s live window would be too tight).
+                    // Block only the dead 'oddsapi' tag here; everything
+                    // else passes the freshness check below.
+                    $source = strtolower((string) ($match['oddsSource'] ?? ''));
+                    if ($source === 'oddsapi') return false;
                     $startTime = (string) ($match['startTime'] ?? '');
                     $startTs = $startTime !== '' ? strtotime($startTime) : false;
                     if ($startTs === false || $startTs > $now) return false;

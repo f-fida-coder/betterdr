@@ -559,8 +559,11 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 // "no markets" now means upstream really pulled the lines.
                 const markets = m?.odds?.markets;
                 const ext = m?.odds?.extendedMarkets;
+                const books = m?.odds?.bookmakers;
+                const bookHasMarkets = Array.isArray(books) && books.some((b) => Array.isArray(b?.markets) && b.markets.length > 0);
                 const hasMarkets = (Array.isArray(markets) && markets.length > 0)
-                    || (Array.isArray(ext) && ext.length > 0);
+                    || (Array.isArray(ext) && ext.length > 0)
+                    || bookHasMarkets;
                 if (!hasMarkets) return false;
                 if (isTeaserMode) {
                     const group = teaserSportGroup(m?.sportKey || m?.sport);

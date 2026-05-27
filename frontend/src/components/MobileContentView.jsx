@@ -896,8 +896,11 @@ const MobileContentView = ({
             // pulled the lines, not a transient sync gap.
             const markets = match?.odds?.markets;
             const ext = match?.odds?.extendedMarkets;
+            const books = match?.odds?.bookmakers;
+            const bookHasMarkets = Array.isArray(books) && books.some((b) => Array.isArray(b?.markets) && b.markets.length > 0);
             const hasMarkets = (Array.isArray(markets) && markets.length > 0)
-                || (Array.isArray(ext) && ext.length > 0);
+                || (Array.isArray(ext) && ext.length > 0)
+                || bookHasMarkets;
             if (!hasMarkets) return false;
             if (isTeaserMode) {
                 // teaserSportGroup returns 'football' / 'basketball' /

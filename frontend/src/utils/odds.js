@@ -129,7 +129,16 @@ export const formatTotalDisplay = (sideLabel, point, price, oddsFormat) => {
 export const getMatchMarkets = (match) => {
     const base = Array.isArray(match?.odds?.markets) ? match.odds.markets : [];
     const extended = Array.isArray(match?.odds?.extendedMarkets) ? match.odds.extendedMarkets : [];
-    return base.concat(extended);
+    // Rundown writes markets nested under bookmakers[*].markets instead of
+    // odds.markets. Fall back to the first bookmaker's markets when the
+    // flat shape is empty so every consumer (filters, getMatchMarket,
+    // rendering) sees a single canonical list.
+    let bookmakers = [];
+    if (base.length === 0 && Array.isArray(match?.odds?.bookmakers)) {
+        const firstWithMarkets = match.odds.bookmakers.find((b) => Array.isArray(b?.markets) && b.markets.length > 0);
+        if (firstWithMarkets) bookmakers = firstWithMarkets.markets;
+    }
+    return base.length > 0 ? base.concat(extended) : bookmakers.concat(extended);
 };
 
 export const getMatchMarket = (match, key) =>

@@ -194,9 +194,58 @@ final class RundownClient
 
         $timeout = max(2, (int) Env::get('RUNDOWN_TIMEOUT_SECONDS', (string) self::DEFAULT_TIMEOUT_SECONDS));
 
+        self::enforceRateLimit();
+
         return CircuitBreaker::getInstance()->execute('rundown:http', static function () use ($url, $key, $timeout): ?array {
             return self::httpGet($url, $key, $timeout);
         }, $timeout * 1000);
+    }
+
+    /**
+     * Cross-process sliding-window rate limiter. RUNDOWN_MAX_CALLS_PER_MINUTE=0
+     * disables it; any positive value is the hard cap on HTTP calls per 60 s
+     * across every worker on the host. When the cap is hit we sleep until the
+     * oldest tracked call falls out of the window. Last-line guard against
+     * runaway loops chewing through Rundown data points.
+     */
+    private static function enforceRateLimit(): void
+    {
+        $cap = (int) Env::get('RUNDOWN_MAX_CALLS_PER_MINUTE', '0');
+        if ($cap <= 0) return;
+
+        $file = sys_get_temp_dir() . '/betterdr-rundown-ratelimit.json';
+        $fp = @fopen($file, 'c+');
+        if ($fp === false) return;
+        try {
+            if (!flock($fp, LOCK_EX)) return;
+            $raw = stream_get_contents($fp) ?: '';
+            $stamps = json_decode($raw, true);
+            $stamps = is_array($stamps) ? array_values(array_filter($stamps, 'is_numeric')) : [];
+
+            $now = microtime(true);
+            $cutoff = $now - 60.0;
+            $stamps = array_values(array_filter($stamps, static fn ($t) => (float) $t > $cutoff));
+
+            if (count($stamps) >= $cap) {
+                $oldest = (float) $stamps[0];
+                $sleepFor = 60.0 - ($now - $oldest);
+                if ($sleepFor > 0) {
+                    usleep((int) min(60_000_000, $sleepFor * 1_000_000));
+                }
+                $now = microtime(true);
+                $cutoff = $now - 60.0;
+                $stamps = array_values(array_filter($stamps, static fn ($t) => (float) $t > $cutoff));
+            }
+
+            $stamps[] = $now;
+            ftruncate($fp, 0);
+            rewind($fp);
+            fwrite($fp, json_encode($stamps) ?: '[]');
+            fflush($fp);
+        } finally {
+            @flock($fp, LOCK_UN);
+            @fclose($fp);
+        }
     }
 
     /** @return array<string,mixed>|null */
