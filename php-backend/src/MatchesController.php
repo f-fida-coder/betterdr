@@ -400,7 +400,10 @@ final class MatchesController
                 if ($lastTs === false) return false;
 
                 if ($status === 'live') {
-                    // TODO: Rundown — gate by `oddsSource` once Rundown writes that tag.
+                    // Hide rows from any upstream we've stopped writing to —
+                    // keeps stale odds-api leftovers out of Live Now.
+                    $source = strtolower((string) ($match['oddsSource'] ?? ''));
+                    if ($source !== '' && $source !== RundownEventMapper::ODDS_SOURCE_TAG) return false;
                     $maxAge = self::liveFreshnessSecondsForSport($sportKey);
                     return ($now - $lastTs) <= $maxAge;
                 }
@@ -620,21 +623,85 @@ final class MatchesController
 
     /**
      * Lazy-load extended markets + player props for a single match.
+     *
+     * Reads first from the cached match doc (populated by the extended
+     * sync pass). If the doc is missing props but the match exists,
+     * triggers a synchronous Rundown getEvent() refresh with the full
+     * market_ids set to backfill, then re-reads. Fail-open: on upstream
+     * failure we still return whatever's currently stored.
      */
     private function getMatchProps(string $id): void
     {
         try {
-            // TODO: Rundown — fetch extended markets / player props for $id.
+            $match = $this->db->findOne('matches', ['id' => SqlRepository::id($id)]);
+            if ($match === null) {
+                Response::json(['matchId' => $id, 'cached' => false, 'extendedMarkets' => [], 'playerProps' => []], 200, self::NO_STORE_HEADER);
+                return;
+            }
+            $extended = is_array($match['extendedMarkets'] ?? null) ? $match['extendedMarkets'] : [];
+            if ($extended === [] && is_array($match['odds']['extendedMarkets'] ?? null)) {
+                $extended = $match['odds']['extendedMarkets'];
+            }
+            $props = is_array($match['playerProps'] ?? null) ? $match['playerProps'] : [];
+
+            // If the doc has no props yet but the match is mappable to a
+            // Rundown event, backfill on demand. Dedup per-event for 30s
+            // so concurrent loads of the prop modal share one upstream call.
+            $externalId = (string) ($match['externalId'] ?? '');
+            $sportKey   = (string) ($match['sportKey'] ?? '');
+            if (
+                $props === []
+                && $externalId !== ''
+                && RundownClient::isConfigured()
+                && strtolower((string) ($match['oddsSource'] ?? '')) === RundownEventMapper::ODDS_SOURCE_TAG
+            ) {
+                $db = $this->db;
+                SharedFileCache::remember(
+                    'rundown-props-backfill',
+                    $externalId,
+                    30,
+                    static function () use ($db, $externalId, $sportKey): array {
+                        $r = RundownSyncService::syncEventFull($db, $externalId, $sportKey !== '' ? $sportKey : null);
+                        return ['ok' => (bool) ($r['ok'] ?? false), 'at' => time()];
+                    }
+                );
+                $refreshed = $this->db->findOne('matches', ['id' => SqlRepository::id($id)]);
+                if (is_array($refreshed)) {
+                    $extended = is_array($refreshed['extendedMarkets'] ?? null) ? $refreshed['extendedMarkets'] : $extended;
+                    $props    = is_array($refreshed['playerProps'] ?? null) ? $refreshed['playerProps'] : $props;
+                }
+            }
+
             $payload = [
                 'matchId' => $id,
-                'cached' => false,
-                'extendedMarkets' => [],
-                'playerProps' => [],
+                'cached'  => true,
+                'extendedMarkets' => $extended,
+                'playerProps' => $props,
             ];
             Response::json($payload, 200, self::NO_STORE_HEADER);
         } catch (Throwable $e) {
+            Logger::exception($e, 'getMatchProps failed', ['matchId' => $id]);
             Response::json(['message' => 'Server Error fetching props'], 500);
         }
+    }
+
+    /**
+     * Merged + de-duped sport list across the existing tier env vars,
+     * used by the manual-fetch / on-demand-refresh code paths to know
+     * which sports to walk. Stable ordering so caches/UI snapshots
+     * compare equal across invocations.
+     *
+     * @return list<string>
+     */
+    private static function resolveConfiguredSportsForManualFetch(): array
+    {
+        $tier1   = (string) Env::get('ODDS_TIER1_SPORTS', '');
+        $tier2   = (string) Env::get('ODDS_TIER2_SPORTS', '');
+        $allowed = (string) Env::get('ODDS_ALLOWED_SPORTS', 'basketball_nba,americanfootball_nfl,soccer_epl,baseball_mlb,icehockey_nhl');
+        $merged  = $tier1 . ',' . $tier2 . ',' . $allowed;
+        $list    = array_values(array_unique(array_filter(array_map('trim', explode(',', $merged)), static fn ($v) => $v !== '')));
+        sort($list);
+        return $list;
     }
 
     /**
@@ -768,8 +835,23 @@ final class MatchesController
                 return;
             }
 
-            // TODO: Rundown — trigger a manual full-odds refresh and return results.
-            Response::json(['message' => 'Manual odds fetch — pending Rundown integration', 'results' => []]);
+            $sports = self::resolveConfiguredSportsForManualFetch();
+            $perSport = [];
+            foreach ($sports as $sportKey) {
+                $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                if ($sportId === null) {
+                    $perSport[$sportKey] = ['ok' => false, 'skipped' => 'unmapped_sport'];
+                    continue;
+                }
+                $r = RundownSyncService::syncSportPrematch($this->db, $sportKey, $sportId);
+                $perSport[$sportKey] = [
+                    'ok'         => ($r['errors'] ?? 0) === 0,
+                    'eventsSeen' => (int) ($r['eventsSeen'] ?? 0),
+                    'updated'    => (int) ($r['created'] ?? 0) + (int) ($r['updated'] ?? 0),
+                    'errors'     => (int) ($r['errors'] ?? 0),
+                ];
+            }
+            Response::json(['message' => 'Manual odds fetch ok', 'sports' => count($sports), 'results' => $perSport]);
         } catch (Throwable $e) {
             Response::json(['message' => $e->getMessage() ?: 'Server error manual odds fetch'], 500);
         }
@@ -854,12 +936,25 @@ final class MatchesController
 
         // In-flight dedup: first caller runs the upstream fetch; concurrent
         // callers within the 20s window get the cached payload from that call.
-        // TODO: Rundown — on-demand single-sport refresh goes here.
+        $db = $this->db;
         $result = SharedFileCache::remember(
             'sportsbook-on-demand-refresh',
             $sportKey,
             $dedupWindow,
-            fn(): array => ['success' => false, 'pending' => 'rundown']
+            static function () use ($db, $sportKey): array {
+                $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                if ($sportId === null) {
+                    return ['success' => false, 'error' => 'unmapped_sport_key'];
+                }
+                $r = RundownSyncService::syncSportPrematch($db, $sportKey, $sportId);
+                return [
+                    'success'    => ($r['errors'] ?? 0) === 0,
+                    'sportKey'   => $sportKey,
+                    'eventsSeen' => (int) ($r['eventsSeen'] ?? 0),
+                    'updated'    => (int) ($r['created'] ?? 0) + (int) ($r['updated'] ?? 0),
+                    'errors'     => (int) ($r['errors'] ?? 0),
+                ];
+            }
         );
 
         $elapsedMs = (int) round((microtime(true) - $startedAt) * 1000);
@@ -973,13 +1068,26 @@ final class MatchesController
         $anySuccess = false;
         $allMatches = [];
         $latestUpdated = null;
+        $db = $this->db;
         foreach ($sportKeys as $sportKey) {
-            // TODO: Rundown — on-demand per-sport refresh (multi-sport loop).
             $result = SharedFileCache::remember(
                 'sportsbook-on-demand-refresh',
                 $sportKey,
                 $dedupWindow,
-                fn(): array => ['success' => false, 'pending' => 'rundown']
+                static function () use ($db, $sportKey): array {
+                    $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                    if ($sportId === null) {
+                        return ['success' => false, 'error' => 'unmapped_sport_key'];
+                    }
+                    $r = RundownSyncService::syncSportPrematch($db, $sportKey, $sportId);
+                    return [
+                        'success'    => ($r['errors'] ?? 0) === 0,
+                        'sportKey'   => $sportKey,
+                        'eventsSeen' => (int) ($r['eventsSeen'] ?? 0),
+                        'updated'    => (int) ($r['created'] ?? 0) + (int) ($r['updated'] ?? 0),
+                        'errors'     => (int) ($r['errors'] ?? 0),
+                    ];
+                }
             );
             $success = (bool) ($result['success'] ?? false);
             if ($success) {
@@ -1196,7 +1304,15 @@ final class MatchesController
                     $lockHandoff
                 ): void {
                     try {
-                        // TODO: Rundown — deferred async full odds refresh goes here.
+                        // Deferred async refresh — rotates through configured
+                        // sports and pulls prematch for each. Concurrent calls
+                        // de-dup via the named lock above.
+                        $sports = self::resolveConfiguredSportsForManualFetch();
+                        foreach ($sports as $sportKey) {
+                            $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                            if ($sportId === null) continue;
+                            RundownSyncService::syncSportPrematch($db, $sportKey, $sportId);
+                        }
                         $finishedAt = SqlRepository::nowUtc();
                         $this->writePublicRefreshState($state, [
                             'lastRefreshAttemptAt' => $attemptedAt,
@@ -1245,7 +1361,14 @@ final class MatchesController
             }
 
             try {
-                // TODO: Rundown — synchronous full odds refresh goes here.
+                // Synchronous refresh path — rotates through configured
+                // sports and pulls prematch for each.
+                $sports = self::resolveConfiguredSportsForManualFetch();
+                foreach ($sports as $sportKey) {
+                    $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                    if ($sportId === null) continue;
+                    RundownSyncService::syncSportPrematch($this->db, $sportKey, $sportId);
+                }
                 $finishedAt = SqlRepository::nowUtc();
                 $postSnapshot = $this->refreshSnapshotMeta($cacheTtl);
 

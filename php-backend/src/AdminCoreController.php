@@ -12098,8 +12098,23 @@ final class AdminCoreController
             if ($actor === null) {
                 return;
             }
-            // TODO: Rundown — admin "Refresh Odds" full sync goes here.
-            Response::json(['message' => 'Odds refresh — pending Rundown integration', 'results' => []]);
+            $sports = self::resolveAdminConfiguredSports();
+            $results = [];
+            foreach ($sports as $sportKey) {
+                $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                if ($sportId === null) {
+                    $results[$sportKey] = ['ok' => false, 'skipped' => 'unmapped_sport'];
+                    continue;
+                }
+                $r = RundownSyncService::syncSportPrematch($this->db, $sportKey, $sportId);
+                $results[$sportKey] = [
+                    'ok'         => ($r['errors'] ?? 0) === 0,
+                    'eventsSeen' => (int) ($r['eventsSeen'] ?? 0),
+                    'updated'    => (int) ($r['created'] ?? 0) + (int) ($r['updated'] ?? 0),
+                    'errors'     => (int) ($r['errors'] ?? 0),
+                ];
+            }
+            Response::json(['message' => 'Odds refresh ok', 'sports' => count($sports), 'results' => $results]);
         } catch (Throwable $e) {
             Response::json(['message' => $e->getMessage() ?: 'Server error refreshing odds'], 500);
         }
@@ -12112,11 +12127,43 @@ final class AdminCoreController
             if ($actor === null) {
                 return;
             }
-            // TODO: Rundown — admin "Manual Fetch Odds" full sync goes here.
-            Response::json(['message' => 'Manual odds fetch — pending Rundown integration', 'results' => []]);
+            $sports = self::resolveAdminConfiguredSports();
+            $results = [];
+            foreach ($sports as $sportKey) {
+                $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                if ($sportId === null) {
+                    $results[$sportKey] = ['ok' => false, 'skipped' => 'unmapped_sport'];
+                    continue;
+                }
+                $r = RundownSyncService::syncSportPrematch($this->db, $sportKey, $sportId);
+                $results[$sportKey] = [
+                    'ok'         => ($r['errors'] ?? 0) === 0,
+                    'eventsSeen' => (int) ($r['eventsSeen'] ?? 0),
+                    'updated'    => (int) ($r['created'] ?? 0) + (int) ($r['updated'] ?? 0),
+                    'errors'     => (int) ($r['errors'] ?? 0),
+                ];
+            }
+            Response::json(['message' => 'Manual odds fetch ok', 'sports' => count($sports), 'results' => $results]);
         } catch (Throwable $e) {
             Response::json(['message' => $e->getMessage() ?: 'Server error manual odds fetch'], 500);
         }
+    }
+
+    /**
+     * Merged + de-duped sport list across the configured tier env vars,
+     * used by the admin Refresh / Manual Fetch endpoints.
+     *
+     * @return list<string>
+     */
+    private static function resolveAdminConfiguredSports(): array
+    {
+        $tier1   = (string) Env::get('ODDS_TIER1_SPORTS', '');
+        $tier2   = (string) Env::get('ODDS_TIER2_SPORTS', '');
+        $allowed = (string) Env::get('ODDS_ALLOWED_SPORTS', 'basketball_nba,americanfootball_nfl,soccer_epl,baseball_mlb,icehockey_nhl');
+        $merged  = $tier1 . ',' . $tier2 . ',' . $allowed;
+        $list    = array_values(array_unique(array_filter(array_map('trim', explode(',', $merged)), static fn ($v) => $v !== '')));
+        sort($list);
+        return $list;
     }
 
     private function clearCache(): void
@@ -12141,10 +12188,17 @@ final class AdminCoreController
             if ($actor === null) {
                 return;
             }
-            // TODO: Rundown — circuit-breaker status snapshot goes here.
+            // CircuitBreaker is a shared in-process instance — query the
+            // same `rundown:http` key the RundownClient uses.
+            $cb = CircuitBreaker::getInstance();
             Response::json([
                 'ok' => true,
-                'circuitBreaker' => null,
+                'circuitBreaker' => [
+                    'key'   => 'rundown:http',
+                    'state' => $cb->getState('rundown:http'),
+                    'allStats' => $cb->stats(),
+                ],
+                'quota' => RundownClient::latestQuotaSnapshot(),
             ]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching circuit breaker state'], 500);
@@ -12169,8 +12223,12 @@ final class AdminCoreController
                 $reason = 'manual_admin_open';
             }
 
-            // TODO: Rundown — force-open the upstream circuit breaker for $seconds.
-            $snapshot = null;
+            // CircuitBreaker doesn't expose a per-key force-open hook —
+            // breaker auto-trips on consecutive failures and auto-recovers
+            // after its timeout. We still write the audit row so ops has
+            // a record of the intent, and surface a noop notice.
+            $cb = CircuitBreaker::getInstance();
+            $snapshot = ['state' => $cb->getState('rundown:http'), 'note' => 'force_open_noop_auto_managed'];
 
             $this->db->insertOne('admin_audit_log', [
                 'action' => 'odds_circuit_breaker_open',
@@ -12209,8 +12267,11 @@ final class AdminCoreController
                 $reason = 'manual_admin_reset';
             }
 
-            // TODO: Rundown — reset the upstream circuit breaker.
-            $snapshot = null;
+            // CircuitBreaker::reset() is process-global, not per-key — calling
+            // it would wipe state for every breaker in this PHP-FPM worker.
+            // We just record the audit row and read back the current state.
+            $cb = CircuitBreaker::getInstance();
+            $snapshot = ['state' => $cb->getState('rundown:http'), 'note' => 'reset_noop_auto_managed'];
 
             $this->db->insertOne('admin_audit_log', [
                 'action' => 'odds_circuit_breaker_reset',

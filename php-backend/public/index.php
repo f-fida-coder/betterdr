@@ -35,7 +35,15 @@ require_once __DIR__ . '/../src/RoundRobinService.php';
 require_once __DIR__ . '/../src/OddsMarketCatalog.php';
 require_once __DIR__ . '/../src/ApiQuotaGuard.php';
 require_once __DIR__ . '/../src/TeamNormalizer.php';
-// TODO: Rundown — odds-source service include goes here.
+// TheRundown odds-source.
+require_once __DIR__ . '/../src/RundownClient.php';
+require_once __DIR__ . '/../src/RundownSportMap.php';
+require_once __DIR__ . '/../src/RundownAffiliateMap.php';
+require_once __DIR__ . '/../src/RundownMarketMap.php';
+require_once __DIR__ . '/../src/RundownEventMapper.php';
+require_once __DIR__ . '/../src/RundownDeltaCursor.php';
+require_once __DIR__ . '/../src/RundownSyncService.php';
+// RundownWsClient is intentionally excluded — only the WS daemon loads it.
 require_once __DIR__ . '/../src/AuthController.php';
 require_once __DIR__ . '/../src/WalletController.php';
 require_once __DIR__ . '/../src/BetsController.php';
@@ -256,7 +264,19 @@ if ($contentLength > 1_048_576) {
         }
     }
 
-    // TODO: Rundown — re-add env-var validation for the new odds source here.
+    // Rundown — warn (not block) on missing key so a fresh deploy can boot
+    // and serve cached state until the operator pastes the key. Hard-block
+    // when a non-empty but obvious-placeholder value is set.
+    $rundownKey = (string) Env::get('RUNDOWN_API_KEY', '');
+    if ($rundownKey === '') {
+        $warnings[] = 'RUNDOWN_API_KEY is missing — odds sync disabled until configured';
+    } elseif ($isPlaceholder($rundownKey)) {
+        $errors[] = 'RUNDOWN_API_KEY contains a placeholder value — paste your real Rundown API key';
+    }
+    $rundownBase = (string) Env::get('RUNDOWN_BASE_URL', '');
+    if ($rundownBase !== '' && !preg_match('#^https?://#i', $rundownBase)) {
+        $errors[] = 'RUNDOWN_BASE_URL must be a full http(s) URL';
+    }
 
     // Stripe — warn if placeholders (don't hard-fail; operator may use manual cashier)
     $stripeKey     = (string) Env::get('STRIPE_SECRET_KEY', '');
@@ -745,7 +765,10 @@ if (!$authNativeEnabled) {
 
 
 if ($nativeError !== null) {
-    // TODO: Rundown — /api/matches fallback route handler goes here.
+    // /api/matches has no upstream-driven fallback path under the Rundown
+    // integration: when the matches collection is empty or DB is down,
+    // the controller already returns an empty list shape. Casino still
+    // has a separate fallback below for its API gateway.
 
     if (str_starts_with($uriPath, '/api/casino')) {
         try {

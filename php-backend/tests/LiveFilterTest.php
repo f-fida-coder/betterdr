@@ -45,7 +45,10 @@ function liveFilterStub(int $now, int $prematchMaxAge, int $liveMaxAgeForSport):
         if ($lastTs === false) return false;
 
         if ($status === 'live') {
-            // TODO: Rundown — gate by `oddsSource` once Rundown writes that tag.
+            // Mirror the controller's source gate: anything stamped with a
+            // legacy upstream is hidden from Live Now after the migration.
+            $source = strtolower((string) ($match['oddsSource'] ?? ''));
+            if ($source !== '' && $source !== 'therundown') return false;
             return ($now - $lastTs) <= $liveMaxAgeForSport;
         }
         if ($status === 'scheduled') {

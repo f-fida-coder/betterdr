@@ -72,7 +72,15 @@ $hotClasses = [
     'OddsMarketCatalog.php',
     'TeamNormalizer.php',
     'ApiQuotaGuard.php',
-    // TODO: Rundown — preload the new odds-source service here.
+
+    // ─── TheRundown odds source (hot path) ───────────────────────────────
+    'RundownClient.php',
+    'RundownSportMap.php',
+    'RundownAffiliateMap.php',
+    'RundownMarketMap.php',
+    'RundownEventMapper.php',
+    'RundownDeltaCursor.php',
+    'RundownSyncService.php',
 
     // ─── Bet / settlement rules ──────────────────────────────────────────
     'BetModeRules.php',

@@ -1,0 +1,287 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Long-running odds-sync daemon for the Rundown integration.
+ *
+ * Designed to be started by scripts/odds-worker-watchdog.sh, which a
+ * 1-minute cron line invokes; the watchdog re-launches this script
+ * whenever the process disappears. On Hostinger / shared hosting this
+ * is the safety-net pattern for daemons whose PIDs can be reaped.
+ *
+ * Polling cadence follows TheRundown's efficient-polling guide
+ * (https://docs.therundown.io/guides/efficient-polling):
+ *
+ *   Live odds (price changes)  → /markets/delta   every 5 s
+ *   Live scores (status+score) → /api/v2/delta    every 15 s
+ *   Safety-net full refresh    → /sports/{id}/events/{date}
+ *                                every 5 min OR when a delta cursor
+ *                                goes stale (>25 min)
+ *   Pre-match odds (rotation)  → /sports/{id}/events/{date}
+ *                                every ~90 s, batching
+ *                                PREMATCH_MAX_SPORTS_PER_TICK sports
+ *   Settlement sweep           → every 60 s
+ *
+ * If RUNDOWN_API_KEY is missing, every Rundown call short-circuits to
+ * null and the worker stays alive, idling. That way the watchdog
+ * doesn't loop-restart while ops finishes configuration.
+ *
+ * Graceful shutdown: SIGTERM / SIGINT are honoured between ticks so a
+ * deployment restart doesn't kill mid-write.
+ */
+
+$phpBackendDir = dirname(__DIR__);
+$projectRoot   = dirname($phpBackendDir);
+
+require_once $phpBackendDir . '/src/Autoloader.php';
+Autoloader::register();
+require_once $phpBackendDir . '/src/Env.php';
+require_once $phpBackendDir . '/src/Logger.php';
+require_once $phpBackendDir . '/src/SharedFileCache.php';
+require_once $phpBackendDir . '/src/CircuitBreaker.php';
+require_once $phpBackendDir . '/src/ConnectionPool.php';
+require_once $phpBackendDir . '/src/SqlRepository.php';
+require_once $phpBackendDir . '/src/BetSettlementService.php';
+require_once $phpBackendDir . '/src/SportsbookHealth.php';
+require_once $phpBackendDir . '/src/RundownClient.php';
+require_once $phpBackendDir . '/src/RundownSportMap.php';
+require_once $phpBackendDir . '/src/RundownAffiliateMap.php';
+require_once $phpBackendDir . '/src/RundownMarketMap.php';
+require_once $phpBackendDir . '/src/RundownEventMapper.php';
+require_once $phpBackendDir . '/src/RundownDeltaCursor.php';
+require_once $phpBackendDir . '/src/RundownSyncService.php';
+
+Env::load($projectRoot, $phpBackendDir);
+Logger::init($phpBackendDir . '/logs');
+
+if (!SqlRepository::isAvailable()) {
+    fwrite(STDERR, "[odds-worker] pdo_mysql extension is required\n");
+    exit(1);
+}
+
+$dbName = (string) Env::get('MYSQL_DB', 'sports_betting');
+$repo   = new SqlRepository('', $dbName);
+
+// ── Knobs (defaults match the Rundown efficient-polling guide) ─────
+$tickSeconds              = max(2,   (int) Env::get('RUNDOWN_WORKER_TICK_SECONDS', '5'));
+$liveMarketDeltaEveryT    = max(1,   (int) Env::get('RUNDOWN_LIVE_MARKET_DELTA_EVERY_TICKS', '1'));  // 5s
+$liveEventDeltaEveryT     = max(1,   (int) Env::get('RUNDOWN_LIVE_EVENT_DELTA_EVERY_TICKS', '3'));   // 15s
+$liveFullRefreshEveryT    = max(1,   (int) Env::get('RUNDOWN_LIVE_FULL_REFRESH_EVERY_TICKS', '60')); // 5 min
+$prematchEveryTicks       = max(1,   (int) Env::get('RUNDOWN_PREMATCH_EVERY_N_TICKS', '18'));         // ~90s
+$prematchBatch            = max(1,   (int) Env::get('PREMATCH_MAX_SPORTS_PER_TICK', '8'));
+$settleEveryTicks         = max(1,   (int) Env::get('RUNDOWN_SETTLE_EVERY_N_TICKS', '12'));           // ~60s
+$logEveryTicks            = max(1,   (int) Env::get('RUNDOWN_LOG_EVERY_N_TICKS', '12'));              // ~60s
+$maxRuntimeSeconds        = max(60,  (int) Env::get('RUNDOWN_WORKER_MAX_RUNTIME_SECONDS', '21600'));  // 6h then voluntary restart
+// ─────────────────────────────────────────────────────────────────────
+
+// Signal handling — gracefully drop out between ticks.
+$shutdown = false;
+if (function_exists('pcntl_signal')) {
+    pcntl_async_signals(true);
+    pcntl_signal(SIGTERM, static function () use (&$shutdown): void {
+        $shutdown = true;
+    });
+    pcntl_signal(SIGINT, static function () use (&$shutdown): void {
+        $shutdown = true;
+    });
+}
+
+$pid       = getmypid();
+$startedAt = time();
+$tick      = 0;
+$rotationCursor = 0;
+
+fwrite(STDOUT, "[odds-worker] pid={$pid} tickSeconds={$tickSeconds} prematchEvery={$prematchEveryTicks}t settleEvery={$settleEveryTicks}t\n");
+Logger::info('odds-worker started', [
+    'pid' => $pid,
+    'tickSeconds' => $tickSeconds,
+    'configured' => RundownClient::isConfigured(),
+], 'sportsbook');
+Logger::flush();
+
+while (!$shutdown) {
+    $tick++;
+    $tickStart = microtime(true);
+
+    try {
+        // ── 1. Live tick — three cadences (per Rundown polling guide) ─
+        // Every tick (5 s):   /markets/delta  → price changes
+        // Every 3 ticks (15 s): /api/v2/delta → score/status changes
+        // Every 60 ticks (5 min) OR cursor missing: full /events refresh
+        $liveSportKeys = distinctLiveOrSoonSportKeys($repo);
+        $liveResult = [
+            'sportsTried'     => 0,
+            'marketDeltas'    => 0,
+            'eventDeltas'     => 0,
+            'fullRefreshes'   => 0,
+            'errors'          => 0,
+        ];
+        if (RundownClient::isConfigured()) {
+            foreach ($liveSportKeys as $sportKey) {
+                $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                if ($sportId === null) continue;
+                $liveResult['sportsTried']++;
+
+                // Safety-net full refresh: every Nth tick OR whenever
+                // the market-delta cursor is missing/stale (first run,
+                // 30-min cursor expiry, prior 400). This call resets
+                // the market cursor as a side effect.
+                $needFullRefresh = ($tick % $liveFullRefreshEveryT === 0)
+                    || RundownDeltaCursor::isStale($sportId);
+                if ($needFullRefresh) {
+                    $r = RundownSyncService::syncSportLive($repo, $sportKey, $sportId);
+                    $liveResult['fullRefreshes']++;
+                    $liveResult['errors'] += (int) ($r['errors'] ?? 0);
+                }
+
+                // Market-delta poll for price changes — every tick.
+                if (!$needFullRefresh && $tick % $liveMarketDeltaEveryT === 0) {
+                    $r = RundownSyncService::pollDeltasForSport($repo, $sportKey, $sportId);
+                    $liveResult['marketDeltas'] += (int) ($r['applied'] ?? 0);
+                    $liveResult['errors']       += (int) ($r['errors'] ?? 0);
+                }
+
+                // Event-delta poll for score/status changes — every 3 ticks.
+                if ($tick % $liveEventDeltaEveryT === 0) {
+                    $r = RundownSyncService::pollEventDeltasForSport($repo, $sportKey, $sportId);
+                    $liveResult['eventDeltas'] += (int) ($r['applied'] ?? 0);
+                    $liveResult['errors']      += (int) ($r['errors'] ?? 0);
+                }
+            }
+        }
+
+        // ── 2. Prematch rotation ────────────────────────────────────
+        $prematchResult = null;
+        if ($tick % $prematchEveryTicks === 0 && RundownClient::isConfigured()) {
+            $sports = resolveAllConfiguredSports();
+            if ($sports !== []) {
+                $rotationCursor = $rotationCursor % count($sports);
+                $batch = [];
+                for ($i = 0; $i < min($prematchBatch, count($sports)); $i++) {
+                    $batch[] = $sports[($rotationCursor + $i) % count($sports)];
+                }
+                $rotationCursor = ($rotationCursor + count($batch)) % count($sports);
+
+                $prematchResult = ['sportsTried' => 0, 'eventsSeen' => 0, 'updated' => 0, 'errors' => 0];
+                foreach ($batch as $sportKey) {
+                    $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                    if ($sportId === null) continue;
+                    $r = RundownSyncService::syncSportPrematch($repo, $sportKey, $sportId);
+                    $prematchResult['sportsTried']++;
+                    $prematchResult['eventsSeen'] += (int) ($r['eventsSeen'] ?? 0);
+                    $prematchResult['updated']    += (int) ($r['created'] ?? 0) + (int) ($r['updated'] ?? 0);
+                    $prematchResult['errors']     += (int) ($r['errors'] ?? 0);
+                }
+            }
+        }
+
+        // ── 3. Settlement sweep ─────────────────────────────────────
+        $settleResult = null;
+        if ($tick % $settleEveryTicks === 0) {
+            try {
+                $settleResult = BetSettlementService::settlePendingMatches($repo, 250, 'worker');
+            } catch (Throwable $e) {
+                Logger::warning('odds-worker settlement sweep failed', ['error' => $e->getMessage()], 'sportsbook');
+            }
+        }
+
+        // ── 4. Periodic status line ─────────────────────────────────
+        if ($tick % $logEveryTicks === 0) {
+            Logger::info('odds-worker tick', [
+                'tick' => $tick,
+                'live' => $liveResult,
+                'prematch' => $prematchResult,
+                'settle' => $settleResult,
+                'tickMs' => (int) ((microtime(true) - $tickStart) * 1000),
+                'quota' => RundownClient::latestQuotaSnapshot(),
+            ], 'sportsbook');
+        }
+    } catch (Throwable $e) {
+        Logger::exception($e, 'odds-worker tick failed');
+    }
+
+    // Force-flush logs and check for voluntary restart.
+    Logger::flush();
+    if ((time() - $startedAt) >= $maxRuntimeSeconds) {
+        Logger::info('odds-worker voluntary restart (max runtime reached)', ['runtime' => time() - $startedAt], 'sportsbook');
+        Logger::flush();
+        break;
+    }
+    if ($shutdown) break;
+
+    // Sleep for the remainder of the tick interval (subtracting work
+    // already done so a long live sync doesn't compound into drift).
+    $elapsed = microtime(true) - $tickStart;
+    $sleepFor = max(0.0, (float) $tickSeconds - $elapsed);
+    if ($sleepFor > 0) {
+        usleep((int) ($sleepFor * 1_000_000));
+    }
+}
+
+fwrite(STDOUT, "[odds-worker] pid={$pid} exiting cleanly after tick={$tick}\n");
+Logger::info('odds-worker exiting', ['tick' => $tick, 'runtime' => time() - $startedAt], 'sportsbook');
+Logger::flush();
+exit(0);
+
+// ─── helpers ────────────────────────────────────────────────────────
+
+/**
+ * Sport keys with at least one row in the matches collection that's
+ * live OR scheduled within the active polling window (default 24 h).
+ *
+ * This is the delta-poll target — any sport with an active or imminent
+ * game gets price-change updates every tick via /markets/delta, not
+ * just sports with live games. That closes the freshness gap for
+ * "upcoming odds for a sport with no live games right now."
+ *
+ * @return list<string>
+ */
+function distinctLiveOrSoonSportKeys(SqlRepository $db): array
+{
+    $windowHours = max(1, (int) Env::get('RUNDOWN_ACTIVE_WINDOW_HOURS', '24'));
+    $now  = gmdate(DATE_ATOM);
+    $soon = gmdate(DATE_ATOM, time() + ($windowHours * 3600));
+    $live = $db->findMany('matches', ['status' => 'live'], ['projection' => ['sportKey' => 1], 'limit' => 1000]);
+    $soonRows = $db->findMany('matches', [
+        'status'    => 'scheduled',
+        'startTime' => ['$gte' => $now, '$lte' => $soon],
+    ], ['projection' => ['sportKey' => 1], 'limit' => 1000]);
+    $keys = [];
+    foreach (array_merge(is_array($live) ? $live : [], is_array($soonRows) ? $soonRows : []) as $row) {
+        $k = strtolower((string) ($row['sportKey'] ?? ''));
+        if ($k !== '') $keys[$k] = true;
+    }
+    return array_keys($keys);
+}
+
+/**
+ * Sport list for the daemon's prematch rotation.
+ *
+ * Default (RUNDOWN_SYNC_ALL_SPORTS=true): the full Rundown catalog —
+ * every sport_id we know — with optional exclusion via
+ * RUNDOWN_SYNC_EXCLUDE_SPORT_IDS (comma-separated ids).
+ *
+ * Override (RUNDOWN_SYNC_ALL_SPORTS=false): the legacy tier-list union.
+ *
+ * Stable ordering in both branches so the rotation cursor is consistent
+ * across daemon restarts.
+ *
+ * @return list<string>
+ */
+function resolveAllConfiguredSports(): array
+{
+    $syncAll = strtolower((string) Env::get('RUNDOWN_SYNC_ALL_SPORTS', 'true')) !== 'false';
+    if ($syncAll) {
+        $excludeRaw = (string) Env::get('RUNDOWN_SYNC_EXCLUDE_SPORT_IDS', '');
+        $exclude = array_values(array_filter(array_map('intval', explode(',', $excludeRaw)), static fn ($v) => $v > 0));
+        return RundownSportMap::canonicalSportKeys($exclude);
+    }
+    $tier1   = (string) Env::get('ODDS_TIER1_SPORTS', '');
+    $tier2   = (string) Env::get('ODDS_TIER2_SPORTS', '');
+    $allowed = (string) Env::get('ODDS_ALLOWED_SPORTS', '');
+    $merged  = $tier1 . ',' . $tier2 . ',' . $allowed;
+    $list    = array_values(array_unique(array_filter(array_map('trim', explode(',', $merged)), static fn ($v) => $v !== '')));
+    sort($list);
+    return $list;
+}

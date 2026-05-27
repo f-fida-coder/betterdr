@@ -2134,10 +2134,40 @@ final class BetsController
         $sportKey = (string) ($match['sportKey'] ?? '');
         $lastOddsAt = (string) ($match['lastOddsSyncAt'] ?? $match['lastUpdated'] ?? '');
         $oddsAge = $lastOddsAt !== '' ? max(0, time() - (int) strtotime($lastOddsAt)) : PHP_INT_MAX;
-        // TODO: Rundown — on-demand per-sport odds refresh at bet-time goes here.
-        // Triggered when $sportKey !== '' && $oddsAge > $betTimeFreshSecs.
-        // After refresh, re-read the matches row so the price check below sees
-        // the freshest odds. Fail-open on upstream errors.
+        // Sharp protection: if odds for this match's sport are stale, do a
+        // synchronous Rundown refresh BEFORE we compare the user's accepted
+        // price to the official one. Dedup'd via SharedFileCache so
+        // concurrent bets on the same sport share one upstream call. Fail-
+        // open on upstream errors — better to risk a stale price than to
+        // block a real bet.
+        if ($sportKey !== '' && $oddsAge > $betTimeFreshSecs && RundownClient::isConfigured()) {
+            try {
+                $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                if ($sportId !== null) {
+                    $dedup = SharedFileCache::remember(
+                        'bet-time-rundown-refresh',
+                        $sportKey,
+                        max(5, (int) ($betTimeFreshSecs / 2)),
+                        static function () use ($sportKey, $sportId): array {
+                            // closure captures $this implicitly via $db below
+                            return ['at' => time()];
+                        }
+                    );
+                    // Only the first caller in the dedup window actually
+                    // refreshes; later callers get the cached marker.
+                    if (is_array($dedup) && (int) ($dedup['at'] ?? 0) >= (time() - 2)) {
+                        RundownSyncService::syncSportLive($this->db, $sportKey, $sportId);
+                        $match = $this->db->findOne('matches', ['id' => SqlRepository::id($matchId)]) ?? $match;
+                    }
+                }
+            } catch (Throwable $betTimeRefreshErr) {
+                Logger::warning('bet-time rundown refresh failed', [
+                    'matchId'  => $matchId,
+                    'sportKey' => $sportKey,
+                    'error'    => $betTimeRefreshErr->getMessage(),
+                ], 'sportsbook');
+            }
+        }
 
         $match = SportsbookHealth::applyBettingAvailability($this->db, $match);
         if (($match['isBettable'] ?? false) !== true) {
@@ -2164,9 +2194,12 @@ final class BetsController
         // keys but the match was never expanded (or expansion expired),
         // refresh on demand and re-look up so the user can actually place
         // the bet they were just shown.
-        // TODO: Rundown — lazy fetch of extended/player-prop markets for
-        // $match when $normalizedType references an extended key. After
-        // upstream fetch, re-read the matches row and re-resolve $market.
+        // Phase 2 (deferred): lazy fetch of player-prop / alt-period markets.
+        // v1 of the Rundown integration ships core markets only (h2h /
+        // spreads / totals / team_totals) — see RundownMarketMap. The
+        // legacy extendedMarkets cache is intentionally not populated;
+        // bets referencing extended keys will fall through to the
+        // standard market lookup below and 404 cleanly.
 
         if ($market === null && is_array($oddsRoot) && !isset($oddsRoot['markets'])) {
             $outcomes = [];

@@ -129,58 +129,143 @@ final class DebugController
         }
     }
 
+    /**
+     * Historical odds for a sport on a given date — re-pulls the
+     * /sports/{id}/events/{date} snapshot (returns events with markets
+     * as Rundown saw them on that date). Rundown bills historical
+     * snapshots as data points; admin-only.
+     */
     private function historicalOdds(string $sportKey): void
     {
         try {
             if ($this->protectAdminOnly() === null) return;
             $date = (string) ($_GET['date'] ?? '');
             if ($date === '') { Response::json(['ok' => false, 'error' => 'missing_date'], 400); return; }
-            $markets = isset($_GET['markets']) ? (string) $_GET['markets'] : null;
-            $regions = isset($_GET['regions']) ? (string) $_GET['regions'] : null;
-            // TODO: Rundown — historical odds fetch ($sportKey, $date, $markets, $regions).
-            Response::json(['ok' => false, 'pending' => 'rundown']);
+            $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+            if ($sportId === null) {
+                Response::json(['ok' => false, 'error' => 'unmapped_sport_key'], 400);
+                return;
+            }
+            $markets = isset($_GET['markets']) ? (string) $_GET['markets'] : RundownMarketMap::csvForCore();
+            $params  = ['market_ids' => $markets, 'main_line' => 'true'];
+            $resp = RundownClient::getEventsForSport($sportId, $date, $params);
+            Response::json([
+                'ok' => true,
+                'sportKey' => $sportKey,
+                'sportId'  => $sportId,
+                'date'     => $date,
+                'events'   => is_array($resp['events'] ?? null) ? $resp['events'] : [],
+                'meta'     => is_array($resp['meta'] ?? null) ? $resp['meta'] : new stdClass(),
+            ]);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
     }
 
+    /**
+     * Historical event listing for a sport on a given date. Uses the
+     * same /sports/{id}/events/{date} endpoint but projects events
+     * without market detail for a lighter payload.
+     */
     private function historicalEvents(string $sportKey): void
     {
         try {
             if ($this->protectAdminOnly() === null) return;
             $date = (string) ($_GET['date'] ?? '');
             if ($date === '') { Response::json(['ok' => false, 'error' => 'missing_date'], 400); return; }
-            // TODO: Rundown — historical events fetch ($sportKey, $date).
-            Response::json(['ok' => false, 'pending' => 'rundown']);
+            $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+            if ($sportId === null) {
+                Response::json(['ok' => false, 'error' => 'unmapped_sport_key'], 400);
+                return;
+            }
+            // hide_no_markets=false so historical events without books posted
+            // still appear (admin retrospection may want events with empty markets).
+            $resp = RundownClient::getEventsForSport($sportId, $date, ['hide_no_markets' => 'false']);
+            $events = is_array($resp['events'] ?? null) ? $resp['events'] : [];
+            $projected = array_map(static function ($e) {
+                if (!is_array($e)) return null;
+                $score = is_array($e['score'] ?? null) ? $e['score'] : [];
+                $teams = is_array($e['teams'] ?? null) ? $e['teams'] : [];
+                return [
+                    'event_id'   => (string) ($e['event_id'] ?? ''),
+                    'event_date' => (string) ($e['event_date'] ?? ''),
+                    'status'     => (string) ($score['event_status'] ?? ''),
+                    'teams'      => array_map(static fn ($t) => is_array($t) ? [
+                        'name'         => (string) ($t['name'] ?? ''),
+                        'abbreviation' => (string) ($t['abbreviation'] ?? ''),
+                        'is_home'      => (bool)   ($t['is_home'] ?? false),
+                    ] : null, $teams),
+                ];
+            }, $events);
+            Response::json([
+                'ok' => true,
+                'sportKey' => $sportKey,
+                'sportId'  => $sportId,
+                'date'     => $date,
+                'events'   => array_values(array_filter($projected, static fn ($v) => $v !== null)),
+            ]);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
     }
 
+    /**
+     * Price history for one event (line-movement analysis).
+     * Uses /events/{id}/markets/history with optional from/to RFC3339 range.
+     */
     private function historicalEventOdds(string $sportKey, string $eventId): void
     {
         try {
             if ($this->protectAdminOnly() === null) return;
             $date = (string) ($_GET['date'] ?? '');
             if ($date === '') { Response::json(['ok' => false, 'error' => 'missing_date'], 400); return; }
-            $markets = isset($_GET['markets']) ? (string) $_GET['markets'] : null;
-            $regions = isset($_GET['regions']) ? (string) $_GET['regions'] : null;
-            // TODO: Rundown — historical event odds fetch.
-            Response::json(['ok' => false, 'pending' => 'rundown']);
+            $params = ['market_ids' => isset($_GET['markets']) ? (string) $_GET['markets'] : RundownMarketMap::csvForCore()];
+            if (isset($_GET['from'])) $params['from'] = (string) $_GET['from'];
+            if (isset($_GET['to']))   $params['to']   = (string) $_GET['to'];
+            $params['limit'] = max(1, min(5000, (int) ($_GET['limit'] ?? 1000)));
+            $resp = RundownClient::getEventMarketHistory($eventId, $params);
+            Response::json([
+                'ok' => true,
+                'sportKey' => $sportKey,
+                'eventId'  => $eventId,
+                'meta'     => is_array($resp['meta'] ?? null) ? $resp['meta'] : new stdClass(),
+                'history'  => is_array($resp['history'] ?? null) ? $resp['history'] : [],
+            ]);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
     }
 
+    /**
+     * Per-event market catalog — same /events/{id}/markets/history endpoint,
+     * grouped by (market_id, affiliate_id) for the admin "which books
+     * actually moved this line?" view.
+     */
     private function historicalEventMarkets(string $sportKey, string $eventId): void
     {
         try {
             if ($this->protectAdminOnly() === null) return;
             $date = (string) ($_GET['date'] ?? '');
             if ($date === '') { Response::json(['ok' => false, 'error' => 'missing_date'], 400); return; }
-            $regions = isset($_GET['regions']) ? (string) $_GET['regions'] : null;
-            // TODO: Rundown — historical event-markets fetch.
-            Response::json(['ok' => false, 'pending' => 'rundown']);
+            $params = ['limit' => max(1, min(5000, (int) ($_GET['limit'] ?? 5000)))];
+            if (isset($_GET['from'])) $params['from'] = (string) $_GET['from'];
+            if (isset($_GET['to']))   $params['to']   = (string) $_GET['to'];
+            $resp = RundownClient::getEventMarketHistory($eventId, $params);
+            $history = is_array($resp['history'] ?? null) ? $resp['history'] : [];
+            $byMarket = [];
+            foreach ($history as $row) {
+                if (!is_array($row)) continue;
+                $mid = (int) ($row['market_id'] ?? 0);
+                $aid = (int) ($row['affiliate_id'] ?? 0);
+                $byMarket[$mid][$aid][] = $row;
+            }
+            Response::json([
+                'ok' => true,
+                'sportKey' => $sportKey,
+                'eventId'  => $eventId,
+                'byMarket' => $byMarket,
+                'meta'     => is_array($resp['meta'] ?? null) ? $resp['meta'] : new stdClass(),
+            ]);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
@@ -190,30 +275,89 @@ final class DebugController
     {
         try {
             if ($this->protectAdminOnly() === null) return;
-            // TODO: Rundown — sync participants for $sportKey.
-            Response::json(['ok' => false, 'pending' => 'rundown']);
+            $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+            if ($sportId === null) {
+                Response::json(['ok' => false, 'error' => 'unmapped_sport_key'], 400);
+                return;
+            }
+            $resp = RundownClient::getTeamsForSport($sportId);
+            if (!is_array($resp)) {
+                Response::json(['ok' => false, 'error' => 'rundown_not_configured'], 503);
+                return;
+            }
+            $teams = is_array($resp['teams'] ?? null) ? $resp['teams'] : [];
+            Response::json([
+                'ok' => true,
+                'sportKey' => $sportKey,
+                'sportId'  => $sportId,
+                'teamCount' => count($teams),
+            ]);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
     }
 
+    /**
+     * Outright / futures sync — Rundown doesn't have a dedicated outrights
+     * endpoint; tournament-winner markets surface inside the regular events
+     * feed with participant_type=player. We re-pull the sport's prematch
+     * window with the player participant filter and forward what came back.
+     */
     private function syncOutrights(string $sportKey): void
     {
         try {
             if ($this->protectAdminOnly() === null) return;
-            // TODO: Rundown — sync outrights for $sportKey.
-            Response::json(['ok' => false, 'pending' => 'rundown']);
+            $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+            if ($sportId === null) {
+                Response::json(['ok' => false, 'error' => 'unmapped_sport_key'], 400);
+                return;
+            }
+            $offsetMin = (int) Env::get('RUNDOWN_DATE_OFFSET_MINUTES', '300');
+            $date = (string) ($_GET['date'] ?? gmdate('Y-m-d', time() - $offsetMin * 60));
+            $resp = RundownClient::getEventsForSport($sportId, $date, [
+                'participant_type' => 'player',
+                'hide_no_markets'  => 'true',
+                'offset'           => $offsetMin,
+            ]);
+            $events = is_array($resp['events'] ?? null) ? $resp['events'] : [];
+            Response::json([
+                'ok' => true,
+                'sportKey' => $sportKey,
+                'sportId'  => $sportId,
+                'date'     => $date,
+                'outrightCount' => count($events),
+                'events'   => $events,
+            ]);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
     }
 
+    /**
+     * List sport keys we'd consider for outright sync. Rundown carries
+     * tournament futures inside the regular events feed for the relevant
+     * sports (soccer / golf when in season / tennis grand slams), so this
+     * is simply the intersection of "configured sports" and "sports that
+     * commonly post futures".
+     */
     private function listOutrightSports(): void
     {
         try {
             if ($this->protectAdminOnly() === null) return;
-            // TODO: Rundown — list configured outright sports.
-            Response::json(['ok' => true, 'sports' => []]);
+            $futuresEligible = [
+                'soccer_epl', 'soccer_uefa_champs_league', 'soccer_uefa_europa_league',
+                'soccer_uefa_euro', 'soccer_fifa_world_cup',
+                'tennis_atp', 'tennis_atp_french_open', 'tennis_atp_us_open',
+                'tennis_atp_wimbledon', 'tennis_atp_aus_open',
+                'tennis_wta', 'tennis_wta_french_open', 'tennis_wta_us_open',
+                'tennis_wta_wimbledon', 'tennis_wta_aus_open',
+                'mma_mixed_martial_arts',
+                'basketball_nba_playoffs', 'americanfootball_nfl_playoffs',
+            ];
+            $configured = explode(',', (string) Env::get('ODDS_TIER1_SPORTS', '') . ',' . (string) Env::get('ODDS_TIER2_SPORTS', ''));
+            $configured = array_filter(array_map('trim', $configured));
+            $sports = array_values(array_intersect($futuresEligible, $configured));
+            Response::json(['ok' => true, 'sports' => $sports]);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
@@ -223,8 +367,26 @@ final class DebugController
     {
         try {
             if ($this->protectAdminOnly() === null) return;
-            // TODO: Rundown — list events for $sportKey.
-            Response::json(['ok' => false, 'pending' => 'rundown']);
+            $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+            if ($sportId === null) {
+                Response::json(['ok' => false, 'error' => 'unmapped_sport_key'], 400);
+                return;
+            }
+            $offsetMin = (int) Env::get('RUNDOWN_DATE_OFFSET_MINUTES', '300');
+            $date = (string) ($_GET['date'] ?? gmdate('Y-m-d', time() - $offsetMin * 60));
+            $resp = RundownClient::getEventsForSport($sportId, $date, [
+                'market_ids' => RundownMarketMap::csvForCore(),
+                'main_line'  => 'true',
+                'offset'     => $offsetMin,
+            ]);
+            Response::json([
+                'ok' => true,
+                'sportKey' => $sportKey,
+                'sportId' => $sportId,
+                'date' => $date,
+                'eventCount' => is_array($resp['events'] ?? null) ? count($resp['events']) : 0,
+                'deltaLastId' => $resp['meta']['delta_last_id'] ?? null,
+            ]);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
@@ -234,8 +396,25 @@ final class DebugController
     {
         try {
             if ($this->protectAdminOnly() === null) return;
-            // TODO: Rundown — list available markets for ($sportKey, $eventId).
-            Response::json(['ok' => false, 'pending' => 'rundown']);
+            $resp = RundownClient::getEvent($eventId, ['market_ids' => RundownMarketMap::csvForCore(), 'main_line' => 'true']);
+            if (!is_array($resp)) {
+                Response::json(['ok' => false, 'error' => 'rundown_not_configured'], 503);
+                return;
+            }
+            $events = is_array($resp['events'] ?? null) ? $resp['events'] : [];
+            $event  = $events[0] ?? null;
+            $markets = is_array($event['markets'] ?? null) ? $event['markets'] : [];
+            $summary = [];
+            foreach ($markets as $m) {
+                if (!is_array($m)) continue;
+                $summary[] = [
+                    'market_id' => (int) ($m['market_id'] ?? 0),
+                    'period_id' => (int) ($m['period_id'] ?? 0),
+                    'name'      => (string) ($m['name'] ?? ''),
+                    'participants' => count(is_array($m['participants'] ?? null) ? $m['participants'] : []),
+                ];
+            }
+            Response::json(['ok' => true, 'eventId' => $eventId, 'markets' => $summary]);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
@@ -278,13 +457,30 @@ final class DebugController
                 return;
             }
 
-            // TODO: Rundown — implement upstream smoke test (auth + reachability).
-            $result = [
-                'ok' => false,
-                'configured' => false,
-                'pending' => 'rundown',
-            ];
-            Response::json($result, 503);
+            if (!RundownClient::isConfigured()) {
+                Response::json([
+                    'ok' => false,
+                    'configured' => false,
+                    'error' => 'RUNDOWN_API_KEY is not set',
+                ], 503);
+                return;
+            }
+            try {
+                $sports = RundownClient::getSports();
+                $count  = is_array($sports['sports'] ?? null) ? count($sports['sports']) : 0;
+                Response::json([
+                    'ok'         => true,
+                    'configured' => true,
+                    'sportsListed' => $count,
+                    'quota'      => RundownClient::latestQuotaSnapshot(),
+                ]);
+            } catch (Throwable $e) {
+                Response::json([
+                    'ok' => false,
+                    'configured' => true,
+                    'error' => $e->getMessage(),
+                ], 502);
+            }
         } catch (Throwable $e) {
             Logger::exception($e, 'Sports API smoke test error');
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
@@ -319,17 +515,66 @@ final class DebugController
             $errors = 0;
             $apiCalls = 0;
             foreach ($batch as $sportKey) {
-                // TODO: Rundown — per-sport prematch sync goes here.
-                $perSport[$sportKey] = ['updated' => 0, 'pending' => 'rundown'];
+                $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                if ($sportId === null) {
+                    $perSport[$sportKey] = ['updated' => 0, 'skipped' => 'unmapped_sport'];
+                    continue;
+                }
+                $result = RundownSyncService::syncSportPrematch($this->db, $sportKey, $sportId);
+                $apiCalls += (int) ($result['daysCovered'] ?? 0);
+                $totalUpdated += (int) ($result['created'] ?? 0) + (int) ($result['updated'] ?? 0);
+                $errors += (int) ($result['errors'] ?? 0);
+                $perSport[$sportKey] = [
+                    'updated'    => (int) ($result['created'] ?? 0) + (int) ($result['updated'] ?? 0),
+                    'eventsSeen' => (int) ($result['eventsSeen'] ?? 0),
+                    'created'    => (int) ($result['created'] ?? 0),
+                    'errors'     => (int) ($result['errors'] ?? 0),
+                ];
+                if (isset($result['skipped'])) {
+                    $perSport[$sportKey]['skipped'] = (string) $result['skipped'];
+                }
             }
 
             // Bump cursor so the next tick picks up where we left off.
             self::advanceRotationCursor($sports, count($batch));
 
-            // TODO: Rundown — extended/period/player-prop market sync for
-            // the rotation batch goes here. Default-on via
-            // ODDS_EXTENDED_SYNC_ENABLED; tier3 cutout from tierConfig().
+            // Extended sync — pull props + period + alt markets for the
+            // same rotation batch. Default-on via ODDS_EXTENDED_SYNC_ENABLED.
+            // Heavier on data points than core sync; opt out by setting
+            // ODDS_EXTENDED_SYNC_ENABLED=false in env.
             $extended = null;
+            $extendedEnabled = strtolower((string) Env::get('ODDS_EXTENDED_SYNC_ENABLED', 'true')) !== 'false';
+            if ($extendedEnabled) {
+                $extended = [
+                    'sportsTried'    => 0,
+                    'eventsSeen'     => 0,
+                    'updated'        => 0,
+                    'propsTotal'     => 0,
+                    'errors'         => 0,
+                    'perSport'       => [],
+                ];
+                foreach ($batch as $sportKey) {
+                    $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                    if ($sportId === null) continue;
+                    $r = RundownSyncService::syncSportFull($this->db, $sportKey, $sportId);
+                    $extended['sportsTried']++;
+                    $extended['eventsSeen']  += (int) ($r['eventsSeen'] ?? 0);
+                    $extended['updated']     += (int) ($r['created'] ?? 0) + (int) ($r['updated'] ?? 0);
+                    $extended['propsTotal']  += (int) ($r['propsTotal'] ?? 0);
+                    $extended['errors']      += (int) ($r['errors'] ?? 0);
+                    $extended['perSport'][$sportKey] = [
+                        'eventsSeen' => (int) ($r['eventsSeen'] ?? 0),
+                        'propsTotal' => (int) ($r['propsTotal'] ?? 0),
+                        'errors'     => (int) ($r['errors'] ?? 0),
+                    ];
+                }
+                SportsbookHealth::recordExtendedSyncResult($this->db, [
+                    'freshMatches'    => $extended['updated'],
+                    'preservedMatches' => 0,
+                    'errors'          => $extended['errors'],
+                    'freshBySport'    => array_map(static fn ($v) => (int) ($v['eventsSeen'] ?? 0), $extended['perSport']),
+                ]);
+            }
 
             // Settlement sweep — grade any matches that flipped to
             // `finished`/`canceled` since the last cron run. On Hostinger
@@ -422,13 +667,29 @@ final class DebugController
                 $throttled = true;
             } else {
                 try {
-                    // TODO: Rundown — live odds sync goes here.
+                    // Walk every sport that currently has at least one
+                    // live or imminently-live row in the DB and refresh
+                    // it from Rundown. Cheap when nothing is live (zero
+                    // sports → zero upstream calls); scales with how
+                    // many sports are actively in-progress.
+                    $liveSports = self::distinctLiveOrSoonSportKeys($this->db);
+                    $sportsTried = 0;
+                    $eventsSeen  = 0;
+                    $updated     = 0;
+                    foreach ($liveSports as $sportKey) {
+                        $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                        if ($sportId === null) continue;
+                        $result = RundownSyncService::syncSportLive($this->db, $sportKey, $sportId);
+                        $sportsTried++;
+                        $eventsSeen += (int) ($result['eventsSeen'] ?? 0);
+                        $updated    += (int) ($result['created'] ?? 0) + (int) ($result['updated'] ?? 0);
+                    }
                     $this->markUserSyncRan($throttleKey);
                     $this->markTickRan('live');
                     $this->logTickFinish($tickLogId, 'ok', [
-                        'sportsTried' => 0,
-                        'eventsSeen' => 0,
-                        'updated' => 0,
+                        'sportsTried' => $sportsTried,
+                        'eventsSeen'  => $eventsSeen,
+                        'updated'     => $updated,
                     ], null);
                 } catch (Throwable $e) {
                     Logger::exception($e, 'user-live-sync error');
@@ -526,11 +787,15 @@ final class DebugController
         if (!$throttled) {
             $tickLogId = $this->logTickStart('user_prematch:' . $sportKey);
             try {
-                // TODO: Rundown — per-sport prematch sync goes here. Apply
-                // upstream quota cap and short-circuit with skipped_quota_cap
-                // if exhausted.
-                $this->markUserSyncRan($throttleKey);
-                $this->logTickFinish($tickLogId, 'ok', ['updated' => 0], null);
+                $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                if ($sportId === null) {
+                    $this->logTickFinish($tickLogId, 'ok', ['updated' => 0, 'skipped' => 'unmapped_sport'], null);
+                } else {
+                    $result = RundownSyncService::syncSportPrematch($this->db, $sportKey, $sportId);
+                    $this->markUserSyncRan($throttleKey);
+                    $updated = (int) ($result['created'] ?? 0) + (int) ($result['updated'] ?? 0);
+                    $this->logTickFinish($tickLogId, 'ok', ['updated' => $updated, 'eventsSeen' => (int) ($result['eventsSeen'] ?? 0)], null);
+                }
             } catch (Throwable $e) {
                 Logger::exception($e, 'user-prematch-sync error');
                 $this->logTickFinish($tickLogId, 'failed', null, $e->getMessage());
@@ -765,12 +1030,43 @@ final class DebugController
             if (!is_array($m)) return false;
             $sportKey = strtolower((string) ($m['sportKey'] ?? ''));
             if ($sportKey === '') return false;
-            // TODO: Rundown — gate by `oddsSource` once Rundown writes that tag.
+            // Hide rows from any upstream we've stopped writing to —
+            // prevents stale odds-api leftovers from polluting Live Now
+            // after a source switch.
+            $source = strtolower((string) ($m['oddsSource'] ?? ''));
+            if ($source !== '' && $source !== RundownEventMapper::ODDS_SOURCE_TAG) return false;
             $last = (string) ($m['lastOddsSyncAt'] ?? '');
             $lastTs = $last !== '' ? strtotime($last) : false;
             if ($lastTs === false) return false;
             return ($now - $lastTs) <= MatchesController::liveFreshnessSecondsForSport($sportKey);
         }));
+    }
+
+    /**
+     * Sport keys with at least one row that's live OR scheduled within
+     * the active polling window (default 24 h). Used by userLiveSync to
+     * scope the Rundown refresh — same predicate as the daemon's delta
+     * poll target so a user's manual refresh hits the same sports the
+     * background worker is already tracking.
+     *
+     * @return list<string>
+     */
+    private static function distinctLiveOrSoonSportKeys(SqlRepository $db): array
+    {
+        $windowHours = max(1, (int) Env::get('RUNDOWN_ACTIVE_WINDOW_HOURS', '24'));
+        $now = gmdate(DATE_ATOM);
+        $soon = gmdate(DATE_ATOM, time() + ($windowHours * 3600));
+        $live = $db->findMany('matches', ['status' => 'live'], ['projection' => ['sportKey' => 1], 'limit' => 1000]);
+        $soonRows = $db->findMany('matches', [
+            'status'    => 'scheduled',
+            'startTime' => ['$gte' => $now, '$lte' => $soon],
+        ], ['projection' => ['sportKey' => 1], 'limit' => 1000]);
+        $keys = [];
+        foreach (array_merge(is_array($live) ? $live : [], is_array($soonRows) ? $soonRows : []) as $row) {
+            $k = strtolower((string) ($row['sportKey'] ?? ''));
+            if ($k !== '') $keys[$k] = true;
+        }
+        return array_keys($keys);
     }
 
     /** Pre-match rows for one sport, mirrors /api/matches?status=upcoming&sportKey=... */
@@ -784,13 +1080,29 @@ final class DebugController
     }
 
     /**
-     * Configured sport keys for the prematch tick. Stable order so the
-     * rotation cursor refers to the same slots across calls.
+     * Sport keys for the prematch rotation tick.
+     *
+     * If RUNDOWN_SYNC_ALL_SPORTS=true (default) we use the FULL Rundown
+     * catalog — every sport_id RundownSportMap knows. Optional exclusions
+     * via RUNDOWN_SYNC_EXCLUDE_SPORT_IDS (comma-separated ids).
+     *
+     * If RUNDOWN_SYNC_ALL_SPORTS=false we fall back to the legacy
+     * tier-list union (ODDS_TIER1_SPORTS + ODDS_TIER2_SPORTS + ODDS_ALLOWED_SPORTS),
+     * which lets an operator restrict the rotation to a hand-picked list.
+     *
+     * Stable order in both branches so the rotation cursor refers to the
+     * same slots across calls.
      *
      * @return list<string>
      */
     private static function resolveAllConfiguredSports(): array
     {
+        $syncAll = strtolower((string) Env::get('RUNDOWN_SYNC_ALL_SPORTS', 'true')) !== 'false';
+        if ($syncAll) {
+            $excludeRaw = (string) Env::get('RUNDOWN_SYNC_EXCLUDE_SPORT_IDS', '');
+            $exclude = array_values(array_filter(array_map('intval', explode(',', $excludeRaw)), static fn ($v) => $v > 0));
+            return RundownSportMap::canonicalSportKeys($exclude);
+        }
         $tier1 = (string) Env::get('ODDS_TIER1_SPORTS', '');
         $tier2 = (string) Env::get('ODDS_TIER2_SPORTS', '');
         $allowed = (string) Env::get('ODDS_ALLOWED_SPORTS', 'basketball_nba,americanfootball_nfl,soccer_epl,baseball_mlb,icehockey_nhl');
@@ -1197,8 +1509,7 @@ final class DebugController
                     'bySport' => $prematchBySport,
                 ],
                 'quotaCounts' => [
-                    // TODO: Rundown — replace with the new upstream's quota counter.
-                    'upstreamLastMinute' => 0,
+                    'rundown' => RundownClient::latestQuotaSnapshot(),
                 ],
                 'worker' => [
                     'logExists' => is_file($workerLog),
