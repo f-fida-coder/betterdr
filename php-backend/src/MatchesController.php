@@ -787,23 +787,43 @@ final class MatchesController
      */
     private function computeAvailableSports(): array
     {
-        // Only include sports whose matches have at least one posted odds
-        // source. Upstream frequently returns events for minor leagues
-        // with zero bookmaker coverage in the configured region;
-        // emitting those in the sidebar leads to empty "CRICKET PSL"
-        // style entries that click through to nothing.
+        // Only include sports whose matches will actually surface in
+        // computeMatches(). A row must satisfy ALL of:
+        //   (a) status IN ('scheduled', 'live')
+        //   (b) oddsSource != 'oddsapi'  — legacy upstream we stopped
+        //                                  writing to; stale rows linger
+        //                                  but must not advertise their sport
+        //   (c) startTime > now          — unless status='live' (a row
+        //                                  past kickoff is only valid if
+        //                                  it's been auto-promoted to live)
+        //   (d) lastOddsSyncAt within:
+        //         live / effectively-live (past-kickoff scheduled):
+        //             self::liveFreshnessSecondsForSport($sportKey) — 90s default
+        //         future-scheduled:
+        //             PREMATCH_FRESHNESS_SECONDS_DEFAULT             — 300s default
+        //   (e) at least one of:
+        //         odds.bookmakers[i].markets — current Rundown shape
+        //         odds.markets               — legacy odds-api shape, kept
+        //                                      so historical rows that
+        //                                      survive (a)-(d) still surface
+        //         extendedMarkets            — period markets (Q1-Q4 / F5 /
+        //                                      set_1) when no core posted yet
         //
-        // A row counts as "has data" if ANY of the following is non-empty:
-        //   1. odds.bookmakers[i].markets  — current Rundown shape
-        //   2. odds.markets                — legacy odds-api shape, kept
-        //                                    so historical rows still surface
-        //   3. extendedMarkets             — period markets (Q1-Q4 / F5 /
-        //                                    set_1) when no core is posted yet
+        // Gates (b)-(d) mirror computeMatches() lines 369-393 / 394-450
+        // exactly so the sidebar can never advertise a sport whose match
+        // list will then turn up empty ("No matches with live odds").
         $matches = $this->db->findMany(
             'matches',
             ['status' => ['$in' => ['scheduled', 'live']]],
-            ['projection' => ['sport' => 1, 'sportKey' => 1, 'status' => 1, 'odds' => 1, 'extendedMarkets' => 1]]
+            ['projection' => [
+                'sport' => 1, 'sportKey' => 1, 'status' => 1,
+                'odds' => 1, 'extendedMarkets' => 1,
+                'startTime' => 1, 'lastOddsSyncAt' => 1, 'oddsSource' => 1,
+                'lastUpdated' => 1, 'updatedAt' => 1, 'score' => 1,
+            ]]
         );
+        $now            = time();
+        $prematchMaxAge = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
         $sports = [];
         foreach ($matches as $match) {
             if (!is_array($match)) {
@@ -813,6 +833,47 @@ final class MatchesController
             if (!in_array($status, ['scheduled', 'live'], true)) {
                 continue;
             }
+
+            // Source gate — drop legacy odds-api leftovers. Empty/null
+            // passes (rows pre-dating the field), matching the same rule
+            // computeMatches() applies at line 384.
+            $source = strtolower((string) ($match['oddsSource'] ?? ''));
+            if ($source === 'oddsapi') {
+                continue;
+            }
+
+            // Public-visibility gate — defer to the same authority the
+            // match list uses (SportsMatchStatus::effectiveStatus), so an
+            // 'expired' row (past kickoff with no fresh sync, past 8h
+            // live, etc.) is dropped here too. Hidden statuses include
+            // 'finished', 'expired', 'canceled'. This catches:
+            //   - scheduled rows whose startTime passed and aren't being
+            //     auto-promoted (no fresh lastUpdated)
+            //   - live rows that have been live for >MATCH_LIVE_MAX_DURATION
+            //   - live rows whose lastUpdated is older than MATCH_LIVE_STALE_AFTER
+            if (!SportsMatchStatus::isPublicVisible($match, $now)) {
+                continue;
+            }
+
+            // Freshness gate — lastOddsSyncAt must be inside the same
+            // window the match-list view applies. Live (or effectively-
+            // live: past-kickoff scheduled) rows get the per-sport live
+            // budget; future-scheduled rows get the prematch budget.
+            $startTime = (string) ($match['startTime'] ?? '');
+            $startTs   = $startTime !== '' ? strtotime($startTime) : false;
+            $last   = (string) ($match['lastOddsSyncAt'] ?? '');
+            $lastTs = $last !== '' ? strtotime($last) : false;
+            if ($lastTs === false) {
+                continue;
+            }
+            $effectivelyLive = ($status === 'live') || ($startTs !== false && $startTs <= $now);
+            $maxAge = $effectivelyLive
+                ? self::liveFreshnessSecondsForSport((string) ($match['sportKey'] ?? ''))
+                : $prematchMaxAge;
+            if (($now - $lastTs) > $maxAge) {
+                continue;
+            }
+
             $odds       = is_array($match['odds'] ?? null) ? $match['odds'] : [];
             $bookmakers = is_array($odds['bookmakers'] ?? null) ? $odds['bookmakers'] : [];
             $markets    = is_array($odds['markets'] ?? null) ? $odds['markets'] : [];
