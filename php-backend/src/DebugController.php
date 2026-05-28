@@ -64,6 +64,10 @@ final class DebugController
             $this->listOutrightSports();
             return true;
         }
+        if ($method === 'GET' && $path === '/api/admin/rundown-catalog-audit') {
+            $this->rundownCatalogAudit();
+            return true;
+        }
         if ($method === 'GET' && preg_match('#^/api/admin/odds/historical/odds/([a-z][a-z0-9_]{1,79})$#', $path, $m) === 1) {
             $this->historicalOdds((string) $m[1]);
             return true;
@@ -484,6 +488,98 @@ final class DebugController
         } catch (Throwable $e) {
             Logger::exception($e, 'Sports API smoke test error');
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * GET /api/admin/rundown-catalog-audit
+     *
+     * One-shot diagnostic to catch drift between Rundown's current sport
+     * catalog and what we have hard-coded in RundownSportMap. Run it
+     * after Rundown announces a new sport or when the sidebar feels
+     * thin and we want to confirm we're not silently missing coverage.
+     *
+     * Returns three buckets keyed by sport_id:
+     *   mapped            — present upstream AND in our forward map
+     *   unmapped_upstream — present upstream but missing from the map
+     *                       (would need a row added to RundownSportMap
+     *                       + a child in frontend/src/data/sportsData.js)
+     *   unused_in_map     — in our map but NOT returned by upstream
+     *                       (likely retired or seasonal — informational,
+     *                       removing risks losing playoff/preseason coverage)
+     *
+     * Admin-only. Idempotent. ~1 Rundown credit per call.
+     */
+    private function rundownCatalogAudit(): void
+    {
+        try {
+            $actor = $this->protectAdminOnly();
+            if ($actor === null) return;
+
+            if (!RundownClient::isConfigured()) {
+                Response::json([
+                    'ok' => false,
+                    'configured' => false,
+                    'error' => 'RUNDOWN_API_KEY is not set',
+                ], 503);
+                return;
+            }
+
+            $resp = RundownClient::getSports();
+            $upstream = is_array($resp['sports'] ?? null) ? $resp['sports'] : [];
+
+            // Normalize upstream into sport_id => sport_name.
+            $upstreamById = [];
+            foreach ($upstream as $entry) {
+                if (!is_array($entry)) continue;
+                $sid = $entry['sport_id'] ?? null;
+                if (!is_numeric($sid)) continue;
+                $upstreamById[(int) $sid] = (string) ($entry['sport_name'] ?? '');
+            }
+
+            $mappedIds = RundownSportMap::allSupportedSportIds();
+            $mappedSet = array_flip($mappedIds);
+
+            $mapped = [];
+            $unmappedUpstream = [];
+            foreach ($upstreamById as $sid => $name) {
+                $row = [
+                    'sport_id'       => $sid,
+                    'upstream_name'  => $name,
+                ];
+                if (isset($mappedSet[$sid])) {
+                    $row['sport_key'] = RundownSportMap::sportIdToSportKey($sid);
+                    $row['display_name'] = RundownSportMap::displayName($sid);
+                    $mapped[] = $row;
+                } else {
+                    $unmappedUpstream[] = $row;
+                }
+            }
+
+            $unusedInMap = [];
+            foreach ($mappedIds as $sid) {
+                if (!isset($upstreamById[$sid])) {
+                    $unusedInMap[] = [
+                        'sport_id'    => $sid,
+                        'sport_key'   => RundownSportMap::sportIdToSportKey($sid),
+                        'display_name'=> RundownSportMap::displayName($sid),
+                    ];
+                }
+            }
+
+            Response::json([
+                'ok'                => true,
+                'configured'        => true,
+                'upstream_count'    => count($upstreamById),
+                'mapped_count'      => count($mapped),
+                'unmapped_upstream' => $unmappedUpstream,
+                'unused_in_map'     => $unusedInMap,
+                'mapped'            => $mapped,
+                'quota'             => RundownClient::latestQuotaSnapshot(),
+            ]);
+        } catch (Throwable $e) {
+            Logger::exception($e, 'rundownCatalogAudit failed');
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 502);
         }
     }
 
