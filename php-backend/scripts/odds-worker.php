@@ -199,6 +199,26 @@ while (!$shutdown) {
         }
     } catch (Throwable $e) {
         Logger::exception($e, 'odds-worker tick failed');
+
+        // If MySQL dropped our connection, the worker can't recover in-place
+        // (SqlRepository holds a single PDO across ticks). Exit so the
+        // watchdog restarts us with a fresh connection on its next 1-minute
+        // poll. Otherwise we'd loop forever logging identical "server has
+        // gone away" errors and odds would never refresh.
+        $msg = (string) $e->getMessage();
+        $isConnLost =
+            str_contains($msg, '2006')                  // MySQL server has gone away
+            || str_contains($msg, 'server has gone away')
+            || str_contains($msg, '2013')               // Lost connection during query
+            || str_contains($msg, 'Lost connection');
+        if ($isConnLost) {
+            Logger::error('odds-worker exiting: DB connection lost, watchdog will restart', [
+                'tick' => $tick,
+                'runtime' => time() - $startedAt,
+            ], 'sportsbook');
+            Logger::flush();
+            exit(2);
+        }
     }
 
     // Force-flush logs and check for voluntary restart.
