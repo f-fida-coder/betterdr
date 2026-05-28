@@ -54,24 +54,38 @@ export const HOCKEY_PERIODS = [
 export const SOCCER_PERIODS = [
     FULL_PERIOD,
     { id: '1h', label: '1H', suffix: '_h1' },
+    { id: '2h', label: '2H', suffix: '_h2' },
+];
+export const TENNIS_PERIODS = [
+    FULL_PERIOD,
+    { id: 'set-1', label: 'Set 1', suffix: '_set_1' },
+    { id: 'set-2', label: 'Set 2', suffix: '_set_2' },
+    { id: 'set-3', label: 'Set 3', suffix: '_set_3' },
 ];
 
 const PERIOD_CONFIG = {
     nba: BASKETBALL_PERIODS,
+    wnba: BASKETBALL_PERIODS,
     'ncaa-basketball': BASKETBALL_PERIODS,
     nfl: FOOTBALL_PERIODS,
     'ncaa-football': FOOTBALL_PERIODS,
+    cfl: FOOTBALL_PERIODS,
     mlb: BASEBALL_PERIODS,
     nhl: HOCKEY_PERIODS,
     soccer: SOCCER_PERIODS,
+    tennis: TENNIS_PERIODS,
+    atp: TENNIS_PERIODS,
+    wta: TENNIS_PERIODS,
 };
 
 const PERIOD_CONFIG_BY_SLUG_PREFIX = {
     basketball: BASKETBALL_PERIODS,
     americanfootball: FOOTBALL_PERIODS,
+    canadianfootball: FOOTBALL_PERIODS,
     baseball: BASEBALL_PERIODS,
     icehockey: HOCKEY_PERIODS,
     soccer: SOCCER_PERIODS,
+    tennis: TENNIS_PERIODS,
 };
 
 export const getPeriodsForSport = (sportId) => {
@@ -87,10 +101,11 @@ export const getPeriodsForSport = (sportId) => {
 export const getPeriodsForSportKey = (sportKey) => {
     const k = String(sportKey || '').toLowerCase();
     if (!k) return [FULL_PERIOD];
-    if (k === 'basketball_nba' || k === 'basketball_ncaab') return BASKETBALL_PERIODS;
-    if (k === 'americanfootball_nfl' || k === 'americanfootball_ncaaf') return FOOTBALL_PERIODS;
+    if (k === 'basketball_nba' || k === 'basketball_wnba' || k === 'basketball_ncaab') return BASKETBALL_PERIODS;
+    if (k === 'americanfootball_nfl' || k === 'americanfootball_ncaaf' || k === 'americanfootball_cfl') return FOOTBALL_PERIODS;
     if (k === 'baseball_mlb') return BASEBALL_PERIODS;
     if (k === 'icehockey_nhl') return HOCKEY_PERIODS;
+    if (k === 'tennis_atp' || k === 'tennis_wta' || k.startsWith('tennis_')) return TENNIS_PERIODS;
     const prefix = k.split('_')[0];
     if (PERIOD_CONFIG_BY_SLUG_PREFIX[prefix]) return PERIOD_CONFIG_BY_SLUG_PREFIX[prefix];
     return [FULL_PERIOD];
@@ -99,7 +114,7 @@ export const getPeriodsForSportKey = (sportKey) => {
 // Canonical chip ordering across ALL sports — used when unioning
 // presets for a multi-sport selection so e.g. NBA + NHL renders
 // Q1..Q4 + P1..P3 in a predictable order.
-const CHIP_ORDER = ['full', '1h', '2h', '1q', '2q', '3q', '4q', 'f1', 'f3', 'f5', 'f7', 'p1', 'p2', 'p3'];
+const CHIP_ORDER = ['full', '1h', '2h', '1q', '2q', '3q', '4q', 'f1', 'f3', 'f5', 'f7', 'p1', 'p2', 'p3', 'set-1', 'set-2', 'set-3'];
 
 export const getPeriodsForSports = (realSelected, fallbackSportId) => {
     if (!Array.isArray(realSelected) || realSelected.length === 0) {

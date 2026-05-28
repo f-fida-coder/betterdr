@@ -1,36 +1,18 @@
 /**
  * Sportsbook navigation data — single source of truth for desktop and mobile.
  *
- * DATA INTEGRITY:
- *   Only children whose sportKeys include a key from CONFIGURED_SPORT_KEYS
- *   will be shown in the sidebar. Children referencing unconfigured keys are
- *   kept in the tree (for future activation) but hidden by filterActiveChildren().
+ * Catalog is aligned 1:1 with what Rundown actually serves
+ * (php-backend/src/RundownSportMap.php). Sports our upstream does not
+ * provide (Boxing, Golf, Auto Racing) are intentionally absent —
+ * surfacing them would create permanently-empty child rows that
+ * confuse players.
  *
- *   Items marked type: 'futures' or type: 'props-plus' are PLACEHOLDERS:
- *   the upstream markets config (h2h, spreads, totals) does NOT include
- *   futures/props markets. These are shown for navigation structure but
- *   will display the parent sport's standard matches until those markets
- *   are separately configured.
+ * CONFIGURED_SPORT_KEYS is derived FROM this tree (see below) so the
+ * allowlist self-maintains when new sports are added.
  *
- * Currently configured sport keys (ODDS_ALLOWED_SPORTS default):
- *   basketball_nba, americanfootball_nfl, soccer_epl, baseball_mlb, icehockey_nhl
- *
- * Currently configured markets (default): h2h, spreads, totals
+ * Items marked type:'futures' route to <OutrightsView> via
+ * DashboardMain instead of the regular match list.
  */
-
-export const CONFIGURED_SPORT_KEYS = new Set([
-    'basketball_nba',
-    'americanfootball_nfl',
-    'soccer_epl',
-    'baseball_mlb',
-    'icehockey_nhl',
-]);
-
-/** Check whether at least one of a child's sportKeys is configured. */
-export const isChildActive = (child) => {
-    if (!child.sportKeys) return true;
-    return child.sportKeys.some(k => CONFIGURED_SPORT_KEYS.has(k));
-};
 
 export const sportsData = [
     {
@@ -47,9 +29,6 @@ export const sportsData = [
         selectable: true,
     },
     {
-        // Top-level entry that opens the futures/outrights leaderboard
-        // across all sports. type:'futures' is recognized in DashboardMain
-        // and routes to <OutrightsView> instead of <SportContentView>.
         id: 'all-futures',
         label: 'FUTURES',
         icon: 'fa-solid fa-trophy',
@@ -63,11 +42,9 @@ export const sportsData = [
         icon: 'fa-solid fa-basketball',
         selectable: false,
         children: [
-            { id: 'nba', label: 'NBA', selectable: true, sportKeys: ['basketball_nba'] },
+            { id: 'nba',             label: 'NBA',             selectable: true, sportKeys: ['basketball_nba'] },
+            { id: 'wnba',            label: 'WNBA',            selectable: true, sportKeys: ['basketball_wnba'] },
             { id: 'ncaa-basketball', label: 'NCAA Basketball', selectable: true, sportKeys: ['basketball_ncaab'] },
-            { id: 'wncaa-basketball', label: 'WNCAA Basketball', selectable: true, sportKeys: ['basketball_wncaab'] },
-            { id: 'euroleague', label: 'Euroleague/ Chams League/ Euro Cup', selectable: true, sportKeys: ['basketball_euroleague'] },
-            { id: 'wnba-futures', label: 'WNBA FUTURES', selectable: true, sportKeys: ['basketball_wnba'], type: 'futures' },
         ],
     },
     // ── BASEBALL ──────────────────────────────────────────────
@@ -97,8 +74,9 @@ export const sportsData = [
         icon: 'fa-solid fa-football',
         selectable: false,
         children: [
-            { id: 'nfl', label: 'NFL', selectable: true, sportKeys: ['americanfootball_nfl'] },
+            { id: 'nfl',           label: 'NFL',           selectable: true, sportKeys: ['americanfootball_nfl'] },
             { id: 'ncaa-football', label: 'NCAA Football', selectable: true, sportKeys: ['americanfootball_ncaaf'] },
+            { id: 'cfl',           label: 'CFL',           selectable: true, sportKeys: ['americanfootball_cfl'] },
         ],
     },
     // ── SOCCER ────────────────────────────────────────────────
@@ -108,25 +86,28 @@ export const sportsData = [
         icon: 'fa-solid fa-futbol',
         selectable: false,
         children: [
-            { id: 'epl', label: 'Premier League', selectable: true, sportKeys: ['soccer_epl'] },
-            { id: 'mls', label: 'MLS', selectable: true, sportKeys: ['soccer_usa_mls'] },
-            { id: 'la-liga', label: 'La Liga', selectable: true, sportKeys: ['soccer_spain_la_liga'] },
-            { id: 'serie-a', label: 'Serie A', selectable: true, sportKeys: ['soccer_italy_serie_a'] },
-            { id: 'bundesliga', label: 'Bundesliga', selectable: true, sportKeys: ['soccer_germany_bundesliga'] },
-            { id: 'ligue-1', label: 'Ligue 1', selectable: true, sportKeys: ['soccer_france_ligue_one'] },
-            { id: 'champions-league', label: 'Champions League', selectable: true, sportKeys: ['soccer_uefa_champs_league'] },
-            { id: 'europa-league', label: 'Europa League', selectable: true, sportKeys: ['soccer_uefa_europa_league'] },
+            { id: 'epl',              label: 'Premier League',         selectable: true, sportKeys: ['soccer_epl'] },
+            { id: 'mls',              label: 'MLS',                    selectable: true, sportKeys: ['soccer_usa_mls'] },
+            { id: 'la-liga',          label: 'La Liga',                selectable: true, sportKeys: ['soccer_spain_la_liga'] },
+            { id: 'serie-a',          label: 'Serie A',                selectable: true, sportKeys: ['soccer_italy_serie_a'] },
+            { id: 'bundesliga',       label: 'Bundesliga',             selectable: true, sportKeys: ['soccer_germany_bundesliga'] },
+            { id: 'ligue-1',          label: 'Ligue 1',                selectable: true, sportKeys: ['soccer_france_ligue_one'] },
+            { id: 'champions-league', label: 'Champions League',       selectable: true, sportKeys: ['soccer_uefa_champs_league'] },
+            { id: 'europa-league',    label: 'Europa League',          selectable: true, sportKeys: ['soccer_uefa_europa_league'] },
+            { id: 'uefa-euro',        label: 'UEFA Euro',              selectable: true, sportKeys: ['soccer_uefa_euro'] },
+            { id: 'fifa-world-cup',   label: 'FIFA World Cup',         selectable: true, sportKeys: ['soccer_fifa_world_cup'] },
+            { id: 'j-league',         label: 'J-League',               selectable: true, sportKeys: ['soccer_japan_j_league'] },
         ],
     },
-    // ── GOLF ──────────────────────────────────────────────────
+    // ── CRICKET ───────────────────────────────────────────────
     {
-        id: 'golf',
-        label: 'GOLF',
-        icon: 'fa-solid fa-golf-ball-tee',
+        id: 'cricket',
+        label: 'CRICKET',
+        icon: 'fa-solid fa-baseball',
         selectable: false,
         children: [
-            { id: 'pga', label: 'PGA Tour', selectable: true, sportKeys: ['golf_pga_championship'] },
-            { id: 'masters', label: 'Masters / Majors', selectable: true, sportKeys: ['golf_masters_tournament_winner'] },
+            { id: 'ipl', label: 'IPL', selectable: true, sportKeys: ['cricket_ipl'] },
+            { id: 't20', label: 'T20', selectable: true, sportKeys: ['cricket_t20'] },
         ],
     },
     // ── TENNIS ────────────────────────────────────────────────
@@ -136,8 +117,8 @@ export const sportsData = [
         icon: 'fa-solid fa-table-tennis-paddle-ball',
         selectable: false,
         children: [
-            { id: 'atp', label: 'ATP', selectable: true, sportKeys: ['tennis_atp_french_open', 'tennis_atp_us_open'] },
-            { id: 'wta', label: 'WTA', selectable: true, sportKeys: ['tennis_wta_french_open', 'tennis_wta_us_open'] },
+            { id: 'atp', label: 'ATP', selectable: true, sportKeys: ['tennis_atp'] },
+            { id: 'wta', label: 'WTA', selectable: true, sportKeys: ['tennis_wta'] },
         ],
     },
     // ── MARTIAL ARTS ─────────────────────────────────────────
@@ -150,28 +131,34 @@ export const sportsData = [
             { id: 'mma', label: 'UFC / MMA', selectable: true, sportKeys: ['mma_mixed_martial_arts'] },
         ],
     },
-    // ── BOXING ────────────────────────────────────────────────
-    {
-        id: 'boxing',
-        label: 'BOXING',
-        icon: 'fa-solid fa-mitten',
-        selectable: false,
-        children: [
-            { id: 'boxing-matches', label: 'Boxing Matches', selectable: true, sportKeys: ['boxing_boxing'] },
-        ],
-    },
-    // ── AUTO RACING ───────────────────────────────────────────
-    {
-        id: 'auto-racing',
-        label: 'AUTO RACING',
-        icon: 'fa-solid fa-flag-checkered',
-        selectable: false,
-        children: [
-            { id: 'nascar', label: 'NASCAR', selectable: true, sportKeys: ['motorsport_nascar'] },
-            { id: 'formula-1', label: 'Formula 1', selectable: true, sportKeys: ['motorsport_formula_one'] },
-        ],
-    },
 ];
+
+/**
+ * Self-maintaining allowlist of sport keys backed by upstream coverage.
+ * Built by walking every leaf child's sportKeys. New sports added to
+ * `sportsData` are picked up automatically — no parallel list to keep
+ * in sync.
+ */
+const collectConfiguredKeys = () => {
+    const out = new Set();
+    const walk = (items) => {
+        for (const item of items) {
+            if (Array.isArray(item.sportKeys)) {
+                item.sportKeys.forEach((k) => out.add(String(k).toLowerCase()));
+            }
+            if (item.children) walk(item.children);
+        }
+    };
+    walk(sportsData);
+    return out;
+};
+export const CONFIGURED_SPORT_KEYS = collectConfiguredKeys();
+
+/** Check whether at least one of a child's sportKeys is configured. */
+export const isChildActive = (child) => {
+    if (!child.sportKeys) return true;
+    return child.sportKeys.some(k => CONFIGURED_SPORT_KEYS.has(k));
+};
 
 /**
  * For a given sport item id, return all sport_title keywords the API might use.
@@ -192,40 +179,37 @@ export const getSportKeywords = (id) => {
     const keywordMap = {
         nfl: ['nfl', 'americanfootball_nfl'],
         'ncaa-football': ['ncaaf', 'ncaa football', 'college football', 'americanfootball_ncaaf'],
+        cfl: ['cfl', 'americanfootball_cfl'],
         nba: ['nba', 'basketball_nba'],
+        wnba: ['wnba', 'basketball_wnba'],
         'ncaa-basketball': ['ncaab', 'ncaa basketball', 'college basketball', 'basketball_ncaab'],
-        'wncaa-basketball': ['wncaa', 'women.*basketball'],
-        euroleague: ['euroleague', 'euro league'],
-        'wnba-futures': ['wnba'],
         mlb: ['mlb', 'baseball_mlb'],
         nhl: ['nhl', 'icehockey_nhl'],
-        epl: ['epl', 'premier league', 'english premier'],
-        mls: ['mls', 'major league soccer'],
-        'la-liga': ['la liga', 'laliga'],
-        'serie-a': ['serie a'],
-        bundesliga: ['bundesliga'],
-        'ligue-1': ['ligue 1'],
-        'champions-league': ['champions league', 'ucl'],
-        'europa-league': ['europa league'],
-        pga: ['pga', 'golf'],
-        masters: ['masters'],
-        atp: ['atp', 'tennis'],
-        wta: ['wta'],
-        mma: ['mma', 'ufc', 'mixed martial'],
-        'boxing-matches': ['boxing'],
-        nascar: ['nascar'],
-        'formula-1': ['formula 1', 'f1', 'formula one'],
+        epl: ['epl', 'premier league', 'english premier', 'soccer_epl'],
+        mls: ['mls', 'major league soccer', 'soccer_usa_mls'],
+        'la-liga': ['la liga', 'laliga', 'soccer_spain_la_liga'],
+        'serie-a': ['serie a', 'soccer_italy_serie_a'],
+        bundesliga: ['bundesliga', 'soccer_germany_bundesliga'],
+        'ligue-1': ['ligue 1', 'soccer_france_ligue_one'],
+        'champions-league': ['champions league', 'ucl', 'soccer_uefa_champs_league'],
+        'europa-league': ['europa league', 'soccer_uefa_europa_league'],
+        'uefa-euro': ['uefa euro', 'euro 2024', 'euro 2028', 'soccer_uefa_euro'],
+        'fifa-world-cup': ['fifa', 'world cup', 'soccer_fifa_world_cup'],
+        'j-league': ['j league', 'j-league', 'jleague', 'soccer_japan_j_league'],
+        ipl: ['ipl', 'indian premier league', 'cricket_ipl'],
+        t20: ['t20', 'cricket_t20'],
+        atp: ['atp', 'tennis_atp'],
+        wta: ['wta', 'tennis_wta'],
+        mma: ['mma', 'ufc', 'mixed martial', 'mma_mixed_martial_arts'],
         // Parent-level catch-all keywords
-        football: ['nfl', 'ncaaf', 'american football', 'americanfootball'],
-        basketball: ['basketball', 'nba', 'ncaab', 'euroleague'],
+        football: ['nfl', 'ncaaf', 'cfl', 'american football', 'americanfootball'],
+        basketball: ['basketball', 'nba', 'wnba', 'ncaab'],
         baseball: ['baseball', 'mlb'],
         hockey: ['hockey', 'nhl', 'icehockey'],
-        soccer: ['soccer', 'football', 'premier league', 'la liga', 'serie a', 'bundesliga', 'ligue 1', 'mls', 'champions league', 'epl'],
-        golf: ['golf', 'pga'],
+        soccer: ['soccer', 'premier league', 'la liga', 'serie a', 'bundesliga', 'ligue 1', 'mls', 'champions league', 'epl', 'uefa', 'fifa'],
+        cricket: ['cricket', 'ipl', 't20'],
         tennis: ['tennis', 'atp', 'wta'],
         'martial-arts': ['mma', 'ufc', 'martial'],
-        boxing: ['boxing'],
-        'auto-racing': ['racing', 'motorsport', 'nascar', 'formula'],
     };
 
     return keywordMap[normalized] || [normalized];
@@ -329,41 +313,33 @@ export const findSportItemById = (id) => {
  * the correct parent in the sidebar instead of promoting them to
  * flat top-level rows.
  */
+// Sport-key prefix → static parent id. Used by buildMergedSportsTree to
+// route auto-discovered backend sport keys (e.g. `soccer_korea_kleague1`)
+// to the right parent category instead of creating top-level rows.
+// Prefixes for sports we deliberately don't surface (boxing, golf,
+// motorsport) are absent — any matching backend rows will be silently
+// dropped from the sidebar, which is preferred over creating empty
+// "Boxing → boxing_boxing" entries the player can click into and get
+// no data.
 const PREFIX_TO_PARENT_ID = {
     basketball: 'basketball',
     baseball: 'baseball',
     icehockey: 'hockey',
     americanfootball: 'football',
-    aussierules: 'football',
     canadianfootball: 'football',
     soccer: 'soccer',
     tennis: 'tennis',
-    golf: 'golf',
     mma: 'martial-arts',
-    boxing: 'boxing',
-    motorsport: 'auto-racing',
     cricket: 'cricket',
-    rugbyleague: 'rugby',
-    rugbyunion: 'rugby',
-    lacrosse: 'lacrosse',
-    handball: 'handball',
-    volleyball: 'volleyball',
-    politics: 'politics',
 };
 
-/**
- * Sport parents that aren't in the static sportsData but may be
- * reported by the backend. Spawned on demand when a backend key with
- * one of these prefixes appears in liveSet.
- */
-const FALLBACK_PARENTS = {
-    cricket: { id: 'cricket', label: 'CRICKET', icon: 'fa-solid fa-baseball', selectable: false },
-    rugby: { id: 'rugby', label: 'RUGBY', icon: 'fa-solid fa-football', selectable: false },
-    lacrosse: { id: 'lacrosse', label: 'LACROSSE', icon: 'fa-solid fa-shield', selectable: false },
-    handball: { id: 'handball', label: 'HANDBALL', icon: 'fa-solid fa-volleyball', selectable: false },
-    volleyball: { id: 'volleyball', label: 'VOLLEYBALL', icon: 'fa-solid fa-volleyball', selectable: false },
-    politics: { id: 'politics', label: 'POLITICS', icon: 'fa-solid fa-landmark', selectable: false },
-};
+// No dynamic fallback parents — every Rundown sport family has an
+// explicit static parent in `sportsData` above. Categories the
+// upstream doesn't actually serve (rugby, lacrosse, handball,
+// volleyball, politics) used to spawn on demand here; that produced
+// empty rows the player could click into. Removed to keep the sidebar
+// honest.
+const FALLBACK_PARENTS = {};
 
 const SPORT_KEY_RE = /^[a-z]+_[a-z0-9_]+$/;
 
@@ -418,12 +394,30 @@ export const buildMergedSportsTree = (liveSet) => {
         return node;
     };
 
+    // Family-prefix dedupe: tennis_atp_madrid_open and tennis_atp_us_open
+    // are tournament-flavour variants of the canonical Rundown key
+    // tennis_atp that the static ATP child already covers. Same shape
+    // for cricket_psl variants etc. Treat any backend key whose family
+    // prefix (e.g. "tennis_atp" before further suffixes) matches an
+    // existing static sportKey as already-covered so we don't pollute
+    // the sidebar with tournament-by-tournament rows.
+    const familyPrefixes = new Set();
+    covered.forEach((k) => {
+        // Two-segment family: "tennis_atp", "soccer_epl", "basketball_nba".
+        const parts = k.split('_');
+        if (parts.length >= 2) familyPrefixes.add(`${parts[0]}_${parts[1]}`);
+    });
+
     Array.from(liveSet).forEach((value) => {
         const key = String(value || '').toLowerCase();
         if (!SPORT_KEY_RE.test(key)) return;
         if (covered.has(key)) return;
+        // Tournament-variant of an already-covered family (tennis_atp_*,
+        // soccer_epl_* etc.) — the static child already represents this.
+        const parts = key.split('_');
+        if (parts.length >= 2 && familyPrefixes.has(`${parts[0]}_${parts[1]}`)) return;
 
-        const prefix = key.split('_')[0];
+        const prefix = parts[0];
         const parentId = PREFIX_TO_PARENT_ID[prefix];
         if (!parentId) return;
 
@@ -434,7 +428,13 @@ export const buildMergedSportsTree = (liveSet) => {
 
         const suffix = key.slice(prefix.length + 1);
         const childId = `api-${key.replace(/_/g, '-')}`;
-        if (parent.children.some((c) => c.id === childId)) return;
+        // Final dedupe pass: skip if any sibling (static or already-injected)
+        // already declares this sportKey OR has the same auto-id.
+        const sportKeyAlreadyCovered = parent.children.some((c) =>
+            c.id === childId
+            || (Array.isArray(c.sportKeys) && c.sportKeys.some((sk) => String(sk).toLowerCase() === key))
+        );
+        if (sportKeyAlreadyCovered) return;
 
         parent.children.push({
             id: childId,

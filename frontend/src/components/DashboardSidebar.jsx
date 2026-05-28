@@ -22,7 +22,20 @@ const filterActiveChildren = (children, liveSet) => {
         if (child.id) candidates.add(String(child.id).toLowerCase());
         getSportKeywords(child.id).forEach((k) => candidates.add(String(k).toLowerCase()));
         if (candidates.size === 0) return true;
-        for (const c of candidates) if (liveSet.has(c)) return true;
+        for (const c of candidates) {
+            if (liveSet.has(c)) return true;
+            // Tournament-variant match: the canonical Rundown key
+            // `tennis_atp` should light up when liveSet only has
+            // `tennis_atp_madrid_open` (legacy odds-api rows still
+            // present in DB) — match any liveSet entry that starts with
+            // `${candidate}_` for compound family keys.
+            if (c.includes('_')) {
+                const needle = `${c}_`;
+                for (const live of liveSet) {
+                    if (typeof live === 'string' && live.startsWith(needle)) return true;
+                }
+            }
+        }
         return false;
     });
 };

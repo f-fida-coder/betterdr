@@ -788,14 +788,21 @@ final class MatchesController
     private function computeAvailableSports(): array
     {
         // Only include sports whose matches have at least one posted odds
-        // market. Upstream frequently returns events for minor
-        // leagues with zero bookmaker coverage in the configured region;
+        // source. Upstream frequently returns events for minor leagues
+        // with zero bookmaker coverage in the configured region;
         // emitting those in the sidebar leads to empty "CRICKET PSL"
         // style entries that click through to nothing.
+        //
+        // A row counts as "has data" if ANY of the following is non-empty:
+        //   1. odds.bookmakers[i].markets  — current Rundown shape
+        //   2. odds.markets                — legacy odds-api shape, kept
+        //                                    so historical rows still surface
+        //   3. extendedMarkets             — period markets (Q1-Q4 / F5 /
+        //                                    set_1) when no core is posted yet
         $matches = $this->db->findMany(
             'matches',
             ['status' => ['$in' => ['scheduled', 'live']]],
-            ['projection' => ['sport' => 1, 'sportKey' => 1, 'status' => 1, 'odds' => 1]]
+            ['projection' => ['sport' => 1, 'sportKey' => 1, 'status' => 1, 'odds' => 1, 'extendedMarkets' => 1]]
         );
         $sports = [];
         foreach ($matches as $match) {
@@ -806,11 +813,24 @@ final class MatchesController
             if (!in_array($status, ['scheduled', 'live'], true)) {
                 continue;
             }
-            $odds = $match['odds'] ?? null;
-            $markets = is_array($odds) ? ($odds['markets'] ?? null) : null;
-            if (!is_array($markets) || count($markets) === 0) {
+            $odds       = is_array($match['odds'] ?? null) ? $match['odds'] : [];
+            $bookmakers = is_array($odds['bookmakers'] ?? null) ? $odds['bookmakers'] : [];
+            $markets    = is_array($odds['markets'] ?? null) ? $odds['markets'] : [];
+            $ext        = is_array($match['extendedMarkets'] ?? null) ? $match['extendedMarkets'] : [];
+
+            $hasData = false;
+            foreach ($bookmakers as $b) {
+                if (!is_array($b)) continue;
+                $bMarkets = is_array($b['markets'] ?? null) ? $b['markets'] : [];
+                if (count($bMarkets) > 0) { $hasData = true; break; }
+            }
+            if (!$hasData && (count($markets) > 0 || count($ext) > 0)) {
+                $hasData = true;
+            }
+            if (!$hasData) {
                 continue;
             }
+
             $sport = (string) ($match['sport'] ?? '');
             $sportKey = (string) ($match['sportKey'] ?? '');
             if ($sport !== '') {
