@@ -102,6 +102,19 @@ final class Env
             return 'production';
         }
 
+        // CLI context (cron / shell): no HTTP_HOST is set. Detect Hostinger
+        // shared hosting from the absolute path of this file — user homes
+        // there look like /home/u487877829/... — or from gethostname() which
+        // is typically srv####.hstgr.io. Either signal means production.
+        $serverHostname = strtolower((string) (function_exists('gethostname') ? gethostname() : ''));
+        if (
+            str_starts_with(__DIR__, '/home/u')
+            || str_contains($serverHostname, 'hstgr')
+            || str_contains($serverHostname, 'hostinger')
+        ) {
+            return 'production';
+        }
+
         return 'development';
     }
 }
