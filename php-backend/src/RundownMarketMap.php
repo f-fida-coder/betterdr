@@ -71,22 +71,139 @@ final class RundownMarketMap
     ];
 
     /**
-     * @var array<int,string> Period / tennis-set market_id → odds-api key.
-     * Tennis set markets are well-documented; broader period coverage
-     * (basketball Q1-4, soccer halves, hockey periods, MLB innings) is
-     * derived dynamically from period_id at mapping time — see
-     * keyForCoreWithPeriod() — because Rundown encodes those with the
-     * core market_id 1/2/3 plus a non-zero period_id, not separate IDs.
+     * @var array<int, array{0:string,1:string,2:bool}>
+     * Period market_id → [base_key, period_token, is_in_play].
+     *
+     * Period markets are sport-aware in Rundown: market_id=981
+     * (`moneyline_first_quarter`) means Q1 for NBA/NFL but P1 for NHL.
+     * Rather than emit a single suffix here, we store an abstract
+     * `period_token` (e.g. `1st_quarter`) and resolve to the per-sport
+     * suffix at `explicitPeriodKey()` time via PERIOD_TOKEN_TO_SUFFIX.
+     *
+     * Coverage is sourced from the live Rundown payloads for sports we
+     * actually serve. IDs Rundown ships but we don't surface (correct
+     * scores, race-to, etc.) are intentionally absent.
      */
     private const PERIOD_MARKETS = [
-        1150 => 'h2h_set_1',
-        1151 => 'spreads_set_1',
-        1152 => 'totals_set_1',
-        1153 => 'h2h_set_2',
-        1154 => 'h2h_set_1', // live variant
-        1155 => 'spreads_set_1',
-        1156 => 'totals_set_1',
-        1157 => 'h2h_set_2',
+        // ── First half / second half (NBA, NFL, NCAAB, NCAAF, soccer) ──
+        4    => ['h2h',         '1st_half', false],
+        5    => ['spreads',     '1st_half', false],
+        6    => ['totals',      '1st_half', false],
+        95   => ['team_totals', '1st_half', false],
+        1008 => ['totals',      '2nd_half', false],
+        1009 => ['spreads',     '2nd_half', false],
+        1010 => ['h2h',         '2nd_half', false],
+
+        // ── Quarters (NBA, NFL, NCAAB, NCAAF) — Rundown reuses these
+        // market_ids for NHL P1-P3 with the same numbering. Sport-aware
+        // suffix resolution distinguishes _q1 from _p1.
+        957  => ['spreads',     '1st_quarter', false],
+        958  => ['totals',      '1st_quarter', false],
+        981  => ['h2h',         '1st_quarter', false],
+        991  => ['team_totals', '1st_quarter', false],
+        1011 => ['totals',      '2nd_quarter', false],
+        1012 => ['spreads',     '2nd_quarter', false],
+        1013 => ['h2h',         '2nd_quarter', false],
+        1020 => ['team_totals', '2nd_quarter', false],
+        1014 => ['totals',      '3rd_quarter', false],
+        1015 => ['spreads',     '3rd_quarter', false],
+        1016 => ['h2h',         '3rd_quarter', false],
+        1021 => ['team_totals', '3rd_quarter', false],
+        1017 => ['totals',      '4th_quarter', false],
+        1018 => ['spreads',     '4th_quarter', false],
+        1019 => ['h2h',         '4th_quarter', false],
+        1022 => ['team_totals', '4th_quarter', false],
+
+        // ── In-play halves (NBA, NFL) ──
+        1024 => ['h2h',         '1st_half', true],
+        1025 => ['spreads',     '1st_half', true],
+        1026 => ['totals',      '1st_half', true],
+        1027 => ['team_totals', '1st_half', true],
+        1028 => ['h2h',         '2nd_half', true],
+        1029 => ['spreads',     '2nd_half', true],
+        1030 => ['totals',      '2nd_half', true],
+        1031 => ['team_totals', '2nd_half', true],
+
+        // ── In-play quarters (NBA, NFL, NHL periods) ──
+        1032 => ['h2h',         '1st_quarter', true],
+        1033 => ['spreads',     '1st_quarter', true],
+        1034 => ['totals',      '1st_quarter', true],
+        1035 => ['team_totals', '1st_quarter', true],
+        1036 => ['h2h',         '2nd_quarter', true],
+        1037 => ['spreads',     '2nd_quarter', true],
+        1038 => ['totals',      '2nd_quarter', true],
+        1039 => ['team_totals', '2nd_quarter', true],
+        1040 => ['h2h',         '3rd_quarter', true],
+        1041 => ['spreads',     '3rd_quarter', true],
+        1042 => ['totals',      '3rd_quarter', true],
+        1043 => ['team_totals', '3rd_quarter', true],
+        1044 => ['h2h',         '4th_quarter', true],
+        1045 => ['spreads',     '4th_quarter', true],
+        1046 => ['totals',      '4th_quarter', true],
+        1047 => ['team_totals', '4th_quarter', true],
+
+        // ── MLB innings ──
+        // "first_half_mlb" = first 5 innings in MLB convention.
+        769  => ['h2h',     '1st_5_innings', false],
+        780  => ['totals',  '1st_5_innings', false],
+        791  => ['spreads', '1st_5_innings', false],
+        1109 => ['h2h',     '1st_3_innings', false],
+        1110 => ['spreads', '1st_3_innings', false],
+        1111 => ['totals',  '1st_3_innings', false],
+        1112 => ['h2h',     '1st_7_innings', false],
+        1113 => ['spreads', '1st_7_innings', false],
+        1114 => ['totals',  '1st_7_innings', false],
+        // F1 (first inning) — Rundown ships these as separate IDs.
+        784  => ['h2h',     '1st_1_innings', false],   // first_inning_result
+        766  => ['totals',  '1st_1_innings', false],   // over_under_05_runs_first_inning
+        1129 => ['spreads', '1st_1_innings', false],   // first_inning_run_line
+
+        // ── Tennis sets (existing semantics, restated in new schema) ──
+        1150 => ['h2h',     'set_1', false],
+        1151 => ['spreads', 'set_1', false],
+        1152 => ['totals',  'set_1', false],
+        1153 => ['h2h',     'set_2', false],
+        1154 => ['h2h',     'set_1', true],
+        1155 => ['spreads', 'set_1', true],
+        1156 => ['totals',  'set_1', true],
+        1157 => ['h2h',     'set_2', true],
+    ];
+
+    /**
+     * @var array<string, array<string,string>>
+     * Sport prefix → period_token → suffix (no leading underscore).
+     *
+     * The sport prefix is the part before the first '_' in a sportKey
+     * (basketball_nba → 'basketball'). Hockey reuses Rundown's
+     * "quarter" market_ids as periods, so basketball/hockey diverge here.
+     */
+    private const PERIOD_TOKEN_TO_SUFFIX = [
+        'basketball' => [
+            '1st_quarter' => 'q1', '2nd_quarter' => 'q2',
+            '3rd_quarter' => 'q3', '4th_quarter' => 'q4',
+            '1st_half'    => 'h1', '2nd_half'    => 'h2',
+        ],
+        'americanfootball' => [
+            '1st_quarter' => 'q1', '2nd_quarter' => 'q2',
+            '3rd_quarter' => 'q3', '4th_quarter' => 'q4',
+            '1st_half'    => 'h1', '2nd_half'    => 'h2',
+        ],
+        'icehockey' => [
+            '1st_quarter' => 'p1', '2nd_quarter' => 'p2',
+            '3rd_quarter' => 'p3',
+        ],
+        'baseball' => [
+            '1st_1_innings' => '1st_1_innings',
+            '1st_3_innings' => '1st_3_innings',
+            '1st_5_innings' => '1st_5_innings',
+            '1st_7_innings' => '1st_7_innings',
+        ],
+        'soccer' => [
+            '1st_half' => 'h1', '2nd_half' => 'h2',
+        ],
+        'tennis' => [
+            'set_1' => 'set_1', 'set_2' => 'set_2', 'set_3' => 'set_3',
+        ],
     ];
 
     private const PREMATCH_CORE_IDS = [1, 2, 3, 94];
@@ -127,6 +244,18 @@ final class RundownMarketMap
         return in_array($marketId, self::LIVE_CORE_IDS, true);
     }
 
+    /**
+     * Is this a Rundown core-market live in-play variant (41/42/43/96)?
+     * These ship with `period_id=7` (Rundown's "in-play" period), and
+     * carry live full-game odds — NOT 7-inning futures. Callers route
+     * them into `odds.bookmakers` under the same key as the prematch
+     * core, so the live quote supplements the prematch board.
+     */
+    public static function isLiveCoreVariant(int $marketId): bool
+    {
+        return in_array($marketId, self::LIVE_CORE_IDS, true);
+    }
+
     // ── Player props ──────────────────────────────────────────────────
 
     public static function isProp(int $marketId): bool
@@ -148,20 +277,16 @@ final class RundownMarketMap
     // ── Extended / period markets ────────────────────────────────────
 
     /**
-     * Compute the odds-api-style key for a CORE market_id at a non-zero
-     * period_id. Rundown encodes basketball quarters, soccer halves,
-     * hockey periods, etc. as (core market_id, period_id > 0) rather
-     * than dedicated market IDs.
+     * Legacy fallback for core market_ids that ship with a non-zero
+     * period_id but aren't otherwise classified via PERIOD_MARKETS.
      *
-     * The period_id semantics are sport-dependent; for the most common
-     * cases (basketball/football quarters, soccer/basketball halves,
-     * hockey periods, MLB innings) we apply a stable convention that
-     * matches the existing OddsMarketCatalog keys:
-     *   1 -> 1Q, 2 -> 2Q, 3 -> 3Q, 4 -> 4Q for basketball/football
-     *   1 -> 1H, 2 -> 2H for soccer (halves)
-     *
-     * Callers that know the sport context can override; default returns
-     * the most-likely key.
+     * Most period markets come through `explicitPeriodKey()` now — this
+     * function only catches edge cases where Rundown attaches a
+     * period_id directly to a core market_id (1/2/3/41/42/43/94/96).
+     * Caller is responsible for treating in-play variants (41/42/43/96
+     * with period_id=7) as live core, NOT as a period extra; this
+     * function returns `null` for that case so it doesn't accidentally
+     * mislabel them.
      */
     public static function keyForCoreWithPeriod(int $marketId, int $periodId, ?string $sportKey = null): ?string
     {
@@ -170,19 +295,31 @@ final class RundownMarketMap
             return $core;
         }
 
-        // team_totals doesn't have well-defined period variants in the
-        // existing catalog — skip period suffixes for them.
+        // Live in-play variants (41/42/43/96) with period_id=7 are full-
+        // game live odds; they must be routed back into the main
+        // bookmakers list by the caller, not here. Refuse to label them.
+        if (self::isLiveCoreVariant($marketId)) {
+            return null;
+        }
+
         if ($core === 'team_totals') {
             return $core;
         }
 
-        $sport = strtolower((string) $sportKey);
+        $sport    = strtolower((string) $sportKey);
         $isSoccer = str_starts_with($sport, 'soccer_');
         $isHockey = str_starts_with($sport, 'icehockey_');
-        $isMlb    = str_starts_with($sport, 'baseball_');
         $isTennis = str_starts_with($sport, 'tennis_');
+        $isMlb    = str_starts_with($sport, 'baseball_');
 
-        // Soccer + hockey only have halves / 3 periods → map small ints.
+        // MLB period markets come exclusively via explicit market_ids
+        // (769/780/791 for F5, 1109-1114 for F3/F7, etc.). A core market_id
+        // with period_id>0 on baseball means an in-play full-game variant
+        // we don't classify — drop rather than guess.
+        if ($isMlb) {
+            return null;
+        }
+
         if ($isSoccer) {
             return match ($periodId) {
                 1 => $core . '_h1',
@@ -198,13 +335,6 @@ final class RundownMarketMap
                 default => null,
             };
         }
-        if ($isMlb) {
-            return match ($periodId) {
-                5 => $core . '_5_innings',
-                7 => $core . '_7_innings',
-                default => null,
-            };
-        }
         if ($isTennis) {
             return match ($periodId) {
                 1 => $core . '_set_1',
@@ -214,7 +344,10 @@ final class RundownMarketMap
             };
         }
 
-        // Default (basketball, american football) — quarters + halves.
+        // Basketball / American football — Rundown does NOT ship period
+        // markets on core IDs for these sports today (it uses explicit
+        // market_ids like 957/981/1013 covered by PERIOD_MARKETS).
+        // Keep the legacy mapping as a safety net but expect no hits.
         return match ($periodId) {
             1 => $core . '_q1',
             2 => $core . '_q2',
@@ -227,12 +360,32 @@ final class RundownMarketMap
     }
 
     /**
-     * Lookup against the explicit period market catalog (tennis sets and
-     * any future per-sport period market_ids Rundown ships).
+     * Resolve a Rundown explicit period market_id into the odds-api
+     * style key (e.g. `h2h_q1`, `spreads_1st_5_innings`).
+     *
+     * Sport-aware: the same market_id can mean different things for
+     * different sports (e.g. 981 = Q1 for NBA, P1 for NHL). Returns
+     * null when the sport prefix doesn't recognise the period token —
+     * better to drop than mislabel.
      */
-    public static function explicitPeriodKey(int $marketId): ?string
+    public static function explicitPeriodKey(int $marketId, ?string $sportKey = null): ?string
     {
-        return self::PERIOD_MARKETS[$marketId] ?? null;
+        $entry = self::PERIOD_MARKETS[$marketId] ?? null;
+        if ($entry === null) {
+            return null;
+        }
+        [$baseKey, $periodToken] = $entry;
+
+        $sport = strtolower((string) $sportKey);
+        $prefix = ($sport === '') ? '' : explode('_', $sport, 2)[0];
+        if ($prefix === '') {
+            return null;
+        }
+        $suffix = self::PERIOD_TOKEN_TO_SUFFIX[$prefix][$periodToken] ?? null;
+        if ($suffix === null) {
+            return null;
+        }
+        return $baseKey . '_' . $suffix;
     }
 
     // ── CSV helpers for the API's market_ids query param ─────────────
@@ -265,5 +418,27 @@ final class RundownMarketMap
     public static function csvForProps(): string
     {
         return implode(',', self::propMarketIds());
+    }
+
+    /** @return list<int> Every explicit period market_id (any sport). */
+    public static function periodMarketIds(): array
+    {
+        return array_keys(self::PERIOD_MARKETS);
+    }
+
+    /**
+     * Market IDs the live delta poll should request: every core market
+     * (h2h/spreads/totals/team_totals, prematch + in-play variants) plus
+     * every explicit period market we recognise. Without the period IDs
+     * the delta endpoint never returns price ticks for Q1-Q4 / H1-H2 /
+     * 1st-N-innings, so those chips show stale prices until the next
+     * 5-min full prematch refresh.
+     */
+    public static function csvForLivePolling(): string
+    {
+        return implode(',', array_unique(array_merge(
+            self::coreMarketIds(),
+            self::periodMarketIds()
+        )));
     }
 }

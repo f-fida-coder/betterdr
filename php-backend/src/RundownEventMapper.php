@@ -215,9 +215,10 @@ final class RundownEventMapper
             if ($marketId <= 0) continue;
 
             // Classify the market by ID first.
-            $isCore = RundownMarketMap::isCore($marketId);
-            $isProp = RundownMarketMap::isProp($marketId);
-            $explicitPeriodKey = RundownMarketMap::explicitPeriodKey($marketId);
+            $isCore          = RundownMarketMap::isCore($marketId);
+            $isLiveCore      = RundownMarketMap::isLiveCoreVariant($marketId);
+            $isProp          = RundownMarketMap::isProp($marketId);
+            $explicitPeriodKey = RundownMarketMap::explicitPeriodKey($marketId, $sportKey);
 
             $participants = is_array($market['participants'] ?? null) ? $market['participants'] : [];
 
@@ -257,7 +258,13 @@ final class RundownEventMapper
                         }
 
                         // ── Route 2: core market (main board) ───────
-                        if ($isCore && $periodId === 0 && $isMain) {
+                        // Pre-match cores: period_id=0, is_main_line=true.
+                        // Live in-play variants (market_id 41/42/43/96)
+                        // ship with period_id=7 but they ARE the full-game
+                        // live h2h/spreads/totals/team_totals — route them
+                        // into the same bookmakers list so live odds
+                        // supplement the prematch board for the same row.
+                        if ($isCore && $isMain && ($periodId === 0 || $isLiveCore)) {
                             $marketKey = RundownMarketMap::oddsApiKey($marketId);
                             if ($marketKey === null || $rawParticipantName === '') continue;
                             if (!isset($bookmakersById[$affiliateId])) {

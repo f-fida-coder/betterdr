@@ -300,7 +300,7 @@ final class RundownSyncService
             return self::skippedResult('cursor_missing');
         }
 
-        $params = ['sport_id' => $sportId, 'market_ids' => RundownMarketMap::csvForCore()];
+        $params = ['sport_id' => $sportId, 'market_ids' => RundownMarketMap::csvForLivePolling()];
         $affiliateIds = trim((string) Env::get('RUNDOWN_AFFILIATE_IDS', ''));
         if ($affiliateIds !== '') {
             $params['affiliate_ids'] = $affiliateIds;
@@ -617,8 +617,8 @@ final class RundownSyncService
     {
         $eventId = trim((string) ($delta['event_id'] ?? ''));
         if ($eventId === '') return false;
-        $marketKey = RundownMarketMap::oddsApiKey((int) ($delta['market_id'] ?? 0));
-        if ($marketKey === null) return false;
+        $marketId = (int) ($delta['market_id'] ?? 0);
+        if ($marketId <= 0) return false;
         $book = RundownAffiliateMap::lookup((int) ($delta['affiliate_id'] ?? 0));
         if ($book === null) return false;
         $participantName = trim((string) ($delta['participant_name'] ?? ''));
@@ -636,29 +636,148 @@ final class RundownSyncService
         $lineRaw = (string) ($delta['line'] ?? '');
         $point   = ($lineRaw !== '' && is_numeric($lineRaw)) ? (float) $lineRaw : null;
         $now = SqlRepository::nowUtc();
+        $priceInt = self::normalizeAmericanOdds($priceFloat);
 
-        $bookmakers = is_array($existing['odds']['bookmakers'] ?? null) ? $existing['odds']['bookmakers'] : [];
-        $bookmakers = self::patchBookmakerOutcome(
-            $bookmakers,
-            $book,
-            $marketKey,
-            $participantName,
-            $offBoard ? null : [
-                'name'  => $participantName,
-                'price' => self::normalizeAmericanOdds($priceFloat),
-                'point' => $point,
-            ],
-            $now
-        );
+        // Resolve which bucket this delta belongs in.
+        //   - Core key  (h2h/spreads/totals/team_totals) → odds.bookmakers
+        //   - Period key (h2h_q1, spreads_1st_5_innings, …) → extendedMarkets
+        // A delta is one or the other, never both. Period IDs are sport-
+        // aware, so we have to read sportKey from the existing doc.
+        $sportKey  = strtolower((string) ($existing['sportKey'] ?? ''));
+        $coreKey   = RundownMarketMap::oddsApiKey($marketId);
+        $periodKey = RundownMarketMap::explicitPeriodKey($marketId, $sportKey);
+        if ($coreKey === null && $periodKey === null) {
+            return false;
+        }
 
-        $db->updateOne(self::COLLECTION, ['id' => $matchId], [
-            'odds'           => ['bookmakers' => $bookmakers],
+        $update = [
             'lastOddsSyncAt' => $now,
             'lastUpdated'    => $now,
             'updatedAt'      => $now,
             'oddsSource'     => RundownEventMapper::ODDS_SOURCE_TAG,
-        ]);
+        ];
+
+        if ($coreKey !== null) {
+            $bookmakers = is_array($existing['odds']['bookmakers'] ?? null)
+                ? $existing['odds']['bookmakers'] : [];
+            $bookmakers = self::patchBookmakerOutcome(
+                $bookmakers,
+                $book,
+                $coreKey,
+                $participantName,
+                $offBoard ? null : [
+                    'name'  => $participantName,
+                    'price' => $priceInt,
+                    'point' => $point,
+                ],
+                $now
+            );
+            // Preserve existing odds.extendedMarkets so the partial write
+            // doesn't drop the period bucket the mapper populated.
+            $update['odds'] = [
+                'bookmakers'      => $bookmakers,
+                'extendedMarkets' => is_array($existing['odds']['extendedMarkets'] ?? null)
+                    ? $existing['odds']['extendedMarkets'] : [],
+            ];
+        }
+
+        if ($periodKey !== null) {
+            // The mapper writes extendedMarkets in two places (legacy
+            // nested + top-level). Patch both so consumers reading either
+            // path see the same state.
+            $topExt = is_array($existing['extendedMarkets'] ?? null)
+                ? $existing['extendedMarkets'] : [];
+            $topExt = self::patchExtendedMarketOutcome(
+                $topExt,
+                $book,
+                $periodKey,
+                $participantName,
+                $offBoard ? null : [
+                    'name'  => $participantName,
+                    'price' => $priceInt,
+                    'point' => $point,
+                    'book'  => $book['key'],
+                ]
+            );
+            $update['extendedMarkets'] = $topExt;
+
+            $bookmakers = is_array($existing['odds']['bookmakers'] ?? null)
+                ? $existing['odds']['bookmakers'] : [];
+            $update['odds'] = [
+                'bookmakers'      => $bookmakers,
+                'extendedMarkets' => $topExt,
+            ];
+        }
+
+        $db->updateOne(self::COLLECTION, ['id' => $matchId], $update);
         return true;
+    }
+
+    /**
+     * Apply one outcome change into an existing flat extendedMarkets[]
+     * list. The layout is:
+     *   [{ key, outcomes: [{ name, price, point?, book }] }]
+     * Identity for an outcome row is (name, book) — same participant
+     * can have prices at multiple bookmakers, each gets its own row.
+     *
+     * Returns the new list (mutated semantically).
+     *
+     * @param list<array<string,mixed>>            $extended
+     * @param array{key:string,name:string}        $book
+     * @param array{name:string,price:int|float,point:?float,book:string}|null $outcome  null = remove this outcome
+     * @return list<array<string,mixed>>
+     */
+    private static function patchExtendedMarketOutcome(array $extended, array $book, string $marketKey, string $participantName, ?array $outcome): array
+    {
+        $marketIndex = null;
+        foreach ($extended as $i => $m) {
+            if (is_array($m) && ($m['key'] ?? '') === $marketKey) {
+                $marketIndex = $i;
+                break;
+            }
+        }
+        if ($marketIndex === null) {
+            if ($outcome === null) return $extended;
+            $extended[] = ['key' => $marketKey, 'outcomes' => []];
+            $marketIndex = array_key_last($extended);
+        }
+
+        $outcomes = is_array($extended[$marketIndex]['outcomes'] ?? null)
+            ? $extended[$marketIndex]['outcomes'] : [];
+        $found = false;
+        foreach ($outcomes as $k => $existing) {
+            if (!is_array($existing)) continue;
+            if (($existing['name'] ?? '') !== $participantName) continue;
+            if (($existing['book'] ?? '') !== $book['key']) continue;
+            $found = true;
+            if ($outcome === null) {
+                unset($outcomes[$k]);
+            } else {
+                $existing['price'] = $outcome['price'];
+                if ($outcome['point'] !== null) {
+                    $existing['point'] = $outcome['point'];
+                } else {
+                    unset($existing['point']);
+                }
+                $existing['book'] = $book['key'];
+                $outcomes[$k] = $existing;
+            }
+            break;
+        }
+        if (!$found && $outcome !== null) {
+            $row = [
+                'name'  => $outcome['name'],
+                'price' => $outcome['price'],
+                'book'  => $book['key'],
+            ];
+            if ($outcome['point'] !== null) {
+                $row['point'] = $outcome['point'];
+            }
+            $outcomes[] = $row;
+        }
+
+        $extended[$marketIndex]['outcomes'] = array_values($outcomes);
+        return array_values($extended);
     }
 
     /**
@@ -738,7 +857,11 @@ final class RundownSyncService
     private static function baseQueryParams(): array
     {
         $params = [
-            'market_ids'       => RundownMarketMap::csvForCore(),
+            // Request core markets PLUS every explicit period market
+            // (Q1-Q4 / H1-H2 / F1/F3/F5/F7 innings / NHL P1-P3 / tennis
+            // sets). Without this Rundown only sends the 8 core IDs and
+            // every period chip in the UI stays blank.
+            'market_ids'       => RundownMarketMap::csvForLivePolling(),
             'main_line'        => 'true',
             'hide_no_markets'  => 'true',
             // Skip finished games — they still surface on the date endpoint

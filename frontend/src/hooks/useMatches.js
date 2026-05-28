@@ -79,6 +79,43 @@ const createMatchesCacheKey = (status, scopeKey) => JSON.stringify({
     scope: (scopeKey || 'global').toString(),
 });
 
+// First-paint preload bridge. App.jsx fires the default-landing matches
+// request at mount (in parallel with auth bootstrap and the lazy
+// dashboard chunk) and seeds the promise here. When `SportContentView`
+// later mounts and calls `fetchMatches`, the dedupe lookup at
+// `inFlightRequests.get(cacheKey)` picks up the preload, so the network
+// round-trip is overlapped with React boot instead of serialized after
+// it. If the preload hasn't resolved yet, the await is the same wait
+// the user would have had anyway. If it has resolved, the result is
+// rendered without a second HTTP request.
+//
+// Stale guard: callers also pass an enqueueTs and we drop preloads
+// older than PRELOAD_MAX_AGE_MS so a slow auth path doesn't end up
+// rendering 30s-old odds.
+const PRELOAD_MAX_AGE_MS = 6000;
+const preloadEnqueuedAt = new Map(); // cacheKey → ts
+export const seedMatchesPreload = (status, scopeKey, promise) => {
+    if (!promise || typeof promise.then !== 'function') return;
+    const key = createMatchesCacheKey(status, scopeKey);
+    inFlightRequests.set(key, promise);
+    preloadEnqueuedAt.set(key, Date.now());
+    // Always release the slot once the preload settles so a slow follow-
+    // up fetch under the same key isn't blocked.
+    const release = () => {
+        if (inFlightRequests.get(key) === promise) {
+            inFlightRequests.delete(key);
+        }
+        preloadEnqueuedAt.delete(key);
+    };
+    promise.then(release, release);
+};
+// Internal: useMatches uses this to discard preloads that are too old.
+const isPreloadFresh = (key) => {
+    const ts = preloadEnqueuedAt.get(key);
+    if (!ts) return true;
+    return (Date.now() - ts) <= PRELOAD_MAX_AGE_MS;
+};
+
 const pruneLocalCache = () => {
     if (matchesResponseCache.size <= LOCAL_MATCHES_CACHE_MAX_ENTRIES) return;
     const entries = Array.from(matchesResponseCache.entries()).sort((a, b) => a[1].ts - b[1].ts);
@@ -358,6 +395,13 @@ export default function useMatches(options = {}) {
                 }
 
                 let requestPromise = inFlightRequests.get(cacheKey);
+                // If the in-flight slot was filled by a stale preload (App
+                // mount fired hours ago, user only just clicked in), drop
+                // it — better to re-fetch than render aged odds.
+                if (requestPromise && !isPreloadFresh(cacheKey)) {
+                    inFlightRequests.delete(cacheKey);
+                    requestPromise = null;
+                }
                 if (!requestPromise) {
                     const requestOptions = { trigger, refresh, payload: 'core' };
                     if (rowLimit > 0) requestOptions.limit = rowLimit;

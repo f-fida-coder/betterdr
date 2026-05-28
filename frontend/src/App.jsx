@@ -5,6 +5,7 @@ import {
   bootstrapAuthSession,
   clearAuthBootstrapCache,
   getMe,
+  getMatches,
   getPublicBetModeRules,
   getStoredAuthToken,
   getStoredUserRole,
@@ -17,6 +18,7 @@ import {
   syncStoredAuth,
   updateProfile
 } from './api';
+import { seedMatchesPreload } from './hooks/useMatches';
 import LandingPage from './components/LandingPage';
 import LoadingSpinner from './components/LoadingSpinner';
 import { useToast } from './contexts/ToastContext';
@@ -262,6 +264,29 @@ function AppInner() {
       window.dispatchEvent(new CustomEvent('oddsFormat:change', { detail: normalized }));
     }
     return normalized;
+  }, []);
+
+  // Kick off the default-landing /api/matches fetch at App mount, in
+  // parallel with the auth bootstrap and the lazy UserDashboardShell
+  // chunk download. The promise is seeded into useMatches' in-flight
+  // dedupe map so when SportContentView mounts a moment later, its
+  // first fetch picks up the same request instead of starting a new
+  // round-trip. Shaves the cumulative wait of (auth bootstrap +
+  // chunk fetch) off perceived TTI on cold loads. Public endpoint, no
+  // auth required, so firing pre-bootstrap is safe. The preload self-
+  // invalidates after PRELOAD_MAX_AGE_MS in useMatches if the user
+  // lingered on the landing page too long.
+  useEffect(() => {
+    // Default landing section in DashboardMain.jsx is
+    //   { sportId: null, filter: null, status: 'live-upcoming', limit: 6 }
+    // which becomes scopeKey "all::6" inside SportContentView. Mirror
+    // that here so the cacheKey lines up.
+    const preloadPromise = getMatches('live-upcoming', {
+      payload: 'core',
+      limit: 6,
+      trigger: 'preload',
+    }).catch(() => []);  // swallow errors — useMatches will retry on its own
+    seedMatchesPreload('live-upcoming', 'all::6', preloadPromise);
   }, []);
 
   // On mount: attempt to restore session from the httpOnly cookie in the background.
