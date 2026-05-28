@@ -329,6 +329,29 @@ final class RundownSyncService
             }
             if ($applied > 0) {
                 SportsbookHealth::recordOddsSourceSuccess($db, false);
+            } else {
+                // Heartbeat — the upstream responded cleanly but no prices
+                // moved. Bump lastOddsSyncAt on every live row of this
+                // sport so the freshness filter keeps them visible. The
+                // cursor advancing IS proof that we're actively polling;
+                // without this the row would drift past the 90s/180s
+                // staleness cliff (and stop being bettable) even though
+                // the worker is doing its job. NOTE: lastUpdated is NOT
+                // touched here — only the odds-freshness timestamp.
+                // Score/status changes still need a real upstream event.
+                try {
+                    $db->updateMany(
+                        'matches',
+                        ['sportKey' => $sportKey, 'status' => 'live'],
+                        ['lastOddsSyncAt' => SqlRepository::nowUtc()]
+                    );
+                } catch (Throwable $heartbeatErr) {
+                    Logger::warning('rundown.pollDeltasForSport heartbeat failed', [
+                        'sportKey' => $sportKey,
+                        'sportId'  => $sportId,
+                        'error'    => $heartbeatErr->getMessage(),
+                    ], 'sportsbook');
+                }
             }
         } catch (Throwable $e) {
             $errors++;

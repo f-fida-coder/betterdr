@@ -500,23 +500,45 @@ final class MatchesController
             }));
             // Decorate every surviving row with freshness so the UI can
             // render a truthful badge and so the placement endpoint
-            // double-checks bettability. Mirrors the decoration already
-            // applied to the strict-'live' branch above.
-            $annotated = array_map(static function (array $match): array {
+            // double-checks bettability.
+            //
+            // The 90/180s soft/hard thresholds in freshnessFor() are LIVE
+            // odds windows. Applying them to a SCHEDULED-future row would
+            // produce a false-positive "Live odds are stale" suspend
+            // message on perfectly fresh prematch rows (this branch mixes
+            // live and prematch rows, unlike the strict-'live' branch
+            // above which is already live-only). So switch threshold by
+            // row type:
+            //   - effectively live (status='live' OR kickoff passed):
+            //       LIVE windows — 90s delayed, 180s stale + bet suspend
+            //   - prematch (kickoff still future):
+            //       PREMATCH windows — half/full PREMATCH_FRESHNESS_SECONDS_DEFAULT
+            //       NO live-stale bet suspension; applyBettingAvailability →
+            //       matchStaleAfterSeconds (25 min) is the authority for
+            //       prematch bettability and runs server-side at placement.
+            $prematchMaxAge = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
+            $annotated = array_map(static function (array $match) use ($now, $prematchMaxAge): array {
+                $matchStatus = strtolower((string) ($match['status'] ?? ''));
+                $startTime = (string) ($match['startTime'] ?? '');
+                $startTs = $startTime !== '' ? strtotime($startTime) : false;
+                $isEffectivelyLive = $matchStatus === 'live'
+                    || ($startTs !== false && $startTs <= $now);
+
                 $f = self::freshnessFor($match);
                 $match['oddsAgeSeconds'] = $f['ageSeconds'];
-                $match['oddsDelayed'] = $f['delayed'];
-                $match['oddsStale'] = $f['stale'];
-                // Defence-in-depth: if odds crossed the hard-stale
-                // threshold, suspend betting on the row regardless of
-                // what bettingAvailability decided upstream. Bet
-                // placement re-runs availability server-side, so this
-                // keeps the public match payload internally consistent.
-                if ($f['stale'] && ($match['isBettable'] ?? false) === true) {
-                    $match['isBettable'] = false;
-                    $match['isStale'] = true;
-                    $match['bettingBlockedReason'] = 'Live odds are stale ('
-                        . $f['ageSeconds'] . 's old). Betting is temporarily suspended.';
+
+                if ($isEffectivelyLive) {
+                    $match['oddsDelayed'] = $f['delayed'];
+                    $match['oddsStale']   = $f['stale'];
+                    if ($f['stale'] && ($match['isBettable'] ?? false) === true) {
+                        $match['isBettable'] = false;
+                        $match['isStale'] = true;
+                        $match['bettingBlockedReason'] = 'Live odds are stale ('
+                            . $f['ageSeconds'] . 's old). Betting is temporarily suspended.';
+                    }
+                } else {
+                    $match['oddsDelayed'] = $f['ageSeconds'] >= (int) ($prematchMaxAge / 2);
+                    $match['oddsStale']   = $f['ageSeconds'] >= $prematchMaxAge;
                 }
                 return $match;
             }, $annotated);
