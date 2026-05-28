@@ -154,7 +154,14 @@ while (!$shutdown) {
         // ── 2. Prematch rotation ────────────────────────────────────
         $prematchResult = null;
         if ($tick % $prematchEveryTicks === 0 && RundownClient::isConfigured()) {
-            $sports = resolveAllConfiguredSports();
+            // Phase 1 credit-save: rotate only sports that actually have
+            // games (recent or upcoming). Falls back to the full catalog
+            // if RUNDOWN_PREMATCH_ACTIVE_SPORTS_ONLY=false or if too few
+            // sports are in DB (fresh deploy / wiped state).
+            $activeOnly = strtolower((string) Env::get('RUNDOWN_PREMATCH_ACTIVE_SPORTS_ONLY', 'true')) !== 'false';
+            $sports = $activeOnly
+                ? activeSportsForPrematchRotation($repo)
+                : resolveAllConfiguredSports();
             if ($sports !== []) {
                 $rotationCursor = $rotationCursor % count($sports);
                 $batch = [];
@@ -304,4 +311,46 @@ function resolveAllConfiguredSports(): array
     $list    = array_values(array_unique(array_filter(array_map('trim', explode(',', $merged)), static fn ($v) => $v !== '')));
     sort($list);
     return $list;
+}
+
+/**
+ * Sport keys that have at least one match in the last 14 days OR the
+ * next 14 days. Used as the prematch-rotation target so the worker
+ * stops hammering Rundown for sports that are mid-offseason (NBA in
+ * July, NFL in March, NHL in August). Typically cuts prematch credit
+ * spend by ~70% during off-peak periods.
+ *
+ * The 14-day lookback keeps recently-active sports on the rotation so
+ * a single-day gap doesn't drop them — the next game discovery is then
+ * caught on the very next rotation.
+ *
+ * Discovery fallback: if fewer than $minSports come back (fresh deploy,
+ * wiped DB, all sports out of season), fall back to the full configured
+ * catalog so the worker doesn't end up polling nothing. Controlled by
+ * RUNDOWN_PREMATCH_ACTIVE_SPORTS_ONLY env (default true). Set to false
+ * to fully restore the legacy "rotate all sports" behavior.
+ *
+ * @return list<string>
+ */
+function activeSportsForPrematchRotation(SqlRepository $db, int $minSports = 4): array
+{
+    $past   = gmdate(DATE_ATOM, time() - (14 * 86400));
+    $future = gmdate(DATE_ATOM, time() + (14 * 86400));
+
+    $rows = $db->findMany('matches', [
+        'startTime' => ['$gte' => $past, '$lte' => $future],
+    ], ['projection' => ['sportKey' => 1], 'limit' => 5000]);
+
+    $keys = [];
+    foreach (is_array($rows) ? $rows : [] as $row) {
+        $k = strtolower((string) ($row['sportKey'] ?? ''));
+        if ($k !== '') $keys[$k] = true;
+    }
+    $active = array_keys($keys);
+    sort($active);
+
+    if (count($active) < $minSports) {
+        return resolveAllConfiguredSports();
+    }
+    return $active;
 }
