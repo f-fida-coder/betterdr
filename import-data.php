@@ -14,7 +14,18 @@ ignore_user_abort(true);
 ini_set('memory_limit', '512M');
 header('Content-Type: text/plain; charset=utf-8');
 
-$sqlGzFile = __DIR__ . '/u487877829_better_dr_ready.sql.gz';
+// Try whichever file is present. Order = preferred first.
+$candidates = [
+    __DIR__ . '/u487877829_better_dr_ready.sql.gz',
+    __DIR__ . '/u487877829_better_dr_ready.sql',
+    __DIR__ . '/u487877829_bettor_bets_24.sql.gz',
+    __DIR__ . '/u487877829_bettor_bets_24.sql',
+];
+$sqlFile = null;
+foreach ($candidates as $c) {
+    if (file_exists($c)) { $sqlFile = $c; break; }
+}
+
 $user = 'u487877829_bettordr';
 $pass = 'Bettor.ok12';
 $db   = 'u487877829_better_dr';
@@ -23,14 +34,18 @@ $host = 'localhost';
 echo "=== BETTERDR DATA IMPORTER ===\n";
 echo "Time: " . date('Y-m-d H:i:s') . "\n\n";
 
-if (!file_exists($sqlGzFile)) {
-    echo "❌ ERROR: $sqlGzFile not found.\n";
-    echo "Upload u487877829_better_dr_ready.sql.gz to public_html/ via File Manager first.\n";
+if ($sqlFile === null) {
+    echo "❌ ERROR: no SQL backup file found in public_html/.\n";
+    echo "Looked for any of:\n";
+    foreach ($candidates as $c) echo "  - " . basename($c) . "\n";
+    echo "Upload one of these to public_html/ via File Manager first.\n";
     exit(1);
 }
 
-echo "File: $sqlGzFile\n";
-echo "Size: " . round(filesize($sqlGzFile) / 1024 / 1024, 1) . " MB\n\n";
+$isGz = str_ends_with($sqlFile, '.gz');
+echo "File: $sqlFile\n";
+echo "Size: " . round(filesize($sqlFile) / 1024 / 1024, 1) . " MB\n";
+echo "Type: " . ($isGz ? 'gzipped' : 'plain SQL') . "\n\n";
 
 @ob_end_flush();
 @ob_implicit_flush(true);
@@ -49,15 +64,35 @@ try {
 }
 
 echo "✅ Connected to DB\n\n";
-echo "Disabling foreign key + uniqueness checks for faster import...\n";
+
+// Drop all existing tables so the imported CREATE TABLE statements don't conflict.
+// (The original backup file doesn't include DROP TABLE IF EXISTS.)
+echo "Dropping existing tables in $db (so imported CREATE TABLE statements succeed)...\n";
 $pdo->exec("SET FOREIGN_KEY_CHECKS=0");
+$existing = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
+echo "  Found " . count($existing) . " existing tables.\n";
+foreach ($existing as $t) {
+    try {
+        $pdo->exec("DROP TABLE IF EXISTS `$t`");
+    } catch (PDOException $e) {
+        echo "  drop $t failed: " . $e->getMessage() . "\n";
+    }
+}
+// Drop views too (some installs have views like vw_platform_summary)
+$views = $pdo->query("SHOW FULL TABLES WHERE Table_type = 'VIEW'")->fetchAll(PDO::FETCH_COLUMN);
+foreach ($views as $v) {
+    try { $pdo->exec("DROP VIEW IF EXISTS `$v`"); } catch (PDOException $e) {}
+}
+echo "  Cleared.\n\n";
+
+echo "Disabling foreign key + uniqueness checks for faster import...\n";
 $pdo->exec("SET UNIQUE_CHECKS=0");
 $pdo->exec("SET autocommit=0");
 $pdo->beginTransaction();
 
-$fp = gzopen($sqlGzFile, 'rb');
+$fp = $isGz ? gzopen($sqlFile, 'rb') : fopen($sqlFile, 'rb');
 if (!$fp) {
-    echo "❌ Cannot open $sqlGzFile\n";
+    echo "❌ Cannot open $sqlFile\n";
     exit(1);
 }
 
@@ -73,8 +108,11 @@ $inMultilineComment = false;
 echo "Starting import...\n";
 echo "(Progress prints every 100 statements. Total file has ~2988 INSERTs + 42 CREATE TABLEs.)\n\n";
 
-while (!gzeof($fp)) {
-    $line = gzgets($fp, 1024 * 1024);
+$eof = fn() => $isGz ? gzeof($fp) : feof($fp);
+$readLine = fn() => $isGz ? gzgets($fp, 1024 * 1024) : fgets($fp, 1024 * 1024);
+
+while (!$eof()) {
+    $line = $readLine();
     if ($line === false) break;
 
     $trimmed = trim($line);
@@ -114,7 +152,7 @@ while (!gzeof($fp)) {
         $buffer = '';
     }
 }
-gzclose($fp);
+$isGz ? gzclose($fp) : fclose($fp);
 
 if (trim($buffer) !== '') {
     try {
