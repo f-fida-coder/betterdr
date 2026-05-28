@@ -22,6 +22,17 @@ final class MatchesController
     private SqlRepository $db;
     private string $jwtSecret;
     private ?Closure $deferredSyncRunner = null;
+    /**
+     * Populated by computeMatches() with sport keys whose rows are aged
+     * past the soft-refresh threshold (half the freshness window). After
+     * the response is flushed, the deferred runner pulls a fresh batch
+     * for these sports from Rundown so the very next read sees current
+     * odds. Value is `true` if the sport's stale rows are effectively
+     * live (use syncSportLive), `false` if prematch (use syncSportPrematch).
+     *
+     * @var array<string, bool>
+     */
+    private array $lazyRefreshSportKeys = [];
 
     public function __construct(SqlRepository $db, string $jwtSecret)
     {
@@ -263,6 +274,12 @@ final class MatchesController
             if (is_array($annotated)) {
                 SharedFileCache::put($staleNamespace, $cacheKey, $annotated);
             }
+
+            // Lazy on-demand refresh — if computeMatches flagged sport
+            // keys whose data is going (or already) stale, schedule a
+            // deferred pull from Rundown. Skips when a manual-refresh
+            // runner is already set so we don't double-fire upstream.
+            $this->maybeScheduleLazyRefresh($cacheMeta);
 
             header('X-Matches-Shared-Cache: ' . $sharedCacheState);
             header('X-Cache: ' . ($sharedCacheState === 'hit' ? 'HIT' : 'MISS'));
@@ -612,7 +629,104 @@ final class MatchesController
             return self::backfillTeamDisplayFields($match);
         }, $annotated);
 
+        // Lazy-refresh scheduling — pick up to 3 sport keys that need a
+        // fresh upstream pull and remember them for the deferred runner.
+        // Two signals trigger inclusion:
+        //   (a) the freshness filter DROPPED every row for that sport
+        //       (sport was present in $matches but absent from $annotated);
+        //       the next read needs Rundown to catch up.
+        //   (b) a surviving row is aged past softThreshold = half the
+        //       applicable freshness window; refresh proactively before it
+        //       falls off the cliff.
+        // The runner is wired in getMatches(); kept out of cache misses
+        // (computeMatches only runs on miss, so this naturally throttles).
+        $this->lazyRefreshSportKeys = self::detectLazyRefreshSportKeys($matches, $annotated);
+
         return $annotated;
+    }
+
+    /**
+     * @param iterable<int, array<string, mixed>> $preFilterMatches  Raw DB rows before freshness filtering.
+     * @param array<int, array<string, mixed>>    $surviving         Rows that passed all filters.
+     * @return array<string, bool>                                   sportKey => isEffectivelyLive (true=use syncSportLive, false=syncSportPrematch)
+     */
+    private static function detectLazyRefreshSportKeys(iterable $preFilterMatches, array $surviving): array
+    {
+        $now = time();
+        $prematchSoft = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
+        $prematchSoftThreshold = (int) ($prematchSoft / 2);
+
+        // Pre-filter sport keys (so we can detect "lost ALL rows" sports).
+        $preFilterByKey = [];
+        foreach ($preFilterMatches as $row) {
+            if (!is_array($row)) continue;
+            $key = strtolower((string) ($row['sportKey'] ?? ''));
+            if ($key === '') continue;
+            if (strtolower((string) ($row['oddsSource'] ?? '')) === 'oddsapi') continue;
+            $preFilterByKey[$key] = true;
+        }
+
+        $survivedByKey = [];
+        foreach ($surviving as $row) {
+            if (!is_array($row)) continue;
+            $key = strtolower((string) ($row['sportKey'] ?? ''));
+            if ($key === '') continue;
+            $survivedByKey[$key] = true;
+        }
+
+        $candidates = []; // sportKey => isLive
+        $rank = []; // sportKey => age in seconds (older = higher priority)
+
+        // (a) sports that lost ALL their rows to the freshness filter
+        foreach ($preFilterByKey as $key => $_) {
+            if (!isset($survivedByKey[$key])) {
+                // Assume prematch (most common). syncSportPrematch is wider
+                // and pulls upcoming events for the next N days; if there
+                // were live rows, they'd appear in that response too.
+                $candidates[$key] = false;
+                $rank[$key] = PHP_INT_MAX;
+            }
+        }
+
+        // (b) sports with surviving row aged past soft threshold
+        foreach ($surviving as $row) {
+            if (!is_array($row)) continue;
+            $key = strtolower((string) ($row['sportKey'] ?? ''));
+            if ($key === '' || isset($candidates[$key])) continue;
+            $last = (string) ($row['lastOddsSyncAt'] ?? '');
+            $lastTs = $last !== '' ? strtotime($last) : false;
+            if ($lastTs === false) continue;
+            $age = $now - $lastTs;
+
+            $matchStatus = strtolower((string) ($row['status'] ?? ''));
+            $startTime = (string) ($row['startTime'] ?? '');
+            $startTs = $startTime !== '' ? strtotime($startTime) : false;
+            $isLive = $matchStatus === 'live' || ($startTs !== false && $startTs <= $now);
+
+            $softThreshold = $isLive
+                ? max(15, (int) (self::liveFreshnessSecondsForSport($key) / 2))
+                : $prematchSoftThreshold;
+
+            if ($age >= $softThreshold) {
+                $candidates[$key] = $isLive;
+                $rank[$key] = $age;
+            }
+        }
+
+        if ($candidates === []) {
+            return [];
+        }
+
+        // Sort by oldest first, take top 3 to bound upstream fan-out.
+        $keys = array_keys($candidates);
+        usort($keys, static fn (string $a, string $b): int => ($rank[$b] ?? 0) <=> ($rank[$a] ?? 0));
+        $keys = array_slice($keys, 0, 3);
+
+        $out = [];
+        foreach ($keys as $key) {
+            $out[$key] = $candidates[$key];
+        }
+        return $out;
     }
 
     /**
@@ -1635,6 +1749,79 @@ final class MatchesController
         if (isset($meta['syncAgeSeconds']) && $meta['syncAgeSeconds'] !== null) {
             header('X-Sportsbook-Sync-Age: ' . (int) $meta['syncAgeSeconds']);
         }
+    }
+
+    /**
+     * Wire the deferred sync runner for lazy on-demand refresh. Reads
+     * the sport-key list populated by computeMatches() and arranges a
+     * post-response Rundown pull. Mutates $cacheMeta so emitPublicCacheHeaders
+     * sends X-Sportsbook-Sync-Deferred — the frontend listens for that header
+     * (api.js, matches:sync-deferred event) and schedules a follow-up refetch
+     * ~4 s later, so the next read returns the freshly-synced rows.
+     *
+     * @param array<string, mixed> $cacheMeta passed by reference; updated with syncDeferred + state hint
+     */
+    private function maybeScheduleLazyRefresh(array &$cacheMeta): void
+    {
+        if ($this->deferredSyncRunner !== null) {
+            return; // manual-refresh runner already in flight; don't pile on
+        }
+        if ($this->lazyRefreshSportKeys === []) {
+            return;
+        }
+
+        $db = $this->db;
+        $sportKeys = $this->lazyRefreshSportKeys;
+        // Reset so a follow-up request on the same instance starts clean.
+        $this->lazyRefreshSportKeys = [];
+        $dedupWindow = max(1, (int) Env::get('ODDS_REFRESH_DEDUP_WINDOW_SECONDS', '20'));
+
+        $this->deferredSyncRunner = static function () use ($db, $sportKeys, $dedupWindow): void {
+            $anySuccess = false;
+            foreach ($sportKeys as $sportKey => $isLive) {
+                try {
+                    $result = SharedFileCache::remember(
+                        'sportsbook-on-demand-refresh',
+                        $sportKey,
+                        $dedupWindow,
+                        static function () use ($db, $sportKey, $isLive): array {
+                            $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                            if ($sportId === null) {
+                                return ['success' => false, 'error' => 'unmapped_sport_key'];
+                            }
+                            $r = $isLive
+                                ? RundownSyncService::syncSportLive($db, $sportKey, $sportId)
+                                : RundownSyncService::syncSportPrematch($db, $sportKey, $sportId);
+                            return [
+                                'success'    => ((int) ($r['errors'] ?? 0)) === 0,
+                                'sportKey'   => $sportKey,
+                                'eventsSeen' => (int) ($r['eventsSeen'] ?? 0),
+                                'errors'     => (int) ($r['errors'] ?? 0),
+                            ];
+                        }
+                    );
+                    if (($result['success'] ?? false) === true) {
+                        $anySuccess = true;
+                    }
+                } catch (Throwable $e) {
+                    Logger::warning('lazy odds refresh failed', [
+                        'sportKey' => $sportKey,
+                        'isLive'   => $isLive,
+                        'error'    => $e->getMessage(),
+                    ], 'sportsbook');
+                }
+            }
+            if ($anySuccess) {
+                // Bust shared caches so the client's follow-up refetch
+                // (scheduled ~4 s after the initial response by the
+                // matches:sync-deferred handler in api.js) returns the
+                // newly synced odds instead of the stale cached payload.
+                self::clearSharedPublicCaches();
+            }
+        };
+
+        $cacheMeta['syncDeferred'] = true;
+        $cacheMeta['lazyRefreshSports'] = array_keys($sportKeys);
     }
 
     private function runDeferredSync(): void
