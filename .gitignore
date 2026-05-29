@@ -8,8 +8,10 @@ node_modules/
 # are produced at build time and contain secrets — never commit them.
 
 
-# Root env files — must NEVER be tracked. Currently still tracked from
-# earlier history; remove with `git rm --cached .env .env.production .env.copy`
-# and rotate every secret. See php-backend/config/tier-c-secrets-rotation.md.
-# .env.example stays tracked because it's the template.ggg
+# Env files — must NEVER be tracked (contain secrets). Applies in every dir.
+# .env.example files stay tracked because they're templates.
+.env
+.env.*
+!.env.example
+
 bundle-stats.html
