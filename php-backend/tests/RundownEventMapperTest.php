@@ -228,3 +228,77 @@ TestRunner::run('mapped odds.price is DECIMAL across every fixture (favorites la
     // still American, no price would ever fall in that band.
     TestRunner::assertTrue($hasFavoriteDecimal, 'no favorite price in (1.0, 2.0) — conversion not applied');
 });
+
+// ── Live in-play core supersedes the stale pre-match line ────────────────
+// Regression for the "NYY +1 while up 8-1" bug: pre-match spreads (market 2)
+// and live spreads (market 42) share the 'spreads' key. They were appended
+// into one outcome list and the frontend rendered the FIRST match — the dead
+// pre-match number. Live must fully supersede pre-match for the same market.
+
+function rmtSyntheticMlbEvent(bool $withLive): array
+{
+    $mk = function (int $marketId, int $periodId, float $nyPoint, int $nyPrice, float $oaPoint, int $oaPrice, int $idBase): array {
+        return [
+            'market_id' => $marketId,
+            'period_id' => $periodId,
+            'participants' => [
+                ['name' => 'New York Yankees', 'type' => 'TYPE_TEAM', 'id' => 1001, 'lines' => [
+                    ['value' => (string) $nyPoint, 'prices' => ['3' => ['price' => $nyPrice, 'is_main_line' => true, 'id' => $idBase + 1, 'updated_at' => '2026-05-30T02:00:00Z']]],
+                ]],
+                ['name' => 'Athletics', 'type' => 'TYPE_TEAM', 'id' => 1002, 'lines' => [
+                    ['value' => (string) $oaPoint, 'prices' => ['3' => ['price' => $oaPrice, 'is_main_line' => true, 'id' => $idBase + 2, 'updated_at' => '2026-05-30T02:00:00Z']]],
+                ]],
+            ],
+        ];
+    };
+    $markets = [$mk(2, 0, 1.0, -223, -1.5, 206, 5000)];          // pre-match spreads
+    if ($withLive) {
+        $markets[] = $mk(42, 7, -6.5, -282, 6.5, 205, 6000);     // live spreads
+    }
+    return [
+        'event_id' => 'synthetic-nyy-oak-live',
+        'sport_id' => 3,
+        'teams' => [
+            ['name' => 'Athletics', 'is_home' => true],
+            ['name' => 'New York Yankees', 'is_away' => true],
+        ],
+        'score' => ['event_status' => 'STATUS_INPROGRESS'],
+        'schedule' => ['event_name' => 'New York Yankees at Athletics'],
+        'markets' => $markets,
+    ];
+}
+
+// name => point map for the 'spreads' market on the first bookmaker.
+function rmtSpreadsByTeam(array $doc): array
+{
+    $out = [];
+    foreach (($doc['odds']['bookmakers'][0]['markets'] ?? []) as $m) {
+        if (($m['key'] ?? '') !== 'spreads') continue;
+        foreach (($m['outcomes'] ?? []) as $o) {
+            $out[(string) ($o['name'] ?? '')][] = $o; // list per team to detect dupes
+        }
+    }
+    return $out;
+}
+
+TestRunner::run('live spreads fully supersede the stale pre-match line', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtSyntheticMlbEvent(true), 'baseball_mlb');
+    TestRunner::assertNotNull($doc, 'doc should map');
+    $byTeam = rmtSpreadsByTeam($doc);
+
+    // Exactly one outcome per team — no pre-match/live duplication.
+    TestRunner::assertEquals(1, count($byTeam['New York Yankees'] ?? []), 'NYY should have exactly one spread outcome');
+    TestRunner::assertEquals(1, count($byTeam['Athletics'] ?? []), 'Athletics should have exactly one spread outcome');
+
+    // The surviving line is the LIVE one (-6.5 / +6.5), not the dead +1 / -1.5.
+    TestRunner::assertEqualsFloat(-6.5, (float) $byTeam['New York Yankees'][0]['point'], 'NYY spread must be the live -6.5');
+    TestRunner::assertEqualsFloat(6.5, (float) $byTeam['Athletics'][0]['point'], 'Athletics spread must be the live +6.5');
+});
+
+TestRunner::run('pre-match spreads survive when no live variant is present', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtSyntheticMlbEvent(false), 'baseball_mlb');
+    TestRunner::assertNotNull($doc, 'doc should map');
+    $byTeam = rmtSpreadsByTeam($doc);
+    TestRunner::assertEquals(1, count($byTeam['New York Yankees'] ?? []), 'NYY should have exactly one spread outcome');
+    TestRunner::assertEqualsFloat(1.0, (float) $byTeam['New York Yankees'][0]['point'], 'pre-match NYY spread preserved');
+});

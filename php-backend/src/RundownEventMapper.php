@@ -201,7 +201,7 @@ final class RundownEventMapper
      */
     private static function partitionMarkets(array $markets, string $sportKey): array
     {
-        /** @var array<int, array{key:string,name:string,lastUpdate:string,markets:array<string, list<array<string,mixed>>>}> $bookmakersById */
+        /** @var array<int, array{key:string,name:string,lastUpdate:string,markets:array<string, array{prematch?:list<array<string,mixed>>,live?:list<array<string,mixed>>}>}> $bookmakersById */
         $bookmakersById = [];
         /** @var array<string, list<array<string,mixed>>> $extendedByKey  flat-key buckets */
         $extendedByKey  = [];
@@ -277,7 +277,16 @@ final class RundownEventMapper
                             } elseif ($updatedAt !== '' && $updatedAt > $bookmakersById[$affiliateId]['lastUpdate']) {
                                 $bookmakersById[$affiliateId]['lastUpdate'] = $updatedAt;
                             }
-                            $bookmakersById[$affiliateId]['markets'][$marketKey] ??= [];
+                            // Pre-match cores (market 2/3/94…) and live in-play
+                            // variants (41/42/43/96) share the same odds-api key
+                            // (e.g. 'spreads'). Bucket them by source so live can
+                            // FULLY supersede the stale pre-match line at
+                            // materialization. Previously both were appended into
+                            // one list and the consumer picked the first match —
+                            // which surfaced dead pre-match numbers (e.g. NYY +1
+                            // while up 8-1) on in-progress games. Money-critical.
+                            $marketSource = $isLiveCore ? 'live' : 'prematch';
+                            $bookmakersById[$affiliateId]['markets'][$marketKey][$marketSource] ??= [];
                             $outcome = ['name' => $rawParticipantName, 'price' => $priceDecimal];
                             if ($point !== null) {
                                 $outcome['point'] = $point;
@@ -294,7 +303,7 @@ final class RundownEventMapper
                             if ($priceId !== null) {
                                 $outcome['priceId'] = is_numeric($priceId) ? (int) $priceId : (string) $priceId;
                             }
-                            $bookmakersById[$affiliateId]['markets'][$marketKey][] = $outcome;
+                            $bookmakersById[$affiliateId]['markets'][$marketKey][$marketSource][] = $outcome;
                             continue;
                         }
 
@@ -327,7 +336,7 @@ final class RundownEventMapper
     }
 
     /**
-     * @param array<int, array{key:string,name:string,lastUpdate:string,markets:array<string, list<array<string,mixed>>>}> $bookmakersById
+     * @param array<int, array{key:string,name:string,lastUpdate:string,markets:array<string, array{prematch?:list<array<string,mixed>>,live?:list<array<string,mixed>>}>}> $bookmakersById
      * @return list<array<string,mixed>>
      */
     private static function materializeBookmakers(array $bookmakersById): array
@@ -335,7 +344,14 @@ final class RundownEventMapper
         $out = [];
         foreach ($bookmakersById as $book) {
             $markets = [];
-            foreach ($book['markets'] as $marketKey => $outcomes) {
+            foreach ($book['markets'] as $marketKey => $bySource) {
+                // Live in-play odds fully supersede the pre-match line for the
+                // same market; fall back to pre-match only when no live variant
+                // is present. This is what stops an in-progress game from
+                // showing its dead pre-match spread/total/moneyline.
+                $outcomes = !empty($bySource['live'])
+                    ? $bySource['live']
+                    : ($bySource['prematch'] ?? []);
                 if ($outcomes === []) continue;
                 $markets[] = [
                     'key'      => $marketKey,
