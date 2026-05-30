@@ -211,7 +211,6 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         padding: '6px 6px',
         background: '#595959',
         border: 'none',
-        borderRight: '1px solid rgba(0,0,0,0.45)',
         color: '#fff',
         display: 'flex',
         flexDirection: 'column',
@@ -233,8 +232,6 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         gridColumn: 'span 2',
         minWidth: 0,
         background: '#595959',
-        borderLeft: '1px solid rgba(0,0,0,0.45)',
-        borderRight: '1px solid rgba(0,0,0,0.45)',
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.18)',
         padding: '2px 10px',
         display: 'flex',
@@ -421,7 +418,14 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                         alignItems: 'stretch',
                         padding: 0,
                         minHeight: 64,
-                        background: '#595959',
+                        // Cell dividers are drawn by this background showing through
+                        // 1px grid gaps — NOT per-cell borders, which landed on
+                        // fractional device pixels and dropped (e.g. the
+                        // Betslip|Balance line vanished at some widths/DPRs). Kept
+                        // only a hair darker than the #595959 cells so the lines
+                        // read as a faint hairline, not a bold black rule.
+                        gap: '1.5px',
+                        background: '#201f1f',
                     }}
                 >
                     {(() => {
@@ -490,12 +494,14 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                                 {formatBalanceCell(balance)}
                             </span>
                         </div>
+                        <div style={mhBalanceRowDividerStyle} />
                         <div style={mhBalanceRowStyle}>
                             <span style={mhBalanceHeroLabelStyle}>Pending</span>
                             <span style={{ ...mhBalanceHeroValueStyle, color: '#ffffff' }}>
                                 {formatBalanceCell(pendingBalance)}
                             </span>
                         </div>
+                        <div style={mhBalanceRowDividerStyle} />
                         <div style={mhBalanceRowStyle}>
                             <span style={mhBalanceHeroLabelStyle}>Available</span>
                             <span style={{ ...mhBalanceHeroValueStyle, color: '#ffffff' }}>
@@ -510,12 +516,15 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                             dropped on the backend, but no UI element in the
                             mobile header surfaced that pool. */}
                         {Number(freeplayBalance) > 0 && (
+                            <>
+                            <div style={mhBalanceRowDividerStyle} />
                             <div style={mhBalanceRowStyle}>
                                 <span style={mhBalanceHeroLabelStyle}>Freeplay</span>
                                 <span style={{ ...mhBalanceHeroValueStyle, color: '#16a34a' }}>
                                     {formatBalanceCell(freeplayBalance)}
                                 </span>
                             </div>
+                            </>
                         )}
                     </button>
 

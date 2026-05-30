@@ -1104,7 +1104,7 @@ body::after {
     flex-direction: column;
     align-items: stretch;
     gap: 14px;
-    padding: 24px 18px 22px;
+    padding: 4px 18px 18px;
     position: static;
     /* Navy base + symmetrical red wedge accents that fade into the hero below,
        mimicking the "arena lights" feel of the bettorjuice365 reference. */
@@ -1121,7 +1121,10 @@ body::after {
     display: flex;
     justify-content: center;
     width: 100%;
-    margin: 10px 0 14px;
+    /* Negative top margin absorbs the transparent whitespace baked into
+       logo.png (384x384 square, text centered) so the wordmark sits close
+       to the top edge instead of floating below a band of empty pixels. */
+    margin: -18px 0 4px;
   }
 
   .main-header.is-mobile-loggedout .logo img {
@@ -1162,7 +1165,10 @@ body::after {
     border: 1px solid #d1d5db !important;
     background: #ffffff !important;
     color: #111827 !important;
-    font-size: 15px !important;
+    /* 16px (not 15) is deliberate: iOS Safari auto-zooms the page when a
+       focused input is < 16px and does NOT zoom back out after submit, so
+       the dashboard looked "zoomed in" right after login. 16px disables it. */
+    font-size: 16px !important;
     font-weight: 500 !important;
     line-height: 1 !important;
     box-sizing: border-box !important;

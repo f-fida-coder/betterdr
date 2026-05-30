@@ -2245,6 +2245,13 @@ body.dashboard-mode {
         border-top: 1px solid #d1d5db;
         border-bottom: 1px solid #d1d5db;
         box-sizing: border-box;
+        /* Dividers are drawn by letting this background show through 1px
+           flex gaps between the tabs — NOT per-item border-right. With
+           `flex: 1` columns the right-borders landed on fractional device
+           pixels and the browser dropped one (e.g. the RR|I divider) at
+           certain widths/DPRs. A single gap value renders consistently. */
+        gap: 1px;
+        background-color: #d1d5db;
     }
 
     .tab-item {
@@ -2254,8 +2261,6 @@ body.dashboard-mode {
         align-items: center;
         justify-content: center;
         background-color: #e8e8e8;
-
-        border-right: 1px solid #d1d5db;
         cursor: pointer;
         color: #000;
         position: relative;
@@ -2290,11 +2295,6 @@ body.dashboard-mode {
         margin-bottom: 2px;
     }
 
-    .tab-item:last-child {
-        border-right: none;
-    }
-
-    
     .info-bar {
         background-color: white;
         padding: 10px 0;
