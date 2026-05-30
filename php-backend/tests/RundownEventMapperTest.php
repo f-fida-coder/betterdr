@@ -176,3 +176,55 @@ TestRunner::run('core h2h/spreads/totals still land in odds.bookmakers for every
         TestRunner::assertTrue(in_array('totals', $bk, true),  "{$name}: totals missing in bookmakers");
     }
 });
+
+// ── Odds format: outcome.price must be DECIMAL, not American ──────────────
+// Regression guard for the money bug where Rundown's American prices
+// (-110, +165) were stored raw. The whole platform (display, betslip,
+// BetsController pricing, settlement) treats outcome.price as DECIMAL, so
+// American storage rejected every favorite (-110 -> "invalid odds") and
+// mispriced underdogs catastrophically.
+
+TestRunner::run('priceToDecimal: American odds convert to the decimal format every consumer expects', function (): void {
+    $ref = new ReflectionMethod(RundownEventMapper::class, 'priceToDecimal');
+    $ref->setAccessible(true);
+    $approx = static fn (float $a, float $b): bool => abs($a - $b) < 1e-6;
+    TestRunner::assertTrue($approx($ref->invoke(null, -110.0), 1.0 + 100.0 / 110.0), '-110 -> ~1.9091');
+    TestRunner::assertTrue($approx($ref->invoke(null, 165.0), 2.65), '+165 -> 2.65');
+    TestRunner::assertTrue($approx($ref->invoke(null, 100.0), 2.0),  '+100 -> 2.0');
+    TestRunner::assertTrue($approx($ref->invoke(null, -100.0), 2.0), '-100 -> 2.0');
+    TestRunner::assertTrue($approx($ref->invoke(null, -200.0), 1.5), '-200 -> 1.5');
+    // Round-trip: the decimal must map back to the same American integer the
+    // bet engine derives (decimalToAmericanInt). This is what keeps
+    // ODDS_CHANGED validation and payout math correct.
+    foreach ([-110, -160, 100, 130, 165, 240, -200] as $am) {
+        $dec  = (float) $ref->invoke(null, (float) $am);
+        $back = $dec >= 2.0 ? (int) round(($dec - 1.0) * 100.0) : (int) round(-100.0 / ($dec - 1.0));
+        TestRunner::assertEquals($am, $back, "round-trip American {$am} via decimal {$dec}");
+    }
+});
+
+TestRunner::run('mapped odds.price is DECIMAL across every fixture (favorites land in 1.0-2.0)', function (): void {
+    $prices = [];
+    foreach (['nba_okc_at_san_antonio_scheduled','mlb_la_at_detroit_scheduled','nhl_montreal_at_carolina_scheduled'] as $name) {
+        $doc = RundownEventMapper::toMatchDoc(rmtLoad($name));
+        TestRunner::assertNotNull($doc, "{$name} mapped");
+        foreach (($doc['odds']['bookmakers'] ?? []) as $b) {
+            foreach (($b['markets'] ?? []) as $m) {
+                foreach (($m['outcomes'] ?? []) as $o) {
+                    if (isset($o['price'])) $prices[] = (float) $o['price'];
+                }
+            }
+        }
+    }
+    TestRunner::assertTrue(count($prices) > 0, 'core outcome prices present');
+    $hasFavoriteDecimal = false;
+    foreach ($prices as $p) {
+        // True decimal odds are always > 1.0. Raw American storage would
+        // include negatives (-110) which fail this immediately.
+        TestRunner::assertTrue($p > 1.0, "price not decimal (<=1.0): {$p}");
+        if ($p > 1.0 && $p < 2.0) $hasFavoriteDecimal = true;
+    }
+    // A favorite (American negative) maps into (1.0, 2.0). If storage were
+    // still American, no price would ever fall in that band.
+    TestRunner::assertTrue($hasFavoriteDecimal, 'no favorite price in (1.0, 2.0) — conversion not applied');
+});

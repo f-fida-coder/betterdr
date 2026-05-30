@@ -244,13 +244,13 @@ final class RundownEventMapper
                         $priceFloat = (float) $priceVal;
                         if (abs($priceFloat - self::PRICE_OFF_BOARD) < 1e-6) continue;
                         $isMain = (bool) ($price['is_main_line'] ?? false);
-                        $priceInt = self::normalizeAmericanOdds($priceFloat);
+                        $priceDecimal = self::priceToDecimal($priceFloat);
                         $updatedAt = (string) ($price['updated_at'] ?? '');
 
                         // ── Route 1: player prop ────────────────────
                         if ($isProp || $participantType === 'TYPE_PLAYER') {
                             $propKey = RundownMarketMap::propKey($marketId) ?? 'player_unknown';
-                            $propOutcome = self::buildPropOutcome($rawParticipantName, $priceInt, $point);
+                            $propOutcome = self::buildPropOutcome($rawParticipantName, $priceDecimal, $point);
                             if ($propOutcome !== null) {
                                 $propsByKey[$propKey][] = $propOutcome + ['book' => $book['key']];
                             }
@@ -278,7 +278,7 @@ final class RundownEventMapper
                                 $bookmakersById[$affiliateId]['lastUpdate'] = $updatedAt;
                             }
                             $bookmakersById[$affiliateId]['markets'][$marketKey] ??= [];
-                            $outcome = ['name' => $rawParticipantName, 'price' => $priceInt];
+                            $outcome = ['name' => $rawParticipantName, 'price' => $priceDecimal];
                             if ($point !== null) {
                                 $outcome['point'] = $point;
                             }
@@ -309,7 +309,7 @@ final class RundownEventMapper
                         }
                         if ($extKey === null || $rawParticipantName === '') continue;
 
-                        $outcome = ['name' => $rawParticipantName, 'price' => $priceInt, 'book' => $book['key']];
+                        $outcome = ['name' => $rawParticipantName, 'price' => $priceDecimal, 'book' => $book['key']];
                         if ($point !== null) {
                             $outcome['point'] = $point;
                         }
@@ -423,15 +423,32 @@ final class RundownEventMapper
     }
 
     /**
-     * Cast a numeric American-odds value to an integer when whole;
-     * existing matches.doc stores integers so downstream comparators
-     * (BetsController bet-time price check) match equally.
+     * Convert a Rundown American-odds price to DECIMAL odds.
+     *
+     * Rundown sends American odds (e.g. -110, +165) in the price field, but
+     * every downstream consumer expects DECIMAL odds in outcome.price:
+     *   - frontend odds display (formatOdds) + betslip payout math
+     *   - bet-time pricing (BetsController -> SportsbookBetSupport::snapDecimalOdds,
+     *     which treats price as decimal and rejects values <= 1.0)
+     *   - settlement grading
+     * Converting at this single ingestion chokepoint keeps exactly one
+     * canonical odds format across the platform. American odds are always
+     * integers with |value| >= 100, so there is no overlap with the decimal
+     * range and the conversion is unambiguous.
+     *   american > 0 -> 1 + american / 100    (+165 -> 2.65)
+     *   american < 0 -> 1 + 100 / |american|  (-110 -> 1.9090909...)
+     * Returns 0.0 for a 0 input; callers already skip non-numeric / off-board
+     * prices, and downstream rejects odds <= 1.0.
      */
-    private static function normalizeAmericanOdds(float $value): int|float
+    private static function priceToDecimal(float $american): float
     {
-        if (abs($value - round($value)) < 1e-4) {
-            return (int) round($value);
+        $a = round($american);
+        if ($a == 0.0) {
+            return 0.0;
         }
-        return $value;
+        if ($a > 0) {
+            return 1.0 + ($a / 100.0);
+        }
+        return 1.0 + (100.0 / abs($a));
     }
 }

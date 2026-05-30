@@ -468,7 +468,7 @@ final class RundownSyncService
                     if ($offBoard) {
                         unset($outcomes[$oIdx]);
                     } else {
-                        $o['price'] = self::normalizeAmericanOdds($priceFloat);
+                        $o['price'] = self::priceToDecimal($priceFloat);
                         if ($point !== null) {
                             $o['point'] = $point;
                         }
@@ -659,7 +659,7 @@ final class RundownSyncService
         $lineRaw = (string) ($delta['line'] ?? '');
         $point   = ($lineRaw !== '' && is_numeric($lineRaw)) ? (float) $lineRaw : null;
         $now = SqlRepository::nowUtc();
-        $priceInt = self::normalizeAmericanOdds($priceFloat);
+        $priceDecimal = self::priceToDecimal($priceFloat);
 
         // Resolve which bucket this delta belongs in.
         //   - Core key  (h2h/spreads/totals/team_totals) → odds.bookmakers
@@ -690,7 +690,7 @@ final class RundownSyncService
                 $participantName,
                 $offBoard ? null : [
                     'name'  => $participantName,
-                    'price' => $priceInt,
+                    'price' => $priceDecimal,
                     'point' => $point,
                 ],
                 $now
@@ -717,7 +717,7 @@ final class RundownSyncService
                 $participantName,
                 $offBoard ? null : [
                     'name'  => $participantName,
-                    'price' => $priceInt,
+                    'price' => $priceDecimal,
                     'point' => $point,
                     'book'  => $book['key'],
                 ]
@@ -941,12 +941,26 @@ final class RundownSyncService
         return $id > 0 ? $id : null;
     }
 
-    private static function normalizeAmericanOdds(float $value): int|float
+    /**
+     * Convert a Rundown American-odds price to DECIMAL odds.
+     *
+     * Mirrors RundownEventMapper::priceToDecimal — Rundown ships American
+     * odds (-110, +165) but the whole platform (display, betslip, bet-time
+     * pricing, settlement) expects DECIMAL in outcome.price. Convert at the
+     * WS / delta ingestion chokepoints so the format stays canonical.
+     *   american > 0 -> 1 + american / 100    (+165 -> 2.65)
+     *   american < 0 -> 1 + 100 / |american|  (-110 -> 1.9090909...)
+     */
+    private static function priceToDecimal(float $american): float
     {
-        if (abs($value - round($value)) < 1e-4) {
-            return (int) round($value);
+        $a = round($american);
+        if ($a == 0.0) {
+            return 0.0;
         }
-        return $value;
+        if ($a > 0) {
+            return 1.0 + ($a / 100.0);
+        }
+        return 1.0 + (100.0 / abs($a));
     }
 
     /** @return array<string,mixed> */
