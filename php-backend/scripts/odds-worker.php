@@ -183,6 +183,26 @@ while (!$shutdown) {
             }
         }
 
+        // ── 2b. Season-schedule sweep (NFL etc. — fixtures months ahead) ─
+        // Gated by RUNDOWN_SEASON_SPORTS (comma sportKeys, default empty=off).
+        // Runs on a slow cadence since season schedules change rarely.
+        $seasonSports = array_values(array_filter(array_map(
+            'trim',
+            explode(',', strtolower((string) Env::get('RUNDOWN_SEASON_SPORTS', '')))
+        )));
+        $seasonEveryTicks = max(1, (int) Env::get('RUNDOWN_SEASON_EVERY_N_TICKS', '720')); // ~1h @ 5s
+        if ($seasonSports !== [] && $tick % $seasonEveryTicks === 0 && RundownClient::isConfigured()) {
+            foreach ($seasonSports as $sk) {
+                $sid = RundownSportMap::sportKeyToSportId($sk);
+                if ($sid === null) continue;
+                try {
+                    RundownSyncService::syncSportSchedule($repo, $sk, $sid);
+                } catch (Throwable $e) {
+                    Logger::warning('odds-worker season sweep failed', ['sportKey' => $sk, 'error' => $e->getMessage()], 'sportsbook');
+                }
+            }
+        }
+
         // ── 3. Settlement sweep ─────────────────────────────────────
         $settleResult = null;
         if ($tick % $settleEveryTicks === 0) {

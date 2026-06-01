@@ -323,6 +323,103 @@ final class RundownSyncService
     }
 
     /**
+     * Season-schedule sync for sports whose fixtures are published months
+     * ahead (NFL, etc.). Looping every day would be ~100+ mostly-empty calls;
+     * instead ask Rundown which dates actually have events (/sports/dates) and
+     * fetch only those, bounded by RUNDOWN_SEASON_DAYS_AHEAD (horizon) and
+     * RUNDOWN_SEASON_MAX_DATES (credit cap). Additive + fail-safe: every fetch
+     * is try/caught so a bad response can never break the daily board.
+     *
+     * @return array<string,mixed>
+     */
+    public static function syncSportSchedule(SqlRepository $db, string $sportKey, int $sportId): array
+    {
+        if (!RundownClient::isConfigured()) {
+            return self::skippedResult('not_configured');
+        }
+        $horizonDays = max(1, (int) Env::get('RUNDOWN_SEASON_DAYS_AHEAD', '180'));
+        $maxDates    = max(1, (int) Env::get('RUNDOWN_SEASON_MAX_DATES', '40'));
+        $base = self::baseQueryParams(); // core markets only — schedule board
+
+        try {
+            $resp  = RundownClient::getDatesForSports([$sportId], ['format' => 'date']);
+            $dates = self::extractScheduleDates($resp);
+        } catch (Throwable $e) {
+            Logger::warning('rundown.syncSportSchedule dates error', [
+                'sportKey' => $sportKey, 'sportId' => $sportId, 'error' => $e->getMessage(),
+            ], 'sportsbook');
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+
+        $todayYmd = gmdate('Y-m-d', time() - self::offsetSeconds());
+        $cutoff   = gmdate('Y-m-d', time() - self::offsetSeconds() + ($horizonDays * 86400));
+        $future = [];
+        foreach ($dates as $d) {
+            $ymd = substr((string) $d, 0, 10);
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd) !== 1) continue;
+            if ($ymd < $todayYmd || $ymd > $cutoff) continue;
+            $future[$ymd] = true;
+        }
+        $future = array_keys($future);
+        sort($future);
+        $future = array_slice($future, 0, $maxDates);
+
+        $eventsSeen = $created = $updated = $errors = $datesFetched = 0;
+        foreach ($future as $date) {
+            try {
+                $r = RundownClient::getEventsForSport($sportId, $date, $base);
+                $datesFetched++;
+                if (!is_array($r)) continue;
+                foreach ((is_array($r['events'] ?? null) ? $r['events'] : []) as $event) {
+                    if (!is_array($event)) continue;
+                    $eventsSeen++;
+                    $doc = RundownEventMapper::toMatchDoc($event, $sportKey);
+                    if ($doc === null) continue;
+                    if (self::upsertMatch($db, $doc)) { $created++; } else { $updated++; }
+                }
+            } catch (Throwable $e) {
+                $errors++;
+                Logger::warning('rundown.syncSportSchedule fetch error', [
+                    'sportKey' => $sportKey, 'date' => $date, 'error' => $e->getMessage(),
+                ], 'sportsbook');
+            }
+        }
+        if ($datesFetched > 0 && $errors < $datesFetched) {
+            SportsbookHealth::recordOddsSourceSuccess($db, false);
+        }
+        return [
+            'ok' => $errors === 0, 'eventsSeen' => $eventsSeen, 'created' => $created,
+            'updated' => $updated, 'datesAvailable' => count($future), 'datesFetched' => $datesFetched, 'errors' => $errors,
+        ];
+    }
+
+    /**
+     * Defensive extraction of date strings from a /sports/dates response. The
+     * payload may be {dates:[...]}, {data:[...]}, or a bare list; entries may be
+     * "YYYY-MM-DD" or full ISO timestamps. Returns whatever date-like strings
+     * it can find — empty array on anything unexpected (fail-safe).
+     *
+     * @param mixed $resp
+     * @return list<string>
+     */
+    private static function extractScheduleDates(mixed $resp): array
+    {
+        if (!is_array($resp)) return [];
+        $candidates = $resp['dates'] ?? $resp['data'] ?? (array_is_list($resp) ? $resp : []);
+        if (!is_array($candidates)) return [];
+        $out = [];
+        foreach ($candidates as $c) {
+            if (is_string($c) && $c !== '') {
+                $out[] = $c;
+            } elseif (is_array($c)) {
+                $v = $c['date'] ?? $c['date_event'] ?? $c['event_date'] ?? null;
+                if (is_string($v) && $v !== '') $out[] = $v;
+            }
+        }
+        return $out;
+    }
+
+    /**
      * /markets/delta cursor-based poll for price changes only.
      * Cheaper than syncSportLive (delta-only payload, no event details).
      * Returns 'cursor_stale_rebootstrapping' when the cursor needs a
