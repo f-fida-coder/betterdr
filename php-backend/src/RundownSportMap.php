@@ -160,6 +160,27 @@ final class RundownSportMap
         return self::ID_TO_SPORT_KEY[$sportId] ?? null;
     }
 
+    /**
+     * Collapse a sportKey to the single CANONICAL key for its Rundown
+     * sport_id. Multiple aliases share one sport_id (e.g. cricket_psl /
+     * cricket_odi / cricket_t20 → 21 → 'cricket_t20'; tennis_atp_madrid_open
+     * → 38 → 'tennis_atp'). Rundown has no per-tournament split and we do
+     * no league_name filtering, so syncing/storing under an alias just
+     * re-labels the SAME events (deterministicMatchId is per-event, not
+     * per-sportKey) — producing phantom groups like an out-of-season "PSL"
+     * full of county cricket. Canonicalizing at sync time prevents that.
+     * Returns the input lowercased if the key is unknown.
+     */
+    public static function canonicalSportKey(string $sportKey): string
+    {
+        $key = strtolower(trim($sportKey));
+        $id  = self::SPORT_KEY_TO_ID[$key] ?? null;
+        if ($id === null) {
+            return $key;
+        }
+        return self::ID_TO_SPORT_KEY[$id] ?? $key;
+    }
+
     public static function displayName(int $sportId): string
     {
         return self::ID_TO_DISPLAY_NAME[$sportId] ?? ('Sport #' . $sportId);

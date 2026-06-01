@@ -344,7 +344,13 @@ function activeSportsForPrematchRotation(SqlRepository $db, int $minSports = 4):
     $keys = [];
     foreach (is_array($rows) ? $rows : [] as $row) {
         $k = strtolower((string) ($row['sportKey'] ?? ''));
-        if ($k !== '') $keys[$k] = true;
+        if ($k === '') continue;
+        // Collapse tournament aliases (cricket_psl/odi, tennis_*_open, …) to
+        // the canonical key for their Rundown sport_id. Without this, a stale
+        // alias row in the DB keeps the worker syncing that alias — sport_id 21
+        // under 'cricket_psl' re-pulls all county T20 and re-labels it PSL,
+        // resurrecting an out-of-season phantom group every rotation.
+        $keys[RundownSportMap::canonicalSportKey($k)] = true;
     }
     $active = array_keys($keys);
     sort($active);

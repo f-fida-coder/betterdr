@@ -39,4 +39,18 @@ final class Http
         $key = 'HTTP_' . strtoupper(str_replace('-', '_', $name));
         return (string) ($_SERVER[$key] ?? '');
     }
+
+    /**
+     * Single GET query parameter as a string, or $default when absent.
+     * Array-valued params (e.g. ?a[]=1) collapse to $default rather than
+     * leaking a non-string into callers that type-cast the result.
+     */
+    public static function query(string $name, string $default = ''): string
+    {
+        $val = $_GET[$name] ?? null;
+        if ($val === null || is_array($val)) {
+            return $default;
+        }
+        return (string) $val;
+    }
 }
