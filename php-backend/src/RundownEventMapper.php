@@ -25,6 +25,14 @@ final class RundownEventMapper
     private const PRICE_OFF_BOARD = 0.0001;
 
     /**
+     * Core board markets whose two-way juice is normalized to a single
+     * house-standard flat line (e.g. -110) when SPORTSBOOK_FLAT_JUICE_AMERICAN
+     * is configured. Moneyline (h2h) and team_totals are intentionally left
+     * on the live feed price.
+     */
+    private const FLAT_JUICE_MARKETS = ['spreads', 'totals'];
+
+    /**
      * Rundown event_status → matches.doc.status.
      * Anything not listed defaults to 'scheduled' (safer than blocking a row).
      */
@@ -287,7 +295,9 @@ final class RundownEventMapper
                             // while up 8-1) on in-progress games. Money-critical.
                             $marketSource = $isLiveCore ? 'live' : 'prematch';
                             $bookmakersById[$affiliateId]['markets'][$marketKey][$marketSource] ??= [];
-                            $outcome = ['name' => $rawParticipantName, 'price' => $priceDecimal];
+                            // Spreads/totals get the house flat juice; h2h/team_totals
+                            // pass through. Point is taken from $point (feed) unchanged.
+                            $outcome = ['name' => $rawParticipantName, 'price' => self::boardPriceDecimal($marketKey, $priceFloat)];
                             if ($point !== null) {
                                 $outcome['point'] = $point;
                             }
@@ -365,6 +375,17 @@ final class RundownEventMapper
                 'lastUpdate' => $book['lastUpdate'] !== '' ? $book['lastUpdate'] : SqlRepository::nowUtc(),
                 'markets'    => $markets,
             ];
+        }
+        // Order by configured display priority so the frontend's "first
+        // bookmaker with markets" lands on the preferred (sharpest/broadest)
+        // book. usort is stable on PHP 8, so unranked books keep upstream order.
+        $pref = self::preferredBookOrder();
+        if ($pref !== [] && count($out) > 1) {
+            $rank = static function (array $bm) use ($pref): int {
+                $i = array_search((string) ($bm['key'] ?? ''), $pref, true);
+                return $i === false ? PHP_INT_MAX : (int) $i;
+            };
+            usort($out, static fn (array $a, array $b): int => $rank($a) <=> $rank($b));
         }
         return $out;
     }
@@ -466,5 +487,57 @@ final class RundownEventMapper
             return 1.0 + ($a / 100.0);
         }
         return 1.0 + (100.0 / abs($a));
+    }
+
+    /**
+     * House-standard flat American juice for a two-way board market, or null
+     * when normalization is off / not applicable. Configured via
+     * SPORTSBOOK_FLAT_JUICE_AMERICAN (e.g. -110). Unset / 0 / non-juice value
+     * (> -100) disables it. Only 'spreads' and 'totals' are ever flattened.
+     */
+    private static function flatJuiceAmerican(string $marketKey): ?int
+    {
+        if (!in_array($marketKey, self::FLAT_JUICE_MARKETS, true)) {
+            return null;
+        }
+        $raw = (int) Env::get('SPORTSBOOK_FLAT_JUICE_AMERICAN', '0');
+        return $raw <= -100 ? $raw : null;
+    }
+
+    /**
+     * Decimal price for a CORE board outcome. Moneyline (h2h) and team_totals
+     * pass through at the live feed price; spreads/totals are re-priced to the
+     * house flat juice when SPORTSBOOK_FLAT_JUICE_AMERICAN is set — the LINE
+     * (point) always stays from the feed, only the vig is standardized.
+     *
+     * Applied at every ingestion write path so the STORED outcome.price is the
+     * single source of truth. Bet placement (BetsController::validateSelection
+     * reads outcome.price and rejects on drift) and settlement (placement
+     * snapshot) therefore always agree with what the player sees. Money-critical.
+     */
+    public static function boardPriceDecimal(string $marketKey, float $rawAmerican): float
+    {
+        $flat = self::flatJuiceAmerican($marketKey);
+        return self::priceToDecimal($flat !== null ? (float) $flat : $rawAmerican);
+    }
+
+    /**
+     * Display priority for bookmakers, by book key (e.g. "pinnacle,draftkings").
+     * The frontend renders the FIRST bookmaker that has markets, so ordering
+     * the sharper / broader-coverage book first makes it the one players see.
+     * Configured via SPORTSBOOK_PREFERRED_BOOKS; empty preserves upstream order.
+     *
+     * @return list<string>
+     */
+    private static function preferredBookOrder(): array
+    {
+        $raw = trim((string) Env::get('SPORTSBOOK_PREFERRED_BOOKS', ''));
+        if ($raw === '') {
+            return [];
+        }
+        return array_values(array_filter(
+            array_map(static fn ($s): string => strtolower(trim((string) $s)), explode(',', $raw)),
+            static fn (string $s): bool => $s !== ''
+        ));
     }
 }

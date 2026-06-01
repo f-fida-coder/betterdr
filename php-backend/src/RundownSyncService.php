@@ -468,7 +468,10 @@ final class RundownSyncService
                     if ($offBoard) {
                         unset($outcomes[$oIdx]);
                     } else {
-                        $o['price'] = self::priceToDecimal($priceFloat);
+                        // Core main-line update: route through the shared board
+                        // normalizer so live price patches keep the house flat
+                        // juice on spreads/totals (h2h/team_totals pass through).
+                        $o['price'] = RundownEventMapper::boardPriceDecimal($marketKey, $priceFloat);
                         if ($point !== null) {
                             $o['point'] = $point;
                         }
@@ -690,7 +693,8 @@ final class RundownSyncService
                 $participantName,
                 $offBoard ? null : [
                     'name'  => $participantName,
-                    'price' => $priceDecimal,
+                    // Core board write → house flat juice on spreads/totals.
+                    'price' => RundownEventMapper::boardPriceDecimal($coreKey, $priceFloat),
                     'point' => $point,
                 ],
                 $now
