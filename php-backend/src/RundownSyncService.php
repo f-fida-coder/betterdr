@@ -405,15 +405,30 @@ final class RundownSyncService
     private static function extractScheduleDates(mixed $resp): array
     {
         if (!is_array($resp)) return [];
-        $candidates = $resp['dates'] ?? $resp['data'] ?? (array_is_list($resp) ? $resp : []);
-        if (!is_array($candidates)) return [];
+
+        // Collect every date-list bucket we can find:
+        //   - top-level {dates:[...]} or {data:[...]}
+        //   - V2 /sports/dates shape, keyed by sport_id: {"2":{"dates":[...]}}
+        //   - a bare list
+        $buckets = [];
+        if (is_array($resp['dates'] ?? null)) $buckets[] = $resp['dates'];
+        if (is_array($resp['data'] ?? null))  $buckets[] = $resp['data'];
+        foreach ($resp as $v) {
+            if (is_array($v) && is_array($v['dates'] ?? null)) {
+                $buckets[] = $v['dates'];
+            }
+        }
+        if ($buckets === [] && array_is_list($resp)) $buckets[] = $resp;
+
         $out = [];
-        foreach ($candidates as $c) {
-            if (is_string($c) && $c !== '') {
-                $out[] = $c;
-            } elseif (is_array($c)) {
-                $v = $c['date'] ?? $c['date_event'] ?? $c['event_date'] ?? null;
-                if (is_string($v) && $v !== '') $out[] = $v;
+        foreach ($buckets as $list) {
+            foreach ($list as $c) {
+                if (is_string($c) && $c !== '') {
+                    $out[] = $c;
+                } elseif (is_array($c)) {
+                    $v = $c['date'] ?? $c['date_event'] ?? $c['event_date'] ?? null;
+                    if (is_string($v) && $v !== '') $out[] = $v;
+                }
             }
         }
         return $out;
