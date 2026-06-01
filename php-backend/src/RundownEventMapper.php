@@ -297,7 +297,7 @@ final class RundownEventMapper
                             $bookmakersById[$affiliateId]['markets'][$marketKey][$marketSource] ??= [];
                             // Spreads/totals get the house flat juice; h2h/team_totals
                             // pass through. Point is taken from $point (feed) unchanged.
-                            $outcome = ['name' => $rawParticipantName, 'price' => self::boardPriceDecimal($marketKey, $priceFloat)];
+                            $outcome = ['name' => $rawParticipantName, 'price' => self::boardPriceDecimal($marketKey, $priceFloat, $sportKey)];
                             if ($point !== null) {
                                 $outcome['point'] = $point;
                             }
@@ -494,14 +494,48 @@ final class RundownEventMapper
      * when normalization is off / not applicable. Configured via
      * SPORTSBOOK_FLAT_JUICE_AMERICAN (e.g. -110). Unset / 0 / non-juice value
      * (> -100) disables it. Only 'spreads' and 'totals' are ever flattened.
+     *
+     * Sport gate: flat juice is a POINT-SPREAD-sport convention (football,
+     * basketball → -110 main line). Baseball run lines and hockey puck lines
+     * (±1.5) and their totals carry real, moneyline-derived juice and must NOT
+     * be flattened — a run line is genuinely +1.5/-160-ish, not -110. So when a
+     * sportKey is supplied we only flatten for the configured spread sports.
+     * Passing $sportKey = null preserves the legacy "flatten regardless" path.
      */
-    private static function flatJuiceAmerican(string $marketKey): ?int
+    private static function flatJuiceAmerican(string $marketKey, ?string $sportKey = null): ?int
     {
         if (!in_array($marketKey, self::FLAT_JUICE_MARKETS, true)) {
             return null;
         }
+        if ($sportKey !== null && !self::sportGetsFlatJuice($sportKey)) {
+            return null;
+        }
         $raw = (int) Env::get('SPORTSBOOK_FLAT_JUICE_AMERICAN', '0');
         return $raw <= -100 ? $raw : null;
+    }
+
+    /**
+     * Whether a sport's spreads/totals get the house flat juice. Configured via
+     * SPORTSBOOK_FLAT_JUICE_SPORTS — a comma-separated list of sportKey prefixes
+     * (default 'americanfootball,basketball' = the point-spread sports). Empty
+     * string means "all sports" (legacy behavior). Baseball, hockey, soccer,
+     * tennis, MMA, cricket, etc. are excluded by default so their run/puck lines
+     * and totals keep the real feed juice (matches standard sportsbook display).
+     */
+    private static function sportGetsFlatJuice(string $sportKey): bool
+    {
+        $sportKey = strtolower(trim($sportKey));
+        $raw = trim((string) Env::get('SPORTSBOOK_FLAT_JUICE_SPORTS', 'americanfootball,basketball'));
+        if ($raw === '') {
+            return true;
+        }
+        foreach (explode(',', $raw) as $prefix) {
+            $prefix = strtolower(trim($prefix));
+            if ($prefix !== '' && str_starts_with($sportKey, $prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -515,9 +549,9 @@ final class RundownEventMapper
      * reads outcome.price and rejects on drift) and settlement (placement
      * snapshot) therefore always agree with what the player sees. Money-critical.
      */
-    public static function boardPriceDecimal(string $marketKey, float $rawAmerican): float
+    public static function boardPriceDecimal(string $marketKey, float $rawAmerican, ?string $sportKey = null): float
     {
-        $flat = self::flatJuiceAmerican($marketKey);
+        $flat = self::flatJuiceAmerican($marketKey, $sportKey);
         return self::priceToDecimal($flat !== null ? (float) $flat : $rawAmerican);
     }
 

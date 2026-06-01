@@ -514,7 +514,7 @@ final class RundownSyncService
                         // Core main-line update: route through the shared board
                         // normalizer so live price patches keep the house flat
                         // juice on spreads/totals (h2h/team_totals pass through).
-                        $o['price'] = RundownEventMapper::boardPriceDecimal($marketKey, $priceFloat);
+                        $o['price'] = RundownEventMapper::boardPriceDecimal($marketKey, $priceFloat, (string) ($existing['sportKey'] ?? ''));
                         if ($point !== null) {
                             $o['point'] = $point;
                         }
@@ -736,8 +736,9 @@ final class RundownSyncService
                 $participantName,
                 $offBoard ? null : [
                     'name'  => $participantName,
-                    // Core board write → house flat juice on spreads/totals.
-                    'price' => RundownEventMapper::boardPriceDecimal($coreKey, $priceFloat),
+                    // Core board write → house flat juice on spreads/totals
+                    // (sport-gated: football/basketball only; run/puck lines pass through).
+                    'price' => RundownEventMapper::boardPriceDecimal($coreKey, $priceFloat, $sportKey),
                     'point' => $point,
                 ],
                 $now
