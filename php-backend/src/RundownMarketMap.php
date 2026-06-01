@@ -406,19 +406,33 @@ final class RundownMarketMap
     }
 
     /**
-     * Core markets for the full/prematch sync.
+     * Markets for the full / per-event sync (prop builder, full refresh).
      *
-     * NOTE (Rundown 12-cap): as of 2026-05 Rundown enforces "market_ids
-     * accepts at most 12 IDs per request". core(8)+props(24)=32 → every
-     * request 400s and trips the rundown:http circuit breaker, killing ALL
-     * odds. We cap to the core 8 (h2h/spreads/totals/team_totals + live
-     * variants) so the main board works. Player props are temporarily
-     * dropped here — restoring them requires splitting into ≤12-ID batches
-     * and merging the per-event markets (see csvForProps + a batched caller).
+     * NOTE (Rundown 12-cap): Rundown enforces "market_ids accepts at most 12
+     * IDs per request". So by default we cap to the core 8 (main board works).
+     * When RUNDOWN_MARKET_IDS_BATCH=true, RundownClient splits the request into
+     * ≤12-ID batches and merges per-event markets, so we can safely return the
+     * FULL set (core + props + periods) here to restore player props and
+     * quarter/half/innings markets. csvForLivePolling stays core-only either way
+     * (the 5 s poll can't afford 7 batches/sport).
      */
     public static function csvForFullCoverage(): string
     {
+        if (self::marketIdBatchingEnabled()) {
+            return implode(',', array_unique(array_merge(
+                self::coreMarketIds(),
+                self::propMarketIds(),
+                self::periodMarketIds()
+            )));
+        }
         return self::csvForCore();
+    }
+
+    /** True when ≤12-ID request batching is enabled (RUNDOWN_MARKET_IDS_BATCH). */
+    public static function marketIdBatchingEnabled(): bool
+    {
+        $v = strtolower(trim((string) Env::get('RUNDOWN_MARKET_IDS_BATCH', 'false')));
+        return $v === '1' || $v === 'true' || $v === 'yes' || $v === 'on';
     }
 
     /** Props only. */

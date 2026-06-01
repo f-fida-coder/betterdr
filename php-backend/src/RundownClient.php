@@ -25,6 +25,8 @@ final class RundownClient
     private const DEFAULT_TIMEOUT_SECONDS = 10;
     private const QUOTA_CACHE_NS = 'rundown-quota';
     private const QUOTA_CACHE_KEY = 'latest';
+    /** Rundown caps market_ids at 12 per request (enforced 2026-05). */
+    private const MAX_MARKET_IDS_PER_REQUEST = 12;
 
     private static ?string $apiKey = null;
     private static ?string $baseUrl = null;
@@ -64,13 +66,91 @@ final class RundownClient
      */
     public static function getEventsForSport(int $sportId, string $date, array $params = []): ?array
     {
-        return self::get('/sports/' . $sportId . '/events/' . $date, self::normalizeQuery($params));
+        return self::getWithMarketBatching('/sports/' . $sportId . '/events/' . $date, self::normalizeQuery($params));
     }
 
     /** GET /events/{eventID} */
     public static function getEvent(string $eventId, array $params = []): ?array
     {
-        return self::get('/events/' . rawurlencode($eventId), self::normalizeQuery($params));
+        return self::getWithMarketBatching('/events/' . rawurlencode($eventId), self::normalizeQuery($params));
+    }
+
+    /**
+     * Wrap self::get() with ≤12-ID market_ids batching. When batching is off
+     * (RUNDOWN_MARKET_IDS_BATCH != true) or the request already has ≤12 IDs,
+     * this is a passthrough — ZERO behavior change. When on AND >12 IDs, the
+     * request is split into ≤12-ID batches; each is fetched and the responses
+     * are merged by event_id, concatenating each event's markets[] so the
+     * caller sees one response with full market coverage. Lets us request
+     * core + props + periods without tripping Rundown's 12-id 400.
+     *
+     * @param array<string,mixed> $query
+     * @return array<string,mixed>|null
+     */
+    private static function getWithMarketBatching(string $path, array $query): ?array
+    {
+        $batchOn = RundownMarketMap::marketIdBatchingEnabled();
+        $ids = isset($query['market_ids'])
+            ? array_values(array_filter(array_map('trim', explode(',', (string) $query['market_ids'])), 'strlen'))
+            : [];
+        if (!$batchOn || count($ids) <= self::MAX_MARKET_IDS_PER_REQUEST) {
+            return self::get($path, $query);
+        }
+
+        $merged = [];   // event_id => event (markets concatenated across batches)
+        $order  = [];   // preserve first-seen event order
+        $loose  = [];   // events with no id (appended as-is)
+        $meta   = null;
+        foreach (array_chunk($ids, self::MAX_MARKET_IDS_PER_REQUEST) as $chunk) {
+            $q = $query;
+            $q['market_ids'] = implode(',', $chunk);
+            // Resilient: a single bad batch (HTTP error / breaker open) must not
+            // abort the whole merge — keep whatever the other batches returned
+            // (the core markets land in the first batch, so the board survives).
+            try {
+                $resp = self::get($path, $q);
+            } catch (\Throwable $e) {
+                continue;
+            }
+            if (!is_array($resp)) {
+                continue;
+            }
+            if ($meta === null && isset($resp['meta'])) {
+                $meta = $resp['meta'];
+            }
+            foreach ((is_array($resp['events'] ?? null) ? $resp['events'] : []) as $ev) {
+                if (!is_array($ev)) continue;
+                $id = (string) ($ev['event_id'] ?? $ev['event_uuid'] ?? '');
+                if ($id === '') {
+                    $loose[] = $ev;
+                    continue;
+                }
+                if (!isset($merged[$id])) {
+                    $merged[$id] = $ev;
+                    $order[] = $id;
+                } else {
+                    $merged[$id]['markets'] = array_merge(
+                        is_array($merged[$id]['markets'] ?? null) ? $merged[$id]['markets'] : [],
+                        is_array($ev['markets'] ?? null) ? $ev['markets'] : []
+                    );
+                }
+            }
+        }
+        if ($merged === [] && $loose === []) {
+            return null;
+        }
+        $events = [];
+        foreach ($order as $id) {
+            $events[] = $merged[$id];
+        }
+        foreach ($loose as $ev) {
+            $events[] = $ev;
+        }
+        $out = ['events' => $events];
+        if ($meta !== null) {
+            $out['meta'] = $meta;
+        }
+        return $out;
     }
 
     /**
