@@ -1,9 +1,7 @@
 {
   "permissions": {
     "allow": [
-      
       "Bash(python3 -c ' *)",
-     
       "Bash(grep -rn -iE \"live.{0,8}score|livescore\" /Users/mac/Desktop/betterdr/frontend/src/ --include=\"*.jsx\" --include=\"*.js\" -l)",
       "Bash(grep -rn -iE \"live.{0,3}scor|scoreboard\" /Users/mac/Desktop/betterdr/frontend/src/ --include=\"*.jsx\" --include=\"*.js\" -l)",
       "Bash(grep -n -iE \"scoreboard|live.{0,3}scor\" /Users/mac/Desktop/betterdr/frontend/src/components/DashboardHeader.jsx)",
@@ -20,7 +18,39 @@
       "Bash(npx --yes esbuild --loader:.jsx=jsx --loader:.js=jsx frontend/src/components/MobileContentView.jsx)",
       "Bash(npx --yes esbuild --loader:.jsx=jsx --loader:.js=jsx frontend/src/components/DashboardMain.jsx)",
       "Bash(claude mcp *)",
-      "mcp__mysql__mysql_query"
+      "mcp__mysql__mysql_query",
+      "Bash(php -l /Users/mac/Desktop/betterdr/php-backend/src/RundownMarketMap.php)",
+      "Bash(php -l /Users/mac/Desktop/betterdr/php-backend/src/RundownEventMapper.php)",
+      "Bash(php tests/run.php)",
+      "Bash(php -l /Users/mac/Desktop/betterdr/php-backend/scripts/resync-period-markets.php)",
+      "Bash(php scripts/resync-period-markets.php baseball_mlb basketball_nba icehockey_nhl)",
+      "Bash(mysql -h localhost -u root -p'1245!' betterdr_local -N -e \"SELECT id FROM matches WHERE JSON_EXTRACT\\(doc,'\\\\$.sportKey'\\)='baseball_mlb' AND JSON_EXTRACT\\(doc,'\\\\$.status'\\)='scheduled' LIMIT 1;\")",
+      "Bash(mysql -h localhost -u root -p1245! betterdr_local -N -e 'SELECT JSON_EXTRACT\\(doc,'\\\\''$.extendedMarkets'\\\\''\\) FROM matches WHERE id='\\\\''__TRACKED_VAR__'\\\\'';')",
+      "Bash(git commit -m ' *)",
+      "Bash(grep -nE 'matches/sports'\\\\''\\\\s*\\\\|=>\\\\s*$this->getSports' /Users/mac/Desktop/betterdr/php-backend/src/MatchesController.php)",
+      "Bash(grep -nB1 -A 25 \"function getSports\\\\b\\\\|function listSports\" /Users/mac/Desktop/betterdr/php-backend/src/MatchesController.php)",
+      "Bash(grep -nB1 -A 40 \"function getAvailableSports\" /Users/mac/Desktop/betterdr/php-backend/src/MatchesController.php)",
+      "Bash(grep -nB1 -A 40 \"function computeAvailableSports\" /Users/mac/Desktop/betterdr/php-backend/src/MatchesController.php)",
+      "Bash(curl -s \"http://127.0.0.1:5000/api/matches/sports\")",
+      "Bash(mysql -h localhost -u root -p'1245!' betterdr_local -e \"SELECT JSON_KEYS\\(JSON_EXTRACT\\(doc,'\\\\$.odds'\\)\\) AS odds_keys, COUNT\\(*\\) FROM matches WHERE JSON_EXTRACT\\(doc,'\\\\$.status'\\) IN \\('scheduled','live'\\) GROUP BY odds_keys LIMIT 5;\")",
+      "Bash(grep -nB2 -A 15 \"filterActiveChildren\\\\|categoriesFromApiSports\\\\|apiSportsToCategories\" /Users/mac/Desktop/betterdr/frontend/src/components/DashboardSidebar.jsx)",
+      "Bash(php -l /Users/mac/Desktop/betterdr/php-backend/src/MatchesController.php *)",
+      "Bash(node -e ' *)",
+      "Bash(mcp__mysql__mysql_query \"sql=SELECT DISTINCT sport, sportKey FROM matches WHERE status IN \\('scheduled', 'live'\\) ORDER BY sport, sportKey LIMIT 50;\")",
+      "Bash(/usr/local/mysql/bin/mysql -h localhost -u root -p'1245!' betterdr_local -e \"SELECT sportKey, sport, COUNT\\(*\\) AS total, SUM\\(CASE WHEN status IN \\('scheduled','live'\\) THEN 1 ELSE 0 END\\) AS active, SUM\\(CASE WHEN status IN \\('scheduled','live'\\) AND JSON_LENGTH\\(JSON_EXTRACT\\(odds,'$.bookmakers'\\)\\) > 0 THEN 1 ELSE 0 END\\) AS active_with_odds FROM matches GROUP BY sportKey, sport ORDER BY active DESC LIMIT 30;\")",
+      "Bash(/usr/local/mysql/bin/mysql -h localhost -u root -p'1245!' betterdr_local -e \"DESCRIBE matches;\")",
+      "Bash(/usr/local/mysql/bin/mysql -h localhost -u root -p'1245!' betterdr_local -e \"SELECT j_sport, j_status, COUNT\\(*\\) AS n FROM matches WHERE j_status IN \\('scheduled','live'\\) GROUP BY j_sport, j_status ORDER BY n DESC LIMIT 30;\")",
+      "Bash(awk '{print $NF}')",
+      "Bash(git check-ignore *)",
+      "Bash(git commit -q -m ' *)",
+      "Bash(ls /Users/mac/.claude/projects/*/memory/*.md | head -5 | xargs -I {} grep -l \"rundown\\\\|Rundown\\\\|Rundown\" {})",
+      "Read(//Users/mac/.claude/projects/**)",
+      "Bash(sed -n '/function isLiveCoreVariant/,/}/p' php-backend/src/RundownMarketMap.php)",
+      "Bash(sed -n '/function isCore/,/}/p' php-backend/src/RundownMarketMap.php)",
+      "Bash(php -l src/RundownEventMapper.php)"
+    ],
+    "additionalDirectories": [
+      "/Users/mac/Desktop/betterdr/php-backend/cache"
     ]
   }
 }
