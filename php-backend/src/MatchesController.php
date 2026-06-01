@@ -384,15 +384,21 @@ final class MatchesController
 
         // Apply remaining filters in PHP
         if ($desiredStatus === 'upcoming' || $desiredStatus === 'scheduled') {
-            // UP NEXT (pre-match) view. Two requirements: (1) commence_time
-            // is still in the future, and (2) odds were refreshed within
-            // PREMATCH_FRESHNESS_SECONDS_DEFAULT (300s by default). Stale
-            // rows are dropped, not flagged — the user only ever sees lines
-            // they can actually bet on. Same threshold as the live-upcoming
-            // pre-match branch so the two views stay consistent.
+            // UP NEXT (pre-match) view. Requirements: (1) commence_time is
+            // still in the future, and (2) odds were refreshed within the
+            // generous LISTING window (prematchListingFreshnessSeconds,
+            // 1800s default). The hard drop uses the LISTING window — NOT
+            // the 300s soft window — so a game stays listed across the whole
+            // prematch rotation cycle instead of disappearing/reappearing as
+            // the worker rotates back to its sport. Rows older than the soft
+            // window are kept but flagged oddsDelayed/oddsStale below so the
+            // UI badges them. Same windows as the live-upcoming pre-match
+            // branch so the two views stay consistent (and so the sidebar
+            // never advertises a sport whose match list then turns up empty).
             $now = time();
-            $prematchMaxAge = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
-            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $prematchMaxAge): bool {
+            $prematchSoftAge    = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
+            $prematchListingAge = self::prematchListingFreshnessSeconds();
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $prematchListingAge): bool {
                 // Source gate: hide rows tagged with a stopped upstream
                 // (legacy odds-api leftovers) — kept in the DB for any
                 // historical bet refs but excluded from public listings.
@@ -406,8 +412,20 @@ final class MatchesController
                 $last = (string) ($match['lastOddsSyncAt'] ?? '');
                 $lastTs = $last !== '' ? strtotime($last) : false;
                 if ($lastTs === false) return false;
-                return ($now - $lastTs) <= $prematchMaxAge;
+                return ($now - $lastTs) <= $prematchListingAge;
             }));
+            // Decorate surviving rows so prematch lines older than the soft
+            // window render a truthful "odds delayed/updating" badge instead
+            // of looking freshly synced. No bet suspension here — prematch
+            // bettability is enforced server-side at placement
+            // (applyBettingAvailability → matchStaleAfterSeconds).
+            $annotated = array_map(static function (array $match) use ($now, $prematchSoftAge): array {
+                $f = self::freshnessFor($match);
+                $match['oddsAgeSeconds'] = $f['ageSeconds'];
+                $match['oddsDelayed'] = $f['ageSeconds'] >= (int) ($prematchSoftAge / 2);
+                $match['oddsStale']   = $f['ageSeconds'] >= $prematchSoftAge;
+                return $match;
+            }, $annotated);
         } elseif ($desiredStatus === 'live') {
             // Live Now acceptance paths:
             //   (1) Status flipped to 'live' by the odds sync.
@@ -496,8 +514,13 @@ final class MatchesController
             // after the auto-promote frontend logic had already flipped
             // it to LIVE.
             $now = time();
-            $prematchMaxAge = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
-            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $prematchMaxAge): bool {
+            // Future-scheduled rows use the generous LISTING window so they
+            // don't flap out between rotation cycles; effectively-live rows
+            // (status=live OR kickoff passed) keep the tight per-sport live
+            // window. The 300s soft window only drives the badge decoration
+            // below, never the hard drop for prematch rows.
+            $prematchListingAge = self::prematchListingFreshnessSeconds();
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $prematchListingAge): bool {
                 $matchStatus = strtolower((string) ($match['status'] ?? ''));
                 if (!in_array($matchStatus, ['scheduled', 'live'], true)) return false;
                 $last = (string) ($match['lastOddsSyncAt'] ?? '');
@@ -511,7 +534,7 @@ final class MatchesController
                     $sportKey = (string) ($match['sportKey'] ?? '');
                     $maxAge = self::liveFreshnessSecondsForSport($sportKey);
                 } else {
-                    $maxAge = $prematchMaxAge;
+                    $maxAge = $prematchListingAge;
                 }
                 return ($now - $lastTs) <= $maxAge;
             }));
@@ -936,7 +959,10 @@ final class MatchesController
         //         live / effectively-live (past-kickoff scheduled):
         //             self::liveFreshnessSecondsForSport($sportKey) — 90s default
         //         future-scheduled:
-        //             PREMATCH_FRESHNESS_SECONDS_DEFAULT             — 300s default
+        //             self::prematchListingFreshnessSeconds()       — 1800s default
+        //             (the generous LISTING window, NOT the 300s soft badge
+        //              window — see that helper for why: gating on 300s made
+        //              prematch sports flap in/out each rotation cycle)
         //   (e) at least one of:
         //         odds.bookmakers[i].markets — current Rundown shape
         //         odds.markets               — legacy odds-api shape, kept
@@ -958,8 +984,8 @@ final class MatchesController
                 'lastUpdated' => 1, 'updatedAt' => 1, 'score' => 1,
             ]]
         );
-        $now            = time();
-        $prematchMaxAge = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
+        $now                   = time();
+        $prematchListingMaxAge = self::prematchListingFreshnessSeconds();
         $sports = [];
         foreach ($matches as $match) {
             if (!is_array($match)) {
@@ -1003,9 +1029,13 @@ final class MatchesController
                 continue;
             }
             $effectivelyLive = ($status === 'live') || ($startTs !== false && $startTs <= $now);
+            // Future-scheduled rows use the generous LISTING window (not the
+            // 300s soft window) so a sport stays in the sidebar across the
+            // whole prematch rotation cycle instead of flapping. Live /
+            // effectively-live rows keep the tight per-sport live window.
             $maxAge = $effectivelyLive
                 ? self::liveFreshnessSecondsForSport((string) ($match['sportKey'] ?? ''))
-                : $prematchMaxAge;
+                : $prematchListingMaxAge;
             if (($now - $lastTs) > $maxAge) {
                 continue;
             }
@@ -1910,6 +1940,32 @@ final class MatchesController
         $default = (int) Env::get('LIVE_FRESHNESS_SECONDS_DEFAULT', '0');
         if ($default > 0) return $default;
         return $hard;
+    }
+
+    /**
+     * Pre-match LISTING freshness window in seconds.
+     *
+     * This is deliberately MUCH larger than PREMATCH_FRESHNESS_SECONDS_DEFAULT
+     * (the soft "odds delayed/stale" badge threshold). A future-scheduled
+     * game must stay LISTED — and its sport must stay in the sidebar — even
+     * when the prematch rotation hasn't re-synced it recently. The worker
+     * walks the full sport catalog on a slow rotation (a single sport is
+     * re-synced only once every ~6-8 minutes once the catalog is large),
+     * which is longer than the 300s soft window. Gating LISTING on 300s made
+     * every prematch sport flap in and out of the sidebar each rotation
+     * cycle, and a single transient API failure hid a sport for a full extra
+     * cycle. Pre-match lines move slowly and bet placement re-validates odds
+     * server-side, so showing a line up to ~30 min old (badged "delayed") is
+     * safe; dropping the whole sport is not.
+     *
+     * Floored at PREMATCH_FRESHNESS_SECONDS_DEFAULT so it can never be
+     * configured tighter than the soft badge window.
+     */
+    public static function prematchListingFreshnessSeconds(): int
+    {
+        $soft    = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
+        $listing = (int) Env::get('PREMATCH_LISTING_FRESHNESS_SECONDS', '1800');
+        return max($soft, $listing);
     }
 
     /** Soft-stale threshold — UI shows a "delayed" badge past this age. */

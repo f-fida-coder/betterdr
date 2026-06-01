@@ -46,6 +46,9 @@ final class RundownSyncService
         $offsetSeconds = self::offsetSeconds();
         $eventsSeen = $created = $updated = $errors = $bookmakersTotal = 0;
         $daysCovered = 0;
+        // DEBUG-RUNDOWN: per-stage drop counters (gated, remove when done).
+        $dbgRaw = $dbgUnmapped = $dbgNoOdds = $dbgWithOdds = 0;
+        $dbg = self::debugSyncEnabled();
 
         for ($i = 0; $i < $days; $i++) {
             $date = gmdate('Y-m-d', time() - $offsetSeconds + ($i * 86400));
@@ -54,12 +57,15 @@ final class RundownSyncService
                 $daysCovered++;
                 if (!is_array($resp)) continue;
                 $events = is_array($resp['events'] ?? null) ? $resp['events'] : [];
+                $dbgRaw += count($events); // DEBUG-RUNDOWN
                 foreach ($events as $event) {
                     if (!is_array($event)) continue;
                     $eventsSeen++;
                     $doc = RundownEventMapper::toMatchDoc($event, $sportKey);
-                    if ($doc === null) continue;
-                    $bookmakersTotal += count(is_array($doc['odds']['bookmakers'] ?? null) ? $doc['odds']['bookmakers'] : []);
+                    if ($doc === null) { $dbgUnmapped++; continue; } // DEBUG-RUNDOWN
+                    $bmCount = count(is_array($doc['odds']['bookmakers'] ?? null) ? $doc['odds']['bookmakers'] : []);
+                    $bookmakersTotal += $bmCount;
+                    if ($dbg) { $bmCount > 0 ? $dbgWithOdds++ : $dbgNoOdds++; } // DEBUG-RUNDOWN
                     if (self::upsertMatch($db, $doc)) {
                         $created++;
                     } else {
@@ -89,6 +95,28 @@ final class RundownSyncService
 
         if ($daysCovered > 0 && $errors < $daysCovered) {
             SportsbookHealth::recordOddsSourceSuccess($db, false);
+        }
+        // DEBUG-RUNDOWN: one line per sport sync showing where events drop.
+        // raw = events returned by Rundown across all days fetched;
+        // unmapped = dropped by mapper (no teams / bad sport_id);
+        // withOdds = mapped rows that carry >=1 bookmaker (will LIST);
+        // noOdds = mapped rows with empty bookmakers (stored, but hidden by
+        //          the display markets-gate until lines post — see H4).
+        if ($dbg) {
+            Logger::info('DEBUG-RUNDOWN prematch', [
+                'sportKey'    => $sportKey,
+                'sportId'     => $sportId,
+                'endpoint'    => "/sports/{$sportId}/events/{date}",
+                'firstDate'   => gmdate('Y-m-d', time() - $offsetSeconds),
+                'daysCovered' => $daysCovered,
+                'raw'         => $dbgRaw,
+                'unmapped'    => $dbgUnmapped,
+                'withOdds'    => $dbgWithOdds,
+                'noOdds'      => $dbgNoOdds,
+                'created'     => $created,
+                'updated'     => $updated,
+                'errors'      => $errors,
+            ], 'sportsbook');
         }
         $avg = $eventsSeen > 0 ? round($bookmakersTotal / $eventsSeen, 2) : 0.0;
         return [
@@ -124,11 +152,16 @@ final class RundownSyncService
                 return ['ok' => true, 'eventsSeen' => 0, 'created' => 0, 'updated' => 0, 'errors' => 0];
             }
             $events = is_array($resp['events'] ?? null) ? $resp['events'] : [];
+            $dbgRaw = count($events); // DEBUG-RUNDOWN
+            $dbgUnmapped = $dbgNoOdds = $dbgWithOdds = 0; // DEBUG-RUNDOWN
             foreach ($events as $event) {
                 if (!is_array($event)) continue;
                 $eventsSeen++;
                 $doc = RundownEventMapper::toMatchDoc($event, $sportKey);
-                if ($doc === null) continue;
+                if ($doc === null) { $dbgUnmapped++; continue; } // DEBUG-RUNDOWN
+                // DEBUG-RUNDOWN
+                count(is_array($doc['odds']['bookmakers'] ?? null) ? $doc['odds']['bookmakers'] : []) > 0
+                    ? $dbgWithOdds++ : $dbgNoOdds++;
                 if (self::upsertMatch($db, $doc)) {
                     $created++;
                 } else {
@@ -140,6 +173,16 @@ final class RundownSyncService
                 RundownDeltaCursor::set($sportId, $lastId);
             }
             SportsbookHealth::recordOddsSourceSuccess($db, true);
+            // DEBUG-RUNDOWN: one line per live sport sync (remove when done).
+            if (self::debugSyncEnabled()) {
+                Logger::info('DEBUG-RUNDOWN live', [
+                    'sportKey' => $sportKey, 'sportId' => $sportId,
+                    'endpoint' => "/sports/{$sportId}/events/{$date}",
+                    'raw' => $dbgRaw, 'unmapped' => $dbgUnmapped,
+                    'withOdds' => $dbgWithOdds, 'noOdds' => $dbgNoOdds,
+                    'created' => $created, 'updated' => $updated,
+                ], 'sportsbook');
+            }
         } catch (Throwable $e) {
             $errors++;
             Logger::warning('rundown.syncSportLive error', [
@@ -935,6 +978,16 @@ final class RundownSyncService
     private static function offsetSeconds(): int
     {
         return ((int) Env::get('RUNDOWN_DATE_OFFSET_MINUTES', '300')) * 60;
+    }
+
+    // DEBUG-RUNDOWN: gate for the temporary per-sync diagnostic logging.
+    // Flip RUNDOWN_DEBUG_SYNC=true on the VPS .env (worker reads it on next
+    // tick — no restart needed) to watch event counts per sync run, then set
+    // it back to false. Remove this helper + all // DEBUG-RUNDOWN lines once
+    // the missing-sports issue is confirmed fixed.
+    private static function debugSyncEnabled(): bool
+    {
+        return strtolower((string) Env::get('RUNDOWN_DEBUG_SYNC', 'false')) === 'true';
     }
 
     private static function extractDeltaCursor(array $resp): ?int
