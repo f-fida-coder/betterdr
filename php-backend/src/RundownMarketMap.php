@@ -405,13 +405,20 @@ final class RundownMarketMap
         return implode(',', self::coreMarketIds());
     }
 
-    /** Core + props (everything except explicit period markets). */
+    /**
+     * Core markets for the full/prematch sync.
+     *
+     * NOTE (Rundown 12-cap): as of 2026-05 Rundown enforces "market_ids
+     * accepts at most 12 IDs per request". core(8)+props(24)=32 → every
+     * request 400s and trips the rundown:http circuit breaker, killing ALL
+     * odds. We cap to the core 8 (h2h/spreads/totals/team_totals + live
+     * variants) so the main board works. Player props are temporarily
+     * dropped here — restoring them requires splitting into ≤12-ID batches
+     * and merging the per-event markets (see csvForProps + a batched caller).
+     */
     public static function csvForFullCoverage(): string
     {
-        return implode(',', array_unique(array_merge(
-            self::coreMarketIds(),
-            self::propMarketIds()
-        )));
+        return self::csvForCore();
     }
 
     /** Props only. */
@@ -427,18 +434,19 @@ final class RundownMarketMap
     }
 
     /**
-     * Market IDs the live delta poll should request: every core market
-     * (h2h/spreads/totals/team_totals, prematch + in-play variants) plus
-     * every explicit period market we recognise. Without the period IDs
-     * the delta endpoint never returns price ticks for Q1-Q4 / H1-H2 /
-     * 1st-N-innings, so those chips show stale prices until the next
-     * 5-min full prematch refresh.
+     * Market IDs the live delta poll should request.
+     *
+     * NOTE (Rundown 12-cap): as of 2026-05 Rundown enforces "market_ids
+     * accepts at most 12 IDs per request". core(8)+periods(67)=75 → every
+     * delta poll 400s and trips the rundown:http circuit breaker, killing
+     * ALL live odds. We cap to the core 8 so the live board works. Period
+     * markets (Q1-Q4 / H1-H2 / innings) are temporarily dropped from the
+     * 5 s delta poll — they cannot be batched into the high-frequency poll
+     * without blowing RUNDOWN_MAX_CALLS_PER_MINUTE; restore them on the
+     * slower full-refresh path via ≤12-ID batches if needed.
      */
     public static function csvForLivePolling(): string
     {
-        return implode(',', array_unique(array_merge(
-            self::coreMarketIds(),
-            self::periodMarketIds()
-        )));
+        return self::csvForCore();
     }
 }
