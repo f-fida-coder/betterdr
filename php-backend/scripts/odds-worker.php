@@ -51,7 +51,6 @@ require_once $phpBackendDir . '/src/RundownMarketMap.php';
 require_once $phpBackendDir . '/src/RundownEventMapper.php';
 require_once $phpBackendDir . '/src/RundownDeltaCursor.php';
 require_once $phpBackendDir . '/src/RundownSyncService.php';
-require_once $phpBackendDir . '/src/DgsOverlayService.php';
 
 Env::load($projectRoot, $phpBackendDir);
 Logger::init($phpBackendDir . '/logs');
@@ -74,14 +73,6 @@ $prematchBatch            = max(1,   (int) Env::get('PREMATCH_MAX_SPORTS_PER_TIC
 $settleEveryTicks         = max(1,   (int) Env::get('RUNDOWN_SETTLE_EVERY_N_TICKS', '12'));           // ~60s
 $logEveryTicks            = max(1,   (int) Env::get('RUNDOWN_LOG_EVERY_N_TICKS', '12'));              // ~60s
 $maxRuntimeSeconds        = max(60,  (int) Env::get('RUNDOWN_WORKER_MAX_RUNTIME_SECONDS', '21600'));  // 6h then voluntary restart
-// DGS overlay — re-lay harvested bettorjuice365 lines on top of the Rundown
-// board at the end of each tick. Money-critical; OFF unless DGS_OVERLAY_ENABLED.
-$dgsOverlayEnabled        = strtolower((string) Env::get('DGS_OVERLAY_ENABLED', 'false')) === 'true';
-$dgsOverlayPeriods        = strtolower((string) Env::get('DGS_OVERLAY_PERIODS', 'false')) === 'true';
-$dgsOverlayEveryTicks     = max(1,   (int) Env::get('DGS_OVERLAY_EVERY_N_TICKS', '1'));               // every tick (~5s)
-$dgsOverlayMaxAge         = max(15,  (int) Env::get('DGS_OVERLAY_MAX_AGE_SECONDS', '120'));
-$dgsOverlaySports         = array_values(array_filter(array_map('trim',
-    explode(',', (string) Env::get('DGS_OVERLAY_SPORTS', 'basketball_nba')))));
 // ─────────────────────────────────────────────────────────────────────
 
 // Signal handling — gracefully drop out between ticks.
@@ -222,25 +213,6 @@ while (!$shutdown) {
             }
         }
 
-        // ── 3b. DGS overlay ─────────────────────────────────────────
-        // Re-lay the harvested competitor (bettorjuice365) spread/ML/total on
-        // top of the Rundown lines we just synced, so the board mirrors theirs.
-        // Last write of the tick → no flicker. Stale/missing harvest leaves the
-        // Rundown board untouched. Money-critical; see DgsOverlayService.
-        $dgsResult = null;
-        if ($dgsOverlayEnabled && $tick % $dgsOverlayEveryTicks === 0) {
-            try {
-                $dgsResult = DgsOverlayService::apply($repo, [
-                    'dryRun'        => false,
-                    'periods'       => $dgsOverlayPeriods,
-                    'sports'        => $dgsOverlaySports,
-                    'maxAgeSeconds' => $dgsOverlayMaxAge,
-                ]);
-            } catch (Throwable $e) {
-                Logger::warning('odds-worker dgs overlay failed', ['error' => $e->getMessage()], 'sportsbook');
-            }
-        }
-
         // ── 4. Periodic status line ─────────────────────────────────
         if ($tick % $logEveryTicks === 0) {
             Logger::info('odds-worker tick', [
@@ -248,12 +220,6 @@ while (!$shutdown) {
                 'live' => $liveResult,
                 'prematch' => $prematchResult,
                 'settle' => $settleResult,
-                'dgs' => $dgsResult === null ? null : [
-                    'paired'   => $dgsResult['paired'],
-                    'written'  => $dgsResult['written'],
-                    'rejected' => $dgsResult['rejected'],
-                    'stale'    => $dgsResult['stale'],
-                ],
                 'tickMs' => (int) ((microtime(true) - $tickStart) * 1000),
                 'quota' => RundownClient::latestQuotaSnapshot(),
             ], 'sportsbook');
