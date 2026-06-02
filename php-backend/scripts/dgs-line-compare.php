@@ -73,16 +73,16 @@ $norm = static function (string $s): string {
     return preg_replace('/[^a-z0-9]/', '', strtolower($s)) ?? '';
 };
 
-/** Map DGS SportSubType → our canonical sportKey. */
-$sportKeyFor = static function (string $sub): ?string {
+/** Map DGS SportSubType → our candidate sportKeys (incl. playoff/preseason variants). */
+$sportKeyFor = static function (string $sub): array {
     $sub = strtoupper(trim($sub));
     return [
-        'NBA'  => 'basketball_nba',
-        'WNBA' => 'basketball_wnba',
-        'MLB'  => 'baseball_mlb',
-        'NHL'  => 'icehockey_nhl',
-        'NFL'  => 'americanfootball_nfl',
-    ][$sub] ?? null;
+        'NBA'  => ['basketball_nba', 'basketball_nba_playoffs', 'basketball_nba_preseason', 'basketball_nba_summer_league'],
+        'WNBA' => ['basketball_wnba'],
+        'MLB'  => ['baseball_mlb', 'baseball_mlb_playoffs', 'baseball_mlb_spring_training'],
+        'NHL'  => ['icehockey_nhl', 'icehockey_nhl_playoffs', 'icehockey_nhl_preseason'],
+        'NFL'  => ['americanfootball_nfl', 'americanfootball_nfl_playoffs', 'americanfootball_nfl_preseason'],
+    ][$sub] ?? [];
 };
 
 /**
@@ -141,11 +141,15 @@ if ($files === []) {
 $matchCache = [];   // sportKey => list of matches
 $totGames = 0; $paired = 0; $unpaired = 0; $cells = 0; $diffs = 0;
 
-$loadMatches = static function (string $sportKey) use (&$matchCache, $repo): array {
-    if (!isset($matchCache[$sportKey])) {
-        $matchCache[$sportKey] = $repo->findMany('matches', ['sportKey' => $sportKey], ['limit' => 500]);
+$loadMatches = static function (array $sportKeys) use (&$matchCache, $repo): array {
+    $all = [];
+    foreach ($sportKeys as $sk) {
+        if (!isset($matchCache[$sk])) {
+            $matchCache[$sk] = $repo->findMany('matches', ['sportKey' => $sk], ['limit' => 500]);
+        }
+        foreach ($matchCache[$sk] as $m) $all[] = $m;
     }
-    return $matchCache[$sportKey];
+    return $all;
 };
 
 foreach ($files as $file) {
@@ -205,25 +209,28 @@ foreach ($files as $file) {
             continue;
         }
 
-        if ($sportKey === null) {
+        if ($sportKey === []) {
             echo "  (no sportKey mapping for '{$sub}' — add it to \$sportKeyFor)\n";
             $unpaired++;
             continue;
         }
 
-        // find our match: same day + team names match (either orientation)
+        // find our match by team names (either orientation); date is NOT required
+        // (their GameDateTime is local EST, our startTime is UTC — days can differ).
+        // If several team-name hits, keep the one nearest in time to their game.
         $candidates = $loadMatches($sportKey);
-        $match = null;
+        $match = null; $bestGap = PHP_INT_MAX;
+        $theirTs = strtotime((string) ($ln['GameDateTime'] ?? '')) ?: 0;
+        $th = $norm($homeName); $ta = $norm($awayName);
         foreach ($candidates as $m) {
-            $mDate = substr((string) ($m['startTime'] ?? ''), 0, 10);
-            if ($gdate !== '' && $mDate !== '' && $mDate !== $gdate) continue;
             $mh = $norm((string) ($m['homeTeam'] ?? ''));
             $ma = $norm((string) ($m['awayTeam'] ?? ''));
-            $th = $norm($homeName); $ta = $norm($awayName);
             $hit = ($mh === $th && $ma === $ta)
-                || (str_contains($mh, $th) && str_contains($ma, $ta))
-                || (str_contains($th, $mh) && str_contains($ta, $ma));
-            if ($hit) { $match = $m; break; }
+                || ($mh !== '' && $ma !== '' && str_contains($mh, $th) && str_contains($ma, $ta))
+                || ($th !== '' && $ta !== '' && str_contains($th, $mh) && str_contains($ta, $ma));
+            if (!$hit) continue;
+            $gap = abs(($theirTs ?: 0) - (strtotime((string) ($m['startTime'] ?? '')) ?: 0));
+            if ($gap < $bestGap) { $bestGap = $gap; $match = $m; }
         }
 
         if ($match === null) {
@@ -236,6 +243,9 @@ foreach ($files as $file) {
         $ours = $ourLine($match);
         $oh = (string) ($match['homeTeam'] ?? '');
         $oa = (string) ($match['awayTeam'] ?? '');
+        printf("  ↳ paired: %s @ %s  startTime=%s UTC  status=%s  sportKey=%s\n",
+            $oa, $oh, (string) ($match['startTime'] ?? '?'),
+            (string) ($match['status'] ?? '?'), (string) ($match['sportKey'] ?? '?'));
 
         // helper to render one comparison row
         $row = function (string $label, string $theirs, string $oursStr) use (&$cells, &$diffs) {
