@@ -133,6 +133,40 @@ $pickName = static function (array $list, string $name): ?array {
     return null;
 };
 
+/**
+ * Find OUR outcome for a team AT a specific point (apples-to-apples with theirs).
+ * Avoids matching alternate lines. Returns ['out'=>?, 'hasPoint'=>bool] —
+ * hasPoint=false means we have that team but NOT at their point (alt/no line).
+ */
+$pickSideAtPoint = static function (array $list, string $teamName, $point) use ($norm): array {
+    $t = $norm($teamName);
+    $teamHits = [];
+    foreach ($list as $o) {
+        $n = $norm((string) ($o['name'] ?? ''));
+        if ($n !== '' && ($n === $t || str_contains($n, $t) || str_contains($t, $n))) $teamHits[] = $o;
+    }
+    if ($point === null || $point === '') {
+        return ['out' => $teamHits[0] ?? null, 'hasPoint' => $teamHits !== []];
+    }
+    foreach ($teamHits as $o) {
+        if ($o['point'] !== null && abs((float) $o['point'] - (float) $point) < 0.01) {
+            return ['out' => $o, 'hasPoint' => true];
+        }
+    }
+    return ['out' => null, 'hasPoint' => false];
+};
+
+/** Over/Under outcome at a specific total point. */
+$pickTotalAtPoint = static function (array $list, string $name, $point): ?array {
+    foreach ($list as $o) {
+        if ((string) ($o['name'] ?? '') !== $name) continue;
+        if ($point === null || $point === '' || ($o['point'] !== null && abs((float) $o['point'] - (float) $point) < 0.01)) {
+            return $o;
+        }
+    }
+    return null;
+};
+
 // ── gather input files ───────────────────────────────────────────────────
 
 $inputs = array_slice($argv, 1);
@@ -275,29 +309,34 @@ foreach ($files as $file) {
                 $label, $theirs, $oursStr, $same ? '✓' : '✗ DIFF');
         };
 
-        // SPREAD (home / away) — tolerant team-name match
-        $ourSpHome = $pickSide($ours['spreads'], $oh);
+        // SPREAD — compare OUR line AT THEIR point (avoids matching alt lines)
+        $spHomePt = $their['spread']['home']['point'];
+        $spAwayPt = $their['spread']['away']['point'];
+        $ourSpHome = $pickSideAtPoint($ours['spreads'], $oh, $spHomePt);
+        $ourSpAway = $pickSideAtPoint($ours['spreads'], $oa, $spAwayPt);
+        $fmtSp = static function (array $r) use ($ptStr, $amerStr): string {
+            if ($r['out']) return $ptStr($r['out']['point']) . ' ' . $amerStr($r['out']['amer']);
+            return $r['hasPoint'] ? '—' : 'no line @pt';
+        };
         $row('spread ' . ($ln['ShortName2'] ?? 'home'),
-            $ptStr($their['spread']['home']['point']) . ' ' . $amerStr($their['spread']['home']['amer']),
-            $ourSpHome ? ($ptStr($ourSpHome['point']) . ' ' . $amerStr($ourSpHome['amer'])) : '—');
-        $ourSpAway = $pickSide($ours['spreads'], $oa);
+            $ptStr($spHomePt) . ' ' . $amerStr($their['spread']['home']['amer']), $fmtSp($ourSpHome));
         $row('spread ' . ($ln['ShortName1'] ?? 'away'),
-            $ptStr($their['spread']['away']['point']) . ' ' . $amerStr($their['spread']['away']['amer']),
-            $ourSpAway ? ($ptStr($ourSpAway['point']) . ' ' . $amerStr($ourSpAway['amer'])) : '—');
-        // MONEYLINE
+            $ptStr($spAwayPt) . ' ' . $amerStr($their['spread']['away']['amer']), $fmtSp($ourSpAway));
+        // MONEYLINE (no point)
         $ourMlHome = $pickSide($ours['h2h'], $oh);
         $ourMlAway = $pickSide($ours['h2h'], $oa);
         $row('ML ' . ($ln['ShortName2'] ?? 'home'), $amerStr($their['ml']['home']),
             $ourMlHome ? $amerStr($ourMlHome['amer']) : '—');
         $row('ML ' . ($ln['ShortName1'] ?? 'away'), $amerStr($their['ml']['away']),
             $ourMlAway ? $amerStr($ourMlAway['amer']) : '—');
-        // TOTAL (over/under) — match by Over/Under outcome name
-        $ourOver = $pickName($ours['totals'], 'Over');
-        $ourUnder = $pickName($ours['totals'], 'Under');
-        $row('total Over', $ptStr($their['total']['point'], false) . ' ' . $amerStr($their['total']['over']),
-            $ourOver ? ($ptStr($ourOver['point'], false) . ' ' . $amerStr($ourOver['amer'])) : '—');
-        $row('total Under', $ptStr($their['total']['point'], false) . ' ' . $amerStr($their['total']['under']),
-            $ourUnder ? ($ptStr($ourUnder['point'], false) . ' ' . $amerStr($ourUnder['amer'])) : '—');
+        // TOTAL — compare at their total point
+        $tPt = $their['total']['point'];
+        $ourOver  = $pickTotalAtPoint($ours['totals'], 'Over', $tPt);
+        $ourUnder = $pickTotalAtPoint($ours['totals'], 'Under', $tPt);
+        $row('total Over', $ptStr($tPt, false) . ' ' . $amerStr($their['total']['over']),
+            $ourOver ? ($ptStr($ourOver['point'], false) . ' ' . $amerStr($ourOver['amer'])) : 'no line @pt');
+        $row('total Under', $ptStr($tPt, false) . ' ' . $amerStr($their['total']['under']),
+            $ourUnder ? ($ptStr($ourUnder['point'], false) . ' ' . $amerStr($ourUnder['amer'])) : 'no line @pt');
 
         // If a side couldn't be found, dump raw outcome names so we can see why.
         if (!$ourSpHome || !$ourSpAway || !$ourMlHome || !$ourMlAway) {
