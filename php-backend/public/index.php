@@ -339,6 +339,56 @@ if ($uriPath === '/api/ping') {
     exit;
 }
 
+// ── DGS shadow harvest ingest (read-only side channel; NOT money/odds path) ──
+// Receives a competitor `Get_LeagueLines2` JSON snapshot captured by the
+// browser userscript and parks it on disk for the shadow comparator. It writes
+// ONLY to storage/dgs/live/, never to the DB, balances, bets, or odds tables.
+if ($uriPath === '/api/dgs/ingest') {
+    header('Cache-Control: no-store');
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        http_response_code(405);
+        Response::json(['ok' => false, 'error' => 'POST only']);
+        exit;
+    }
+    $secret   = (string) Env::get('DGS_INGEST_SECRET', '');
+    $provided = (string) ($_SERVER['HTTP_X_DGS_SECRET'] ?? '');
+    if ($secret === '' || !hash_equals($secret, $provided)) {
+        http_response_code(403);
+        Response::json(['ok' => false, 'error' => 'forbidden']);
+        exit;
+    }
+    $raw = (string) file_get_contents('php://input', false, null, 0, 4_000_000); // ≤4MB cap
+    if (strlen($raw) >= 4_000_000) {
+        http_response_code(413);
+        Response::json(['ok' => false, 'error' => 'payload too large']);
+        exit;
+    }
+    $data = json_decode($raw, true);
+    if (!is_array($data) || !is_array($data['Lines'] ?? null)) {
+        http_response_code(422);
+        Response::json(['ok' => false, 'error' => 'expected Get_LeagueLines2 JSON with Lines[]']);
+        exit;
+    }
+    $first  = is_array($data['Lines'][0] ?? null) ? $data['Lines'][0] : [];
+    $league = strtoupper(trim((string) ($first['SportSubType'] ?? 'UNKNOWN')));
+    $league = preg_replace('/[^A-Z0-9]+/', '_', $league);
+    if ($league === '' || $league === null) {
+        $league = 'UNKNOWN';
+    }
+    $dir = dirname(__DIR__) . '/storage/dgs/live';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0775, true);
+    }
+    $bytes = @file_put_contents($dir . '/' . $league . '.json', $raw);
+    @file_put_contents(
+        $dir . '/_last_ingest.log',
+        gmdate('c') . "  {$league}  games=" . count($data['Lines']) . "  bytes={$bytes}\n",
+        FILE_APPEND
+    );
+    Response::json(['ok' => $bytes !== false, 'league' => $league, 'games' => count($data['Lines']), 'bytes' => $bytes]);
+    exit;
+}
+
 $dbUri = 'mysql-native';
 $dbName = (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'sports_betting'));
 if ($dbName === '') {
