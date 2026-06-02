@@ -369,23 +369,58 @@ if ($uriPath === '/api/dgs/ingest') {
         Response::json(['ok' => false, 'error' => 'expected Get_LeagueLines2 JSON with Lines[]']);
         exit;
     }
-    $first  = is_array($data['Lines'][0] ?? null) ? $data['Lines'][0] : [];
-    $league = strtoupper(trim((string) ($first['SportSubType'] ?? 'UNKNOWN')));
-    $league = preg_replace('/[^A-Z0-9]+/', '_', $league);
-    if ($league === '' || $league === null) {
-        $league = 'UNKNOWN';
-    }
     $dir = dirname(__DIR__) . '/storage/dgs/live';
     if (!is_dir($dir)) {
         @mkdir($dir, 0775, true);
     }
-    $bytes = @file_put_contents($dir . '/' . $league . '.json', $raw);
-    @file_put_contents(
-        $dir . '/_last_ingest.log',
-        gmdate('c') . "  {$league}  games=" . count($data['Lines']) . "  bytes={$bytes}\n",
-        FILE_APPEND
-    );
-    Response::json(['ok' => $bytes !== false, 'league' => $league, 'games' => count($data['Lines']), 'bytes' => $bytes]);
+
+    // Split the response by (league, PeriodNumber) and write each group to its
+    // OWN file. The DGS site fetches periods (1st half / 1st quarter) in
+    // separate Get_LeagueLines2 responses that all carry SportSubType=NBA — if
+    // we keyed storage by league alone, each period response would overwrite
+    // the previous (the full-game lines would vanish the moment you opened a
+    // period view). Per-period files also give each period its OWN freshness
+    // (file mtime), so the overlay's age gate is independent per period.
+    //   PeriodNumber 0 (full game) → <LEAGUE>.json        (unchanged; readers keep working)
+    //   PeriodNumber n>0           → <LEAGUE>_P<n>.json
+    $groups = []; // fileKey => ['league'=>, 'period'=>, 'lines'=>[]]
+    foreach ($data['Lines'] as $ln) {
+        if (!is_array($ln)) {
+            continue;
+        }
+        $lg = strtoupper(trim((string) ($ln['SportSubType'] ?? 'UNKNOWN')));
+        $lg = preg_replace('/[^A-Z0-9]+/', '_', $lg);
+        if ($lg === '' || $lg === null) {
+            $lg = 'UNKNOWN';
+        }
+        $period = (int) ($ln['PeriodNumber'] ?? 0);
+        $key = $lg . ':' . $period;
+        if (!isset($groups[$key])) {
+            $groups[$key] = ['league' => $lg, 'period' => $period, 'lines' => []];
+        }
+        $groups[$key]['lines'][] = $ln;
+    }
+
+    $written = [];
+    $anyFail = false;
+    foreach ($groups as $g) {
+        $name = $g['period'] === 0 ? $g['league'] : ($g['league'] . '_P' . $g['period']);
+        // Preserve the original top-level envelope but scope Lines to this group.
+        $payload = $data;
+        $payload['Lines'] = $g['lines'];
+        $bytes = @file_put_contents($dir . '/' . $name . '.json', json_encode($payload));
+        if ($bytes === false) {
+            $anyFail = true;
+        }
+        $written[$name] = ['games' => count($g['lines']), 'bytes' => $bytes];
+        @file_put_contents(
+            $dir . '/_last_ingest.log',
+            gmdate('c') . "  {$name}  games=" . count($g['lines']) . "  bytes=" . ($bytes === false ? 'FAIL' : $bytes) . "\n",
+            FILE_APPEND
+        );
+    }
+
+    Response::json(['ok' => !$anyFail, 'files' => $written, 'totalLines' => count($data['Lines'])]);
     exit;
 }
 

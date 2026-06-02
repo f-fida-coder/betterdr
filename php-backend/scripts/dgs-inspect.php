@@ -33,6 +33,7 @@ $liveDir       = $phpBackendDir . '/storage/dgs/live';
 $inputs = array_slice($argv, 1);
 $files  = [];
 if ($inputs === []) {
+    // Includes per-period files (<LEAGUE>_P<n>.json) written by the ingest split.
     foreach (glob($liveDir . '/*.json') ?: [] as $f) {
         if (basename($f)[0] !== '_') {
             $files[] = $f; // skip _last_ingest.log etc.
