@@ -77,6 +77,7 @@ $maxRuntimeSeconds        = max(60,  (int) Env::get('RUNDOWN_WORKER_MAX_RUNTIME_
 // DGS overlay — re-lay harvested bettorjuice365 lines on top of the Rundown
 // board at the end of each tick. Money-critical; OFF unless DGS_OVERLAY_ENABLED.
 $dgsOverlayEnabled        = strtolower((string) Env::get('DGS_OVERLAY_ENABLED', 'false')) === 'true';
+$dgsOverlayPeriods        = strtolower((string) Env::get('DGS_OVERLAY_PERIODS', 'false')) === 'true';
 $dgsOverlayEveryTicks     = max(1,   (int) Env::get('DGS_OVERLAY_EVERY_N_TICKS', '1'));               // every tick (~5s)
 $dgsOverlayMaxAge         = max(15,  (int) Env::get('DGS_OVERLAY_MAX_AGE_SECONDS', '120'));
 $dgsOverlaySports         = array_values(array_filter(array_map('trim',
@@ -231,6 +232,7 @@ while (!$shutdown) {
             try {
                 $dgsResult = DgsOverlayService::apply($repo, [
                     'dryRun'        => false,
+                    'periods'       => $dgsOverlayPeriods,
                     'sports'        => $dgsOverlaySports,
                     'maxAgeSeconds' => $dgsOverlayMaxAge,
                 ]);

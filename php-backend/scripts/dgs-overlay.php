@@ -26,11 +26,14 @@ declare(strict_types=1);
  *   --max-age=N     override the freshness window for THIS run only (preview;
  *                   does not touch .env or the live worker). Refused with --apply
  *                   so a relaxed gate can never write stale numbers to the board.
+ *   --periods       also align period markets (1st half / 1st quarter). Preview
+ *                   this before setting DGS_OVERLAY_PERIODS=true for the worker.
  *
  * Env:
  *   DGS_OVERLAY_ENABLED          'true' required for any write
  *   DGS_OVERLAY_SPORTS           csv sportKeys (default basketball_nba)
  *   DGS_OVERLAY_MAX_AGE_SECONDS  harvest freshness window (default 120)
+ *   DGS_OVERLAY_PERIODS          'true' to align period markets too (default off)
  */
 
 $phpBackendDir = dirname(__DIR__);
@@ -45,6 +48,8 @@ $APPLY      = in_array('--apply', $args, true);
 $ENABLED    = strtolower((string) Env::get('DGS_OVERLAY_ENABLED', 'false')) === 'true';
 $WILL_WRITE = $APPLY && $ENABLED;
 $MAX_AGE    = max(15, (int) Env::get('DGS_OVERLAY_MAX_AGE_SECONDS', '120'));
+$PERIODS    = in_array('--periods', $args, true)
+    || strtolower((string) Env::get('DGS_OVERLAY_PERIODS', 'false')) === 'true';
 
 // --max-age=N: preview-only override of the freshness gate. Refused alongside
 // --apply so a relaxed gate can never write stale numbers to the live board.
@@ -65,10 +70,12 @@ $repo   = new SqlRepository('', $dbName);
 
 echo "DGS overlay — mode: " . ($WILL_WRITE ? "APPLY (writing)" : "DRY-RUN (no writes)") . "\n";
 echo "  --apply=" . ($APPLY ? 'yes' : 'no') . "  DGS_OVERLAY_ENABLED=" . ($ENABLED ? 'true' : 'false')
+   . "  periods=" . ($PERIODS ? 'on' : 'off')
    . "  sports=[" . implode(',', $SPORTS) . "]  maxAge={$MAX_AGE}s\n\n";
 
 $stats = DgsOverlayService::apply($repo, [
     'dryRun'        => !$WILL_WRITE,
+    'periods'       => $PERIODS,
     'sports'        => $SPORTS,
     'maxAgeSeconds' => $MAX_AGE,
     'log'           => static function (string $line): void { echo $line . "\n"; },
@@ -82,6 +89,9 @@ if ($stats['stale'] !== []) {
 }
 if ($stats['missing'] !== []) {
     echo "missing harvest files: " . implode(', ', $stats['missing']) . "\n";
+}
+if ($stats['unknownPeriods'] !== []) {
+    echo "unmapped period labels (skipped): " . implode(', ', $stats['unknownPeriods']) . "\n";
 }
 if (!$WILL_WRITE) {
     echo "DRY-RUN: nothing written. The live worker applies the overlay automatically when"
