@@ -297,7 +297,15 @@ function distinctLiveOrSoonSportKeys(SqlRepository $db): array
     $keys = [];
     foreach (array_merge(is_array($live) ? $live : [], is_array($soonRows) ? $soonRows : []) as $row) {
         $k = strtolower((string) ($row['sportKey'] ?? ''));
-        if ($k !== '') $keys[$k] = true;
+        // Canonicalize DB-derived keys: tournament aliases (e.g.
+        // tennis_wta_madrid_open) all map to one Rundown sport_id with no
+        // league filtering, so polling under the alias re-pulls the whole
+        // sport and re-labels every match under the phantom group. Fold each
+        // key to its canonical sportKey so live/delta polling matches the
+        // prematch rotation (resolveAllConfiguredSports) and never resurrects
+        // out-of-season tournament groups. (Prematch path already canonicalizes;
+        // this closes the same leak on the live/delta-poll target.)
+        if ($k !== '') $keys[RundownSportMap::canonicalSportKey($k)] = true;
     }
     return array_keys($keys);
 }
