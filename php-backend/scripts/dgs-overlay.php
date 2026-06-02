@@ -17,8 +17,15 @@ declare(strict_types=1);
  *    header for the full safety model.
  *
  * Usage:
- *   php php-backend/scripts/dgs-overlay.php            # dry-run (default)
- *   php php-backend/scripts/dgs-overlay.php --apply    # writes IF env enabled
+ *   php php-backend/scripts/dgs-overlay.php                  # dry-run (default)
+ *   php php-backend/scripts/dgs-overlay.php --apply          # writes IF env enabled
+ *   php php-backend/scripts/dgs-overlay.php --max-age=999999 # preview vs stale harvest
+ *
+ * Flags:
+ *   --apply         actually write (also needs DGS_OVERLAY_ENABLED=true)
+ *   --max-age=N     override the freshness window for THIS run only (preview;
+ *                   does not touch .env or the live worker). Refused with --apply
+ *                   so a relaxed gate can never write stale numbers to the board.
  *
  * Env:
  *   DGS_OVERLAY_ENABLED          'true' required for any write
@@ -33,10 +40,23 @@ Autoloader::register();
 require_once $phpBackendDir . '/src/Env.php';
 Env::load($projectRoot, $phpBackendDir);
 
-$APPLY      = in_array('--apply', array_slice($argv, 1), true);
+$args       = array_slice($argv, 1);
+$APPLY      = in_array('--apply', $args, true);
 $ENABLED    = strtolower((string) Env::get('DGS_OVERLAY_ENABLED', 'false')) === 'true';
 $WILL_WRITE = $APPLY && $ENABLED;
 $MAX_AGE    = max(15, (int) Env::get('DGS_OVERLAY_MAX_AGE_SECONDS', '120'));
+
+// --max-age=N: preview-only override of the freshness gate. Refused alongside
+// --apply so a relaxed gate can never write stale numbers to the live board.
+foreach ($args as $a) {
+    if (preg_match('/^--max-age=(\d+)$/', $a, $m) === 1) {
+        if ($WILL_WRITE) {
+            fwrite(STDERR, "refusing --max-age with --apply (would risk writing stale lines). Drop one.\n");
+            exit(2);
+        }
+        $MAX_AGE = max(15, (int) $m[1]);
+    }
+}
 $SPORTS     = array_values(array_filter(array_map('trim',
     explode(',', (string) Env::get('DGS_OVERLAY_SPORTS', 'basketball_nba')))));
 
@@ -64,6 +84,7 @@ if ($stats['missing'] !== []) {
     echo "missing harvest files: " . implode(', ', $stats['missing']) . "\n";
 }
 if (!$WILL_WRITE) {
-    echo "DRY-RUN: nothing written. To enable: set DGS_OVERLAY_ENABLED=true in .env.production,"
-       . " restart php-fpm + worker, and run with --apply.\n";
+    echo "DRY-RUN: nothing written. The live worker applies the overlay automatically when"
+       . " DGS_OVERLAY_ENABLED=true (in .env) and the harvest is fresh. For a manual write here,"
+       . " run with --apply.\n";
 }
