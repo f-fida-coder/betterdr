@@ -102,8 +102,8 @@ $ourLine = static function (array $match) use ($decToAmer): array {
             $key = (string) ($mk['key'] ?? '');
             if (!in_array($key, ['spreads', 'h2h', 'totals'], true)) continue;
             foreach (($mk['outcomes'] ?? []) as $o) {
-                $name = (string) ($o['name'] ?? '');
-                $out[$key][$name] = [
+                $out[$key][] = [
+                    'name'  => (string) ($o['name'] ?? ''),
                     'point' => $o['point'] ?? null,
                     'amer'  => $decToAmer($o['price'] ?? 0),
                 ];
@@ -112,6 +112,25 @@ $ourLine = static function (array $match) use ($decToAmer): array {
         break; // first book with markets only
     }
     return $out;
+};
+
+/** Find an outcome in a market list by team side (normalized, tolerant). */
+$pickSide = static function (array $list, string $teamName) use ($norm): ?array {
+    $t = $norm($teamName);
+    if ($t === '') return null;
+    foreach ($list as $o) {
+        $n = $norm((string) ($o['name'] ?? ''));
+        if ($n !== '' && ($n === $t || str_contains($n, $t) || str_contains($t, $n))) return $o;
+    }
+    return null;
+};
+
+/** Find an outcome by exact name (Over/Under). */
+$pickName = static function (array $list, string $name): ?array {
+    foreach ($list as $o) {
+        if ((string) ($o['name'] ?? '') === $name) return $o;
+    }
+    return null;
 };
 
 // ── gather input files ───────────────────────────────────────────────────
@@ -256,30 +275,38 @@ foreach ($files as $file) {
                 $label, $theirs, $oursStr, $same ? '✓' : '✗ DIFF');
         };
 
-        // SPREAD (home)
-        $ourSpHome = $ours['spreads'][$oh] ?? null;
+        // SPREAD (home / away) — tolerant team-name match
+        $ourSpHome = $pickSide($ours['spreads'], $oh);
         $row('spread ' . ($ln['ShortName2'] ?? 'home'),
             $ptStr($their['spread']['home']['point']) . ' ' . $amerStr($their['spread']['home']['amer']),
             $ourSpHome ? ($ptStr($ourSpHome['point']) . ' ' . $amerStr($ourSpHome['amer'])) : '—');
-        // SPREAD (away)
-        $ourSpAway = $ours['spreads'][$oa] ?? null;
+        $ourSpAway = $pickSide($ours['spreads'], $oa);
         $row('spread ' . ($ln['ShortName1'] ?? 'away'),
             $ptStr($their['spread']['away']['point']) . ' ' . $amerStr($their['spread']['away']['amer']),
             $ourSpAway ? ($ptStr($ourSpAway['point']) . ' ' . $amerStr($ourSpAway['amer'])) : '—');
         // MONEYLINE
-        $ourMlHome = $ours['h2h'][$oh] ?? null;
-        $ourMlAway = $ours['h2h'][$oa] ?? null;
+        $ourMlHome = $pickSide($ours['h2h'], $oh);
+        $ourMlAway = $pickSide($ours['h2h'], $oa);
         $row('ML ' . ($ln['ShortName2'] ?? 'home'), $amerStr($their['ml']['home']),
             $ourMlHome ? $amerStr($ourMlHome['amer']) : '—');
         $row('ML ' . ($ln['ShortName1'] ?? 'away'), $amerStr($their['ml']['away']),
             $ourMlAway ? $amerStr($ourMlAway['amer']) : '—');
         // TOTAL (over/under) — match by Over/Under outcome name
-        $ourOver = $ours['totals']['Over'] ?? null;
-        $ourUnder = $ours['totals']['Under'] ?? null;
+        $ourOver = $pickName($ours['totals'], 'Over');
+        $ourUnder = $pickName($ours['totals'], 'Under');
         $row('total Over', $ptStr($their['total']['point'], false) . ' ' . $amerStr($their['total']['over']),
             $ourOver ? ($ptStr($ourOver['point'], false) . ' ' . $amerStr($ourOver['amer'])) : '—');
         $row('total Under', $ptStr($their['total']['point'], false) . ' ' . $amerStr($their['total']['under']),
             $ourUnder ? ($ptStr($ourUnder['point'], false) . ' ' . $amerStr($ourUnder['amer'])) : '—');
+
+        // If a side couldn't be found, dump raw outcome names so we can see why.
+        if (!$ourSpHome || !$ourSpAway || !$ourMlHome || !$ourMlAway) {
+            $names = static fn (array $list): string => $list
+                ? implode(', ', array_map(static fn ($o) => $o['name'] . ' (' . $o['point'] . ')', $list)) : '(none)';
+            echo "  · our home/away = '{$oh}' / '{$oa}'\n";
+            echo "  · our spreads outcomes: " . $names($ours['spreads']) . "\n";
+            echo "  · our h2h outcomes:     " . $names($ours['h2h']) . "\n";
+        }
 
         echo "  (our book shown: " . ($ours['book'] ?? 'none') . ")\n";
     }
