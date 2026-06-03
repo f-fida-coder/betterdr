@@ -208,6 +208,13 @@ while (!$shutdown) {
             $fcSports = $fcActiveOnly
                 ? activeSportsForPrematchRotation($repo)
                 : resolveAllConfiguredSports();
+            // Keep only keys that map to a Rundown sport_id. canonicalSportKey()
+            // leaves unknown/alias keys unchanged, so an unmappable key would
+            // make a one-sport-per-tick sweep a silent no-op (sports=0).
+            $fcSports = array_values(array_filter(
+                $fcSports,
+                static fn (string $k): bool => RundownSportMap::sportKeyToSportId($k) !== null
+            ));
             if ($fcSports !== []) {
                 $fullCoverageCursor = $fullCoverageCursor % count($fcSports);
                 $fcBatch = [];
