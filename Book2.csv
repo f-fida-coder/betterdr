@@ -1,0 +1,41 @@
+Sport,Game,Team,Our Spread,Their Spread,Our Moneyline,Their Moneyline,Our Total,Their Total,Notes
+NBA,NY Knicks @ San Antonio (Finals G1),NY Knicks,+4.5 (-110),+4.5 (-110),+158,+155,O 218.5 (-110),O 218.5 (-110),
+NBA,NY Knicks @ San Antonio (Finals G1),San Antonio,-4.5 (-110),-4.5 (-110),-190,-185,U 218.5 (-110),U 218.5 (-110),
+MLB,Miami @ Washington,Miami Marlins,-1.5 (+155),N/A,-108,-110,Unavailable,O 8 (-115),
+MLB,Miami @ Washington,Washington,+1.5 (-188),N/A,-108,-110,Unavailable,U 8 (-105),
+MLB,Detroit @ Tampa Bay,Detroit,+1.5 (-178),+1.5 (-170),+124,+126,O 8 (-105),O 7.5 (-125),
+MLB,Detroit @ Tampa Bay,Tampa Bay,-1.5 (+146),-1.5 (+150),-146,-146,U 8 (-115),U 7.5 (+105),
+MLB,Chi White Sox @ Minnesota,Chi White Sox,+1.5 (-162),+1.5 (-155),+130,+135,Unavailable,O 8.5 (-115),
+MLB,Chi White Sox @ Minnesota,Minnesota,-1.5 (+134),-1.5 (+135),-154,-155,Unavailable,U 8.5 (-105),
+MLB,NY Mets @ Seattle,NY Mets,+1.5 (-184),+1.5 (-185),+120,+125,Unavailable,O 7.5 (+105),
+MLB,NY Mets @ Seattle,Seattle,-1.5 (+152),-1.5 (+155),-142,-145,Unavailable,U 7.5 (-125),
+MLB,San Diego @ Philadelphia,San Diego,+1.5 (-110),+1.5 (-125),+184,+180,Unavailable,O 7.5 (-115),
+MLB,San Diego @ Philadelphia,Philadelphia,-1.5 (-110),-1.5 (+105),-220,-215,Unavailable,U 7.5 (-105),
+MLB,Baltimore @ Boston,Baltimore,+1.5 (-164),+1.5 (-155),+124,+128,O 9 (-105),O 9 (-105),
+MLB,Baltimore @ Boston,Boston,-1.5 (+136),-1.5 (+135),-146,-148,U 9 (-115),U 9 (-115),
+MLB,Cleveland @ NY Yankees,Cleveland,+1.5 (-176),+1.5 (-155),+126,+141,Unavailable,O 7.5 (+100),Biggest ML gap
+MLB,Cleveland @ NY Yankees,NY Yankees,-1.5 (+146),-1.5 (+135),-148,-161,Unavailable,U 7.5 (-120),Biggest ML gap
+MLB,Toronto @ Atlanta,Toronto,+1.5 (-178),+1.5 (-165),+120,+127,Unavailable,O 8 (-110),
+MLB,Toronto @ Atlanta,Atlanta,-1.5 (+146),-1.5 (+145),-142,-147,Unavailable,U 8 (-110),
+MLB,Texas @ St. Louis,Texas,-1.5 (+162),N/A,-104,-108,Unavailable,O 8.5 (+105),
+MLB,Texas @ St. Louis,St. Louis,+1.5 (-196),N/A,-112,-112,Unavailable,U 8.5 (-125),
+MLB,Athletics @ Chi Cubs,Athletics,+1.5 (-194),N/A,+104,+107,O 9 (+100),O 9 (+100),
+MLB,Athletics @ Chi Cubs,Chi Cubs,-1.5 (+160),N/A,-122,-127,U 9 (-122),U 9 (-120),
+MLB,Pittsburgh @ Houston,Pittsburgh,-1.5 (+105),-1.5 (+110),-162,-154,Unavailable,O 7.5 (-110),
+MLB,Pittsburgh @ Houston,Houston,+1.5 (-126),+1.5 (-130),+136,+134,Unavailable,U 7.5 (-110),
+MLB,Colorado @ LA Angels,Colorado,+1.5 (-162),+1.5 (-155),+134,+136,O 8.5 (-115),O 8.5 (-115),
+MLB,Colorado @ LA Angels,LA Angels,-1.5 (+134),-1.5 (+135),-158,-156,U 8.5 (-105),U 8.5 (-105),
+MLB,LA Dodgers @ Arizona,LA Dodgers,-1.5 (-115),-1.5 (-115),-200,-191,O 9 (-110),O 9 (-115),
+MLB,LA Dodgers @ Arizona,Arizona,+1.5 (-104),+1.5 (-105),+168,+161,U 9 (-110),U 9 (-105),
+NHL,Vegas @ Carolina (Cup Final G2),Vegas,+1.5 (-205),+1.5 (-185),+138,+140,O 5.5 (-130),O 6 (+100),Total line differs (5.5 vs 6)
+NHL,Vegas @ Carolina (Cup Final G2),Carolina,-1.5 (+160),-1.5 (+155),-166,-160,U 5.5 (+106),U 6 (-120),Total line differs (5.5 vs 6)
+Tennis,Auger-Aliassime vs Cobolli (French Open),Auger-Aliassime,+0.5 (-120),+0.5 (-130),-110,-110,O 40.5 (-110),O 40.5 (-115),Spread/total = games market
+Tennis,Auger-Aliassime vs Cobolli (French Open),Cobolli,-0.5 (-110),-0.5 (+100),-110,-120,U 40.5 (-120),U 40.5 (-115),Spread/total = games market
+Tennis,Berrettini vs Arnaldi (French Open),Berrettini,-3.5 (-112),-3.5 (-125),-192,-190,O 38.5 (-116),O 39 (-115),Spread/total = games market
+Tennis,Berrettini vs Arnaldi (French Open),Arnaldi,+3.5 (-118),+3.5 (-105),+158,+150,U 38.5 (-116),U 39 (-115),Spread/total = games market
+Tennis,Mensik vs Zverev (French Open),Mensik,+4.5 (+120),+5.5 (-120),+319,+315,O 34.5 (-165),O 38 (-115),Spread/total on different number
+Tennis,Mensik vs Zverev (French Open),Zverev,-4.5 (-175),-5.5 (-110),-425,-435,U 34.5 (+110),U 38 (-115),Spread/total on different number
+MLB,Kansas City @ Cincinnati,Kansas City,+1.5 (-162),N/A,+134,N/A,O 8.5 (-105),N/A,Not listed on bettorjuice365
+MLB,Kansas City @ Cincinnati,Cincinnati,-1.5 (+134),N/A,-158,N/A,U 8.5 (-115),N/A,Not listed on bettorjuice365
+MLB,San Francisco @ Milwaukee,San Francisco,+1.5 (-170),N/A,+122,N/A,O 8 (-105),N/A,Not listed on bettorjuice365
+MLB,San Francisco @ Milwaukee,Milwaukee,-1.5 (+140),N/A,-144,N/A,U 8 (-115),N/A,Not listed on bettorjuice365
