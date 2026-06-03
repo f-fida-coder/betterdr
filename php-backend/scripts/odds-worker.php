@@ -73,6 +73,15 @@ $prematchBatch            = max(1,   (int) Env::get('PREMATCH_MAX_SPORTS_PER_TIC
 $settleEveryTicks         = max(1,   (int) Env::get('RUNDOWN_SETTLE_EVERY_N_TICKS', '12'));           // ~60s
 $logEveryTicks            = max(1,   (int) Env::get('RUNDOWN_LOG_EVERY_N_TICKS', '12'));              // ~60s
 $maxRuntimeSeconds        = max(60,  (int) Env::get('RUNDOWN_WORKER_MAX_RUNTIME_SECONDS', '21600'));  // 6h then voluntary restart
+// Full-coverage sweep (periods + props for the board). OFF by default —
+// fetches the full 75-ID market set (core+props+periods), so it REQUIRES
+// RUNDOWN_MARKET_IDS_BATCH=true to split into ≤12-ID batches, and that
+// extra volume is what tripped the 12-cap breaker before. Kept slow + one
+// sport per tick to bound API usage.
+$fullCoverageEnabled      = strtolower((string) Env::get('RUNDOWN_FULL_COVERAGE_ENABLED', 'false')) === 'true';
+$fullCoverageEveryTicks   = max(1,   (int) Env::get('RUNDOWN_FULL_COVERAGE_EVERY_N_TICKS', '60'));    // ~5 min @ 5s
+$fullCoverageBatch        = max(1,   (int) Env::get('RUNDOWN_FULL_COVERAGE_SPORTS_PER_TICK', '1'));
+$fullCoverageDaysAhead    = max(1,   (int) Env::get('RUNDOWN_FULL_DAYS_AHEAD', '2'));
 // ─────────────────────────────────────────────────────────────────────
 
 // Signal handling — gracefully drop out between ticks.
@@ -91,8 +100,9 @@ $pid       = getmypid();
 $startedAt = time();
 $tick      = 0;
 $rotationCursor = 0;
+$fullCoverageCursor = 0;
 
-fwrite(STDOUT, "[odds-worker] pid={$pid} tickSeconds={$tickSeconds} prematchEvery={$prematchEveryTicks}t settleEvery={$settleEveryTicks}t\n");
+fwrite(STDOUT, "[odds-worker] pid={$pid} tickSeconds={$tickSeconds} prematchEvery={$prematchEveryTicks}t settleEvery={$settleEveryTicks}t fullCoverage=" . ($fullCoverageEnabled ? "on/{$fullCoverageEveryTicks}t" : 'off') . "\n");
 Logger::info('odds-worker started', [
     'pid' => $pid,
     'tickSeconds' => $tickSeconds,
@@ -180,6 +190,55 @@ while (!$shutdown) {
                     $prematchResult['updated']    += (int) ($r['created'] ?? 0) + (int) ($r['updated'] ?? 0);
                     $prematchResult['errors']     += (int) ($r['errors'] ?? 0);
                 }
+            }
+        }
+
+        // ── 2a. Full-coverage sweep (periods + props for the BOARD) ──────
+        // syncSportPrematch (above) fetches CORE markets only; period markets
+        // (1st half / quarters / innings) and player props come exclusively
+        // via syncSportFull (baseQueryParamsFull → core+props+periods). The
+        // worker otherwise never calls it, so without this sweep the board
+        // list has no period tabs. Gated OFF by default and rate-limited to a
+        // slow cadence + one sport per tick: full coverage = 75 market_ids →
+        // ~7 ≤12-ID batches per request (needs RUNDOWN_MARKET_IDS_BATCH=true),
+        // and that volume is what tripped the 12-cap circuit breaker before.
+        $fullCoverageResult = null;
+        if ($fullCoverageEnabled && $tick % $fullCoverageEveryTicks === 0 && RundownClient::isConfigured()) {
+            $fcActiveOnly = strtolower((string) Env::get('RUNDOWN_PREMATCH_ACTIVE_SPORTS_ONLY', 'true')) !== 'false';
+            $fcSports = $fcActiveOnly
+                ? activeSportsForPrematchRotation($repo)
+                : resolveAllConfiguredSports();
+            if ($fcSports !== []) {
+                $fullCoverageCursor = $fullCoverageCursor % count($fcSports);
+                $fcBatch = [];
+                for ($i = 0; $i < min($fullCoverageBatch, count($fcSports)); $i++) {
+                    $fcBatch[] = $fcSports[($fullCoverageCursor + $i) % count($fcSports)];
+                }
+                $fullCoverageCursor = ($fullCoverageCursor + count($fcBatch)) % count($fcSports);
+
+                $fullCoverageResult = ['sportsTried' => 0, 'eventsSeen' => 0, 'updated' => 0, 'errors' => 0];
+                foreach ($fcBatch as $sportKey) {
+                    $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                    if ($sportId === null) continue;
+                    try {
+                        $r = RundownSyncService::syncSportFull($repo, $sportKey, $sportId, $fullCoverageDaysAhead);
+                    } catch (Throwable $e) {
+                        Logger::warning('odds-worker full-coverage sweep failed', ['sportKey' => $sportKey, 'error' => $e->getMessage()], 'sportsbook');
+                        $fullCoverageResult['errors']++;
+                        continue;
+                    }
+                    $fullCoverageResult['sportsTried']++;
+                    $fullCoverageResult['eventsSeen'] += (int) ($r['eventsSeen'] ?? 0);
+                    $fullCoverageResult['updated']    += (int) ($r['created'] ?? 0) + (int) ($r['updated'] ?? 0);
+                    $fullCoverageResult['errors']     += (int) ($r['errors'] ?? 0);
+                }
+                fwrite(STDOUT, sprintf(
+                    "[odds-worker] full-coverage sweep: sports=%d events=%d updated=%d errors=%d\n",
+                    $fullCoverageResult['sportsTried'],
+                    $fullCoverageResult['eventsSeen'],
+                    $fullCoverageResult['updated'],
+                    $fullCoverageResult['errors']
+                ));
             }
         }
 
