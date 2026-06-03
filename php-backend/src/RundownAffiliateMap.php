@@ -32,6 +32,8 @@ final class RundownAffiliateMap
         24 => ['key' => 'thescore',      'name' => 'theScore Bet'],
         25 => ['key' => 'kalshi',        'name' => 'Kalshi'],
         26 => ['key' => 'polymarket',    'name' => 'Polymarket'],
+        27 => ['key' => 'bet365',        'name' => 'Bet365'],
+        28 => ['key' => 'hardrock',      'name' => 'Hard Rock Bet'],
     ];
 
     /** @return array{key:string,name:string}|null */
