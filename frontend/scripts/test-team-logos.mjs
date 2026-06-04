@@ -10,7 +10,7 @@
 // Run: node frontend/scripts/test-team-logos.mjs
 // Exit 0 = pass, 1 = any failure.
 
-import { logoUrlForTeam, normalizeTeamName } from '../src/utils/teamLogos.js';
+import { logoUrlForTeam, fetchTeamBadgeUrl, normalizeTeamName } from '../src/utils/teamLogos.js';
 
 // Shim localStorage for the cache layer used by logoUrlForTeam.
 globalThis.localStorage = {
@@ -34,6 +34,7 @@ function expect(label, expected, actual) {
 
 const ESPN_OAK = 'https://a.espncdn.com/i/teamlogos/mlb/500/oak.png';
 const ESPN_BAL = 'https://a.espncdn.com/i/teamlogos/mlb/500/bal.png';
+const ESPN_BAL_NFL = 'https://a.espncdn.com/i/teamlogos/nfl/500/bal.png';
 const ESPN_HOU = 'https://a.espncdn.com/i/teamlogos/mlb/500/hou.png';
 const ESPN_BOS = 'https://a.espncdn.com/i/teamlogos/mlb/500/bos.png';
 const ESPN_LAL = 'https://a.espncdn.com/i/teamlogos/nba/500/lal.png';
@@ -59,7 +60,12 @@ expect('Cincinnati Reds', 'https://a.espncdn.com/i/teamlogos/mlb/500/cin.png', l
 console.log('City/abbr live-feed context stays in correct league');
 expect('BOS + baseball_mlb context -> MLB BOS logo', ESPN_BOS, logoUrlForTeam('BOS', { sportKey: 'baseball_mlb', sport: '', abbr: '' }));
 expect('BAL + sport="Baseball" context -> MLB BAL logo', ESPN_BAL, logoUrlForTeam('BAL', { sportKey: '', sport: 'Baseball', abbr: '' }));
+expect('BAL + sport="Football" context -> NFL BAL logo', ESPN_BAL_NFL, logoUrlForTeam('BAL', { sportKey: '', sport: 'Football', abbr: '' }));
 expect('LAL + sport="Basketball" context -> NBA LAL logo', ESPN_LAL, logoUrlForTeam('LAL', { sportKey: '', sport: 'Basketball', abbr: '' }));
+
+console.log('Async resolver also respects league context for collisions');
+expect('fetch BAL baseball context -> MLB BAL logo', ESPN_BAL, await fetchTeamBadgeUrl('BAL', { sportKey: 'baseball_mlb', sport: '', abbr: '' }));
+expect('fetch BAL football context -> NFL BAL logo', ESPN_BAL_NFL, await fetchTeamBadgeUrl('BAL', { sportKey: 'americanfootball_nfl', sport: '', abbr: '' }));
 
 console.log('Normalization handles common feed variations');
 expect('apostrophes stripped', 'a s', normalizeTeamName("A's"));

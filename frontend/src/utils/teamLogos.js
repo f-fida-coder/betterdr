@@ -413,6 +413,23 @@ const resolveByContext = (teamName, ctx) => {
     return espnLogoByAbbr(league, abbr);
 };
 
+const cacheKeyForTeam = (teamName = '', ctx = null) => {
+    const normalized = normalizeTeamName(teamName);
+    if (!normalized) return '';
+    const league = ctx ? leagueFromSport(ctx.sportKey, ctx.sport) : null;
+    const rawCtxAbbr = ctx?.abbr == null ? '' : String(ctx.abbr).trim();
+    const rawTeamName = teamName == null ? '' : String(teamName).trim();
+    let abbr = rawCtxAbbr;
+    if (!/^[A-Za-z]{2,4}$/.test(abbr) && /^[A-Za-z]{2,4}$/.test(rawTeamName)) {
+        abbr = rawTeamName;
+    }
+    const compactAbbr = /^[A-Za-z]{2,4}$/.test(abbr)
+        ? String(abbr).toLowerCase().replace(/[^a-z0-9]/g, '')
+        : '';
+    if (!league) return normalized;
+    return compactAbbr ? `${league}:${compactAbbr}:${normalized}` : `${league}:${normalized}`;
+};
+
 const getHash = (input) => {
     let hash = 0;
     for (let i = 0; i < input.length; i += 1) {
@@ -455,6 +472,7 @@ export const createFallbackTeamLogoDataUri = (teamName = '') => {
 // network lookups happen via fetchTeamBadgeUrl below.
 export const logoUrlForTeam = (teamName = '', ctx = null) => {
     const normalized = normalizeTeamName(teamName);
+    const cacheKey = cacheKeyForTeam(teamName, ctx);
     if (normalized && TEAM_LOGO_MAP[normalized]) return TEAM_LOGO_MAP[normalized];
     // Sport-aware abbreviation path (city-only live rows). Resolved before
     // the warm cache so a previously mis-cached TheSportsDB URL can't win.
@@ -462,7 +480,7 @@ export const logoUrlForTeam = (teamName = '', ctx = null) => {
     if (byCtx) return byCtx;
     if (!normalized) return null;
     // Warm cache populated by prior async resolutions.
-    const cached = getCachedLogo(normalized);
+    const cached = getCachedLogo(cacheKey);
     return cached && cached.url ? cached.url : null;
 };
 
@@ -489,7 +507,7 @@ export const logoUrlForTeam = (teamName = '', ctx = null) => {
 // teamName itself is a short code (BOS/SD) and sport labels come in as
 // human-readable text ("Baseball", "Basketball"). Invalidate older
 // cross-sport cached misses/hits so users pick up corrected logos now.
-const LOGO_CACHE_KEY = 'betterdr:teamLogos:v5';
+const LOGO_CACHE_KEY = 'betterdr:teamLogos:v6';
 const LOGO_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 // Routed through the PHP proxy: direct browser calls to thesportsdb hit
 // CORS and a shared 429 rate limit. Backend fetches server-side, caches
@@ -597,13 +615,14 @@ export const prewarmTeamBadges = (items = []) => {
         const name = typeof it === 'string' ? it : (it && it.name) || '';
         const ctx = typeof it === 'string' ? null : it;
         const normalized = normalizeTeamName(name || '');
-        if (!normalized || seen.has(normalized)) continue;
-        seen.add(normalized);
+        const cacheKey = cacheKeyForTeam(name, ctx);
+        if (!normalized || !cacheKey || seen.has(cacheKey)) continue;
+        seen.add(cacheKey);
         // Skip if already mapped, sport-resolvable, or cached.
         if (TEAM_LOGO_MAP[normalized]) continue;
         if (resolveByContext(name, ctx)) continue;
-        if (getCachedLogo(normalized)) continue;
-        unique.push(name);
+        if (getCachedLogo(cacheKey)) continue;
+        unique.push({ name, ctx });
     }
     if (unique.length === 0) return;
 
@@ -613,7 +632,7 @@ export const prewarmTeamBadges = (items = []) => {
         while (index < unique.length) {
             const i = index++;
             try {
-                await fetchTeamBadgeUrl(unique[i]);
+                await fetchTeamBadgeUrl(unique[i].name, unique[i].ctx);
             } catch { /* fetchTeamBadgeUrl already handles its own errors */ }
         }
     };
@@ -624,6 +643,7 @@ export const prewarmTeamBadges = (items = []) => {
 
 export const fetchTeamBadgeUrl = async (teamName = '', ctx = null) => {
     const normalized = normalizeTeamName(teamName);
+    const cacheKey = cacheKeyForTeam(teamName, ctx);
     if (!normalized) return createFallbackTeamLogoDataUri(teamName);
 
     if (TEAM_LOGO_MAP[normalized]) return TEAM_LOGO_MAP[normalized];
@@ -634,14 +654,14 @@ export const fetchTeamBadgeUrl = async (teamName = '', ctx = null) => {
     const byCtx = resolveByContext(teamName, ctx);
     if (byCtx) return byCtx;
 
-    const cached = getCachedLogo(normalized);
+    const cached = getCachedLogo(cacheKey);
     if (cached) {
         return cached.url || createFallbackTeamLogoDataUri(teamName);
     }
 
     // Dedupe: if two renders ask for the same team at the same time,
     // only fire one request.
-    if (inFlight.has(normalized)) return inFlight.get(normalized);
+    if (inFlight.has(cacheKey)) return inFlight.get(cacheKey);
 
     const fetchJson = async (url) => {
         const controller = new AbortController();
@@ -667,7 +687,7 @@ export const fetchTeamBadgeUrl = async (teamName = '', ctx = null) => {
             for (const variant of variations) {
                 const data = await fetchJson(buildProxyUrl(THE_SPORTS_DB_TEAM_PATH, variant));
                 if (data?.found && typeof data.logoUrl === 'string' && data.logoUrl) {
-                    setCachedLogo(normalized, data.logoUrl);
+                    setCachedLogo(cacheKey, data.logoUrl);
                     return data.logoUrl;
                 }
             }
@@ -678,21 +698,21 @@ export const fetchTeamBadgeUrl = async (teamName = '', ctx = null) => {
             //    stripping don't help here.
             const playerData = await fetchJson(buildProxyUrl(THE_SPORTS_DB_PLAYER_PATH, teamName));
             if (playerData?.found && typeof playerData.logoUrl === 'string' && playerData.logoUrl) {
-                setCachedLogo(normalized, playerData.logoUrl);
+                setCachedLogo(cacheKey, playerData.logoUrl);
                 return playerData.logoUrl;
             }
 
             // Nothing matched — negative cache the miss for 24h.
-            setCachedLogo(normalized, null);
+            setCachedLogo(cacheKey, null);
             return createFallbackTeamLogoDataUri(teamName);
         } catch {
-            setCachedLogo(normalized, null);
+            setCachedLogo(cacheKey, null);
             return createFallbackTeamLogoDataUri(teamName);
         } finally {
-            inFlight.delete(normalized);
+            inFlight.delete(cacheKey);
         }
     })();
 
-    inFlight.set(normalized, promise);
+    inFlight.set(cacheKey, promise);
     return promise;
 };

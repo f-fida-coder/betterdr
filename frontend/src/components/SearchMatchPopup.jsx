@@ -8,7 +8,7 @@ import {
     getMarketOutcomeByName,
     getMarketOutcomeByKeyword,
 } from '../utils/odds';
-import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
+import { logoUrlForTeam, fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import MatchDetailView from './MatchDetailView';
 import PropBuilderModal from './PropBuilderModal';
@@ -32,6 +32,14 @@ const SearchMatchPopup = ({ match, onClose }) => {
     const sportLabel = (match?.sportTitle || match?.sport_title || match?.sportKey || '').toString().replace(/_/g, ' ').toUpperCase();
     const rotationHome = match?.rotation?.home ?? null;
     const rotationAway = match?.rotation?.away ?? null;
+    const logoSportCtx = useMemo(() => ({
+        sportKey: match?.sportKey || '',
+        sport: match?.sportTitle || match?.sport || '',
+    }), [match?.sportKey, match?.sportTitle, match?.sport]);
+    const homeAbbr = match?.team1Short || match?.homeTeamShort || match?.home_short || '';
+    const awayAbbr = match?.team2Short || match?.awayTeamShort || match?.away_short || '';
+    const homeLogoCtx = useMemo(() => ({ ...logoSportCtx, abbr: homeAbbr }), [logoSportCtx, homeAbbr]);
+    const awayLogoCtx = useMemo(() => ({ ...logoSportCtx, abbr: awayAbbr }), [logoSportCtx, awayAbbr]);
 
     const startTimeLabel = useMemo(() => {
         const iso = match?.commenceTime || match?.startTime;
@@ -64,18 +72,20 @@ const SearchMatchPopup = ({ match, onClose }) => {
         };
     }, [match, homeTeam, awayTeam]);
 
-    const [homeLogo, setHomeLogo] = useState(() => createFallbackTeamLogoDataUri(homeTeam));
-    const [awayLogo, setAwayLogo] = useState(() => createFallbackTeamLogoDataUri(awayTeam));
+    const [homeLogo, setHomeLogo] = useState(() => logoUrlForTeam(homeTeam, homeLogoCtx) || createFallbackTeamLogoDataUri(homeTeam));
+    const [awayLogo, setAwayLogo] = useState(() => logoUrlForTeam(awayTeam, awayLogoCtx) || createFallbackTeamLogoDataUri(awayTeam));
     useEffect(() => {
         let cancelled = false;
-        fetchTeamBadgeUrl(homeTeam).then((url) => {
+        setHomeLogo(logoUrlForTeam(homeTeam, homeLogoCtx) || createFallbackTeamLogoDataUri(homeTeam));
+        setAwayLogo(logoUrlForTeam(awayTeam, awayLogoCtx) || createFallbackTeamLogoDataUri(awayTeam));
+        fetchTeamBadgeUrl(homeTeam, homeLogoCtx).then((url) => {
             if (!cancelled && url) setHomeLogo(url);
         }).catch(() => {});
-        fetchTeamBadgeUrl(awayTeam).then((url) => {
+        fetchTeamBadgeUrl(awayTeam, awayLogoCtx).then((url) => {
             if (!cancelled && url) setAwayLogo(url);
         }).catch(() => {});
         return () => { cancelled = true; };
-    }, [homeTeam, awayTeam]);
+    }, [homeTeam, awayTeam, homeLogoCtx, awayLogoCtx]);
 
     const matchName = `${awayTeam} vs ${homeTeam}`;
     const handleAdd = (selection, marketType, marketLabel, price, line = null) => {
