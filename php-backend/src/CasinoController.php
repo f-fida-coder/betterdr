@@ -1367,7 +1367,7 @@ final class CasinoController
                 'userId' => $userId !== '' ? $userId : null,
                 'error' => $e->getMessage(),
             ]);
-            Response::json(['message' => 'Server error placing casino bet', 'error' => $e->getMessage()], 500);
+            Response::serverError('Server error placing casino bet', $e);
         }
     }
 
@@ -1943,7 +1943,7 @@ final class CasinoController
                 'userId' => $userId,
                 'error' => $e->getMessage(),
             ]);
-            Response::json(['message' => 'Server error placing 3-Card Poker bet', 'error' => $e->getMessage()], 500);
+            Response::serverError('Server error placing 3-Card Poker bet', $e);
         }
     }
 
@@ -5567,7 +5567,7 @@ final class CasinoController
                 'userId' => $userId,
                 'error' => $e->getMessage(),
             ]);
-            Response::json(['message' => 'Server error starting stud poker round', 'error' => $e->getMessage()], 500);
+            Response::serverError('Server error starting stud poker round', $e);
         }
     }
 
@@ -5800,7 +5800,7 @@ final class CasinoController
                 'roundId' => $roundId,
                 'error' => $e->getMessage(),
             ]);
-            Response::json(['message' => 'Server error resolving stud poker round', 'error' => $e->getMessage()], 500);
+            Response::serverError('Server error resolving stud poker round', $e);
         }
     }
 

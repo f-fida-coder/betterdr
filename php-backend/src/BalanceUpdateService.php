@@ -59,7 +59,7 @@ final class BalanceUpdateService
         try {
             // Check if already processed
             $stmt = $this->pdo->prepare(
-                "SELECT id, amount FROM {$this->dedupTable} 
+                "SELECT id, amount FROM `{$this->dedupTable}`
                  WHERE idempotency_key = ? AND user_id = ? LIMIT 1"
             );
             $stmt->execute([$idempotencyKey, $userId]);
@@ -78,8 +78,8 @@ final class BalanceUpdateService
             
             // Log dedup entry first (atomic: if this fails, balance update doesn't occur)
             $stmt = $this->pdo->prepare(
-                "INSERT INTO {$this->dedupTable} 
-                 (idempotency_key, user_id, reason, amount, created_at) 
+                "INSERT INTO `{$this->dedupTable}`
+                 (idempotency_key, user_id, reason, amount, created_at)
                  VALUES (?, ?, ?, ?, NOW())"
             );
             $stmt->execute([$idempotencyKey, $userId, $reason, $amount]);
@@ -117,8 +117,7 @@ final class BalanceUpdateService
             return [
                 'success' => false,
                 'duplicate' => false,
-                'message' => 'Database error: ' . $e->getMessage(),
-                'error' => $e->getMessage()
+                'message' => 'Database error processing balance update',
             ];
         }
     }

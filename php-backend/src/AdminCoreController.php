@@ -675,7 +675,7 @@ final class AdminCoreController
                     'referralBonusGranted' => (bool) ($user['referralBonusGranted'] ?? false),
                     'referralBonusAmount' => (float) ($user['referralBonusAmount'] ?? 0),
                     'settings' => $user['settings'] ?? null,
-                    'displayPassword' => (($user['displayPassword'] ?? '') !== '' ? $user['displayPassword'] : ($user['rawPassword'] ?? null)),
+                    'displayPassword' => (($user['displayPassword'] ?? '') !== '' ? $user['displayPassword'] : null),
                 ];
             }
 
@@ -1772,7 +1772,7 @@ final class AdminCoreController
                 'usedTrailingFallback' => $usedTrailingFallback,
             ]);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error: ' . $e->getMessage()], 500);
+            Response::serverError('Server error', $e);
         }
     }
 
@@ -7699,7 +7699,7 @@ final class AdminCoreController
 
             Response::json(['message' => 'Migration complete', 'log' => $log], 200);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Migration error: ' . $e->getMessage()], 500);
+            Response::serverError('Migration error', $e);
         }
     }
 
@@ -7915,7 +7915,7 @@ final class AdminCoreController
                 ],
             ], 201);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error creating agent: ' . $e->getMessage()], 500);
+            Response::serverError('Server error creating agent', $e);
         }
     }
 
@@ -8235,7 +8235,7 @@ final class AdminCoreController
 
             Response::json(['message' => 'Agent updated successfully', 'agent' => $updated]);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error updating agent', 'details' => $e->getMessage()], 500);
+            Response::serverError('Server error updating agent', $e);
         }
     }
 
@@ -8351,7 +8351,7 @@ final class AdminCoreController
                 ],
             ]);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error', 'details' => $e->getMessage()], 500);
+            Response::serverError('Server error', $e);
         }
     }
 
@@ -8587,7 +8587,7 @@ final class AdminCoreController
             }
             Response::json($response, 201);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error creating user: ' . $e->getMessage()], 500);
+            Response::serverError('Server error creating user', $e);
         }
     }
 
@@ -8604,7 +8604,7 @@ final class AdminCoreController
             [$status, $payload] = $this->executeBulkUserCreate($rows, $actor);
             Response::json($payload, $status);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error during bulk creation: ' . $e->getMessage()], 500);
+            Response::serverError('Server error during bulk creation', $e);
         }
     }
 
@@ -8634,6 +8634,21 @@ final class AdminCoreController
             if (!in_array($extension, ['xlsx', 'csv'], true)) {
                 Response::json(['message' => 'Only .xlsx or .csv files are supported'], 400);
                 return;
+            }
+
+            // MIME-type check: reject files whose content doesn't match the extension
+            if ($tmpPath !== '' && function_exists('finfo_open')) {
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                $mime = $finfo ? finfo_file($finfo, $tmpPath) : false;
+                if ($finfo) finfo_close($finfo);
+                $allowedMimes = [
+                    'xlsx' => ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip'],
+                    'csv'  => ['text/csv', 'text/plain', 'application/csv'],
+                ];
+                if ($mime !== false && !in_array($mime, $allowedMimes[$extension] ?? [], true)) {
+                    Response::json(['message' => 'File content does not match the expected format'], 400);
+                    return;
+                }
             }
 
             $rawRows = ($extension === 'xlsx')
@@ -8732,7 +8747,7 @@ final class AdminCoreController
             }
             Response::json($payload, $status);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Failed to import spreadsheet: ' . $e->getMessage()], 500);
+            Response::serverError('Failed to import spreadsheet', $e);
         }
     }
 
@@ -10001,7 +10016,7 @@ final class AdminCoreController
                 'firstMasterUsername' => $allMasters[0]['username'],
             ], 201);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error seeding workflow hierarchy: ' . $e->getMessage()], 500);
+            Response::serverError('Server error seeding workflow hierarchy', $e);
         }
     }
 
@@ -10019,7 +10034,7 @@ final class AdminCoreController
                 'summary' => $summary,
             ]);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error cleaning seeded workflow data: ' . $e->getMessage()], 500);
+            Response::serverError('Server error cleaning seeded workflow data', $e);
         }
     }
 
@@ -10607,7 +10622,7 @@ final class AdminCoreController
             }
             Response::json($resp);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error updating user balance', 'details' => $e->getMessage()], 500);
+            Response::serverError('Server error updating user balance', $e);
         }
     }
 
@@ -10850,7 +10865,7 @@ final class AdminCoreController
                 'user' => [
                     'id' => (string) ($foundUser['id'] ?? $userId),
                     'username' => $foundUser['username'] ?? null,
-                    'displayPassword' => (($foundUser['displayPassword'] ?? '') !== '' ? strtoupper((string) $foundUser['displayPassword']) : (($foundUser['rawPassword'] ?? '') !== '' ? strtoupper((string) $foundUser['rawPassword']) : null)),
+                    'displayPassword' => (($foundUser['displayPassword'] ?? '') !== '' ? strtoupper((string) $foundUser['displayPassword']) : null),
                     'firstName' => $foundUser['firstName'] ?? null,
                     'lastName' => $foundUser['lastName'] ?? null,
                     'fullName' => $foundUser['fullName'] ?? null,
@@ -12116,7 +12131,7 @@ final class AdminCoreController
             }
             Response::json(['message' => 'Odds refresh ok', 'sports' => count($sports), 'results' => $results]);
         } catch (Throwable $e) {
-            Response::json(['message' => $e->getMessage() ?: 'Server error refreshing odds'], 500);
+            Response::serverError('Server error refreshing odds', $e);
         }
     }
 
@@ -12145,7 +12160,7 @@ final class AdminCoreController
             }
             Response::json(['message' => 'Manual odds fetch ok', 'sports' => count($sports), 'results' => $results]);
         } catch (Throwable $e) {
-            Response::json(['message' => $e->getMessage() ?: 'Server error manual odds fetch'], 500);
+            Response::serverError('Server error manual odds fetch', $e);
         }
     }
 

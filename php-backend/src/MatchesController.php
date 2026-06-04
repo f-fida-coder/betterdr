@@ -1112,7 +1112,7 @@ final class MatchesController
             }
             Response::json(['message' => 'Manual odds fetch ok', 'sports' => count($sports), 'results' => $perSport]);
         } catch (Throwable $e) {
-            Response::json(['message' => $e->getMessage() ?: 'Server error manual odds fetch'], 500);
+            Response::serverError('Server error manual odds fetch', $e);
         }
     }
 

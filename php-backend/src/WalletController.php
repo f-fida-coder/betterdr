@@ -130,7 +130,7 @@ final class WalletController
                 'remainingLimits' => $this->computeRemainingLimits($user, $limits),
             ]);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
+            Response::serverError('Server error', $e);
         }
     }
 
@@ -180,7 +180,7 @@ final class WalletController
 
             Response::json(['transactions' => $formatted]);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
+            Response::serverError('Server error', $e);
         }
     }
 
@@ -276,7 +276,7 @@ final class WalletController
                 'offset' => $offset,
             ]);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
+            Response::serverError('Server error', $e);
         }
     }
 
@@ -672,7 +672,7 @@ final class WalletController
                 'endBalance' => (float) round($endBalance),
             ]);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
+            Response::serverError('Server error', $e);
         }
     }
 
@@ -761,7 +761,7 @@ final class WalletController
                 'transactionId' => $transactionId,
             ], 201);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
+            Response::serverError('Server error', $e);
         }
     }
 
@@ -781,44 +781,65 @@ final class WalletController
             $amount = $this->parseAmount($body['amount'] ?? 0);
             $method = strtolower(trim((string) ($body['method'] ?? 'manual')));
 
-            $user = $this->db->findOne('users', ['id' => SqlRepository::id((string) $actor['id'])]);
-            if ($user === null) {
-                Response::json(['message' => 'User not found'], 404);
-                return;
-            }
-
             if ($amount < 20 || $amount > 100000) {
                 Response::json(['message' => 'Withdrawal amount must be between $20 and $100,000'], 400);
                 return;
             }
 
-            $balance = $this->num($user['balance'] ?? 0);
-            if ($balance < $amount) {
-                Response::json(['message' => 'Insufficient balance for withdrawal request'], 400);
-                return;
+            // Use a transaction with row lock to prevent double-withdrawal race
+            $this->db->beginTransaction();
+            try {
+                $user = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id((string) $actor['id'])]);
+                if ($user === null) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'User not found'], 404);
+                    return;
+                }
+
+                $balance = $this->num($user['balance'] ?? 0);
+                $pendingBalance = $this->num($user['pendingBalance'] ?? 0);
+                $availableBalance = max(0.0, $balance - $pendingBalance);
+
+                if ($availableBalance < $amount) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Insufficient available balance for withdrawal request'], 400);
+                    return;
+                }
+
+                // Reserve the amount by incrementing pendingBalance
+                $newPendingBalance = $pendingBalance + $amount;
+                $now = SqlRepository::nowUtc();
+                $this->db->updateOne('users', ['id' => SqlRepository::id((string) $actor['id'])], [
+                    'pendingBalance' => $newPendingBalance,
+                    'updatedAt' => $now,
+                ]);
+
+                $doc = [
+                    'userId' => SqlRepository::id((string) $actor['id']),
+                    'agentId' => $this->toOptionalId($actor['agentId'] ?? null),
+                    'amount' => $amount,
+                    'type' => 'withdrawal',
+                    'status' => 'pending',
+                    'reason' => 'USER_WITHDRAWAL_REQUEST',
+                    'referenceType' => 'Adjustment',
+                    'description' => 'Withdrawal request via ' . $method,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ];
+
+                $transactionId = $this->db->insertOne('transactions', $doc);
+                $this->db->commit();
+
+                Response::json([
+                    'message' => 'Withdrawal request submitted successfully. Processing is pending approval.',
+                    'transactionId' => $transactionId,
+                ], 201);
+            } catch (Throwable $e) {
+                $this->db->rollback();
+                throw $e;
             }
-
-            $now = SqlRepository::nowUtc();
-            $doc = [
-                'userId' => SqlRepository::id((string) $actor['id']),
-                'agentId' => $this->toOptionalId($actor['agentId'] ?? null),
-                'amount' => $amount,
-                'type' => 'withdrawal',
-                'status' => 'pending',
-                'reason' => 'USER_WITHDRAWAL_REQUEST',
-                'referenceType' => 'Adjustment',
-                'description' => 'Withdrawal request via ' . $method,
-                'createdAt' => $now,
-                'updatedAt' => $now,
-            ];
-
-            $transactionId = $this->db->insertOne('transactions', $doc);
-            Response::json([
-                'message' => 'Withdrawal request submitted successfully. Processing is pending approval.',
-                'transactionId' => $transactionId,
-            ], 201);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
+            Response::serverError('Server error', $e);
         }
     }
 

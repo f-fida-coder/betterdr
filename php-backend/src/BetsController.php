@@ -841,7 +841,7 @@ final class BetsController
                     'updatedAt' => SqlRepository::nowUtc(),
                 ]);
             }
-            Response::json(['message' => $e->getMessage()], 400);
+            Response::serverError('Error placing bet', $e, 400);
         }
     }
 
@@ -1210,9 +1210,9 @@ final class BetsController
                 'results' => $results,
             ]);
         } catch (RuntimeException $e) {
-            Response::json(['message' => $e->getMessage() ?: 'Error settling bets'], 400);
+            Response::serverError('Error settling bets', $e, 400);
         } catch (Throwable $e) {
-            Response::json(['message' => $e->getMessage() ?: 'Error settling bets'], 500);
+            Response::serverError('Error settling bets', $e);
         }
     }
 
@@ -1237,7 +1237,7 @@ final class BetsController
             $eligibility = BetSettlementService::manualWinnerEligibility($this->db, $matchId);
             Response::json($eligibility);
         } catch (Throwable $e) {
-            Response::json(['message' => $e->getMessage() ?: 'Error checking settle eligibility'], 500);
+            Response::serverError('Error checking settle eligibility', $e);
         }
     }
 
@@ -1403,7 +1403,7 @@ final class BetsController
                 'stillPending' => $notDone,
             ]);
         } catch (Throwable $e) {
-            Response::json(['message' => $e->getMessage() ?: 'Error regrading stuck bets'], 500);
+            Response::serverError('Error regrading stuck bets', $e);
         }
     }
 
@@ -1576,7 +1576,7 @@ final class BetsController
                 'matchCount' => count($out),
             ]);
         } catch (Throwable $e) {
-            Response::json(['message' => $e->getMessage() ?: 'Error loading stuck-bet inbox'], 500);
+            Response::serverError('Error loading stuck-bet inbox', $e);
         }
     }
 

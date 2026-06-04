@@ -372,7 +372,7 @@ final class AgentController
                     'pendingBalance' => $pendingBalance,
                     'availableBalance' => max(0, $balance - $pendingBalance),
                     'isActive' => ($counts[$uid] ?? 0) >= 2,
-                    'displayPassword' => (($user['displayPassword'] ?? '') !== '' ? $user['displayPassword'] : ($user['rawPassword'] ?? null)),
+                    'displayPassword' => (($user['displayPassword'] ?? '') !== '' ? $user['displayPassword'] : null),
                     'referredByUserId' => isset($user['referredByUserId']) ? (string) $user['referredByUserId'] : null,
                     'referredByUsername' => $rid !== '' ? ($referrerMap[$rid]['username'] ?? null) : null,
                     'referredByFirstName' => $rid !== '' ? ($referrerMap[$rid]['firstName'] ?? null) : null,
@@ -581,7 +581,7 @@ final class AgentController
                 ],
             ]);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error updating balance owed', 'details' => $e->getMessage()], 500);
+            Response::serverError('Server error updating balance owed', $e);
         }
     }
 
@@ -1667,7 +1667,7 @@ final class AgentController
                 'agent' => $updated,
             ]);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error updating permissions', 'details' => $e->getMessage()], 500);
+            Response::serverError('Server error updating permissions', $e);
         }
     }
 

@@ -88,19 +88,25 @@ final class PaymentsController
 
             if ($raw === false || $status >= 400) {
                 $err = curl_error($ch);
-                Response::json(['message' => 'Error creating payment intent', 'error' => $err !== '' ? $err : 'Stripe API error'], 500);
+                if ($err !== '') {
+                    error_log('Stripe curl error: ' . $err);
+                } else {
+                    error_log('Stripe API error, HTTP status: ' . $status);
+                }
+                Response::json(['message' => 'Error creating payment intent'], 500);
                 return;
             }
 
             $data = json_decode((string) $raw, true);
             if (!is_array($data) || !isset($data['client_secret'])) {
-                Response::json(['message' => 'Error creating payment intent', 'error' => 'Invalid Stripe response'], 500);
+                error_log('Stripe response missing client_secret');
+                Response::json(['message' => 'Error creating payment intent'], 500);
                 return;
             }
 
             Response::json(['clientSecret' => $data['client_secret']]);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Error creating payment intent', 'error' => $e->getMessage()], 500);
+            Response::serverError('Error creating payment intent', $e);
         }
     }
 
@@ -207,7 +213,8 @@ final class PaymentsController
         } catch (Throwable $e) {
             http_response_code(400);
             header('Content-Type: text/plain');
-            echo 'Webhook Error: ' . $e->getMessage();
+            error_log('Webhook Error: ' . $e->getMessage());
+            echo 'Webhook Error';
         }
     }
 
@@ -227,6 +234,13 @@ final class PaymentsController
             }
         }
         if ($timestamp === null || count($signatures) === 0) {
+            return false;
+        }
+
+        // Reject replayed webhooks older than 5 minutes (Stripe recommendation).
+        $tolerance = 300;
+        if (abs(time() - (int) $timestamp) > $tolerance) {
+            error_log("Stripe webhook timestamp too old: {$timestamp}");
             return false;
         }
 

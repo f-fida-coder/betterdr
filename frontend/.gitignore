@@ -1,1 +1,3 @@
 .image-archive/
+.env
+.env.*

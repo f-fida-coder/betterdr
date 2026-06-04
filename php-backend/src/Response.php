@@ -46,4 +46,21 @@ final class Response
         // index.php. The duplicate file_put_contents here was a blocking
         // write on every 4xx/5xx and is no longer needed.
     }
+
+    /**
+     * Send a safe error JSON response that never leaks internal details
+     * in production. In development mode (APP_ENV=development), the
+     * exception message is included for debugging.
+     */
+    public static function serverError(string $userMessage = 'Server error', ?Throwable $e = null, int $status = 500): void
+    {
+        $payload = ['message' => $userMessage];
+        if ($e !== null) {
+            error_log("[{$status}] {$userMessage}: " . $e->getMessage());
+            if (strtolower((string) Env::get('APP_ENV', 'production')) === 'development') {
+                $payload['error'] = $e->getMessage();
+            }
+        }
+        self::json($payload, $status);
+    }
 }

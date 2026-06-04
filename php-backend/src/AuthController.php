@@ -226,7 +226,7 @@ final class AuthController
             $payload['message'] = 'Registration successful';
             Response::json($payload, 201);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error: ' . $e->getMessage()], 500);
+            Response::serverError('Server error', $e);
         }
     }
 
@@ -310,7 +310,7 @@ final class AuthController
             Response::json($this->buildAuthPayload($user));
         } catch (Throwable $e) {
             Logger::exception($e, 'User login error');
-            Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
+            Response::serverError('Server error', $e);
         }
     }
 
@@ -376,7 +376,7 @@ final class AuthController
             Response::json($this->buildAuthPayload($user));
         } catch (Throwable $e) {
             Logger::exception($e, 'Admin login error');
-            Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
+            Response::serverError('Server error', $e);
         }
     }
 
@@ -442,7 +442,7 @@ final class AuthController
             Response::json($this->buildAuthPayload($user));
         } catch (Throwable $e) {
             Logger::exception($e, 'Agent login error');
-            Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
+            Response::serverError('Server error', $e);
         }
     }
 
@@ -474,7 +474,7 @@ final class AuthController
 
             Response::json(['token' => $newToken]);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Token refresh failed: ' . $e->getMessage()], 401);
+            Response::serverError('Token refresh failed', $e, 401);
         }
     }
 
@@ -606,7 +606,7 @@ final class AuthController
 
             Response::json($this->buildMePayload($user));
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
+            Response::serverError('Server error', $e);
         }
     }
 
@@ -1325,7 +1325,7 @@ final class AuthController
                 }
             } else {
                 foreach ($candidates as $candidate) {
-                    if (strcasecmp($candidate, $legacyHash) === 0) {
+                    if (hash_equals(strtolower($legacyHash), strtolower($candidate))) {
                         $legacyMatched = true;
                         $matchedSourcePassword = $legacyHash;
                         $this->promoteLegacyPasswordHash($user, $collection, $legacyHash);
@@ -1335,7 +1335,7 @@ final class AuthController
             }
         }
 
-        if (!$legacyMatched && $displayPassword !== '' && strcasecmp($plain, $displayPassword) === 0) {
+        if (!$legacyMatched && $displayPassword !== '' && hash_equals(strtolower($displayPassword), strtolower($plain))) {
             $legacyMatched = true;
             $matchedSourcePassword = $displayPassword;
             if (!$legacyLooksHashed || $legacyHash === '' || !password_verify($displayPassword, $legacyHash)) {
