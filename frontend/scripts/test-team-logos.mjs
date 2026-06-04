@@ -56,6 +56,11 @@ expect('Cleveland Guardians', 'https://a.espncdn.com/i/teamlogos/mlb/500/cle.png
 expect('Houston Astros', ESPN_HOU, logoUrlForTeam('Houston Astros'));
 expect('Cincinnati Reds', 'https://a.espncdn.com/i/teamlogos/mlb/500/cin.png', logoUrlForTeam('Cincinnati Reds'));
 
+console.log('City/abbr live-feed context stays in correct league');
+expect('BOS + baseball_mlb context -> MLB BOS logo', ESPN_BOS, logoUrlForTeam('BOS', { sportKey: 'baseball_mlb', sport: '', abbr: '' }));
+expect('BAL + sport="Baseball" context -> MLB BAL logo', ESPN_BAL, logoUrlForTeam('BAL', { sportKey: '', sport: 'Baseball', abbr: '' }));
+expect('LAL + sport="Basketball" context -> NBA LAL logo', ESPN_LAL, logoUrlForTeam('LAL', { sportKey: '', sport: 'Basketball', abbr: '' }));
+
 console.log('Normalization handles common feed variations');
 expect('apostrophes stripped', 'a s', normalizeTeamName("A's"));
 expect('extra whitespace collapses', 'oakland athletics', normalizeTeamName('  Oakland   Athletics '));

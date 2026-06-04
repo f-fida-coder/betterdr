@@ -310,6 +310,109 @@ export const normalizeTeamName = (teamName = '') =>
         .replace(/\s+/g, ' ')
         .trim();
 
+// ── Sport-aware ESPN fallback ────────────────────────────────────────
+// Rundown's live/in-play (V1-style delta) feed ships team rows with a
+// CITY-only name ("Boston", "Baltimore") plus an uppercase abbreviation
+// ("BOS", "BAL"). City-only names miss TEAM_LOGO_MAP and, with no sport
+// context, resolve to the WRONG sport via the TheSportsDB search
+// (Baltimore → NFL Ravens, Boston → a soccer crest). ESPN logos are keyed
+// by league + abbreviation, so once we know the sport we can build the
+// right URL directly. The abbreviation set + URL shape are derived from
+// the curated TEAM_LOGO_MAP above, keeping a single source of truth.
+
+// sportKey (and a few `sport` labels) → ESPN league slug in the CDN path.
+const ESPN_LEAGUE_BY_SPORT_KEY = {
+    baseball_mlb: 'mlb',
+    basketball_nba: 'nba',
+    basketball_wnba: 'wnba',
+    americanfootball_nfl: 'nfl',
+    icehockey_nhl: 'nhl',
+};
+const ESPN_LEAGUE_BY_SPORT_LABEL = {
+    mlb: 'mlb',
+    baseball: 'mlb',
+    nba: 'nba',
+    basketball: 'nba',
+    wnba: 'wnba',
+    nfl: 'nfl',
+    americanfootball: 'nfl',
+    football: 'nfl',
+    nhl: 'nhl',
+    icehockey: 'nhl',
+    hockey: 'nhl',
+};
+
+const leagueFromSport = (sportKey = '', sport = '') => {
+    const key = String(sportKey || '').toLowerCase();
+    if (ESPN_LEAGUE_BY_SPORT_KEY[key]) return ESPN_LEAGUE_BY_SPORT_KEY[key];
+    // Season-specific keys (e.g. basketball_nba_preseason) match by prefix.
+    for (const k of Object.keys(ESPN_LEAGUE_BY_SPORT_KEY)) {
+        if (key.startsWith(k)) return ESPN_LEAGUE_BY_SPORT_KEY[k];
+    }
+    const sportLabel = String(sport || '').toLowerCase();
+    if (ESPN_LEAGUE_BY_SPORT_LABEL[sportLabel]) return ESPN_LEAGUE_BY_SPORT_LABEL[sportLabel];
+    const compact = sportLabel.replace(/[^a-z]/g, '');
+    return ESPN_LEAGUE_BY_SPORT_LABEL[compact] || null;
+};
+
+// Reverse-index the curated map → { league: { espnAbbr: url } } so the
+// abbreviation path serves the exact same URLs the full-name path does.
+const ESPN_ABBR_TO_URL = (() => {
+    const re = /teamlogos\/([a-z]+)\/\d+\/([a-z0-9]+)\.png/i;
+    const index = {};
+    for (const url of Object.values(TEAM_LOGO_MAP)) {
+        const m = typeof url === 'string' ? re.exec(url) : null;
+        if (!m) continue;
+        const league = m[1].toLowerCase();
+        const abbr = m[2].toLowerCase();
+        (index[league] || (index[league] = {}))[abbr] = url;
+    }
+    return index;
+})();
+
+// Rundown abbreviation → ESPN abbreviation, only where the two disagree.
+const RUNDOWN_TO_ESPN_ABBR = {
+    mlb: { cws: 'chw' },
+    nhl: { mon: 'mtl' },
+    wnba: { nyl: 'ny' },
+};
+
+const espnLogoByAbbr = (league, abbr) => {
+    if (!league || !abbr) return null;
+    let a = String(abbr).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!a) return null;
+    const alias = RUNDOWN_TO_ESPN_ABBR[league];
+    if (alias && alias[a]) a = alias[a];
+    const idx = ESPN_ABBR_TO_URL[league];
+    if (idx && idx[a]) return idx[a];
+    // New/expansion teams not yet in the curated map: build the URL. A
+    // miss 404s and <img onError> falls back to the initials avatar, so
+    // this can never render a *wrong* team's logo.
+    return ESPN_LOGO(league, a);
+};
+
+// Sport-aware synchronous resolution shared by both lookups below.
+// ctx = { sportKey, sport, abbr }. Returns a CDN URL or null.
+const resolveByContext = (teamName, ctx) => {
+    if (!ctx) return null;
+    const league = leagueFromSport(ctx.sportKey, ctx.sport);
+    if (!league) return null;
+    const rawCtxAbbr = ctx.abbr == null ? '' : String(ctx.abbr).trim();
+    const rawTeamName = teamName == null ? '' : String(teamName).trim();
+    // Some feeds omit `team*Short` on live deltas and only ship short
+    // team codes in `teamName` itself (e.g. BOS/SD). If ctx.abbr isn't a
+    // code, fall back to teamName before touching TheSportsDB.
+    let abbr = rawCtxAbbr;
+    if (!/^[A-Za-z]{2,4}$/.test(abbr) && /^[A-Za-z]{2,4}$/.test(rawTeamName)) {
+        abbr = rawTeamName;
+    }
+    // Only the 2–4 letter uppercase codes are real abbreviations. The same
+    // column sometimes carries a mascot ("Padres", "Red Sox") on full-name
+    // rows — those already resolve via the name path, so ignore them here.
+    if (!/^[A-Za-z]{2,4}$/.test(abbr)) return null;
+    return espnLogoByAbbr(league, abbr);
+};
+
 const getHash = (input) => {
     let hash = 0;
     for (let i = 0; i < input.length; i += 1) {
@@ -350,10 +453,14 @@ export const createFallbackTeamLogoDataUri = (teamName = '') => {
 // Synchronous lookup used by MobileContentView. Returns a CDN URL or null.
 // Only hits the hardcoded TEAM_LOGO_MAP + the warm in-memory cache — async
 // network lookups happen via fetchTeamBadgeUrl below.
-export const logoUrlForTeam = (teamName = '') => {
+export const logoUrlForTeam = (teamName = '', ctx = null) => {
     const normalized = normalizeTeamName(teamName);
+    if (normalized && TEAM_LOGO_MAP[normalized]) return TEAM_LOGO_MAP[normalized];
+    // Sport-aware abbreviation path (city-only live rows). Resolved before
+    // the warm cache so a previously mis-cached TheSportsDB URL can't win.
+    const byCtx = resolveByContext(teamName, ctx);
+    if (byCtx) return byCtx;
     if (!normalized) return null;
-    if (TEAM_LOGO_MAP[normalized]) return TEAM_LOGO_MAP[normalized];
     // Warm cache populated by prior async resolutions.
     const cached = getCachedLogo(normalized);
     return cached && cached.url ? cached.url : null;
@@ -378,7 +485,11 @@ export const logoUrlForTeam = (teamName = '') => {
 // invalidates the previously-cached wrong URLs so existing users
 // re-resolve on next visit instead of staring at the bad logo for
 // up to 24h while the negative cache TTL waits to expire.
-const LOGO_CACHE_KEY = 'betterdr:teamLogos:v4';
+// v5 bump: sport-aware abbreviation fallback now handles rows where
+// teamName itself is a short code (BOS/SD) and sport labels come in as
+// human-readable text ("Baseball", "Basketball"). Invalidate older
+// cross-sport cached misses/hits so users pick up corrected logos now.
+const LOGO_CACHE_KEY = 'betterdr:teamLogos:v5';
 const LOGO_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 // Routed through the PHP proxy: direct browser calls to thesportsdb hit
 // CORS and a shared 429 rate limit. Backend fetches server-side, caches
@@ -475,18 +586,24 @@ const setCachedLogo = (normalizedName, url) => {
  * Bounded to 6 concurrent in-flight requests so we don't clobber
  * TheSportsDB's free tier. Already-cached names are skipped entirely.
  */
-export const prewarmTeamBadges = (names = []) => {
-    if (!Array.isArray(names) || names.length === 0) return;
+// Accepts plain name strings OR { name, sportKey, sport, abbr } items so
+// the sport-aware abbreviation path can short-circuit before any network
+// call (city-only names must never be prewarmed via TheSportsDB).
+export const prewarmTeamBadges = (items = []) => {
+    if (!Array.isArray(items) || items.length === 0) return;
     const unique = [];
     const seen = new Set();
-    for (const n of names) {
-        const normalized = normalizeTeamName(n || '');
+    for (const it of items) {
+        const name = typeof it === 'string' ? it : (it && it.name) || '';
+        const ctx = typeof it === 'string' ? null : it;
+        const normalized = normalizeTeamName(name || '');
         if (!normalized || seen.has(normalized)) continue;
         seen.add(normalized);
-        // Skip if already mapped or cached (positive or negative).
+        // Skip if already mapped, sport-resolvable, or cached.
         if (TEAM_LOGO_MAP[normalized]) continue;
+        if (resolveByContext(name, ctx)) continue;
         if (getCachedLogo(normalized)) continue;
-        unique.push(n);
+        unique.push(name);
     }
     if (unique.length === 0) return;
 
@@ -505,11 +622,17 @@ export const prewarmTeamBadges = (names = []) => {
     }
 };
 
-export const fetchTeamBadgeUrl = async (teamName = '') => {
+export const fetchTeamBadgeUrl = async (teamName = '', ctx = null) => {
     const normalized = normalizeTeamName(teamName);
     if (!normalized) return createFallbackTeamLogoDataUri(teamName);
 
     if (TEAM_LOGO_MAP[normalized]) return TEAM_LOGO_MAP[normalized];
+
+    // Sport-aware abbreviation path. Resolved before any network call so
+    // city-only names ("Boston") never reach the sport-agnostic search and
+    // never poison the cache with the wrong sport's badge.
+    const byCtx = resolveByContext(teamName, ctx);
+    if (byCtx) return byCtx;
 
     const cached = getCachedLogo(normalized);
     if (cached) {
