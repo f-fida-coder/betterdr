@@ -148,20 +148,26 @@ const ScoreboardSidebar = ({ onClose }) => {
     useEffect(() => {
         let mounted = true;
         const loadTeamLogos = async () => {
-            const uniqueTeams = new Set();
+            // Collect { name, ctx } pairs so logo resolution gets sport context.
+            const teamMap = new Map();
             matches.forEach((m) => {
-                if (m?.homeTeam) uniqueTeams.add(String(m.homeTeam));
-                if (m?.awayTeam) uniqueTeams.add(String(m.awayTeam));
+                const ctx = { sportKey: m?.sportKey || '', sport: m?.sport || m?.sportTitle || '' };
+                if (m?.homeTeam && !teamLogos[m.homeTeam] && !teamMap.has(m.homeTeam)) {
+                    teamMap.set(String(m.homeTeam), { ...ctx, abbr: m.homeTeamShort || '' });
+                }
+                if (m?.awayTeam && !teamLogos[m.awayTeam] && !teamMap.has(m.awayTeam)) {
+                    teamMap.set(String(m.awayTeam), { ...ctx, abbr: m.awayTeamShort || '' });
+                }
             });
 
-            const missingTeams = Array.from(uniqueTeams).filter((team) => !teamLogos[team]);
-            if (missingTeams.length === 0) return;
+            const missing = Array.from(teamMap.entries()).filter(([team]) => !teamLogos[team]);
+            if (missing.length === 0) return;
 
             const updates = {};
             await Promise.all(
-                missingTeams.map(async (team) => {
+                missing.map(async ([team, ctx]) => {
                     try {
-                        const url = await fetchTeamBadgeUrl(team);
+                        const url = await fetchTeamBadgeUrl(team, ctx);
                         if (url) updates[team] = url;
                     } catch {
                         // Keep fallback for any fetch failure.

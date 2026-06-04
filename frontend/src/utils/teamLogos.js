@@ -301,6 +301,19 @@ export const TEAM_LOGO_MAP = {
     'st louis city sc': ESPN_LOGO('mls', 'stl'),
     'toronto fc': ESPN_LOGO('mls', 'tor'),
     'vancouver whitecaps fc': ESPN_LOGO('mls', 'van'),
+
+    // CFL (Canadian Football League)
+    'bc lions': 'https://upload.wikimedia.org/wikipedia/en/1/10/BC_Lions_logo.svg',
+    'calgary stampeders': 'https://upload.wikimedia.org/wikipedia/en/1/1f/Calgary_Stampeders_logo.svg',
+    'edmonton elks': 'https://upload.wikimedia.org/wikipedia/en/1/1d/Edmonton_Elks_logo.svg',
+    'hamilton tiger cats': 'https://upload.wikimedia.org/wikipedia/en/2/2f/Hamilton_Tiger-Cats_logo.svg',
+    'hamilton tiger-cats': 'https://upload.wikimedia.org/wikipedia/en/2/2f/Hamilton_Tiger-Cats_logo.svg',
+    'montreal alouettes': 'https://upload.wikimedia.org/wikipedia/en/1/1c/Montreal_Alouettes_logo.svg',
+    'montréal alouettes': 'https://upload.wikimedia.org/wikipedia/en/1/1c/Montreal_Alouettes_logo.svg',
+    'ottawa redblacks': 'https://upload.wikimedia.org/wikipedia/en/2/24/Ottawa_Redblacks_logo.svg',
+    'saskatchewan roughriders': 'https://upload.wikimedia.org/wikipedia/en/6/6e/Saskatchewan_Roughriders_logo.svg',
+    'toronto argonauts': 'https://upload.wikimedia.org/wikipedia/en/1/17/Toronto_Argonauts_logo.svg',
+    'winnipeg blue bombers': 'https://upload.wikimedia.org/wikipedia/en/5/5f/Winnipeg_Blue_Bombers_logo.svg',
 };
 
 export const normalizeTeamName = (teamName = '') =>
@@ -327,6 +340,7 @@ const ESPN_LEAGUE_BY_SPORT_KEY = {
     basketball_wnba: 'wnba',
     americanfootball_nfl: 'nfl',
     icehockey_nhl: 'nhl',
+    soccer_usa_mls: 'mls',
 };
 const ESPN_LEAGUE_BY_SPORT_LABEL = {
     mlb: 'mlb',
@@ -340,6 +354,7 @@ const ESPN_LEAGUE_BY_SPORT_LABEL = {
     nhl: 'nhl',
     icehockey: 'nhl',
     hockey: 'nhl',
+    mls: 'mls',
 };
 
 const leagueFromSport = (sportKey = '', sport = '') => {

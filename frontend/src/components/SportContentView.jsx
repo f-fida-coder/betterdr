@@ -680,17 +680,19 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     // TeamNormalizer (ESPN scoreboard for records, both
                     // feeds for short names). They fall back to the full
                     // name / empty record when the row predates the layer.
+                    sportKey: match.sportKey || '',
+                    sport: match.sport || match.sportTitle || '',
                     team1: {
                         name: awayName,
                         shortName: match.awayTeamShort || awayName,
                         record: match.awayTeamRecord || '',
-                        abbr: awayName.substring(0, 3).toUpperCase(),
+                        abbr: match.awayTeamShort || awayName.substring(0, 3).toUpperCase(),
                     },
                     team2: {
                         name: homeName,
                         shortName: match.homeTeamShort || homeName,
                         record: match.homeTeamRecord || '',
-                        abbr: homeName.substring(0, 3).toUpperCase(),
+                        abbr: match.homeTeamShort || homeName.substring(0, 3).toUpperCase(),
                     },
                     score1: awayScore,
                     score2: homeScore,
@@ -740,16 +742,17 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     }, [sportId, filter, rawMatches, activePeriod.suffix, tzTick]);
 
     React.useEffect(() => {
-        const names = Array.from(new Set(
-            (content.matches || [])
-                .flatMap((match) => [match.team1?.name, match.team2?.name])
-                .filter(Boolean)
-        ));
+        const teams = [];
+        (content.matches || []).forEach((match) => {
+            if (match.team1?.name) teams.push({ name: match.team1.name, sportKey: match.sportKey, sport: match.sport, abbr: match.team1.abbr });
+            if (match.team2?.name) teams.push({ name: match.team2.name, sportKey: match.sportKey, sport: match.sport, abbr: match.team2.abbr });
+        });
 
-        names.forEach((teamName) => {
+        teams.forEach(({ name: teamName, sportKey, sport, abbr }) => {
             if (!teamName || attemptedLogoFetchesRef.current.has(teamName)) return;
             attemptedLogoFetchesRef.current.add(teamName);
-            fetchTeamBadgeUrl(teamName).then((logoUrl) => {
+            const ctx = { sportKey, sport, abbr };
+            fetchTeamBadgeUrl(teamName, ctx).then((logoUrl) => {
                 setTeamLogos((prev) => ({
                     ...prev,
                     [teamName]: logoUrl || ''

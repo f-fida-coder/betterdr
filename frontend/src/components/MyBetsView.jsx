@@ -401,6 +401,13 @@ const legTeamForLogo = (leg) => {
     return String(leg?.selection || '').trim() || null;
 };
 
+// Sport context from a bet leg's matchSnapshot for logo resolution.
+const legSportCtx = (leg) => {
+    const snap = leg?.matchSnapshot;
+    if (!snap) return null;
+    return { sportKey: snap.sportKey || '', sport: snap.sport || snap.sportTitle || '' };
+};
+
 // Team whose logo represents this ticket on the collapsed row. For
 // straight spreads/h2h it's the picked team (taken from leg.selection,
 // which already resolves "Los Angeles Angels" vs "Angels" depending on
@@ -1126,28 +1133,31 @@ const MyBetsView = () => {
     const [teamLogos, setTeamLogos] = useState({});
     useEffect(() => {
         let mounted = true;
-        const teamsToLoad = new Set();
+        // Collect { name, ctx } pairs so logo resolution gets sport context.
+        const teamMap = new Map(); // name → ctx
         bets.forEach((bet) => {
-            const team = primaryTeamFor(bet);
-            if (team && !teamLogos[team]) teamsToLoad.add(team);
-            // Also queue every leg in multi-leg tickets so the
-            // indented leg rows render their crests, not just the
-            // single-leg parent rows.
             const selections = Array.isArray(bet?.selections) ? bet.selections : [];
+            const firstLeg = selections[0];
+            const team = primaryTeamFor(bet);
+            if (team && !teamLogos[team] && !teamMap.has(team)) {
+                teamMap.set(team, legSportCtx(firstLeg));
+            }
             if (selections.length > 1) {
                 selections.forEach((leg) => {
                     const legTeam = legTeamForLogo(leg);
-                    if (legTeam && !teamLogos[legTeam]) teamsToLoad.add(legTeam);
+                    if (legTeam && !teamLogos[legTeam] && !teamMap.has(legTeam)) {
+                        teamMap.set(legTeam, legSportCtx(leg));
+                    }
                 });
             }
         });
-        if (teamsToLoad.size === 0) return undefined;
+        if (teamMap.size === 0) return undefined;
         (async () => {
             const updates = {};
             await Promise.all(
-                Array.from(teamsToLoad).map(async (team) => {
+                Array.from(teamMap.entries()).map(async ([team, ctx]) => {
                     try {
-                        const url = await fetchTeamBadgeUrl(team);
+                        const url = await fetchTeamBadgeUrl(team, ctx);
                         if (url) updates[team] = url;
                     } catch {
                         // fallback stays as-is
