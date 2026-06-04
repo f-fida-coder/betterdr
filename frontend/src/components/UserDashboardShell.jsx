@@ -13,6 +13,28 @@ import ModeBetPanel from './ModeBetPanel';
 import LoadingSpinner from './LoadingSpinner';
 import { findSportItemById } from '../data/sportsData';
 
+// Hoisted static style objects — avoids creating new objects on every render.
+const STYLE_CONTENT_AREA = { position: 'relative', marginTop: '0' };
+const STYLE_FLEX_SCROLL = { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' };
+const STYLE_FLEX_INNER = { flex: 1 };
+const STYLE_FLEX_SCROLL_TOUCH = { flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', display: 'flex', flexDirection: 'column' };
+const STYLE_CASINO_WRAP = { flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' };
+const STYLE_LIVE_CASINO_WRAP = { flex: 1, backgroundColor: '#505050', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' };
+const STYLE_FUTURES_WRAP = { flex: 1, overflowY: 'auto' };
+const STYLE_FEEDBACK = {
+  position: 'fixed',
+  bottom: '0',
+  left: '0',
+  width: '260px',
+  background: '#004d26',
+  color: 'white',
+  padding: '10px',
+  textAlign: 'center',
+  fontWeight: 'bold',
+  fontSize: '12px',
+  zIndex: 100,
+};
+
 const CasinoView = React.lazy(() => import('./CasinoView'));
 const LiveCasinoView = React.lazy(() => import('./LiveCasinoView'));
 const PropsView = React.lazy(() => import('./PropsView'));
@@ -128,7 +150,7 @@ function UserDashboardShell({
         slipCount={Array.isArray(slipSelections) ? slipSelections.length : 0}
       />
 
-      <div className="dashboard-content-area" style={{ position: 'relative', marginTop: '0' }}>
+      <div className="dashboard-content-area" style={STYLE_CONTENT_AREA}>
         {mobileSidebarOpen && (
           <MobileGridMenu
             onClose={onCloseSidebar}
@@ -139,7 +161,7 @@ function UserDashboardShell({
         {dashboardView === 'dashboard' && (
           <>
             {isMobileViewport && mobileViewState === 'results' && isFuturesSelection ? (
-              <div style={{ flex: 1, overflowY: 'auto' }}>
+              <div style={STYLE_FUTURES_WRAP}>
                 <ErrorBoundary>
                   <OutrightsView sportKey={futuresSportKey} title={primarySelectedItem.label || 'Futures'} />
                 </ErrorBoundary>
@@ -173,9 +195,9 @@ function UserDashboardShell({
                   onCloseSidebar={onCloseSidebar}
                   isMobileSportsSelectionMode={false}
                 />
-                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                <div style={STYLE_FLEX_SCROLL}>
                   {showPromo && <PromoCard />}
-                  <div style={{ flex: 1 }}>
+                  <div style={STYLE_FLEX_INNER}>
                     <DashboardMain selectedSports={selectedSports} activeBetMode={betMode} />
                   </div>
                 </div>
@@ -186,13 +208,13 @@ function UserDashboardShell({
 
         <Suspense fallback={<LoadingSpinner variant="inline" label="Loading..." />}>
           {dashboardView === 'casino' && (
-            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <div style={STYLE_CASINO_WRAP}>
               <CasinoView />
             </div>
           )}
 
           {dashboardView === 'live-casino' && (
-            <div style={{ flex: 1, backgroundColor: '#505050', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <div style={STYLE_LIVE_CASINO_WRAP}>
               <LiveCasinoView />
             </div>
           )}
@@ -203,7 +225,7 @@ function UserDashboardShell({
           {dashboardView === 'tutorials' && <TutorialsView />}
           {dashboardView === 'support' && <SupportView />}
           {dashboardView === 'my-bets' && (
-            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', display: 'flex', flexDirection: 'column' }}>
+            <div style={STYLE_FLEX_SCROLL_TOUCH}>
               <MyBetsView />
             </div>
           )}
@@ -217,19 +239,7 @@ function UserDashboardShell({
           one or more sport checkboxes are selected). Removing it here
           deletes the duplicate prompt and frees that screen corner up. */}
 
-      <div className="desktop-feedback-trigger" style={{
-        position: 'fixed',
-        bottom: '0',
-        left: '0',
-        width: '260px',
-        background: '#004d26',
-        color: 'white',
-        padding: '10px',
-        textAlign: 'center',
-        fontWeight: 'bold',
-        fontSize: '12px',
-        zIndex: 100
-      }}>
+      <div className="desktop-feedback-trigger" style={STYLE_FEEDBACK}>
         FEEDBACK
       </div>
 

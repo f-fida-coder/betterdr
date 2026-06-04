@@ -2168,15 +2168,14 @@ final class AdminCoreController
                         ['createdBy' => ['$in' => $allAgentObjectIds], 'createdByModel' => 'Agent'],
                     ],
                 ], ['projection' => ['id' => 1, 'agentId' => 1, 'createdBy' => 1, 'createdByModel' => 1, 'balance' => 1]]);
-                $allAgentIdSet = array_flip(array_keys($allAgents));
                 foreach ($allUsers as $u) {
                     $uid = (string) ($u['id'] ?? '');
                     if ($uid === '') continue;
                     $uAgentId = (string) ($u['agentId'] ?? '');
-                    if ($uAgentId === '' || !isset($allAgentIdSet[$uAgentId])) {
+                    if ($uAgentId === '' || !isset($allAgents[$uAgentId])) {
                         $uAgentId = (string) ($u['createdBy'] ?? '');
                     }
-                    if ($uAgentId !== '' && isset($allAgentIdSet[$uAgentId])) {
+                    if ($uAgentId !== '' && isset($allAgents[$uAgentId])) {
                         $userIdToAgentId[$uid] = $uAgentId;
                     }
                 }

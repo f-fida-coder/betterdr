@@ -100,32 +100,41 @@ final class AgentCutsController
                 $periodLabel = $ytdLabel;
             }
 
-            // 1. Walk the downline tree. For admin we start from all top-level
-            //    agents (createdByModel = Admin); for master/super agent we
-            //    start from their direct children (createdBy = actorId).
+            // 1. Walk the downline tree. Fetch ALL agents in a single query,
+            //    then build the parent-child tree in PHP (avoids N+1 queries
+            //    that previously ran one DB call per master/super agent).
             $allAgents = [];
             $parentMap = []; // childId => parentId (null = top-level for this actor)
-            $queue = [];
 
+            $everyAgent = $this->db->findMany('agents', [], ['sort' => ['createdAt' => -1]]);
+            $agentById = [];
+            $childrenOf = []; // parentId => [childAgent, ...]
+            foreach ($everyAgent as $a) {
+                $aid = (string) ($a['id'] ?? '');
+                if ($aid === '') continue;
+                $agentById[$aid] = $a;
+                if (($a['createdByModel'] ?? '') === 'Agent') {
+                    $pid = (string) ($a['createdBy'] ?? '');
+                    if ($pid !== '') {
+                        $childrenOf[$pid][] = $a;
+                    }
+                }
+            }
+
+            $queue = [];
             if ($actorRole === 'admin') {
-                $topLevel = $this->db->findMany('agents', [
-                    'createdByModel' => 'Admin',
-                ], ['sort' => ['createdAt' => -1]]);
-                foreach ($topLevel as $a) {
-                    $aid = (string) ($a['id'] ?? '');
-                    if ($aid !== '') {
-                        $allAgents[$aid] = $a;
-                        $parentMap[$aid] = null;
-                        $queue[] = $aid;
+                foreach ($everyAgent as $a) {
+                    if (($a['createdByModel'] ?? '') === 'Admin') {
+                        $aid = (string) ($a['id'] ?? '');
+                        if ($aid !== '') {
+                            $allAgents[$aid] = $a;
+                            $parentMap[$aid] = null;
+                            $queue[] = $aid;
+                        }
                     }
                 }
             } else {
-                // master_agent / super_agent — only their direct downline
-                $directChildren = $this->db->findMany('agents', [
-                    'createdBy' => SqlRepository::id($actorId),
-                    'createdByModel' => 'Agent',
-                ], ['sort' => ['createdAt' => -1]]);
-                foreach ($directChildren as $a) {
+                foreach ($childrenOf[$actorId] ?? [] as $a) {
                     $aid = (string) ($a['id'] ?? '');
                     if ($aid !== '') {
                         $allAgents[$aid] = $a;
@@ -141,11 +150,7 @@ final class AgentCutsController
                 if ($role !== 'master_agent' && $role !== 'super_agent') {
                     continue;
                 }
-                $children = $this->db->findMany('agents', [
-                    'createdBy' => SqlRepository::id($currentId),
-                    'createdByModel' => 'Agent',
-                ], ['sort' => ['createdAt' => -1]]);
-                foreach ($children as $child) {
+                foreach ($childrenOf[$currentId] ?? [] as $child) {
                     $childId = (string) ($child['id'] ?? '');
                     if ($childId !== '' && !isset($allAgents[$childId])) {
                         $allAgents[$childId] = $child;
@@ -206,15 +211,14 @@ final class AgentCutsController
                         ['createdBy' => ['$in' => $allAgentObjectIds], 'createdByModel' => 'Agent'],
                     ],
                 ], ['projection' => ['id' => 1, 'agentId' => 1, 'createdBy' => 1, 'createdByModel' => 1, 'balance' => 1]]);
-                $allAgentIdSet = array_flip(array_keys($allAgents));
                 foreach ($allUsers as $u) {
                     $uid = (string) ($u['id'] ?? '');
                     if ($uid === '') continue;
                     $uAgentId = (string) ($u['agentId'] ?? '');
-                    if ($uAgentId === '' || !isset($allAgentIdSet[$uAgentId])) {
+                    if ($uAgentId === '' || !isset($allAgents[$uAgentId])) {
                         $uAgentId = (string) ($u['createdBy'] ?? '');
                     }
-                    if ($uAgentId !== '' && isset($allAgentIdSet[$uAgentId])) {
+                    if ($uAgentId !== '' && isset($allAgents[$uAgentId])) {
                         $userIdToAgentId[$uid] = $uAgentId;
                     }
                 }
