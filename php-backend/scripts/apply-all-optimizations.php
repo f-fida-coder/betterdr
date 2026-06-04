@@ -45,9 +45,12 @@ try {
         $user,
         $pass,
         [
-            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_TIMEOUT            => 300,
+            PDO::ATTR_ERRMODE             => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE  => PDO::FETCH_ASSOC,
+            PDO::ATTR_TIMEOUT             => 300,
+            // ANALYZE TABLE returns a result set; without buffering the next
+            // prepared query (tableExists) throws SQLSTATE[HY000] 2014.
+            PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => true,
         ]
     );
 } catch (PDOException $e) {
@@ -656,7 +659,13 @@ foreach ($analyzeTables as $rawTable) {
     $table = $prefix . $rawTable;
     if (tableExists($pdo, $db, $table)) {
         try {
-            $pdo->exec("ANALYZE TABLE `{$table}`");
+            // ANALYZE TABLE returns a result set — consume + close it so the
+            // next prepared query doesn't hit "unbuffered queries are active".
+            $stmt = $pdo->query("ANALYZE TABLE `{$table}`");
+            if ($stmt !== false) {
+                $stmt->fetchAll();
+                $stmt->closeCursor();
+            }
             out("  ANALYZE {$table}");
         } catch (Throwable $e) {
             // non-critical
