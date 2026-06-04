@@ -435,7 +435,7 @@ final class BetsController
 
             $requestFingerprint = SportsbookBetSupport::payloadHash([
                 'type' => $type,
-                'amount' => round($betAmount),
+                'amount' => round($betAmount, 2),
                 'teaserPoints' => round($teaserPoints, 2),
                 'selections' => array_map(static function (array $item): array {
                     return [
@@ -1049,7 +1049,12 @@ final class BetsController
             // sums back to $freeplayApplied. Stake per child is identical
             // ($stakePerParlay), so the share is just $freeplayApplied / N.
             $childCount = max(1, count($childPlans));
-            $childFreeplayApplied = $freeplayApplied > 0 ? round($freeplayApplied / $childCount, 2) : 0.0;
+            // Distribute freeplay evenly across children. Assign the
+            // rounding remainder to the last child so the sum equals $freeplayApplied exactly.
+            $childFreeplayBase = $freeplayApplied > 0 ? floor($freeplayApplied / $childCount * 100) / 100 : 0.0;
+            $childFreeplayRemainder = $freeplayApplied > 0
+                ? round($freeplayApplied - $childFreeplayBase * $childCount, 2)
+                : 0.0;
 
             $ipAddress = IpUtils::clientIp();
             $userAgent = Http::header('user-agent');
@@ -1097,7 +1102,12 @@ final class BetsController
                     'combinedOdds' => $childCombinedOdds,
                     'status' => 'pending',
                     'isFreeplay' => $useFreeplay,
-                    'freeplayAmountUsed' => (float) min($childFreeplayApplied, $stakePerParlay),
+                    'freeplayAmountUsed' => (float) min(
+                        $idx === count($childPlans) - 1
+                            ? $childFreeplayBase + $childFreeplayRemainder
+                            : $childFreeplayBase,
+                        $stakePerParlay
+                    ),
                     'ipAddress' => $ipAddress,
                     'userAgent' => $userAgent,
                     'teaserPoints' => 0.0,

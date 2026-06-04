@@ -113,7 +113,7 @@ const Hero = () => {
                             alt="NFL Promo"
                             width={IMAGE_DIMENSION}
                             height={IMAGE_DIMENSION}
-                            loading="lazy"
+                            loading="eager"
                             decoding="async"
                         />
                     </picture>
@@ -131,7 +131,7 @@ const Hero = () => {
                             alt="Arena Promo"
                             width={IMAGE_DIMENSION}
                             height={IMAGE_DIMENSION}
-                            loading="lazy"
+                            loading="eager"
                             decoding="async"
                         />
                     </picture>

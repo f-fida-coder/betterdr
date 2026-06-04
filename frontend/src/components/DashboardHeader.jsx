@@ -22,6 +22,51 @@ const buildRefreshRequestId = () => {
 // proceed directly via Continue.
 const META_SPORT_FILTERS = new Set(['up-next', 'featured']);
 
+// Static style objects hoisted out of the component to avoid re-creation on every render.
+const headerIconBtnStyle = {
+    width: 44, height: 44, borderRadius: 22,
+    border: '1px solid rgba(255,255,255,0.12)',
+    background: 'transparent', color: '#fff',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', padding: 0, flex: '0 0 auto',
+};
+const mhCellBtnStyle = {
+    width: '100%', minWidth: 0, minHeight: 64, padding: '6px 6px',
+    background: '#595959', border: 'none', color: '#fff',
+    display: 'flex', flexDirection: 'column', alignItems: 'center',
+    justifyContent: 'center', gap: 4, cursor: 'pointer', fontFamily: 'inherit',
+};
+const mhCellIconStyle = { fontSize: 20, color: '#fff', lineHeight: 1 };
+const mhCellLabelStyle = {
+    fontSize: 10, fontWeight: 500, color: '#fff', letterSpacing: 0.2, lineHeight: 1,
+};
+const mhBalanceCellStyle = {
+    gridColumn: 'span 2', minWidth: 0, background: '#595959',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.18)',
+    padding: '2px 10px', display: 'flex', flexDirection: 'column',
+    justifyContent: 'center', gap: 1, appearance: 'none', WebkitAppearance: 'none',
+    border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+};
+const mhBalanceRowStyle = {
+    display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+    gap: 8, minWidth: 0, lineHeight: 1.1, padding: '0',
+};
+const mhBalanceLabelStyle = {
+    fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.7)',
+    letterSpacing: 0.7, textTransform: 'uppercase', flex: '0 0 auto',
+};
+const mhBalanceValueStyle = {
+    fontSize: 11, fontWeight: 600, color: '#fff', fontVariantNumeric: 'tabular-nums',
+    textAlign: 'right', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+};
+const mhBalanceHeroLabelStyle = { ...mhBalanceLabelStyle, fontSize: 10, color: 'rgba(255,255,255,0.95)' };
+const mhBalanceHeroValueStyle = { ...mhBalanceValueStyle, fontSize: 11, fontWeight: 700 };
+const mhBalanceRowDividerStyle = { height: 1, background: 'rgba(255,255,255,0.12)', margin: '0 -2px' };
+const mhBetslipCircleStyle = {
+    width: 28, height: 28, borderRadius: '50%', background: '#fff',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+};
+
 const DashboardHeader = ({ username, userId = null, balance, pendingBalance, availableBalance, freeplayBalance, freeplayExpiresAt = null, creditLimit = 0, creditAvailable = 0, balanceOwed = 0, nonPostedCasino = 0, minBet = null, maxBet = null, userSettings = null, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance, slipCount = 0, realtimeConnectionState = 'idle', lastRealtimeEventAt = null }) => {
     const hasRealSportSelection = selectedSports.some((id) => !META_SPORT_FILTERS.has(id));
     const [showAccountPanel, setShowAccountPanel] = useState(false);
@@ -180,135 +225,11 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         return num > 0 ? '#10b981' : '#ef4444';
     })();
 
-    // Single source of truth for mobile header icon buttons. 44px tap target
-    // per the accessibility spec, 24px centered icon inside.
-    const headerIconBtnStyle = {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        border: '1px solid rgba(255,255,255,0.12)',
-        background: 'transparent',
-        color: '#fff',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        padding: 0,
-        flex: '0 0 auto',
-    };
-
-    // 5-cell mobile header (Sport / Account / Balance / Menu / Betslip).
-    // 6-equal-column grid: Sports | Menu | Balance (span 2) | Betslip |
-    // Account. Matches the bet-mode strip (6 equal cells) and the MyBets
-    // tabs row (3 cells, each spanning 2 columns) below so the vertical
-    // dividers line up cleanly across all three rows. The right divider
-    // uses a darker tone (rgba black 0.45) so the vertical seams between
-    // cells stay visible against the slate gray background.
-    const mhCellBtnStyle = {
-        width: '100%',
-        minWidth: 0,
-        minHeight: 64,
-        padding: '6px 6px',
-        background: '#595959',
-        border: 'none',
-        color: '#fff',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 4,
-        cursor: 'pointer',
-        fontFamily: 'inherit',
-    };
-    const mhCellIconStyle = { fontSize: 20, color: '#fff', lineHeight: 1 };
-    const mhCellLabelStyle = {
-        fontSize: 10,
-        fontWeight: 500,
-        color: '#fff',
-        letterSpacing: 0.2,
-        lineHeight: 1,
-    };
-    const mhBalanceCellStyle = {
-        gridColumn: 'span 2',
-        minWidth: 0,
-        background: '#595959',
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.18)',
-        padding: '2px 10px',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        gap: 1,
-        // Make the whole 3-row balance summary act as a single tap target
-        // so the user goes straight to My Bets → Pending. Keeping it a
-        // <button> with `appearance: none` so the gradient shows through.
-        appearance: 'none',
-        WebkitAppearance: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        textAlign: 'left',
-        fontFamily: 'inherit',
-    };
-    const mhBalanceRowStyle = {
-        display: 'flex',
-        alignItems: 'baseline',
-        justifyContent: 'space-between',
-        gap: 8,
-        minWidth: 0,
-        lineHeight: 1.1,
-        padding: '0',
-    };
-    const mhBalanceLabelStyle = {
-        fontSize: 9,
-        fontWeight: 700,
-        color: 'rgba(255,255,255,0.7)',
-        letterSpacing: 0.7,
-        textTransform: 'uppercase',
-        flex: '0 0 auto',
-    };
-    const mhBalanceValueStyle = {
-        fontSize: 11,
-        fontWeight: 600,
-        color: '#fff',
-        fontVariantNumeric: 'tabular-nums',
-        textAlign: 'right',
-        minWidth: 0,
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-    };
-    // Hero Balance row gets the signal — larger value, sign-based color
-    // (green positive / red negative / white zero) so the headline number
-    // is readable at a glance even when the slate cell is busy.
-    const mhBalanceHeroLabelStyle = {
-        ...mhBalanceLabelStyle,
-        fontSize: 10,
-        color: 'rgba(255,255,255,0.95)',
-    };
-    const mhBalanceHeroValueStyle = {
-        ...mhBalanceValueStyle,
-        fontSize: 11,
-        fontWeight: 700,
-    };
-    const mhBalanceRowDividerStyle = {
-        height: 1,
-        background: 'rgba(255,255,255,0.12)',
-        margin: '0 -2px',
-    };
     const balanceSignColor = (value) => {
         if (unlimitedBalance) return '#16a34a';
         const n = Number(value);
         if (!Number.isFinite(n) || n === 0) return '#ffffff';
         return n > 0 ? '#16a34a' : '#fca5a5';
-    };
-    const mhBetslipCircleStyle = {
-        width: 28,
-        height: 28,
-        borderRadius: '50%',
-        background: '#fff',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        lineHeight: 1,
     };
 
     const handleRefreshRequest = () => {

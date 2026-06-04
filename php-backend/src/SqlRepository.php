@@ -627,7 +627,10 @@ KEY `idx_updated_at` (`updated_at`)
         $table = $this->tableName($collection);
         $this->ensureTable($table);
 
-        $rows = $this->pdo->query("SELECT `id`, `doc` FROM `{$table}`")->fetchAll();
+        // Safety cap: prevent memory exhaustion on unexpectedly large tables
+        // that fall through to the non-SQL path. 10 000 rows is generous for
+        // any collection not already in the SQL-optimized list.
+        $rows = $this->pdo->query("SELECT `id`, `doc` FROM `{$table}` LIMIT 10000")->fetchAll();
         $docs = [];
         foreach ($rows as $row) {
             $decoded = $this->decodeRow($row);

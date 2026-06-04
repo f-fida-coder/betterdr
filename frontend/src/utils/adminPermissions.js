@@ -41,7 +41,7 @@ export const isPermissionBypassedRole = (role) =>
 export const hasViewPermission = (role, permissions, viewId) => {
   if (isPermissionBypassedRole(role)) return true;
   const key = VIEW_PERMISSION_MAP[viewId];
-  if (!key) return true;
+  if (!key) return false;
   const direct = permissions?.views?.[key];
   if (direct === false) return false;
   if (direct === true) return true;

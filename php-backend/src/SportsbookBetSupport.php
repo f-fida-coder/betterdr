@@ -81,7 +81,7 @@ final class SportsbookBetSupport
         if ($betType === 'reverse') {
             $combined = 1.0;
             foreach ($validatedSelections as $selection) {
-                $combined *= self::num($selection['odds'] ?? 0);
+                $combined *= self::exactDecimalForSelection($selection);
             }
             return round($unitStake * $combined * 2.0);
         }

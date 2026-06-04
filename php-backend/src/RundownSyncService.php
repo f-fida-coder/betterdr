@@ -561,14 +561,11 @@ final class RundownSyncService
         if (!$isMain) return false;
 
         $matchId = RundownEventMapper::deterministicMatchId($eventId);
-        $existing = $db->findOne('matches', ['id' => $matchId]);
-        if ($existing === null) {
-            // First time we see this event via WS — the event hasn't
-            // been synced yet (just-posted lines, or a sport we're
-            // not actively polling). Fetch the full event from
-            // /events/{id} so we can populate the matches doc. Dedup
-            // per-event for 60 s so a burst of WS messages for the
-            // same new event only triggers one upstream fetch.
+
+        // Check if event exists; backfill if not (outside transaction since
+        // backfill does its own network I/O + writes).
+        $probe = $db->findOne('matches', ['id' => $matchId]);
+        if ($probe === null) {
             SharedFileCache::remember(
                 'rundown-ws-event-backfill',
                 $eventId,
@@ -578,12 +575,6 @@ final class RundownSyncService
                     return ['ok' => (bool) ($r['ok'] ?? false), 'at' => time()];
                 }
             );
-            $existing = $db->findOne('matches', ['id' => $matchId]);
-            if ($existing === null) {
-                // Backfill failed (network error, unmappable event, etc.).
-                // Drop the message — next REST tick will discover the event.
-                return false;
-            }
         }
 
         $pid = $data['normalized_market_participant_id'] ?? $data['market_participant_id'] ?? null;
@@ -591,68 +582,77 @@ final class RundownSyncService
         $lineRaw = (string) ($data['line'] ?? '');
         $point = ($lineRaw !== '' && is_numeric($lineRaw)) ? (float) $lineRaw : null;
 
-        $bookmakers = is_array($existing['odds']['bookmakers'] ?? null) ? $existing['odds']['bookmakers'] : [];
-        $changed = false;
-
-        foreach ($bookmakers as $bmIdx => $bm) {
-            if (!is_array($bm) || ($bm['key'] ?? '') !== $book['key']) continue;
-            $markets = is_array($bm['markets'] ?? null) ? $bm['markets'] : [];
-            foreach ($markets as $mIdx => $m) {
-                if (!is_array($m) || ($m['key'] ?? '') !== $marketKey) continue;
-                $outcomes = is_array($m['outcomes'] ?? null) ? $m['outcomes'] : [];
-                foreach ($outcomes as $oIdx => $o) {
-                    if (!is_array($o)) continue;
-                    $matches = false;
-                    // 1. Exact priceId match — most reliable.
-                    if ($priceId !== null && isset($o['priceId']) && (string) $o['priceId'] === (string) $priceId) {
-                        $matches = true;
-                    }
-                    // 2. Participant id match.
-                    if (!$matches && $pid !== null && isset($o['pid']) && (string) $o['pid'] === (string) $pid) {
-                        $matches = true;
-                    }
-                    // 3. Last-resort point match (for h2h where neither side
-                    //    has a point, ambiguous; we skip rather than guess).
-                    if (!$matches && $point !== null && isset($o['point']) && abs(((float) $o['point']) - $point) < 1e-4) {
-                        // Only useful when there's exactly one outcome at
-                        // this point on this side — leave it as a tiebreaker.
-                        $matches = true;
-                    }
-                    if (!$matches) continue;
-
-                    if ($offBoard) {
-                        unset($outcomes[$oIdx]);
-                    } else {
-                        // Core main-line update: route through the shared board
-                        // normalizer so live price patches keep the house flat
-                        // juice on spreads/totals (h2h/team_totals pass through).
-                        $o['price'] = RundownEventMapper::boardPriceDecimal($marketKey, $priceFloat, (string) ($existing['sportKey'] ?? ''));
-                        if ($point !== null) {
-                            $o['point'] = $point;
-                        }
-                        $outcomes[$oIdx] = $o;
-                    }
-                    $markets[$mIdx]['outcomes'] = array_values($outcomes);
-                    $changed = true;
-                    break;
-                }
+        // Atomic read-modify-write: lock the row to prevent concurrent
+        // WS messages from overwriting each other's bookmaker patches.
+        $db->beginTransaction();
+        try {
+            $existing = $db->findOneForUpdate('matches', ['id' => $matchId]);
+            if ($existing === null) {
+                $db->rollback();
+                return false;
             }
-            $bm['markets'] = array_values($markets);
-            $bm['lastUpdate'] = SqlRepository::nowUtc();
-            $bookmakers[$bmIdx] = $bm;
-            if ($changed) break;
+
+            $bookmakers = is_array($existing['odds']['bookmakers'] ?? null) ? $existing['odds']['bookmakers'] : [];
+            $changed = false;
+
+            foreach ($bookmakers as $bmIdx => $bm) {
+                if (!is_array($bm) || ($bm['key'] ?? '') !== $book['key']) continue;
+                $markets = is_array($bm['markets'] ?? null) ? $bm['markets'] : [];
+                foreach ($markets as $mIdx => $m) {
+                    if (!is_array($m) || ($m['key'] ?? '') !== $marketKey) continue;
+                    $outcomes = is_array($m['outcomes'] ?? null) ? $m['outcomes'] : [];
+                    foreach ($outcomes as $oIdx => $o) {
+                        if (!is_array($o)) continue;
+                        $matches = false;
+                        if ($priceId !== null && isset($o['priceId']) && (string) $o['priceId'] === (string) $priceId) {
+                            $matches = true;
+                        }
+                        if (!$matches && $pid !== null && isset($o['pid']) && (string) $o['pid'] === (string) $pid) {
+                            $matches = true;
+                        }
+                        if (!$matches && $point !== null && isset($o['point']) && abs(((float) $o['point']) - $point) < 1e-4) {
+                            $matches = true;
+                        }
+                        if (!$matches) continue;
+
+                        if ($offBoard) {
+                            unset($outcomes[$oIdx]);
+                        } else {
+                            $o['price'] = RundownEventMapper::boardPriceDecimal($marketKey, $priceFloat, (string) ($existing['sportKey'] ?? ''));
+                            if ($point !== null) {
+                                $o['point'] = $point;
+                            }
+                            $outcomes[$oIdx] = $o;
+                        }
+                        $markets[$mIdx]['outcomes'] = array_values($outcomes);
+                        $changed = true;
+                        break;
+                    }
+                }
+                $bm['markets'] = array_values($markets);
+                $bm['lastUpdate'] = SqlRepository::nowUtc();
+                $bookmakers[$bmIdx] = $bm;
+                if ($changed) break;
+            }
+
+            if (!$changed) {
+                $db->rollback();
+                return false;
+            }
+
+            $db->updateOne('matches', ['id' => $matchId], [
+                'odds'           => ['bookmakers' => $bookmakers],
+                'lastOddsSyncAt' => SqlRepository::nowUtc(),
+                'lastUpdated'    => SqlRepository::nowUtc(),
+                'updatedAt'      => SqlRepository::nowUtc(),
+                'oddsSource'     => RundownEventMapper::ODDS_SOURCE_TAG,
+            ]);
+            $db->commit();
+            return true;
+        } catch (Throwable $e) {
+            $db->rollback();
+            throw $e;
         }
-
-        if (!$changed) return false;
-
-        $db->updateOne('matches', ['id' => $matchId], [
-            'odds'           => ['bookmakers' => $bookmakers],
-            'lastOddsSyncAt' => SqlRepository::nowUtc(),
-            'lastUpdated'    => SqlRepository::nowUtc(),
-            'updatedAt'      => SqlRepository::nowUtc(),
-            'oddsSource'     => RundownEventMapper::ODDS_SOURCE_TAG,
-        ]);
-        return true;
     }
 
     /**
@@ -806,8 +806,6 @@ final class RundownSyncService
         if ($participantName === '') return false;
 
         $matchId = RundownEventMapper::deterministicMatchId($eventId);
-        $existing = $db->findOne(self::COLLECTION, ['id' => $matchId]);
-        if ($existing === null) return false;
 
         $priceRaw = $delta['price'] ?? null;
         if (!is_numeric($priceRaw)) return false;
@@ -819,81 +817,85 @@ final class RundownSyncService
         $now = SqlRepository::nowUtc();
         $priceDecimal = self::priceToDecimal($priceFloat);
 
-        // Resolve which bucket this delta belongs in.
-        //   - Core key  (h2h/spreads/totals/team_totals) → odds.bookmakers
-        //   - Period key (h2h_q1, spreads_1st_5_innings, …) → extendedMarkets
-        // A delta is one or the other, never both. Period IDs are sport-
-        // aware, so we have to read sportKey from the existing doc.
-        $sportKey  = strtolower((string) ($existing['sportKey'] ?? ''));
-        $coreKey   = RundownMarketMap::oddsApiKey($marketId);
-        $periodKey = RundownMarketMap::explicitPeriodKey($marketId, $sportKey);
-        if ($coreKey === null && $periodKey === null) {
-            return false;
-        }
+        // Atomic read-modify-write: lock the row so concurrent delta
+        // workers cannot overwrite each other's bookmaker patches.
+        $db->beginTransaction();
+        try {
+            $existing = $db->findOneForUpdate(self::COLLECTION, ['id' => $matchId]);
+            if ($existing === null) {
+                $db->rollback();
+                return false;
+            }
 
-        $update = [
-            'lastOddsSyncAt' => $now,
-            'lastUpdated'    => $now,
-            'updatedAt'      => $now,
-            'oddsSource'     => RundownEventMapper::ODDS_SOURCE_TAG,
-        ];
+            $sportKey  = strtolower((string) ($existing['sportKey'] ?? ''));
+            $coreKey   = RundownMarketMap::oddsApiKey($marketId);
+            $periodKey = RundownMarketMap::explicitPeriodKey($marketId, $sportKey);
+            if ($coreKey === null && $periodKey === null) {
+                $db->rollback();
+                return false;
+            }
 
-        if ($coreKey !== null) {
-            $bookmakers = is_array($existing['odds']['bookmakers'] ?? null)
-                ? $existing['odds']['bookmakers'] : [];
-            $bookmakers = self::patchBookmakerOutcome(
-                $bookmakers,
-                $book,
-                $coreKey,
-                $participantName,
-                $offBoard ? null : [
-                    'name'  => $participantName,
-                    // Core board write → house flat juice on spreads/totals
-                    // (sport-gated: football/basketball only; run/puck lines pass through).
-                    'price' => RundownEventMapper::boardPriceDecimal($coreKey, $priceFloat, $sportKey),
-                    'point' => $point,
-                ],
-                $now
-            );
-            // Preserve existing odds.extendedMarkets so the partial write
-            // doesn't drop the period bucket the mapper populated.
-            $update['odds'] = [
-                'bookmakers'      => $bookmakers,
-                'extendedMarkets' => is_array($existing['odds']['extendedMarkets'] ?? null)
-                    ? $existing['odds']['extendedMarkets'] : [],
+            $update = [
+                'lastOddsSyncAt' => $now,
+                'lastUpdated'    => $now,
+                'updatedAt'      => $now,
+                'oddsSource'     => RundownEventMapper::ODDS_SOURCE_TAG,
             ];
+
+            if ($coreKey !== null) {
+                $bookmakers = is_array($existing['odds']['bookmakers'] ?? null)
+                    ? $existing['odds']['bookmakers'] : [];
+                $bookmakers = self::patchBookmakerOutcome(
+                    $bookmakers,
+                    $book,
+                    $coreKey,
+                    $participantName,
+                    $offBoard ? null : [
+                        'name'  => $participantName,
+                        'price' => RundownEventMapper::boardPriceDecimal($coreKey, $priceFloat, $sportKey),
+                        'point' => $point,
+                    ],
+                    $now
+                );
+                $update['odds'] = [
+                    'bookmakers'      => $bookmakers,
+                    'extendedMarkets' => is_array($existing['odds']['extendedMarkets'] ?? null)
+                        ? $existing['odds']['extendedMarkets'] : [],
+                ];
+            }
+
+            if ($periodKey !== null) {
+                $topExt = is_array($existing['extendedMarkets'] ?? null)
+                    ? $existing['extendedMarkets'] : [];
+                $topExt = self::patchExtendedMarketOutcome(
+                    $topExt,
+                    $book,
+                    $periodKey,
+                    $participantName,
+                    $offBoard ? null : [
+                        'name'  => $participantName,
+                        'price' => $priceDecimal,
+                        'point' => $point,
+                        'book'  => $book['key'],
+                    ]
+                );
+                $update['extendedMarkets'] = $topExt;
+
+                $bookmakers = is_array($existing['odds']['bookmakers'] ?? null)
+                    ? $existing['odds']['bookmakers'] : [];
+                $update['odds'] = [
+                    'bookmakers'      => $bookmakers,
+                    'extendedMarkets' => $topExt,
+                ];
+            }
+
+            $db->updateOne(self::COLLECTION, ['id' => $matchId], $update);
+            $db->commit();
+            return true;
+        } catch (Throwable $e) {
+            $db->rollback();
+            throw $e;
         }
-
-        if ($periodKey !== null) {
-            // The mapper writes extendedMarkets in two places (legacy
-            // nested + top-level). Patch both so consumers reading either
-            // path see the same state.
-            $topExt = is_array($existing['extendedMarkets'] ?? null)
-                ? $existing['extendedMarkets'] : [];
-            $topExt = self::patchExtendedMarketOutcome(
-                $topExt,
-                $book,
-                $periodKey,
-                $participantName,
-                $offBoard ? null : [
-                    'name'  => $participantName,
-                    'price' => $priceDecimal,
-                    'point' => $point,
-                    'book'  => $book['key'],
-                ]
-            );
-            $update['extendedMarkets'] = $topExt;
-
-            $bookmakers = is_array($existing['odds']['bookmakers'] ?? null)
-                ? $existing['odds']['bookmakers'] : [];
-            $update['odds'] = [
-                'bookmakers'      => $bookmakers,
-                'extendedMarkets' => $topExt,
-            ];
-        }
-
-        $db->updateOne(self::COLLECTION, ['id' => $matchId], $update);
-        return true;
     }
 
     /**
