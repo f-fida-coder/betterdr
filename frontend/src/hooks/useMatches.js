@@ -94,6 +94,10 @@ const createMatchesCacheKey = (status, scopeKey) => JSON.stringify({
 // rendering 30s-old odds.
 const PRELOAD_MAX_AGE_MS = 6000;
 const preloadEnqueuedAt = new Map(); // cacheKey → ts
+// Hover-prefetch network coalescing: networkKey (`status|limit`) → in-flight
+// promise. Lets multiple sport scopes that issue the same sport-agnostic
+// /matches request share one round-trip. Cleared when the request settles.
+const prefetchNetworkInFlight = new Map();
 export const seedMatchesPreload = (status, scopeKey, promise) => {
     if (!promise || typeof promise.then !== 'function') return;
     const key = createMatchesCacheKey(status, scopeKey);
@@ -114,6 +118,68 @@ const isPreloadFresh = (key) => {
     const ts = preloadEnqueuedAt.get(key);
     if (!ts) return true;
     return (Date.now() - ts) <= PRELOAD_MAX_AGE_MS;
+};
+
+// Hover prefetch. Sidebar fires this when the pointer rests on a sport so
+// the matches request for that view is already in flight (or just resolved)
+// by the time the user clicks — turning the 2-3s cold-fetch into an instant
+// hand-off. Stays inside the always-fresh policy:
+//   • It fetches LIVE data (no stale snapshot is ever shown).
+//   • The result lives in the in-flight bridge for at most PRELOAD_MAX_AGE_MS
+//     (6s); useMatches' isPreloadFresh guard then discards it and the click
+//     re-fetches, so the user can never see >6s-old odds.
+//   • It only warms a cache — it never touches rendered state, so it cannot
+//     cause a flash or layout glitch.
+// `status`/`scopeKey` MUST match what SportContentView passes to useMatches
+// for that sport, or the warm-up lands under the wrong key (harmless miss).
+export const prefetchMatchesScope = (status, scopeKey, { limit = 0 } = {}) => {
+    if (typeof window === 'undefined') return;
+    const normalizedStatus = (status || 'all').toString().toLowerCase();
+    const key = createMatchesCacheKey(normalizedStatus, scopeKey);
+    // Already covered by a real in-flight fetch or a still-fresh prefetch.
+    if (inFlightRequests.has(key) && isPreloadFresh(key)) return;
+
+    const requestOptions = { trigger: 'hover-prefetch', refresh: false, payload: 'core' };
+    if (limit > 0) requestOptions.limit = limit;
+
+    // Coalesce identical requests across scopes: the /matches fetch depends
+    // only on (status, limit) — sportId is filtered client-side — so hovering
+    // several leagues of the same status reuses ONE network round-trip instead
+    // of firing a duplicate per league.
+    const netKey = `${normalizedStatus}|${limit}`;
+    let promise = prefetchNetworkInFlight.get(netKey);
+    if (!promise) {
+        try {
+            // Mirror useMatches' fetcher selection so the warmed request is
+            // byte-identical to the one the click would issue.
+            promise = (normalizedStatus === 'live' || normalizedStatus === 'active')
+                ? getLiveMatches(requestOptions)
+                : (normalizedStatus === 'upcoming' || normalizedStatus === 'scheduled')
+                    ? getUpcomingMatches(requestOptions)
+                    : getMatches(normalizedStatus === 'all' ? '' : normalizedStatus, requestOptions);
+        } catch (_e) {
+            return;
+        }
+        if (!promise || typeof promise.then !== 'function') return;
+        prefetchNetworkInFlight.set(netKey, promise);
+        const clearNet = () => {
+            if (prefetchNetworkInFlight.get(netKey) === promise) prefetchNetworkInFlight.delete(netKey);
+        };
+        promise.then(clearNet, clearNet);
+    }
+    if (!promise || typeof promise.then !== 'function') return;
+
+    inFlightRequests.set(key, promise);
+    preloadEnqueuedAt.set(key, Date.now());
+    const release = () => {
+        if (inFlightRequests.get(key) === promise) inFlightRequests.delete(key);
+        preloadEnqueuedAt.delete(key);
+    };
+    // Keep the resolved result available for the freshness window so a click
+    // shortly after hover renders instantly; release on error immediately so
+    // the next attempt retries. If useMatches consumes it first, it deletes
+    // the slot and this release no-ops.
+    promise.then(() => { window.setTimeout(release, PRELOAD_MAX_AGE_MS); }, release);
 };
 
 const pruneLocalCache = () => {

@@ -1,6 +1,25 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getSportKeywords, buildMergedSportsTree } from '../data/sportsData';
 import { getAvailableSports, getMatches } from '../api';
+import { prefetchMatchesScope } from '../hooks/useMatches';
+
+// Resolve the (status, scopeKey) a sidebar item will produce once clicked, so
+// a hover can warm the exact request the click will issue. MUST stay in sync
+// with DashboardMain's section logic + SportContentView's scopeKey format
+// (`${sportId || 'all'}:${filter || ''}:${limit || 0}`). A mismatch just means
+// the prefetch lands under the wrong key — a harmless miss, never a glitch.
+const HOVER_PREFETCH_DELAY_MS = 120;
+const resolveHoverPrefetch = (item) => {
+    const id = item?.id;
+    if (!id) return null;
+    // Special landing buckets handled explicitly by DashboardMain.
+    if (id === 'up-next') return { status: 'upcoming', scopeKey: 'all::0' };
+    if (id === 'commercial-live') return { status: 'live', scopeKey: 'all::0' };
+    // Futures / props-plus render different views (not the matches list).
+    if (item.type === 'futures' || item.type === 'props-plus') return null;
+    const filter = item.filter ? id : null;
+    return { status: 'live-upcoming', scopeKey: `${id}:${filter || ''}:0` };
+};
 
 // Return only children whose sport keys currently have data per
 // /api/matches/sports. When `liveSet` is null (probe pending or
@@ -106,6 +125,28 @@ const SidebarItem = React.memo(({
         onToggle(item.id);
     };
 
+    // Hover prefetch: warm the matches request for a leaf league a moment
+    // before the user clicks it, so the board hands off instantly instead of
+    // cold-fetching for 2-3s. Only leaf rows that actually select on click
+    // (not parents, which expand) and aren't already selected. Debounced so a
+    // pointer sweeping down the list doesn't fan out a request per row — only
+    // the row the pointer rests on warms up.
+    const hoverTimerRef = useRef(null);
+    const selectsOnClick = isSelectable && !hasChildren && !isSelected;
+    const handleMouseEnter = () => {
+        if (!selectsOnClick) return;
+        const target = resolveHoverPrefetch(item);
+        if (!target) return;
+        clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = setTimeout(() => {
+            prefetchMatchesScope(target.status, target.scopeKey);
+        }, HOVER_PREFETCH_DELAY_MS);
+    };
+    const handleMouseLeave = () => {
+        clearTimeout(hoverTimerRef.current);
+    };
+    useEffect(() => () => clearTimeout(hoverTimerRef.current), []);
+
     // Build row class names
     const rowClasses = [
         'sidebar-item-row',
@@ -121,7 +162,13 @@ const SidebarItem = React.memo(({
 
     return (
         <div className={`sidebar-tree-node ${className}`}>
-            <div className={rowClasses} onClick={handleClick} data-sport-id={item.id}>
+            <div
+                className={rowClasses}
+                onClick={handleClick}
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
+                data-sport-id={item.id}
+            >
 
                 {showCheckbox && (
                     <div className="sidebar-checkbox-wrapper" onClick={(e) => e.stopPropagation()}>
