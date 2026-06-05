@@ -685,11 +685,18 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     team1: {
                         name: awayName,
                         shortName: match.awayTeamShort || awayName,
+                        // Raw short code (e.g. "CIN", "SF", "CWS") fed to the
+                        // sport-aware logo resolver. Kept separate from the
+                        // display-only `shortName` fallback above so the
+                        // abbreviation path can fire for city-only/variant
+                        // names whose full `name` isn't a TEAM_LOGO_MAP key.
+                        abbr: match.awayTeamShort || '',
                         record: match.awayTeamRecord || '',
                     },
                     team2: {
                         name: homeName,
                         shortName: match.homeTeamShort || homeName,
+                        abbr: match.homeTeamShort || '',
                         record: match.homeTeamRecord || '',
                     },
                     score1: awayScore,
