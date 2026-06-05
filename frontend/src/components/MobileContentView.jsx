@@ -403,6 +403,66 @@ const scanMarketsForSuffixes = (markets, out) => {
     }
 };
 
+const periodFromSuffix = (suffix) => {
+    const raw = String(suffix || '').toLowerCase();
+    if (!raw || raw === '') return null;
+
+    const q = raw.match(/^_q(\d+)$/);
+    if (q) {
+        const n = Number(q[1]);
+        return Number.isFinite(n) && n > 0 ? { id: `${n}q`, label: `${n}Q`, suffix: raw } : null;
+    }
+    const h = raw.match(/^_h(\d+)$/);
+    if (h) {
+        const n = Number(h[1]);
+        return Number.isFinite(n) && n > 0 ? { id: `${n}h`, label: `${n}H`, suffix: raw } : null;
+    }
+    const p = raw.match(/^_p(\d+)$/);
+    if (p) {
+        const n = Number(p[1]);
+        return Number.isFinite(n) && n > 0 ? { id: `p${n}`, label: `P${n}`, suffix: raw } : null;
+    }
+    const innings = raw.match(/^_1st_(\d+)_innings$/);
+    if (innings) {
+        const n = Number(innings[1]);
+        return Number.isFinite(n) && n > 0 ? { id: `f${n}`, label: `F${n}`, suffix: raw } : null;
+    }
+    const set = raw.match(/^_set_(\d+)$/);
+    if (set) {
+        const n = Number(set[1]);
+        return Number.isFinite(n) && n > 0 ? { id: `set-${n}`, label: `Set ${n}`, suffix: raw } : null;
+    }
+    return {
+        id: raw.replace(/^_+/, ''),
+        label: raw.replace(/^_+/, '').replace(/_/g, ' ').toUpperCase(),
+        suffix: raw,
+    };
+};
+
+const buildVisiblePeriods = (preset, availableSuffixes) => {
+    const base = Array.isArray(preset) ? preset : [FULL_PERIOD];
+    const suffixes = availableSuffixes instanceof Set ? availableSuffixes : new Set(['']);
+    const visible = base.filter((p) => p.id === 'full' || suffixes.has(p.suffix));
+    const knownSuffixes = new Set(base.filter((p) => p.id !== 'full' && p.suffix).map((p) => p.suffix));
+    const extras = [];
+
+    for (const suffix of suffixes) {
+        if (!suffix || suffix === '' || knownSuffixes.has(suffix)) continue;
+        const p = periodFromSuffix(suffix);
+        if (!p) continue;
+        if (!visible.some((v) => v.id === p.id || v.suffix === p.suffix)) extras.push(p);
+    }
+
+    return visible.concat(extras).sort((a, b) => {
+        const ia = PERIOD_CANONICAL_ORDER.indexOf(a.id);
+        const ib = PERIOD_CANONICAL_ORDER.indexOf(b.id);
+        if (ia === -1 && ib === -1) return String(a.label).localeCompare(String(b.label));
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+    });
+};
+
 // Union the per-sport period presets across every selected league.
 // Before: the period chip strip read only `selectedSports[0]`, so
 // picking NBA + NHL with NHL first would silently drop Q1–Q4 (NHL
@@ -612,6 +672,7 @@ const MobileContentView = ({
         (rawMatches || []).forEach(match => {
             scanMarketsForSuffixes(match?.odds?.markets, set);
             scanMarketsForSuffixes(match?.odds?.extendedMarkets, set);
+            scanMarketsForSuffixes(match?.extendedMarkets, set);
         });
         return set;
     }, [rawMatches]);
@@ -657,14 +718,13 @@ const MobileContentView = ({
             bucket.matches.push(match);
             scanMarketsForSuffixes(match?.odds?.markets, bucket.availableSuffixes);
             scanMarketsForSuffixes(match?.odds?.extendedMarkets, bucket.availableSuffixes);
+            scanMarketsForSuffixes(match?.extendedMarkets, bucket.availableSuffixes);
         });
         // Resolve each bucket's filtered period preset once so the
         // renderer doesn't recompute on every chip click.
         map.forEach((bucket, sportKey) => {
             const preset = getPeriodsForSportKey(sportKey);
-            bucket.periods = preset.filter(
-                (p) => p.id === 'full' || bucket.availableSuffixes.has(p.suffix)
-            );
+            bucket.periods = buildVisiblePeriods(preset, bucket.availableSuffixes);
         });
         return map;
     }, [rawMatches, realSelected, primarySport]);
@@ -692,7 +752,7 @@ const MobileContentView = ({
     // periods whose suffix really shows up in `rawMatches` survive.
     const periods = React.useMemo(() => {
         const preset = getPeriodsForSports(realSelected, primarySport);
-        return preset.filter(p => p.id === 'full' || availableSuffixes.has(p.suffix));
+        return buildVisiblePeriods(preset, availableSuffixes);
     }, [realSelected, primarySport, availableSuffixes]);
 
     const [selectedPeriodId, setSelectedPeriodId] = React.useState('full');
@@ -895,7 +955,7 @@ const MobileContentView = ({
             // hiccups, so true "no markets" now means upstream really
             // pulled the lines, not a transient sync gap.
             const markets = match?.odds?.markets;
-            const ext = match?.odds?.extendedMarkets;
+            const ext = Array.isArray(match?.odds?.extendedMarkets) ? match.odds.extendedMarkets : match?.extendedMarkets;
             const books = match?.odds?.bookmakers;
             const bookHasMarkets = Array.isArray(books) && books.some((b) => Array.isArray(b?.markets) && b.markets.length > 0);
             const hasMarkets = (Array.isArray(markets) && markets.length > 0)

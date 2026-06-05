@@ -448,6 +448,28 @@ final class RundownMarketMap
     }
 
     /**
+     * True when $marketId is an explicit period market (Q1-Q4 / H1-H2 /
+     * innings / NHL periods / tennis sets), any sport. Sport-agnostic
+     * membership check — used by the unfiltered live delta poll to decide,
+     * BEFORE locking a row, whether a price change is one we actually render.
+     */
+    public static function isPeriodMarketId(int $marketId): bool
+    {
+        return array_key_exists($marketId, self::PERIOD_MARKETS);
+    }
+
+    /**
+     * True when a delta's market_id is one the live board renders — a core
+     * market or an explicit period market. Props / correct-score / race-to /
+     * anything we don't surface returns false so applyDelta() can skip it
+     * without touching the DB.
+     */
+    public static function isLiveDeltaRelevant(int $marketId): bool
+    {
+        return self::oddsApiKey($marketId) !== null || self::isPeriodMarketId($marketId);
+    }
+
+    /**
      * Market IDs the live delta poll should request.
      *
      * NOTE (Rundown 12-cap): as of 2026-05 Rundown enforces "market_ids

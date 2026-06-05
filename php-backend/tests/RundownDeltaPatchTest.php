@@ -193,17 +193,43 @@ TestRunner::run('patchExtendedMarketOutcome: missing key adds a fresh market row
     TestRunner::assertEquals(2, count($out));
 });
 
-// ── csvForLivePolling sanity ─────────────────────────────────────────────
+// ── Live delta market routing ────────────────────────────────────────────
+//
+// Period prices used to freeze because the live delta poll filtered to the
+// core 8 market_ids (Rundown 400s on the full 75-id list — the 12-cap). The
+// fix drops the market_ids filter entirely: the unfiltered cursor delta
+// streams every change, and applyDelta() routes the relevant ones (core +
+// periods) and skips the rest BEFORE locking a row. These tests pin that
+// contract.
 
-TestRunner::run('csvForLivePolling includes both core and period market IDs', function (): void {
+TestRunner::run('csvForLivePolling stays core-only (snapshot path is 12-capped)', function (): void {
+    // csvForLivePolling feeds the /sports/{id}/events/{date} SNAPSHOT, which
+    // enforces Rundown's 12-market_ids cap — so it must remain core-only.
+    // Live period freshness no longer depends on this list; it comes from the
+    // unfiltered delta poll instead.
     $csv = RundownMarketMap::csvForLivePolling();
     $ids = array_map('intval', explode(',', $csv));
-    // Every core id is present.
     foreach ([1, 2, 3, 94, 41, 42, 43, 96] as $coreId) {
         TestRunner::assertTrue(in_array($coreId, $ids, true), "missing core id {$coreId}");
     }
-    // Sample period ids per sport are present.
+    TestRunner::assertTrue(count($ids) <= 12, 'snapshot market_ids must respect the 12-cap, got ' . count($ids));
     foreach ([981, 1013, 1017, 4, 1010, 769, 1112, 1024, 1150] as $periodId) {
-        TestRunner::assertTrue(in_array($periodId, $ids, true), "missing period id {$periodId}");
+        TestRunner::assertTrue(!in_array($periodId, $ids, true), "period id {$periodId} must NOT be in the capped snapshot list");
+    }
+});
+
+TestRunner::run('isLiveDeltaRelevant accepts core + period IDs, rejects props/unknown', function (): void {
+    // Core (prematch + live variants).
+    foreach ([1, 2, 3, 94, 41, 42, 43, 96] as $coreId) {
+        TestRunner::assertTrue(RundownMarketMap::isLiveDeltaRelevant($coreId), "core id {$coreId} should be relevant");
+    }
+    // Periods across every sport we serve (H1/H2, Q1-Q4, innings, NHL P, sets).
+    foreach ([4, 1010, 981, 1013, 1017, 1024, 769, 1112, 1150] as $periodId) {
+        TestRunner::assertTrue(RundownMarketMap::isPeriodMarketId($periodId), "period id {$periodId} should be a period market");
+        TestRunner::assertTrue(RundownMarketMap::isLiveDeltaRelevant($periodId), "period id {$periodId} should be relevant");
+    }
+    // Player props and unknown IDs are skipped before any DB lock.
+    foreach ([29, 35, 38, 39, 93, 0, -1, 999999] as $skipId) {
+        TestRunner::assertTrue(!RundownMarketMap::isLiveDeltaRelevant($skipId), "id {$skipId} should be skipped");
     }
 });

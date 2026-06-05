@@ -20,6 +20,7 @@ import {
 } from '../utils/odds';
 import {
     FULL_PERIOD,
+    buildVisiblePeriods,
     getPeriodsForSport,
     scanMarketsForSuffixes,
 } from '../utils/periods';
@@ -136,13 +137,14 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         (rawMatches || []).forEach((match) => {
             scanMarketsForSuffixes(match?.odds?.markets, set);
             scanMarketsForSuffixes(match?.odds?.extendedMarkets, set);
+            scanMarketsForSuffixes(match?.extendedMarkets, set);
         });
         return set;
     }, [rawMatches]);
 
     const periods = React.useMemo(() => {
         const preset = getPeriodsForSport(sportId);
-        return preset.filter((p) => p.id === 'full' || availableSuffixes.has(p.suffix));
+        return buildVisiblePeriods(preset, availableSuffixes);
     }, [sportId, availableSuffixes]);
 
     // Snap back to FULL whenever the active period vanishes from the
@@ -558,7 +560,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 // keeps rawMatches stable through worker hiccups, so true
                 // "no markets" now means upstream really pulled the lines.
                 const markets = m?.odds?.markets;
-                const ext = m?.odds?.extendedMarkets;
+                const ext = Array.isArray(m?.odds?.extendedMarkets) ? m.odds.extendedMarkets : m?.extendedMarkets;
                 const books = m?.odds?.bookmakers;
                 const bookHasMarkets = Array.isArray(books) && books.some((b) => Array.isArray(b?.markets) && b.markets.length > 0);
                 const hasMarkets = (Array.isArray(markets) && markets.length > 0)

@@ -145,3 +145,68 @@ export const scanMarketsForSuffixes = (markets, out) => {
         if (matched) out.add(matched[1]);
     }
 };
+
+const periodFromSuffix = (suffix) => {
+    const raw = String(suffix || '').toLowerCase();
+    if (!raw || raw === '') return null;
+
+    const q = raw.match(/^_q(\d+)$/);
+    if (q) {
+        const n = Number(q[1]);
+        return Number.isFinite(n) && n > 0 ? { id: `${n}q`, label: `${n}Q`, suffix: raw } : null;
+    }
+
+    const h = raw.match(/^_h(\d+)$/);
+    if (h) {
+        const n = Number(h[1]);
+        return Number.isFinite(n) && n > 0 ? { id: `${n}h`, label: `${n}H`, suffix: raw } : null;
+    }
+
+    const p = raw.match(/^_p(\d+)$/);
+    if (p) {
+        const n = Number(p[1]);
+        return Number.isFinite(n) && n > 0 ? { id: `p${n}`, label: `P${n}`, suffix: raw } : null;
+    }
+
+    const innings = raw.match(/^_1st_(\d+)_innings$/);
+    if (innings) {
+        const n = Number(innings[1]);
+        return Number.isFinite(n) && n > 0 ? { id: `f${n}`, label: `F${n}`, suffix: raw } : null;
+    }
+
+    const set = raw.match(/^_set_(\d+)$/);
+    if (set) {
+        const n = Number(set[1]);
+        return Number.isFinite(n) && n > 0 ? { id: `set-${n}`, label: `Set ${n}`, suffix: raw } : null;
+    }
+
+    return {
+        id: raw.replace(/^_+/, ''),
+        label: raw.replace(/^_+/, '').replace(/_/g, ' ').toUpperCase(),
+        suffix: raw,
+    };
+};
+
+export const buildVisiblePeriods = (preset, availableSuffixes) => {
+    const base = Array.isArray(preset) ? preset : [FULL_PERIOD];
+    const suffixes = availableSuffixes instanceof Set ? availableSuffixes : new Set(['']);
+    const visible = base.filter((p) => p.id === 'full' || suffixes.has(p.suffix));
+    const knownSuffixes = new Set(base.filter((p) => p.id !== 'full' && p.suffix).map((p) => p.suffix));
+    const extras = [];
+
+    for (const suffix of suffixes) {
+        if (!suffix || suffix === '' || knownSuffixes.has(suffix)) continue;
+        const p = periodFromSuffix(suffix);
+        if (!p) continue;
+        if (!visible.some((v) => v.id === p.id || v.suffix === p.suffix)) extras.push(p);
+    }
+
+    return visible.concat(extras).sort((a, b) => {
+        const ai = CHIP_ORDER.indexOf(a.id);
+        const bi = CHIP_ORDER.indexOf(b.id);
+        if (ai === -1 && bi === -1) return String(a.label).localeCompare(String(b.label));
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+    });
+};

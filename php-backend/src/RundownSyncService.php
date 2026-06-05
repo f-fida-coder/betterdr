@@ -25,6 +25,14 @@ final class RundownSyncService
     private const COLLECTION = 'matches';
 
     /**
+     * Max /markets/delta pages drained in a single live poll. Each page is
+     * up to 1000 changes; 5 pages (5000 changes/sport/tick) is far above any
+     * real per-tick volume, so this only caps a pathological backlog — the
+     * saved cursor lets the next tick resume from where we stopped.
+     */
+    private const DELTA_MAX_PAGES_PER_POLL = 5;
+
+    /**
      * @return array{
      *     ok:bool,
      *     skipped?:string,
@@ -455,7 +463,20 @@ final class RundownSyncService
             return self::skippedResult('cursor_missing');
         }
 
-        $params = ['sport_id' => $sportId, 'market_ids' => RundownMarketMap::csvForLivePolling()];
+        // NO market_ids filter. The cursor delta returns ONLY prices that
+        // moved since $lastId, so pulling every market in one call is cheap
+        // and — crucially — lets period lines (Q1-Q4 / H1-H2 / innings / NHL
+        // periods / tennis sets) tick at the SAME cadence as the main board,
+        // instead of freezing until the next slow full refresh. applyDelta()
+        // drops markets we don't render before touching the DB, so the extra
+        // prop / correct-score churn costs nothing.
+        //
+        // We deliberately do NOT pass the explicit period market_ids list:
+        // Rundown 400s on large market_ids requests (the documented 12-cap),
+        // which is exactly what forced the old core-only filter and froze
+        // period prices. Omitting the filter sidesteps the cap entirely and
+        // adds zero extra requests (same one delta call per sport per tick).
+        $params = ['sport_id' => $sportId];
         $affiliateIds = trim((string) Env::get('RUNDOWN_AFFILIATE_IDS', ''));
         if ($affiliateIds !== '') {
             $params['affiliate_ids'] = $affiliateIds;
@@ -465,23 +486,36 @@ final class RundownSyncService
         $skipped = 0;
         $errors  = 0;
         try {
-            $resp = RundownClient::getDelta($lastId, $params);
-            if (!is_array($resp)) {
-                return ['ok' => true, 'applied' => 0, 'skipped' => 0, 'errors' => 0];
-            }
-            $deltas = is_array($resp['deltas'] ?? null) ? $resp['deltas'] : [];
-            foreach ($deltas as $delta) {
-                if (!is_array($delta)) continue;
-                if (self::applyDelta($db, $delta)) {
-                    $applied++;
-                } else {
-                    $skipped++;
+            // Drain has_more within the tick so a high-volume pass (many books
+            // moving at once) fully catches up to the latest cursor, instead
+            // of letting a single 1000-row page truncate and leave core/period
+            // changes a tick behind. Bounded so a pathological backlog can't
+            // spin — the saved cursor lets the next tick resume cleanly.
+            $cursorId = $lastId;
+            $pages = 0;
+            do {
+                $resp = RundownClient::getDelta($cursorId, $params);
+                if (!is_array($resp)) {
+                    break;
                 }
-            }
-            $cursor = $resp['meta']['delta_last_id'] ?? null;
-            if (is_numeric($cursor) && (int) $cursor > 0) {
-                RundownDeltaCursor::set($sportId, (int) $cursor);
-            }
+                $deltas = is_array($resp['deltas'] ?? null) ? $resp['deltas'] : [];
+                foreach ($deltas as $delta) {
+                    if (!is_array($delta)) continue;
+                    if (self::applyDelta($db, $delta)) {
+                        $applied++;
+                    } else {
+                        $skipped++;
+                    }
+                }
+                $cursor = $resp['meta']['delta_last_id'] ?? null;
+                if (is_numeric($cursor) && (int) $cursor > 0) {
+                    $cursorId = (int) $cursor;
+                    RundownDeltaCursor::set($sportId, $cursorId);
+                }
+                $hasMore = (bool) ($resp['meta']['has_more'] ?? false);
+                $pages++;
+            } while ($hasMore && $pages < self::DELTA_MAX_PAGES_PER_POLL);
+
             if ($applied > 0) {
                 SportsbookHealth::recordOddsSourceSuccess($db, false);
             } else {
@@ -720,6 +754,11 @@ final class RundownSyncService
                     if (is_array($doc)) {
                         unset($doc['id'], $doc['createdAt']);
                         $update = array_merge($update, $doc);
+                        // The event-delta poll sends no market_ids, so the
+                        // rebuilt doc carries empty extendedMarkets/playerProps.
+                        // Keep the period + prop markets a full-coverage sync
+                        // populated rather than wiping them (period-chip flicker).
+                        $update = self::carryForwardExtendedMarkets($update, $existing);
                     }
                 }
                 $db->updateOne('matches', ['id' => $matchId], $update);
@@ -783,9 +822,73 @@ final class RundownSyncService
             $doc['score']  = $existing['score'];
             $doc['status'] = 'finished';
         }
+        // Don't let a core-only sync wipe the period markets + props a
+        // full-coverage sync populated (the period-chip flicker). See
+        // carryForwardExtendedMarkets().
+        $doc = self::carryForwardExtendedMarkets($doc, $existing);
         unset($doc['id']);
         $db->updateOne(self::COLLECTION, ['id' => $id], $doc);
         return false;
+    }
+
+    /**
+     * Carry forward period markets + player props an incoming doc didn't carry.
+     *
+     * Two high-frequency writers build docs with extendedMarkets=[] /
+     * playerProps=[]: the core-only live sync (syncSportLive — Rundown's
+     * 12-cap forbids batching periods into the live cadence, see
+     * RundownMarketMap::csvForLivePolling) and the event-delta poll
+     * (pollEventDeltasForSport, which requests no market_ids). Writing those
+     * empties OVERWRITES the period (Q1-Q4 / H1-H2 / F1-F7 innings / P1-P3 /
+     * tennis sets) and prop markets that the slower full-coverage path
+     * (syncEventFull / baseQueryParamsFull) populated — so the period chips
+     * flash in (full sync) then out (next live/delta write) then back in,
+     * instead of staying put like the main odds.
+     *
+     * Rule: when the incoming doc has NO extended/prop markets but the stored
+     * doc does, keep the stored ones. A full-coverage doc that actually
+     * carries periods is non-empty and replaces cleanly, so fresh period lines
+     * still win, and applyDelta()/applyWsMessage() keep period prices ticking
+     * in place. Money note: this never changes a price — it only stops
+     * deleting a market the core sync never asked about; bet placement
+     * re-validates odds freshness server-side at place time.
+     *
+     * @param array<string,mixed> $doc       incoming doc / update about to be written
+     * @param array<string,mixed> $existing  stored doc
+     * @return array<string,mixed>           $doc with extended/props backfilled
+     */
+    private static function carryForwardExtendedMarkets(array $doc, array $existing): array
+    {
+        $incomingExt = is_array($doc['extendedMarkets'] ?? null) ? $doc['extendedMarkets'] : [];
+        if ($incomingExt === [] && is_array($doc['odds']['extendedMarkets'] ?? null)) {
+            $incomingExt = $doc['odds']['extendedMarkets'];
+        }
+        if ($incomingExt === []) {
+            $existingExt = is_array($existing['extendedMarkets'] ?? null) ? $existing['extendedMarkets'] : [];
+            if ($existingExt === [] && is_array($existing['odds']['extendedMarkets'] ?? null)) {
+                $existingExt = $existing['odds']['extendedMarkets'];
+            }
+            if ($existingExt !== []) {
+                if (array_key_exists('extendedMarkets', $doc)) {
+                    $doc['extendedMarkets'] = $existingExt;
+                }
+                if (is_array($doc['odds'] ?? null)) {
+                    $doc['odds']['extendedMarkets'] = $existingExt;
+                }
+            }
+        }
+
+        $incomingProps = is_array($doc['playerProps'] ?? null) ? $doc['playerProps'] : [];
+        if (
+            array_key_exists('playerProps', $doc)
+            && $incomingProps === []
+            && is_array($existing['playerProps'] ?? null)
+            && $existing['playerProps'] !== []
+        ) {
+            $doc['playerProps'] = $existing['playerProps'];
+        }
+
+        return $doc;
     }
 
     /**
@@ -800,6 +903,12 @@ final class RundownSyncService
         if ($eventId === '') return false;
         $marketId = (int) ($delta['market_id'] ?? 0);
         if ($marketId <= 0) return false;
+        // The live delta poll is unfiltered (no market_ids), so it streams
+        // every price change including props / correct-score / race-to we
+        // never render. Drop those here, BEFORE locking the row — otherwise
+        // each irrelevant tick would open a transaction just to roll back.
+        // Core + period markets only.
+        if (!RundownMarketMap::isLiveDeltaRelevant($marketId)) return false;
         $book = RundownAffiliateMap::lookup((int) ($delta['affiliate_id'] ?? 0));
         if ($book === null) return false;
         $participantName = trim((string) ($delta['participant_name'] ?? ''));
