@@ -96,13 +96,13 @@ const statusTheme = (value) => {
 
 const matchLabel = (bet) => {
     if (bet?.match?.homeTeam && bet?.match?.awayTeam) {
-        return `${bet.match.homeTeam} vs ${bet.match.awayTeam}`;
+        return `${bet.match.homeTeamShort || shortTeam(bet.match.homeTeam)} vs ${bet.match.awayTeamShort || shortTeam(bet.match.awayTeam)}`;
     }
     if (Array.isArray(bet?.selections) && bet.selections.length > 1) {
         return `${bet.selections.length}-leg ticket`;
     }
     if (bet?.matchSnapshot?.homeTeam && bet?.matchSnapshot?.awayTeam) {
-        return `${bet.matchSnapshot.homeTeam} vs ${bet.matchSnapshot.awayTeam}`;
+        return `${bet.matchSnapshot.homeTeamShort || shortTeam(bet.matchSnapshot.homeTeam)} vs ${bet.matchSnapshot.awayTeamShort || shortTeam(bet.matchSnapshot.awayTeam)}`;
     }
     return 'Ticket';
 };
@@ -538,15 +538,15 @@ const settledTimestamp = (bet) => bet?.settledAt || bet?.updatedAt || bet?.creat
 // something meaningful instead of "—".
 const expandedMatchup = (bet) => {
     if (bet?.match?.homeTeam && bet?.match?.awayTeam) {
-        return `${bet.match.awayTeam} @ ${bet.match.homeTeam}`;
+        return `${bet.match.awayTeamShort || shortTeam(bet.match.awayTeam)} @ ${bet.match.homeTeamShort || shortTeam(bet.match.homeTeam)}`;
     }
     if (bet?.matchSnapshot?.homeTeam && bet?.matchSnapshot?.awayTeam) {
-        return `${bet.matchSnapshot.awayTeam} @ ${bet.matchSnapshot.homeTeam}`;
+        return `${bet.matchSnapshot.awayTeamShort || shortTeam(bet.matchSnapshot.awayTeam)} @ ${bet.matchSnapshot.homeTeamShort || shortTeam(bet.matchSnapshot.homeTeam)}`;
     }
     const firstLeg = Array.isArray(bet?.selections) ? bet.selections[0] : null;
     const snap = firstLeg?.matchSnapshot;
     if (snap?.homeTeam && snap?.awayTeam) {
-        return `${snap.awayTeam} @ ${snap.homeTeam}`;
+        return `${snap.awayTeamShort || shortTeam(snap.awayTeam)} @ ${snap.homeTeamShort || shortTeam(snap.homeTeam)}`;
     }
     return null;
 };

@@ -233,7 +233,7 @@ const ScoreboardSidebar = ({ onClose }) => {
                                                 decoding="async"
                                                 onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(game.homeTeam); }}
                                             />
-                                            <span>{game.homeTeam}</span>
+                                            <span>{game.homeTeamShort || game.homeTeam}</span>
                                         </div>
                                         <span className="game-score">{getScore(game, 'home')}</span>
                                     </div>
@@ -249,7 +249,7 @@ const ScoreboardSidebar = ({ onClose }) => {
                                                 decoding="async"
                                                 onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(game.awayTeam); }}
                                             />
-                                            <span>{game.awayTeam}</span>
+                                            <span>{game.awayTeamShort || game.awayTeam}</span>
                                         </div>
                                         <span className="game-score">{getScore(game, 'away')}</span>
                                     </div>

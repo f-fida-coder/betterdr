@@ -2648,6 +2648,7 @@ final class BetsController
         $pool = [];
         $oddsRoot = $match['odds'] ?? [];
         if (is_array($oddsRoot)) {
+            $oddsRoot = self::canonicalizeOddsMarketsFromBookmakers($oddsRoot);
             if (isset($oddsRoot['markets']) && is_array($oddsRoot['markets'])) {
                 foreach ($oddsRoot['markets'] as $m) {
                     if (is_array($m)) $pool[] = $m;
@@ -2665,6 +2666,148 @@ final class BetsController
             }
         }
         return $pool;
+    }
+
+    /**
+     * Build a canonical odds.markets list out of odds.bookmakers with
+     * optional market-specific book preferences. Keeps existing markets and
+     * overrides same-key rows with bookmaker-selected core markets.
+     *
+     * @param array<string,mixed> $oddsRoot
+     * @return array<string,mixed>
+     */
+    private static function canonicalizeOddsMarketsFromBookmakers(array $oddsRoot): array
+    {
+        $bookmakers = is_array($oddsRoot['bookmakers'] ?? null) ? $oddsRoot['bookmakers'] : [];
+        if ($bookmakers === []) {
+            return $oddsRoot;
+        }
+
+        $selected = self::selectMarketsFromBookmakers($bookmakers);
+        if ($selected === []) {
+            return $oddsRoot;
+        }
+
+        $byKey = [];
+        $existing = is_array($oddsRoot['markets'] ?? null) ? $oddsRoot['markets'] : [];
+        foreach ($existing as $market) {
+            if (!is_array($market)) continue;
+            $key = strtolower((string) ($market['key'] ?? ''));
+            if ($key === '') continue;
+            $byKey[$key] = $market;
+        }
+        foreach ($selected as $market) {
+            $key = strtolower((string) ($market['key'] ?? ''));
+            if ($key === '') continue;
+            $byKey[$key] = $market;
+        }
+
+        $oddsRoot['markets'] = array_values($byKey);
+        return $oddsRoot;
+    }
+
+    /**
+     * @param list<array<string,mixed>> $bookmakers
+     * @return list<array<string,mixed>>
+     */
+    private static function selectMarketsFromBookmakers(array $bookmakers): array
+    {
+        /** @var array<string, list<array{book:string,market:array<string,mixed>}>> $candidates */
+        $candidates = [];
+
+        foreach ($bookmakers as $book) {
+            if (!is_array($book)) continue;
+            $bookKey = strtolower((string) ($book['key'] ?? ''));
+            $markets = is_array($book['markets'] ?? null) ? $book['markets'] : [];
+            foreach ($markets as $market) {
+                if (!is_array($market)) continue;
+                $marketKey = strtolower((string) ($market['key'] ?? ''));
+                if ($marketKey === '') continue;
+                $outcomes = is_array($market['outcomes'] ?? null) ? $market['outcomes'] : [];
+                if ($outcomes === []) continue;
+                $candidates[$marketKey] ??= [];
+                $candidates[$marketKey][] = [
+                    'book' => $bookKey,
+                    'market' => $market,
+                ];
+            }
+        }
+
+        if ($candidates === []) {
+            return [];
+        }
+
+        $selected = [];
+        foreach ($candidates as $marketKey => $rows) {
+            $preferredBooks = self::preferredBooksForMarket($marketKey);
+            $chosen = null;
+
+            foreach ($preferredBooks as $bookKey) {
+                foreach ($rows as $row) {
+                    if (($row['book'] ?? '') === $bookKey) {
+                        $chosen = $row['market'];
+                        break 2;
+                    }
+                }
+            }
+
+            if ($chosen === null) {
+                $chosen = $rows[0]['market'] ?? null;
+            }
+            if (is_array($chosen)) {
+                $selected[] = $chosen;
+            }
+        }
+
+        return $selected;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function preferredBooksForMarket(string $marketKey): array
+    {
+        $family = self::marketFamily($marketKey);
+        $envKey = match ($family) {
+            'spreads' => 'SPORTSBOOK_PREFERRED_BOOKS_SPREADS',
+            'h2h' => 'SPORTSBOOK_PREFERRED_BOOKS_H2H',
+            'totals' => 'SPORTSBOOK_PREFERRED_BOOKS_TOTALS',
+            default => '',
+        };
+
+        if ($envKey !== '') {
+            $specific = self::parsePreferredBookList((string) Env::get($envKey, ''));
+            if ($specific !== []) {
+                return $specific;
+            }
+        }
+
+        return self::parsePreferredBookList((string) Env::get('SPORTSBOOK_PREFERRED_BOOKS', ''));
+    }
+
+    private static function marketFamily(string $marketKey): string
+    {
+        $key = strtolower(trim($marketKey));
+        if (str_starts_with($key, 'spreads')) return 'spreads';
+        if (str_starts_with($key, 'totals')) return 'totals';
+        if (str_starts_with($key, 'h2h') || str_starts_with($key, 'moneyline') || str_starts_with($key, 'ml')) {
+            return 'h2h';
+        }
+        return 'other';
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function parsePreferredBookList(string $raw): array
+    {
+        if (trim($raw) === '') {
+            return [];
+        }
+        return array_values(array_filter(
+            array_map(static fn ($part): string => strtolower(trim((string) $part)), explode(',', $raw)),
+            static fn (string $part): bool => $part !== ''
+        ));
     }
 
     /**

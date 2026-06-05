@@ -40,8 +40,8 @@ const lineSuffix = (leg) => {
 };
 
 const matchTitle = (leg) => {
-    const home = leg?.matchSnapshot?.homeTeam || leg?.match?.homeTeam;
-    const away = leg?.matchSnapshot?.awayTeam || leg?.match?.awayTeam;
+    const home = leg?.matchSnapshot?.homeTeamShort || leg?.matchSnapshot?.homeTeam || leg?.match?.homeTeamShort || leg?.match?.homeTeam;
+    const away = leg?.matchSnapshot?.awayTeamShort || leg?.matchSnapshot?.awayTeam || leg?.match?.awayTeamShort || leg?.match?.awayTeam;
     if (home && away) return `${away} @ ${home}`;
     return leg?.matchName || '';
 };

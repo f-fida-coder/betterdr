@@ -127,8 +127,8 @@ const MatchDetailView = ({ match, onClose }) => {
     const [selectedKeys, setSelectedKeys] = React.useState(() => new Set());
 
     const matchId = match?.id || match?.externalId || '';
-    const homeTeam = match?.homeTeam || match?.home_team || 'Home';
-    const awayTeam = match?.awayTeam || match?.away_team || 'Away';
+    const homeTeam = match?.homeTeamShort || match?.homeTeam || match?.home_team || 'Home';
+    const awayTeam = match?.awayTeamShort || match?.awayTeam || match?.away_team || 'Away';
     const matchName = `${awayTeam} @ ${homeTeam}`;
 
     // Tell the page chrome (DashboardHeader) the matchup sheet is open so it

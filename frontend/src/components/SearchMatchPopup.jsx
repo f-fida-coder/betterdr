@@ -27,8 +27,8 @@ import PropBuilderModal from './PropBuilderModal';
 const SearchMatchPopup = ({ match, onClose }) => {
     const { oddsFormat } = useOddsFormat();
     const matchId = match?.id || match?.externalId || '';
-    const homeTeam = match?.homeTeam || match?.home_team || 'Home';
-    const awayTeam = match?.awayTeam || match?.away_team || 'Away';
+    const homeTeam = match?.homeTeamShort || match?.homeTeam || match?.home_team || 'Home';
+    const awayTeam = match?.awayTeamShort || match?.awayTeam || match?.away_team || 'Away';
     const sportLabel = (match?.sportTitle || match?.sport_title || match?.sportKey || '').toString().replace(/_/g, ' ').toUpperCase();
     const rotationHome = match?.rotation?.home ?? null;
     const rotationAway = match?.rotation?.away ?? null;

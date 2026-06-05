@@ -686,13 +686,11 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                         name: awayName,
                         shortName: match.awayTeamShort || awayName,
                         record: match.awayTeamRecord || '',
-                        abbr: match.awayTeamShort || awayName.substring(0, 3).toUpperCase(),
                     },
                     team2: {
                         name: homeName,
                         shortName: match.homeTeamShort || homeName,
                         record: match.homeTeamRecord || '',
-                        abbr: match.homeTeamShort || homeName.substring(0, 3).toUpperCase(),
                     },
                     score1: awayScore,
                     score2: homeScore,
@@ -1032,7 +1030,6 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <span style={teamRecordStyle}> ({match.team1.record})</span>
                                                 )}
                                             </span>
-                                            <span className="team-abbr">{match.team1.abbr}</span>
                                         </div>
                                         <span className="score">{match.score1}</span>
                                     </div>
@@ -1062,7 +1059,6 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <span style={teamRecordStyle}> ({match.team2.record})</span>
                                                 )}
                                             </span>
-                                            <span className="team-abbr">{match.team2.abbr}</span>
                                         </div>
                                         <span className="score">{match.score2}</span>
                                     </div>
