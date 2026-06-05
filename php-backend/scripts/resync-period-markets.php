@@ -3,12 +3,16 @@
 declare(strict_types=1);
 
 /**
- * One-shot prematch resync for active sports.
+ * One-shot FULL-COVERAGE resync for active sports.
  *
- * Triggered manually after the RundownMarketMap period-market fix lands,
- * so existing matches rows pick up the new extendedMarkets keys (Q1-Q4,
- * H1/H2, _1st_N_innings, _pN) instead of waiting up to 30 min for the
- * worker rotation to come around.
+ * Triggered manually to seed period markets (Q1-Q4, H1/H2, _1st_N_innings,
+ * _pN) and player props into existing matches rows immediately, instead of
+ * waiting for the worker's slow full-coverage rotation to come around.
+ *
+ * Uses syncSportFull (baseQueryParamsFull → core + props + periods), NOT
+ * syncSportPrematch (which is core-only and would seed nothing). Requires
+ * RUNDOWN_MARKET_IDS_BATCH=true so the ~75 market_ids split into ≤12-ID
+ * batches; without batching Rundown 400s the request.
  *
  * Usage:
  *   php php-backend/scripts/resync-period-markets.php
@@ -92,7 +96,7 @@ foreach ($sportKeys as $sportKey) {
     }
     $t0 = microtime(true);
     try {
-        $r = RundownSyncService::syncSportPrematch($repo, $sportKey, $sportId);
+        $r = RundownSyncService::syncSportFull($repo, $sportKey, $sportId);
     } catch (Throwable $e) {
         $totalErrors++;
         echo sprintf("  - %-32s ERROR  %s\n", $sportKey, $e->getMessage());
