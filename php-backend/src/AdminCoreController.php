@@ -4492,10 +4492,17 @@ final class AdminCoreController
             $previousMakeup = $this->num($agent['settlementMakeup'] ?? 0);
             $previousBalanceOwed = $this->num($agent['settlementBalanceOwed'] ?? 0);
 
+            $actorId = (string) ($actor['id'] ?? '');
+            $actorUsername = (string) ($actor['username'] ?? '');
             $settlementUpdates = [
                 'settlementMakeup' => max(0.0, $newMakeup),
                 'settlementBalanceOwed' => $newBalanceOwed,
                 'settlementFinalizedAt' => $now,
+                // Audit: record WHO finalized this settlement. Without this
+                // a disputed makeup/balanceOwed change had only a timestamp
+                // and no accountable actor.
+                'settlementFinalizedBy' => $actorId,
+                'settlementFinalizedByUsername' => $actorUsername,
                 'updatedAt' => $now,
             ];
             $this->db->updateOne('agents', ['id' => SqlRepository::id($agentId)], $settlementUpdates);
@@ -4519,6 +4526,8 @@ final class AdminCoreController
                 'closingMakeup'      => max(0.0, $newMakeup),
                 'closingBalanceOwed'  => $newBalanceOwed,
                 'manuallyFinalized'  => true,
+                'finalizedBy'        => $actorId,
+                'finalizedByUsername' => $actorUsername,
                 'updatedAt'           => $now,
             ], [
                 'agentId'      => $agentId,

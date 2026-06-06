@@ -455,6 +455,14 @@ const ModeBetPanel = ({
         setStakeMode(defaultStakeMode);
     }, [userBetDefaults, defaultStakeMode]);
     const requestStateRef = useRef({ requestId: '', signature: '' });
+    // Per-leg idempotency for straight mode. Each leg places an independent
+    // ticket, so it needs its OWN requestId (different legs must not collapse
+    // into one bet) — but that id must stay STABLE across retries of the same
+    // slip, or a leg that committed server-side but lost its response would
+    // double-place on retry. Keyed by leg id, reset whenever the slip
+    // signature changes (new selections or an odds patch = a genuinely new
+    // bet that should get fresh ids).
+    const legRequestStateRef = useRef({ signature: '', ids: {} });
     const submissionLockRef = useRef(false);
 
     const parsedFreeplayBalance = Number.isFinite(Number(freeplayBalance)) ? Number(freeplayBalance) : 0;
@@ -1385,6 +1393,7 @@ const ModeBetPanel = ({
         setSubmitAttempted(false);
         setUseFreeplay(false);
         requestStateRef.current = { requestId: '', signature: '' };
+        legRequestStateRef.current = { signature: '', ids: {} };
     };
 
     // Top Bet Amount auto-flows to every leg via effectiveStakeForSelection
@@ -1420,6 +1429,18 @@ const ModeBetPanel = ({
             signature: ticketSignature,
         };
         return requestId;
+    };
+
+    // Stable-per-leg requestId for straight mode (see legRequestStateRef).
+    const getRequestIdForLeg = (legId) => {
+        if (legRequestStateRef.current.signature !== ticketSignature) {
+            legRequestStateRef.current = { signature: ticketSignature, ids: {} };
+        }
+        const key = String(legId);
+        if (!legRequestStateRef.current.ids[key]) {
+            legRequestStateRef.current.ids[key] = createRequestId();
+        }
+        return legRequestStateRef.current.ids[key];
     };
 
     const handlePlaceBet = async () => {
@@ -1592,9 +1613,12 @@ const ModeBetPanel = ({
                         odds: Number(sel.odds),
                         marketType: sel.marketType || 'h2h',
                     };
-                    // Fresh request id per leg so idempotency tracking on the
-                    // backend doesn't collapse them into one bet.
-                    const requestId = createRequestId();
+                    // Per-leg request id: unique across legs (so the backend
+                    // doesn't collapse them into one bet) but STABLE across
+                    // retries of this same slip/leg (so a leg that committed
+                    // server-side then lost its response can't double-place —
+                    // the retry hits the idempotency replay instead).
+                    const requestId = getRequestIdForLeg(sel.id);
                     try {
                         // eslint-disable-next-line no-await-in-loop
                         const legResult = await placeBet(payload, token, { requestId });

@@ -33,6 +33,15 @@ final class RundownSyncService
     private const DELTA_MAX_PAGES_PER_POLL = 5;
 
     /**
+     * Statuses that carry a confirmed outcome and are safe to settle on.
+     * Mirrors BetSettlementService::settlePendingMatches — 'finished' grades
+     * against the final score, 'canceled' voids with refund. 'expired' is
+     * intentionally NOT here: that is the "feed went quiet" catch-all and
+     * must stay pending for an operator to confirm before money moves.
+     */
+    private const SETTLE_TERMINAL_STATUSES = ['finished', 'canceled', 'cancelled'];
+
+    /**
      * @return array{
      *     ok:bool,
      *     skipped?:string,
@@ -716,6 +725,11 @@ final class RundownSyncService
 
         $applied = 0;
         $errors  = 0;
+        // Match ids that transitioned into a terminal status on THIS pass.
+        // Surfaced to the caller (odds-worker) so it can settle them the
+        // instant Rundown flips the game to finished/canceled instead of
+        // waiting up to ~60s for the periodic settlement sweep.
+        $finishedMatchIds = [];
         try {
             $resp = RundownClient::getEventDelta($lastId, $params);
             if (!is_array($resp)) {
@@ -761,6 +775,18 @@ final class RundownSyncService
                         $update = self::carryForwardExtendedMarkets($update, $existing);
                     }
                 }
+                // Detect a fresh transition into a terminal status so the
+                // worker can grade this match immediately. Mirrors the
+                // settlePendingMatches gate (finished/canceled only); 'expired'
+                // is deliberately excluded so it stays pending for an operator.
+                $prevStatus = strtolower((string) ($existing['status'] ?? ''));
+                $nextStatus = strtolower((string) ($update['status'] ?? $prevStatus));
+                if (
+                    !in_array($prevStatus, self::SETTLE_TERMINAL_STATUSES, true)
+                    && in_array($nextStatus, self::SETTLE_TERMINAL_STATUSES, true)
+                ) {
+                    $finishedMatchIds[$matchId] = true;
+                }
                 $db->updateOne('matches', ['id' => $matchId], $update);
                 $applied++;
             }
@@ -782,7 +808,12 @@ final class RundownSyncService
                 'error'    => $e->getMessage(),
             ], 'sportsbook');
         }
-        return ['ok' => $errors === 0, 'applied' => $applied, 'errors' => $errors];
+        return [
+            'ok' => $errors === 0,
+            'applied' => $applied,
+            'errors' => $errors,
+            'finishedMatchIds' => array_keys($finishedMatchIds),
+        ];
     }
 
     /**

@@ -127,6 +127,10 @@ while (!$shutdown) {
             'fullRefreshes'   => 0,
             'errors'          => 0,
         ];
+        // Matches that flipped to a terminal status (finished/canceled) on
+        // this tick. Settled inline below so the player's win/loss lands in
+        // seconds instead of waiting up to RUNDOWN_SETTLE_EVERY_N_TICKS.
+        $instantSettleIds = [];
         if (RundownClient::isConfigured()) {
             foreach ($liveSportKeys as $sportKey) {
                 $sportId = RundownSportMap::sportKeyToSportId($sportKey);
@@ -157,7 +161,38 @@ while (!$shutdown) {
                     $r = RundownSyncService::pollEventDeltasForSport($repo, $sportKey, $sportId);
                     $liveResult['eventDeltas'] += (int) ($r['applied'] ?? 0);
                     $liveResult['errors']      += (int) ($r['errors'] ?? 0);
+                    foreach (($r['finishedMatchIds'] ?? []) as $fmid) {
+                        $instantSettleIds[(string) $fmid] = true;
+                    }
                 }
+            }
+        }
+
+        // ── 1b. Instant settlement of matches that JUST finished ────
+        // Grade the moment Rundown flips status to finished/canceled
+        // rather than waiting for the periodic sweep (~60s). Uses the
+        // identical, idempotent BetSettlementService::settleMatch path
+        // (WHERE status='pending'), so re-running it in the 60s sweep
+        // below is a safe no-op. A failure here never blocks the tick —
+        // the sweep is the safety net.
+        if ($instantSettleIds !== []) {
+            $instantSettled = 0;
+            foreach (array_keys($instantSettleIds) as $fmid) {
+                try {
+                    $res = BetSettlementService::settleMatch($repo, $fmid, null, 'instant-finish');
+                    $instantSettled += (int) ($res['total'] ?? 0);
+                } catch (Throwable $e) {
+                    Logger::warning('odds-worker instant settle failed', [
+                        'matchId' => $fmid,
+                        'error'   => $e->getMessage(),
+                    ], 'sportsbook');
+                }
+            }
+            if ($instantSettled > 0) {
+                Logger::info('odds-worker instant settlement', [
+                    'matches' => count($instantSettleIds),
+                    'betsSettled' => $instantSettled,
+                ], 'sportsbook');
             }
         }
 
