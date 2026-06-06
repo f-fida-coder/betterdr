@@ -2878,9 +2878,12 @@ const periodTabBarStyle = {
     borderRadius: 8,
     overflowX: 'auto',
     WebkitOverflowScrolling: 'touch',
-    position: 'sticky',
-    top: 0,
-    zIndex: 5,
+    // NOT sticky. The mobile shell header (.mobile-header-container) is
+    // position:fixed at 124px; a sticky `top:0` here anchored the strip to
+    // the scrollport top BEHIND that fixed header, clipping the period chips
+    // (Game / F1-F7 / Q1-Q4) on every scroll. Flowing with the content keeps
+    // them fully visible since the content area is already padded clear of
+    // the fixed header.
     flexShrink: 0,
 };
 
@@ -3032,9 +3035,10 @@ const leagueHeaderStyle = {
     padding: '6px 10px 6px 14px',
     background: '#ff5051',
     color: '#fff',
-    position: 'sticky',
-    top: 0,
-    zIndex: 5,
+    // NOT sticky — see periodTabBarStyle. A sticky `top:0` pinned this
+    // league row (label pill + period chips) behind the 124px fixed mobile
+    // header, clipping the F1-F7 / Q1-Q4 chips. Flowing with the content
+    // keeps the row fully visible.
     flexShrink: 0,
     minHeight: 40,
 };
