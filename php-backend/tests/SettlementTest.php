@@ -157,6 +157,65 @@ TestRunner::run('selectionResult — totals', function (): void {
     TestRunner::assertEquals('void', SportsbookBetSupport::selectionResult($m, selection_('totals', 'Under Chiefs Eagles', 47.0)), 'under push → void');
 });
 
+// ── selectionResult — Tennis (games vs sets) ──────────────────────────────────
+
+/** Tennis match: score_home/away are SETS; by_period are games per set. */
+function tennis_(string $home, string $away, array $homeGamesBySet, array $awayGamesBySet, int $setsHome, int $setsAway, string $status = 'finished'): array
+{
+    return [
+        'homeTeam'        => $home,
+        'awayTeam'        => $away,
+        'sportKey'        => 'tennis_atp',
+        'effectiveStatus' => $status,
+        'score'           => [
+            'score_home'           => $setsHome,
+            'score_away'           => $setsAway,
+            'score_home_by_period' => $homeGamesBySet,
+            'score_away_by_period' => $awayGamesBySet,
+        ],
+    ];
+}
+
+TestRunner::run('selectionResult — tennis grades spread/total by GAMES not sets', function (): void {
+    // Huesler beats Onclin 2-0 in sets; games 6-3, 6-4 → 12 games vs 7 games.
+    $m = tennis_('Huesler', 'Onclin', [6, 6], [3, 4], 2, 0);
+
+    // Spread is GAMES. Huesler -3.5: 12 - 3.5 = 8.5 > 7 → won. If this graded
+    // against SETS (2 - 3.5 = -1.5 > 0?) it would wrongly be 'lost'.
+    TestRunner::assertEquals('won',  SportsbookBetSupport::selectionResult($m, selection_('spreads', 'Huesler', -3.5)), 'home games spread covered');
+    TestRunner::assertEquals('lost', SportsbookBetSupport::selectionResult($m, selection_('spreads', 'Onclin', 3.5)),  'away games spread not covered');
+
+    // Total is GAMES = 12 + 7 = 19. Over 22.5 → lost; Under 22.5 → won.
+    // Against sets (2) both would be wrong.
+    TestRunner::assertEquals('lost', SportsbookBetSupport::selectionResult($m, selection_('totals', 'Over Huesler Onclin', 22.5)),  'games total over misses');
+    TestRunner::assertEquals('won',  SportsbookBetSupport::selectionResult($m, selection_('totals', 'Under Huesler Onclin', 22.5)), 'games total under hits');
+
+    // Moneyline still uses sets (2-0) → home wins.
+    TestRunner::assertEquals('won',  SportsbookBetSupport::selectionResult($m, selection_('h2h', 'Huesler')), 'tennis ML by sets');
+});
+
+TestRunner::run('selectionResult — tennis tolerates short/full player names', function (): void {
+    // homeTeam carries the full form; the bet stored the short surname.
+    $m = tennis_('M. Huesler', 'G. Onclin', [6, 6], [3, 4], 2, 0);
+    TestRunner::assertEquals('won', SportsbookBetSupport::selectionResult($m, selection_('spreads', 'Huesler', -3.5)), 'short surname resolves to home side');
+    TestRunner::assertEquals('won', SportsbookBetSupport::selectionResult($m, selection_('h2h', 'Huesler')), 'short surname ML resolves');
+});
+
+TestRunner::run('selectionResult — tennis with no per-set games stays pending', function (): void {
+    // Finished but feed shipped no by_period games → cannot compute total
+    // games → leave pending rather than grade against sets. Money-safe.
+    $m = tennis_('Huesler', 'Onclin', [], [], 2, 0);
+    TestRunner::assertEquals('pending', SportsbookBetSupport::selectionResult($m, selection_('spreads', 'Huesler', -3.5)), 'no games data → pending');
+    TestRunner::assertEquals('pending', SportsbookBetSupport::selectionResult($m, selection_('totals', 'Over Huesler Onclin', 22.5)), 'no games data → pending');
+});
+
+TestRunner::run('selectionResult — non-tennis spread/total unchanged', function (): void {
+    // Regression guard: NFL still grades against score_home/score_away.
+    $m = match_('Chiefs', 'Eagles', 27, 20); // no sportKey → default path
+    TestRunner::assertEquals('won', SportsbookBetSupport::selectionResult($m, selection_('spreads', 'Chiefs', -3.5)), 'NFL spread still uses raw score');
+    TestRunner::assertEquals('won', SportsbookBetSupport::selectionResult($m, selection_('totals', 'Over Chiefs Eagles', 44.5)), 'NFL total still uses raw score');
+});
+
 // ── evaluateTicket — straight ────────────────────────────────────────────────
 
 TestRunner::run('evaluateTicket — straight', function (): void {

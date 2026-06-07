@@ -411,66 +411,136 @@ final class SportsbookBetSupport
         $point = array_key_exists('point', $selection) && is_numeric($selection['point']) ? (float) $selection['point'] : null;
         $homeTeam = (string) ($match['homeTeam'] ?? '');
         $awayTeam = (string) ($match['awayTeam'] ?? '');
+        // Moneyline uses score_home/score_away as-is — for tennis that is
+        // SETS, and more sets = the winner, which is correct. Spreads/totals
+        // use spreadTotalScores() (games for tennis, raw score elsewhere).
         $scoreHome = self::num($match['score']['score_home'] ?? 0);
         $scoreAway = self::num($match['score']['score_away'] ?? 0);
-        $total = $scoreHome + $scoreAway;
 
         if (in_array($marketType, ['h2h', 'moneyline', 'ml', 'straight'], true)) {
+            $side = self::resolveSelectionSide($selectionName, $homeTeam, $awayTeam);
             if ($scoreHome > $scoreAway) {
-                return $selectionName === $homeTeam ? 'won' : 'lost';
+                if ($side === 'home') return 'won';
+                if ($side === 'away') return 'lost';
+                // Decisive result but the pick is neither side: a Draw bet
+                // loses; anything else we can't tie to a side stays pending
+                // for an operator rather than a wrong auto-loss.
+                return strcasecmp($selectionName, 'Draw') === 0 ? 'lost' : 'pending';
             }
             if ($scoreAway > $scoreHome) {
-                return $selectionName === $awayTeam ? 'won' : 'lost';
+                if ($side === 'away') return 'won';
+                if ($side === 'home') return 'lost';
+                return strcasecmp($selectionName, 'Draw') === 0 ? 'lost' : 'pending';
             }
-            return $selectionName === 'Draw' ? 'won' : 'void';
+            return strcasecmp($selectionName, 'Draw') === 0 ? 'won' : 'void';
         }
 
         if ($marketType === 'spreads' && $point !== null) {
-            if ($selectionName === $homeTeam) {
-                $adjusted = $scoreHome + $point;
-                if ($adjusted > $scoreAway) {
-                    return 'won';
-                }
-                if ($adjusted === $scoreAway) {
-                    return 'void';
-                }
+            $st = self::spreadTotalScores($match);
+            if ($st === null) {
+                return 'pending';
+            }
+            [$spHome, $spAway] = $st;
+            $side = self::resolveSelectionSide($selectionName, $homeTeam, $awayTeam);
+            if ($side === 'home') {
+                $adjusted = $spHome + $point;
+                if ($adjusted > $spAway) return 'won';
+                if ($adjusted === $spAway) return 'void';
                 return 'lost';
             }
-
-            if ($selectionName === $awayTeam) {
-                $adjusted = $scoreAway + $point;
-                if ($adjusted > $scoreHome) {
-                    return 'won';
-                }
-                if ($adjusted === $scoreHome) {
-                    return 'void';
-                }
+            if ($side === 'away') {
+                $adjusted = $spAway + $point;
+                if ($adjusted > $spHome) return 'won';
+                if ($adjusted === $spHome) return 'void';
                 return 'lost';
             }
+            return 'pending'; // couldn't tie the pick to a side
         }
 
         if ($marketType === 'totals' && $point !== null) {
+            $st = self::spreadTotalScores($match);
+            if ($st === null) {
+                return 'pending';
+            }
+            $total = $st[0] + $st[1];
             $isOver = str_contains(strtolower($selectionName), 'over');
             if ($isOver) {
-                if ($total > $point) {
-                    return 'won';
-                }
-                if ($total === $point) {
-                    return 'void';
-                }
+                if ($total > $point) return 'won';
+                if ($total === $point) return 'void';
                 return 'lost';
             }
-
-            if ($total < $point) {
-                return 'won';
-            }
-            if ($total === $point) {
-                return 'void';
-            }
+            if ($total < $point) return 'won';
+            if ($total === $point) return 'void';
             return 'lost';
         }
 
         return 'pending';
+    }
+
+    /**
+     * Home/away scores in the units that SPREAD and TOTAL markets are priced
+     * in. Most sports: score_home/score_away (points / runs / goals). Tennis:
+     * the board spread (e.g. -3.5) and total (e.g. 22.5) are GAMES, but
+     * score_home/score_away are SETS — so sum the per-set games from
+     * score_*_by_period. Moneyline still uses the set score (more sets wins),
+     * so this is ONLY for spreads/totals.
+     *
+     * Returns null when a games-based sport has no per-period data to sum, so
+     * the caller leaves the bet PENDING rather than grading it against the
+     * wrong unit. Money-safe: never invent a number.
+     *
+     * @param array<string,mixed> $match
+     * @return array{0:float,1:float}|null
+     */
+    private static function spreadTotalScores(array $match): ?array
+    {
+        $score = is_array($match['score'] ?? null) ? $match['score'] : [];
+        $sportKey = strtolower((string) ($match['sportKey'] ?? ''));
+
+        if (str_starts_with($sportKey, 'tennis')) {
+            $homeBy = is_array($score['score_home_by_period'] ?? null) ? $score['score_home_by_period'] : [];
+            $awayBy = is_array($score['score_away_by_period'] ?? null) ? $score['score_away_by_period'] : [];
+            if ($homeBy === [] && $awayBy === []) {
+                return null;
+            }
+            $homeGames = 0.0;
+            foreach ($homeBy as $g) {
+                if (is_numeric($g)) $homeGames += (float) $g;
+            }
+            $awayGames = 0.0;
+            foreach ($awayBy as $g) {
+                if (is_numeric($g)) $awayGames += (float) $g;
+            }
+            return [$homeGames, $awayGames];
+        }
+
+        return [self::num($score['score_home'] ?? 0), self::num($score['score_away'] ?? 0)];
+    }
+
+    /**
+     * Tie a selection name to the home or away side, tolerant to short vs full
+     * forms ("Huesler" ↔ "M. Huesler"). Returns 'home', 'away', or null.
+     * null whenever resolution is AMBIGUOUS (matches both) or matches neither,
+     * so settlement can never grade against the wrong side — a null lands the
+     * leg in 'pending' for an operator. Mirrors BetsController::resolveTeamSide.
+     */
+    private static function resolveSelectionSide(string $selection, string $home, string $away): ?string
+    {
+        $s = strtolower(trim($selection));
+        $h = strtolower(trim($home));
+        $a = strtolower(trim($away));
+        if ($s === '') {
+            return null;
+        }
+        $matchesHome = $h !== '' && ($s === $h || str_contains($s, $h) || str_contains($h, $s));
+        $matchesAway = $a !== '' && ($s === $a || str_contains($s, $a) || str_contains($a, $s));
+        if ($matchesHome && !$matchesAway) {
+            return 'home';
+        }
+        if ($matchesAway && !$matchesHome) {
+            return 'away';
+        }
+        return null;
     }
 
     /**
@@ -874,16 +944,22 @@ final class SportsbookBetSupport
         if ($point === null) {
             return null;
         }
-        $scoreHome = self::num($match['score']['score_home'] ?? 0);
-        $scoreAway = self::num($match['score']['score_away'] ?? 0);
+        // Same unit-correct scores as selectionResult (games for tennis).
+        $st = self::spreadTotalScores($match);
+        if ($st === null) {
+            return null;
+        }
+        [$scoreHome, $scoreAway] = $st;
         if ($marketType === 'spreads') {
-            $homeTeam = (string) ($match['homeTeam'] ?? '');
-            $awayTeam = (string) ($match['awayTeam'] ?? '');
-            $selectionName = (string) ($leg['selection'] ?? '');
-            if ($selectionName === $homeTeam && ($scoreHome + $point) === $scoreAway) {
+            $side = self::resolveSelectionSide(
+                (string) ($leg['selection'] ?? ''),
+                (string) ($match['homeTeam'] ?? ''),
+                (string) ($match['awayTeam'] ?? '')
+            );
+            if ($side === 'home' && ($scoreHome + $point) === $scoreAway) {
                 return 'push_tie';
             }
-            if ($selectionName === $awayTeam && ($scoreAway + $point) === $scoreHome) {
+            if ($side === 'away' && ($scoreAway + $point) === $scoreHome) {
                 return 'push_tie';
             }
             return null;
