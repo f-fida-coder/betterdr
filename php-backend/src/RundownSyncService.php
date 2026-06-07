@@ -706,10 +706,32 @@ final class RundownSyncService
      *
      * @return array<string,mixed>
      */
+    /**
+     * Per-sport backoff (unix ts) for the event-delta poll. When the cursor
+     * has fallen so far behind that Rundown rejects even the zero-UUID
+     * bootstrap with "too many events since last_id", re-bootstrapping every
+     * tick is futile and just burns API quota + spams the log. We back off and
+     * retry occasionally. Worker-process scoped (resets on restart, which is
+     * fine — one 400 re-arms it). Finished detection is NOT lost: the 60s
+     * settlement sweep heals finished games via getEvent (tryRundownFinalRefetch)
+     * + looksProvablyFinished, and live scores come from syncSportLive.
+     *
+     * @var array<int,int>
+     */
+    private static array $eventDeltaBackoffUntil = [];
+
+    /** Seconds to suppress the event-delta poll for a sport after it proves unbootstrappable. */
+    private const EVENT_DELTA_BACKOFF_SECONDS = 600;
+
     public static function pollEventDeltasForSport(SqlRepository $db, string $sportKey, int $sportId): array
     {
         if (!RundownClient::isConfigured()) {
             return self::skippedResult('not_configured');
+        }
+        // Skip while backed off — the cursor is unbootstrappable for this
+        // sport's event volume (see $eventDeltaBackoffUntil).
+        if ((self::$eventDeltaBackoffUntil[$sportId] ?? 0) > time()) {
+            return self::skippedResult('event_delta_backoff');
         }
         // /api/v2/delta self-bootstraps from the all-zero UUID, so we
         // don't gate on cursor staleness here — getEventCursor()
@@ -799,13 +821,23 @@ final class RundownSyncService
             }
         } catch (Throwable $e) {
             $errors++;
-            if (str_contains($e->getMessage(), '400 bad request')) {
+            $msg = $e->getMessage();
+            if (str_contains($msg, '400 bad request')) {
                 RundownDeltaCursor::forgetEventCursor($sportId);
+                // "Too many events since last_id" means even the zero-UUID
+                // bootstrap is too large for this sport's event volume — there
+                // is no recent cursor to recover with (the events endpoint only
+                // returns the integer MARKET cursor, not the event UUID). Stop
+                // hammering it every tick; back off and let the settlement
+                // sweep handle finished games instead.
+                if (stripos($msg, 'too many events') !== false) {
+                    self::$eventDeltaBackoffUntil[$sportId] = time() + self::EVENT_DELTA_BACKOFF_SECONDS;
+                }
             }
             Logger::warning('rundown.pollEventDeltasForSport error', [
                 'sportKey' => $sportKey,
                 'sportId'  => $sportId,
-                'error'    => $e->getMessage(),
+                'error'    => $msg,
             ], 'sportsbook');
         }
         return [
