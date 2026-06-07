@@ -100,9 +100,21 @@ final class RundownEventMapper
             $eventName = trim(((string) ($away['name'] ?? '')) . ' at ' . ((string) ($home['name'] ?? '')));
         }
 
+        // team_id → canonical (short) team name, so partitionMarkets can
+        // rewrite full odds participant names ("Boston Red Sox") to the same
+        // homeTeam/awayTeam form the rest of the backend uses ("Boston").
+        $teamNamesById = [];
+        foreach ([$home, $away] as $team) {
+            $teamId = $team['team_id'] ?? null;
+            if ($teamId !== null && $teamId !== '') {
+                $teamNamesById[(string) $teamId] = (string) ($team['name'] ?? '');
+            }
+        }
+
         $partitioned = self::partitionMarkets(
             is_array($event['markets'] ?? null) ? $event['markets'] : [],
-            $resolvedSportKey
+            $resolvedSportKey,
+            $teamNamesById
         );
         $now = SqlRepository::nowUtc();
 
@@ -207,7 +219,7 @@ final class RundownEventMapper
      *     playerProps: list<array<string,mixed>>
      * }
      */
-    private static function partitionMarkets(array $markets, string $sportKey): array
+    private static function partitionMarkets(array $markets, string $sportKey, array $teamNamesById = []): array
     {
         /** @var array<int, array{key:string,name:string,lastUpdate:string,markets:array<string, array{prematch?:list<array<string,mixed>>,live?:list<array<string,mixed>>}>}> $bookmakersById */
         $bookmakersById = [];
@@ -234,6 +246,23 @@ final class RundownEventMapper
                 if (!is_array($participant)) continue;
                 $rawParticipantName = trim((string) ($participant['name'] ?? ''));
                 $participantType    = (string) ($participant['type'] ?? '');
+
+                // Canonical team name. Rundown's odds participant name is the
+                // FULL form ("Boston Red Sox"), but the match doc's
+                // homeTeam/awayTeam use the team `name` field ("Boston") — and
+                // settlement, stored bet selections, and the betslip all run on
+                // that short form. Normalize team outcome names to it, matched
+                // by team_id (participant.id === teams[].team_id), so the whole
+                // backend speaks ONE name and a short/full mismatch can't
+                // reject a valid bet or mis-grade one. Non-team participants
+                // (Over/Under, players) aren't in the map and keep their raw
+                // name.
+                $participantTeamKey = (($participant['id'] ?? null) === null || ($participant['id'] ?? '') === '')
+                    ? ''
+                    : (string) $participant['id'];
+                $canonicalTeamName = ($participantTeamKey !== '' && isset($teamNamesById[$participantTeamKey]))
+                    ? $teamNamesById[$participantTeamKey]
+                    : $rawParticipantName;
 
                 $lines = is_array($participant['lines'] ?? null) ? $participant['lines'] : [];
                 foreach ($lines as $line) {
@@ -297,7 +326,7 @@ final class RundownEventMapper
                             $bookmakersById[$affiliateId]['markets'][$marketKey][$marketSource] ??= [];
                             // Spreads/totals get the house flat juice; h2h/team_totals
                             // pass through. Point is taken from $point (feed) unchanged.
-                            $outcome = ['name' => $rawParticipantName, 'price' => self::boardPriceDecimal($marketKey, $priceFloat, $sportKey)];
+                            $outcome = ['name' => $canonicalTeamName, 'price' => self::boardPriceDecimal($marketKey, $priceFloat, $sportKey)];
                             if ($point !== null) {
                                 $outcome['point'] = $point;
                             }
@@ -328,7 +357,7 @@ final class RundownEventMapper
                         }
                         if ($extKey === null || $rawParticipantName === '') continue;
 
-                        $outcome = ['name' => $rawParticipantName, 'price' => $priceDecimal, 'book' => $book['key']];
+                        $outcome = ['name' => $canonicalTeamName, 'price' => $priceDecimal, 'book' => $book['key']];
                         if ($point !== null) {
                             $outcome['point'] = $point;
                         }

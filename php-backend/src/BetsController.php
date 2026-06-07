@@ -2273,6 +2273,43 @@ final class BetsController
             }
         }
 
+        // Team-name reconciliation fallback. The exact-name loop above fails
+        // when the odds source names an outcome with the FULL team name
+        // ("Boston Red Sox") while the card/betslip sends the SHORT name
+        // ("Boston", the homeTeam/awayTeam form that settlement grades on).
+        // For 2-sided team markets (h2h / spreads + period variants), resolve
+        // the selection and each outcome to a home/away side and match by
+        // side. We read the PRICE from the matched outcome but DO NOT change
+        // the stored selection — it stays the short name so settlement still
+        // grades it correctly. Strict + unambiguous (resolveTeamSide returns
+        // null on any ambiguity), so a leg can never be priced off the wrong
+        // team. Over/Under/Draw selections resolve to null here and fall
+        // through to the rejection below, unchanged.
+        if (!is_array($outcome) && !$isPropMarket) {
+            $homeTeam = (string) ($match['homeTeam'] ?? '');
+            $awayTeam = (string) ($match['awayTeam'] ?? '');
+            $selSide = $this->resolveTeamSide($selection, $homeTeam, $awayTeam);
+            if ($selSide !== null) {
+                $sideMatch = null;
+                $sideAmbiguous = false;
+                foreach (($market['outcomes'] ?? []) as $candidate) {
+                    if (!is_array($candidate)) {
+                        continue;
+                    }
+                    if ($this->resolveTeamSide((string) ($candidate['name'] ?? ''), $homeTeam, $awayTeam) === $selSide) {
+                        if ($sideMatch !== null) {
+                            $sideAmbiguous = true;
+                            break;
+                        }
+                        $sideMatch = $candidate;
+                    }
+                }
+                if (!$sideAmbiguous && is_array($sideMatch)) {
+                    $outcome = $sideMatch;
+                }
+            }
+        }
+
         if (!is_array($outcome) || !isset($outcome['price'])) {
             throw new ApiException('Selection ' . $selection . ' not available for ' . ($match['homeTeam'] ?? '') . ' vs ' . ($match['awayTeam'] ?? ''), 409, [
                 'code' => 'SELECTION_UNAVAILABLE',
@@ -2629,6 +2666,38 @@ final class BetsController
             if (strtolower((string) ($market['key'] ?? '')) === strtolower($key)) {
                 return is_array($market) ? $market : null;
             }
+        }
+        return null;
+    }
+
+    /**
+     * Decide whether a team-market name — a market outcome name OR a user's
+     * selection — refers to the home side, the away side, or neither. Tolerant
+     * to short vs full forms ("Boston" ↔ "Boston Red Sox") because the match
+     * doc carries SHORT names in homeTeam/awayTeam (which settlement grades
+     * against) while some odds sources name outcomes with the FULL team name.
+     *
+     * Returns 'home', 'away', or null. null is returned whenever resolution is
+     * AMBIGUOUS (matches both sides) or matches neither — so a name can never
+     * silently resolve to the wrong side, which on a spread/ML market would
+     * mean pricing a bet off the opponent's line. Money-critical: keep this
+     * strict.
+     */
+    private function resolveTeamSide(string $name, string $home, string $away): ?string
+    {
+        $n = strtolower(trim($name));
+        $h = strtolower(trim($home));
+        $a = strtolower(trim($away));
+        if ($n === '') {
+            return null;
+        }
+        $matchesHome = $h !== '' && ($n === $h || str_contains($n, $h) || str_contains($h, $n));
+        $matchesAway = $a !== '' && ($n === $a || str_contains($n, $a) || str_contains($a, $n));
+        if ($matchesHome && !$matchesAway) {
+            return 'home';
+        }
+        if ($matchesAway && !$matchesHome) {
+            return 'away';
         }
         return null;
     }
