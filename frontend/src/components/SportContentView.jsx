@@ -132,15 +132,31 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     // empty suffix so the Game chip never disappears. Only chips whose
     // suffix is present render — so a sport without quarter sync doesn't
     // show a dead Q1 chip.
+    //
+    // CRITICAL: scope the scan to THIS section's sport. rawMatches carries
+    // every league the API returned, so scanning the whole set leaked other
+    // sports' suffixes in (e.g. NHL's `_p1` showed a dead P1 chip under NBA)
+    // — the chip rendered but clicking it found no market in NBA games, so
+    // odds never changed. Filtering by the same sport keywords as the match
+    // list keeps each section's chips honest. Empty sportId (generic
+    // fallback section) keeps scanning everything, matching the list filter.
     const availableSuffixes = React.useMemo(() => {
         const set = new Set(['']);
+        const keywords = sportId ? getSportKeywords(sportId) : null;
         (rawMatches || []).forEach((match) => {
+            if (keywords) {
+                const sportValue = String(match?.sport || '').toLowerCase();
+                const sportKeyValue = String(match?.sportKey || '').toLowerCase();
+                if (!sportValue && !sportKeyValue) return;
+                const haystack = `${sportValue}|${sportKeyValue}`;
+                if (!keywords.some((k) => matchesSportKeyword(haystack, k))) return;
+            }
             scanMarketsForSuffixes(match?.odds?.markets, set);
             scanMarketsForSuffixes(match?.odds?.extendedMarkets, set);
             scanMarketsForSuffixes(match?.extendedMarkets, set);
         });
         return set;
-    }, [rawMatches]);
+    }, [rawMatches, sportId]);
 
     const periods = React.useMemo(() => {
         const preset = getPeriodsForSport(sportId);

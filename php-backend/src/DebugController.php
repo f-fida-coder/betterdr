@@ -898,6 +898,42 @@ final class DebugController
             }
         }
 
+        // Period-market seed. syncSportPrematch above only carries the
+        // full-game (core) markets, so a freshly-selected sport would show
+        // no per-period chips (H1/H2, Q1-Q4, P1-P3, innings, tennis sets)
+        // until the slow background full-coverage rotation eventually reaches
+        // it. Seed them here, on demand, so the chips appear immediately for
+        // exactly the sport the user picked. Gated by a SPORT-GLOBAL throttle
+        // (not per-IP) so at most one heavy 75-market fetch fires per sport
+        // per interval no matter how many players select it at once. The
+        // core sync keeps its own faster per-IP cadence above for fresh odds.
+        $fullMin = max(0, (int) Env::get('USER_PREMATCH_FULL_MIN_INTERVAL_SECONDS', '60'));
+        if ($fullMin > 0) {
+            $fullKey = 'prematch-full:' . $sportKey;
+            $fullEntry = SharedFileCache::peek('user-sync-last', $fullKey);
+            $fullLastTs = is_array($fullEntry) && isset($fullEntry['ts']) ? (int) $fullEntry['ts'] : 0;
+            if ($fullLastTs === 0 || (time() - $fullLastTs) >= $fullMin) {
+                $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+                if ($sportId !== null) {
+                    // Mark before the call so concurrent requests don't all
+                    // race into the same upstream fetch.
+                    $this->markUserSyncRan($fullKey);
+                    $fullLogId = $this->logTickStart('user_prematch_full:' . $sportKey);
+                    try {
+                        $fr = RundownSyncService::syncSportFull($this->db, $sportKey, $sportId);
+                        $this->logTickFinish($fullLogId, 'ok', [
+                            'updated'    => (int) ($fr['created'] ?? 0) + (int) ($fr['updated'] ?? 0),
+                            'eventsSeen' => (int) ($fr['eventsSeen'] ?? 0),
+                            'propsTotal' => (int) ($fr['propsTotal'] ?? 0),
+                        ], null);
+                    } catch (Throwable $e) {
+                        Logger::exception($e, 'user-prematch-full-sync error');
+                        $this->logTickFinish($fullLogId, 'failed', null, $e->getMessage());
+                    }
+                }
+            }
+        }
+
         if ($throttled) {
             header('X-Sync-Throttled: 1');
         }
