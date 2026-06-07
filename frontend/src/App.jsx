@@ -132,6 +132,10 @@ function AppInner() {
     }
 
     const channel = String(message.channel || '').trim();
+    // ws-server.php broadcasts the body under `data`; the REST event log shape
+    // uses `payload`. Accept either so sportKey/userId targeting works on both
+    // the WebSocket path and any payload-shaped message.
+    const payload = message.data ?? message.payload ?? {};
 
     // bet:settled is fanned out from BetSettlementService /
     // OutrightSettlementService after a per-ticket commit. The MyBets
@@ -142,9 +146,9 @@ function AppInner() {
         window.dispatchEvent(new CustomEvent('bets:refresh', {
           detail: {
             reason: 'realtime',
-            userId: message.payload?.userId ?? null,
-            betId: message.payload?.betId ?? null,
-            status: message.payload?.status ?? null,
+            userId: payload?.userId ?? null,
+            betId: payload?.betId ?? null,
+            status: payload?.status ?? null,
           },
         }));
       }
@@ -191,7 +195,7 @@ function AppInner() {
     lastRealtimeRefreshRef.current = now;
 
     if (typeof window !== 'undefined') {
-      const sportKey = (message.payload && (message.payload.sport_key || message.payload.sportKey)) || null;
+      const sportKey = (payload && (payload.sport_key || payload.sportKey)) || null;
       // matches:force-refetch reads from the freshly-invalidated public
       // cache directly; matches:refresh would kick the backend's slow
       // deferred-sync round-trip and serve a pre-sync snapshot.

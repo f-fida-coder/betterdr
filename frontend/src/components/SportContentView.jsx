@@ -56,6 +56,69 @@ const formatBroadcastTimeET = (iso) => {
     return `${formatted} ${getSiteTimezoneLabel(tz)}`;
 };
 
+// Per-sport grouping for the desktop "Live Now" board (sportId === null,
+// status === 'live'). The single useMatches({status:'live'}) call returns
+// every in-play game across all sports in one response, so they all land
+// together — we just slot a sport header (emoji + label + live count) above
+// the first card of each sport so the board reads "⚾ Baseball / games,
+// 🎾 Tennis / games" instead of one flat mixed list.
+const LIVE_GROUP_META = [
+    { key: 'football', label: 'Football', emoji: '🏈', prefixes: ['americanfootball'], order: 1 },
+    { key: 'basketball', label: 'Basketball', emoji: '🏀', prefixes: ['basketball'], order: 2 },
+    { key: 'baseball', label: 'Baseball', emoji: '⚾', prefixes: ['baseball'], order: 3 },
+    { key: 'hockey', label: 'Hockey', emoji: '🏒', prefixes: ['icehockey', 'hockey'], order: 4 },
+    { key: 'soccer', label: 'Soccer', emoji: '⚽', prefixes: ['soccer', 'football_'], order: 5 },
+    { key: 'tennis', label: 'Tennis', emoji: '🎾', prefixes: ['tennis'], order: 6 },
+    { key: 'mma', label: 'MMA', emoji: '🥊', prefixes: ['mma', 'mixedmartialarts'], order: 7 },
+    { key: 'boxing', label: 'Boxing', emoji: '🥊', prefixes: ['boxing'], order: 8 },
+    { key: 'cricket', label: 'Cricket', emoji: '🏏', prefixes: ['cricket'], order: 9 },
+    { key: 'golf', label: 'Golf', emoji: '⛳', prefixes: ['golf'], order: 10 },
+    { key: 'rugby', label: 'Rugby', emoji: '🏉', prefixes: ['rugby'], order: 11 },
+    { key: 'aussierules', label: 'Aussie Rules', emoji: '🏉', prefixes: ['aussierules'], order: 12 },
+    { key: 'motorsport', label: 'Motorsport', emoji: '🏎️', prefixes: ['motorsport', 'racing', 'formula'], order: 13 },
+    { key: 'esports', label: 'Esports', emoji: '🎮', prefixes: ['esports'], order: 14 },
+];
+
+// Map a raw sportKey (e.g. "baseball_mlb", "icehockey_nhl") to its display
+// group. Unknown keys fall back to a title-cased first token so a brand-new
+// Rundown sport still groups cleanly instead of vanishing.
+const categorizeLiveGroup = (rawSportKey) => {
+    const key = String(rawSportKey || '').toLowerCase().trim();
+    if (key !== '') {
+        for (const meta of LIVE_GROUP_META) {
+            if (meta.prefixes.some((p) => key.startsWith(p))) return meta;
+        }
+    }
+    const token = key.split(/[_-]/)[0] || 'other';
+    const label = token.charAt(0).toUpperCase() + token.slice(1);
+    return { key: token || 'other', label: label || 'Other', emoji: '🏅', order: 999 };
+};
+
+const liveGroupHeaderStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '9px 14px',
+    margin: '16px 0 8px',
+    background: '#13294b',
+    color: '#fff',
+    borderRadius: 8,
+    fontSize: 14,
+    fontWeight: 800,
+    letterSpacing: '0.03em',
+    textTransform: 'uppercase',
+};
+
+const liveGroupCountStyle = {
+    marginLeft: 'auto',
+    background: '#ff5051',
+    color: '#fff',
+    borderRadius: 999,
+    padding: '2px 10px',
+    fontSize: 12,
+    fontWeight: 800,
+};
+
 // Module-level dedupe: when the user multi-selects sports, every mounted
 // SportContentView instance fires its own sync. If two instances both try
 // to toast about the same failed sportKey, the screen used to flood with
@@ -126,6 +189,42 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         }
         return [...keys];
     }, [content.matches]);
+
+    // Group the live board by sport ONLY on the all-sports live view
+    // (sportId === null + status 'live'). Single-sport pages and the
+    // live-upcoming default keep the existing flat list. Builds a flat
+    // [{match, header}] list so we can inject a sport header above the
+    // first card of each group without restructuring the card JSX.
+    const groupBySport = sportId == null && status === 'live';
+    const displayEntries = React.useMemo(() => {
+        const matches = content.matches || [];
+        if (!groupBySport) return matches.map((m) => ({ match: m, header: null }));
+
+        // Bucket by sport group, preserving the incoming (time-sorted) order
+        // within each group.
+        const buckets = new Map();
+        for (const m of matches) {
+            const meta = categorizeLiveGroup(m?.rawMatch?.sportKey || m?.sportKey);
+            if (!buckets.has(meta.key)) buckets.set(meta.key, { meta, matches: [] });
+            buckets.get(meta.key).matches.push(m);
+        }
+        const groups = [...buckets.values()].sort((a, b) => {
+            if (a.meta.order !== b.meta.order) return a.meta.order - b.meta.order;
+            return a.meta.label.localeCompare(b.meta.label);
+        });
+        const entries = [];
+        for (const g of groups) {
+            g.matches.forEach((m, i) => {
+                entries.push({
+                    match: m,
+                    header: i === 0
+                        ? { key: g.meta.key, label: g.meta.label, emoji: g.meta.emoji, count: g.matches.length }
+                        : null,
+                });
+            });
+        }
+        return entries;
+    }, [content.matches, groupBySport]);
 
     // Period chip strip: scan rawMatches for which period suffixes the
     // backend has actually synced (e.g. `_q1`, `_h1`). Always include the
@@ -930,8 +1029,16 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                             </p>
                         </div>
                     ) : (
-                        content.matches.map((match) => (
-                            <div key={match.id} className={`match-card ${match.rawMatch?.isBettable === false ? 'match-card-closed' : ''}`}>
+                        displayEntries.map(({ match, header }) => (
+                            <React.Fragment key={match.id}>
+                                {header && (
+                                    <div style={liveGroupHeaderStyle}>
+                                        <span aria-hidden="true">{header.emoji}</span>
+                                        <span>{header.label}</span>
+                                        <span style={liveGroupCountStyle}>{header.count} live</span>
+                                    </div>
+                                )}
+                            <div className={`match-card ${match.rawMatch?.isBettable === false ? 'match-card-closed' : ''}`}>
                                 {match.broadcast ? (
                                     // Broadcast row sits above the action header so the
                                     // user reads tip-off time + game context + network
@@ -1197,6 +1304,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                     </span>
                                 </div>
                             </div>
+                            </React.Fragment>
                         ))
                     )}
                 </div>

@@ -47,7 +47,8 @@
       "Read(//Users/mac/.claude/projects/**)",
       "Bash(sed -n '/function isLiveCoreVariant/,/}/p' php-backend/src/RundownMarketMap.php)",
       "Bash(sed -n '/function isCore/,/}/p' php-backend/src/RundownMarketMap.php)",
-      "Bash(php -l src/RundownEventMapper.php)"
+      "Bash(php -l src/RundownEventMapper.php)",
+      "Bash(git commit -q -m 'Live board: group desktop Live Now by sport + real-time odds over WebSocket *)"
     ],
     "additionalDirectories": [
       "/Users/mac/Desktop/betterdr/php-backend/cache"

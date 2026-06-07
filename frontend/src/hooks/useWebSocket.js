@@ -20,19 +20,23 @@ function resolveWsUrl(explicitUrl) {
     return '';
   }
 
-  // Only fall back to host:5001 on localhost dev. In production (e.g. Hostinger
-  // shared hosting) port 5001 is not reachable, so without an explicit
-  // VITE_WS_URL we skip the connection entirely and let the REST polling
-  // fallback keep the UI fresh.
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.hostname || 'localhost';
   const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
-  if (!isLocalhost) {
-    return '';
+
+  // Localhost dev: ws-server.php is reachable directly on its TCP port.
+  if (isLocalhost) {
+    const port = import.meta.env.VITE_WS_PORT || '5001';
+    return `${protocol}//${host}:${port}`;
   }
 
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const port = import.meta.env.VITE_WS_PORT || '5001';
-  return `${protocol}//${host}:${port}`;
+  // Production: connect same-origin over 443/80 at the `/ws` path. An nginx
+  // `location /ws { ... Upgrade }` block proxies that to the ws-server.php
+  // daemon on 127.0.0.1:5001 (the raw port is not publicly reachable). If the
+  // proxy or daemon is down the socket simply fails to open and useLiveSyncPoll
+  // (App.jsx, enabled while !realtimeConnected) keeps the UI fresh over REST.
+  // Override with VITE_WS_URL above for non-standard setups.
+  return `${protocol}//${window.location.host}/ws`;
 }
 
 /**

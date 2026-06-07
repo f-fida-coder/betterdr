@@ -42,6 +42,54 @@ final class RundownSyncService
     private const SETTLE_TERMINAL_STATUSES = ['finished', 'canceled', 'cancelled'];
 
     /**
+     * Per-sport coalesce timestamps (ms) for realtime odds events. The WS
+     * daemon's applyWsMessage fires ~1000×/min across all sports, so we MUST
+     * NOT write one RealtimeEventBus line per price tick. Instead we emit at
+     * most one `odds:sync` event per sport per REALTIME_ODDS_EVENT_MIN_MS
+     * window. One event tells the browser "this sport's odds moved — refetch";
+     * the actual prices ride the normal /api/matches response. These maps are
+     * static so they persist for the lifetime of a long-running daemon (the
+     * WS daemon + odds-worker); in PHP-FPM they reset per request, which is
+     * fine — at most one event per request there.
+     *
+     * @var array<string,float>
+     */
+    private static array $lastOddsEventAtMs = [];
+
+    /**
+     * Publish a coalesced realtime "odds moved" signal for a sport. Feeds both
+     * the downstream browser WebSocket (ws-server.php tails the same event log
+     * and broadcasts to subscribers) AND the REST /api/sync/recent poll
+     * fallback — both turn it into a `matches:force-refetch` on the client.
+     * Display-only: bet placement still re-validates odds server-side, so a
+     * dropped/late event never affects money.
+     */
+    private static function publishOddsEvent(string $sportKey, array $extra = []): void
+    {
+        $sportKey = trim($sportKey);
+        if ($sportKey === '' || !class_exists('RealtimeEventBus')) {
+            return;
+        }
+        $minIntervalMs = (int) Env::get('REALTIME_ODDS_EVENT_MIN_MS', '1000');
+        $now = microtime(true) * 1000.0;
+        if ($minIntervalMs > 0) {
+            $last = self::$lastOddsEventAtMs[$sportKey] ?? 0.0;
+            if (($now - $last) < $minIntervalMs) {
+                return;
+            }
+            self::$lastOddsEventAtMs[$sportKey] = $now;
+        }
+        try {
+            RealtimeEventBus::publish('odds:sync', array_merge([
+                'sport_key' => $sportKey,
+                'ts'        => gmdate(DATE_ATOM),
+            ], $extra));
+        } catch (Throwable $e) {
+            // Realtime is best-effort; never let it break a sync/bet path.
+        }
+    }
+
+    /**
      * @return array{
      *     ok:bool,
      *     skipped?:string,
@@ -190,6 +238,9 @@ final class RundownSyncService
                 RundownDeltaCursor::set($sportId, $lastId);
             }
             SportsbookHealth::recordOddsSourceSuccess($db, true);
+            if ($eventsSeen > 0) {
+                self::publishOddsEvent($sportKey, ['src' => 'live']);
+            }
             // DEBUG-RUNDOWN: one line per live sport sync (remove when done).
             if (self::debugSyncEnabled()) {
                 Logger::info('DEBUG-RUNDOWN live', [
@@ -527,6 +578,7 @@ final class RundownSyncService
 
             if ($applied > 0) {
                 SportsbookHealth::recordOddsSourceSuccess($db, false);
+                self::publishOddsEvent($sportKey, ['src' => 'delta', 'applied' => $applied]);
             } else {
                 // Heartbeat — the upstream responded cleanly but no prices
                 // moved. Bump lastOddsSyncAt on every live row of this
@@ -691,6 +743,7 @@ final class RundownSyncService
                 'oddsSource'     => RundownEventMapper::ODDS_SOURCE_TAG,
             ]);
             $db->commit();
+            self::publishOddsEvent((string) ($existing['sportKey'] ?? ''), ['src' => 'ws']);
             return true;
         } catch (Throwable $e) {
             $db->rollback();
