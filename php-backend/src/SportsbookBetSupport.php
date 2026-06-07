@@ -411,13 +411,71 @@ final class SportsbookBetSupport
         $point = array_key_exists('point', $selection) && is_numeric($selection['point']) ? (float) $selection['point'] : null;
         $homeTeam = (string) ($match['homeTeam'] ?? '');
         $awayTeam = (string) ($match['awayTeam'] ?? '');
-        // Moneyline uses score_home/score_away as-is — for tennis that is
-        // SETS, and more sets = the winner, which is correct. Spreads/totals
-        // use spreadTotalScores() (games for tennis, raw score elsewhere).
-        $scoreHome = self::num($match['score']['score_home'] ?? 0);
-        $scoreAway = self::num($match['score']['score_away'] ?? 0);
 
-        if (in_array($marketType, ['h2h', 'moneyline', 'ml', 'straight'], true)) {
+        // Resolve the stored marketType (e.g. 'spreads', 'alternate_totals',
+        // 'h2h_q1', 'totals_1st_5_innings') into a gradeable base market and
+        // an optional period suffix. Returns null for market families we do
+        // NOT auto-grade (3-way ML, team totals, BTTS, draw-no-bet, double-
+        // chance, player props) — those stay 'pending' for an operator
+        // rather than ever risk a wrong auto-grade. Alternate lines collapse
+        // to their base (alternate_spreads → spreads); the bet carries its
+        // own `point`, so alt grading is identical to the base market.
+        $parsed = self::parseGradableMarket($marketType);
+        if ($parsed === null) {
+            return 'pending';
+        }
+        $baseMarket = $parsed['base'];     // 'h2h' | 'spreads' | 'totals'
+        $periodSuffix = $parsed['suffix']; // null (full game) or 'q1','h1','p2','1st_5_innings', ...
+
+        if ($periodSuffix === null) {
+            // Full-game grading. Moneyline uses score_home/score_away as-is
+            // (for tennis that is SETS — more sets wins, correct). Spreads/
+            // totals use spreadTotalScores() (games for tennis, raw score
+            // elsewhere).
+            if ($baseMarket === 'h2h') {
+                $scoreHome = self::num($match['score']['score_home'] ?? 0);
+                $scoreAway = self::num($match['score']['score_away'] ?? 0);
+            } else {
+                $st = self::spreadTotalScores($match);
+                if ($st === null) {
+                    return 'pending';
+                }
+                [$scoreHome, $scoreAway] = $st;
+            }
+        } else {
+            // Period / half / quarter / inning grading. Sum the per-period
+            // slice from score_*_by_period. Money-safe: periodScorePair
+            // returns null (→ 'pending') whenever the league's period
+            // structure is unknown OR the by_period data is too short to
+            // cover the requested slice, so a wrong slice can never be
+            // graded. Period markets never apply to tennis, so the games-
+            // vs-sets distinction above is irrelevant here.
+            $ps = self::periodScorePair($match, $periodSuffix);
+            if ($ps === null) {
+                return 'pending';
+            }
+            [$scoreHome, $scoreAway] = $ps;
+        }
+
+        return self::gradeAgainstScore($baseMarket, $selectionName, $point, $scoreHome, $scoreAway, $homeTeam, $awayTeam);
+    }
+
+    /**
+     * Grade a single h2h/spreads/totals selection against a resolved score
+     * pair. Shared by full-game and period grading so the win/lose/push
+     * rules are byte-identical for both. `$point` is the bet's stored line
+     * (already buy-points/teaser adjusted upstream).
+     */
+    private static function gradeAgainstScore(
+        string $baseMarket,
+        string $selectionName,
+        ?float $point,
+        float $scoreHome,
+        float $scoreAway,
+        string $homeTeam,
+        string $awayTeam
+    ): string {
+        if ($baseMarket === 'h2h') {
             $side = self::resolveSelectionSide($selectionName, $homeTeam, $awayTeam);
             if ($scoreHome > $scoreAway) {
                 if ($side === 'home') return 'won';
@@ -435,34 +493,25 @@ final class SportsbookBetSupport
             return strcasecmp($selectionName, 'Draw') === 0 ? 'won' : 'void';
         }
 
-        if ($marketType === 'spreads' && $point !== null) {
-            $st = self::spreadTotalScores($match);
-            if ($st === null) {
-                return 'pending';
-            }
-            [$spHome, $spAway] = $st;
+        if ($baseMarket === 'spreads' && $point !== null) {
             $side = self::resolveSelectionSide($selectionName, $homeTeam, $awayTeam);
             if ($side === 'home') {
-                $adjusted = $spHome + $point;
-                if ($adjusted > $spAway) return 'won';
-                if ($adjusted === $spAway) return 'void';
+                $adjusted = $scoreHome + $point;
+                if ($adjusted > $scoreAway) return 'won';
+                if ($adjusted === $scoreAway) return 'void';
                 return 'lost';
             }
             if ($side === 'away') {
-                $adjusted = $spAway + $point;
-                if ($adjusted > $spHome) return 'won';
-                if ($adjusted === $spHome) return 'void';
+                $adjusted = $scoreAway + $point;
+                if ($adjusted > $scoreHome) return 'won';
+                if ($adjusted === $scoreHome) return 'void';
                 return 'lost';
             }
             return 'pending'; // couldn't tie the pick to a side
         }
 
-        if ($marketType === 'totals' && $point !== null) {
-            $st = self::spreadTotalScores($match);
-            if ($st === null) {
-                return 'pending';
-            }
-            $total = $st[0] + $st[1];
+        if ($baseMarket === 'totals' && $point !== null) {
+            $total = $scoreHome + $scoreAway;
             $isOver = str_contains(strtolower($selectionName), 'over');
             if ($isOver) {
                 if ($total > $point) return 'won';
@@ -475,6 +524,163 @@ final class SportsbookBetSupport
         }
 
         return 'pending';
+    }
+
+    /**
+     * Split a stored marketType into the gradeable base market + optional
+     * period suffix, or null when the market family is not auto-gradeable.
+     *
+     * Supported (auto-graded): h2h / spreads / totals, their `alternate_`
+     * forms, and their period variants (_q1.._q4, _h1/_h2, _p1.._p3,
+     * _1st_{1,3,5,7}_innings).
+     *
+     * NOT auto-graded (→ null → stays pending for an operator): 3-way ML
+     * (h2h_3_way*), team totals, BTTS, draw-no-bet, double-chance, corners/
+     * cards, and every player prop. These either need a result dimension
+     * the score doc doesn't carry (props, corners) or have house-rule
+     * nuances (3-way regulation/OT) we will not guess at.
+     *
+     * @return array{base:string, suffix:?string}|null
+     */
+    private static function parseGradableMarket(string $marketType): ?array
+    {
+        $mt = trim(strtolower($marketType));
+        if ($mt === '') {
+            return null;
+        }
+        // Alternate lines grade exactly like their base — the differing line
+        // is already stored on the bet as `point`.
+        if (str_starts_with($mt, 'alternate_')) {
+            $mt = substr($mt, strlen('alternate_'));
+        }
+        // Full-game base markets.
+        if (in_array($mt, ['h2h', 'moneyline', 'ml', 'straight'], true)) {
+            return ['base' => 'h2h', 'suffix' => null];
+        }
+        if ($mt === 'spreads') {
+            return ['base' => 'spreads', 'suffix' => null];
+        }
+        if ($mt === 'totals') {
+            return ['base' => 'totals', 'suffix' => null];
+        }
+        // Period variants: base_<suffix>, base ∈ {h2h,spreads,totals} and the
+        // suffix is one we know how to map to by_period indices. Anything
+        // else under those prefixes (e.g. h2h_3_way, totals_corners) is
+        // intentionally rejected.
+        $knownSuffixes = [
+            'q1', 'q2', 'q3', 'q4',
+            'h1', 'h2',
+            'p1', 'p2', 'p3',
+            '1st_1_innings', '1st_3_innings', '1st_5_innings', '1st_7_innings',
+        ];
+        foreach (['h2h', 'spreads', 'totals'] as $base) {
+            $prefix = $base . '_';
+            if (str_starts_with($mt, $prefix)) {
+                $suffix = substr($mt, strlen($prefix));
+                if (in_array($suffix, $knownSuffixes, true)) {
+                    return ['base' => $base, 'suffix' => $suffix];
+                }
+                return null; // unsupported variant under a known base
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Resolve the (home, away) score for a period market by summing the
+     * appropriate per-period slice of score_*_by_period.
+     *
+     * Money-safe by construction: returns null (caller leaves the leg
+     * pending) whenever
+     *   - by_period data is missing/empty,
+     *   - the league's period structure for this suffix is unknown, or
+     *   - the by_period array is shorter than the period structure requires
+     *     (e.g. a halves-only league's 2-element array can never be graded
+     *     as quarters — that guard prevents summing the whole game into an
+     *     "H1" bet and mis-paying it).
+     *
+     * @param array<string,mixed> $match
+     * @return array{0:float,1:float}|null
+     */
+    private static function periodScorePair(array $match, string $suffix): ?array
+    {
+        $score = is_array($match['score'] ?? null) ? $match['score'] : [];
+        $homeBy = is_array($score['score_home_by_period'] ?? null) ? array_values($score['score_home_by_period']) : [];
+        $awayBy = is_array($score['score_away_by_period'] ?? null) ? array_values($score['score_away_by_period']) : [];
+        if ($homeBy === [] || $awayBy === []) {
+            return null;
+        }
+        $plan = self::periodIndices(strtolower((string) ($match['sportKey'] ?? '')), $suffix);
+        if ($plan === null) {
+            return null;
+        }
+        [$indices, $minPeriods] = $plan;
+        if (count($homeBy) < $minPeriods || count($awayBy) < $minPeriods) {
+            return null;
+        }
+        $home = 0.0;
+        $away = 0.0;
+        foreach ($indices as $i) {
+            if (!array_key_exists($i, $homeBy) || !array_key_exists($i, $awayBy)) {
+                return null;
+            }
+            if (!is_numeric($homeBy[$i]) || !is_numeric($awayBy[$i])) {
+                return null;
+            }
+            $home += (float) $homeBy[$i];
+            $away += (float) $awayBy[$i];
+        }
+        return [$home, $away];
+    }
+
+    /**
+     * Map a (sportKey, period suffix) to the by_period indices to sum and
+     * the minimum array length that proves the league actually uses that
+     * period structure. Returns null when we can't be certain.
+     *
+     * by_period is per-period scoring (points/goals/runs in THAT period,
+     * not cumulative) — the same convention the tennis spread/total grading
+     * already relies on in production. Period markets exclude overtime by
+     * construction: they only sum specific regulation-period indices, while
+     * full-game markets use score_home/away (which include OT).
+     *
+     * @return array{0:int[],1:int}|null  [indices, minPeriods]
+     */
+    private static function periodIndices(string $sportKey, string $suffix): ?array
+    {
+        // Hockey periods (NHL plays three 20-min periods).
+        $hockey = ['p1' => [0], 'p2' => [1], 'p3' => [2]];
+        if (isset($hockey[$suffix])) {
+            return [$hockey[$suffix], 3];
+        }
+        // Quarters (basketball/football leagues that play four quarters).
+        $quarters = ['q1' => [0], 'q2' => [1], 'q3' => [2], 'q4' => [3]];
+        if (isset($quarters[$suffix])) {
+            return [$quarters[$suffix], 4];
+        }
+        // Baseball inning splits — sum per-inning runs for the first N innings.
+        $innings = ['1st_1_innings' => 1, '1st_3_innings' => 3, '1st_5_innings' => 5, '1st_7_innings' => 7];
+        if (isset($innings[$suffix])) {
+            $n = $innings[$suffix];
+            return [range(0, $n - 1), $n];
+        }
+        // Halves — structure depends on the league's period layout:
+        //   • soccer: by_period is two halves           → H1=[0], H2=[1]
+        //   • NCAAB: genuinely two 20-min halves         → H1=[0], H2=[1]
+        //   • other basketball + football: four quarters → H1=[0,1], H2=[2,3]
+        // Unknown sports return null (stay pending) rather than guess. The
+        // minPeriods guard (2 for true halves, 4 for quarter-leagues) stops
+        // a halves-only array from being graded as quarters.
+        if ($suffix === 'h1' || $suffix === 'h2') {
+            if (str_starts_with($sportKey, 'soccer') || $sportKey === 'basketball_ncaab') {
+                return $suffix === 'h1' ? [[0], 2] : [[1], 2];
+            }
+            if (str_starts_with($sportKey, 'basketball') || str_starts_with($sportKey, 'americanfootball')) {
+                return $suffix === 'h1' ? [[0, 1], 4] : [[2, 3], 4];
+            }
+            return null;
+        }
+        return null;
     }
 
     /**
