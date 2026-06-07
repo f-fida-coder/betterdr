@@ -2865,6 +2865,11 @@ const refreshButtonStaleStyle = {
     color: '#c2410c',
 };
 
+// Height of the fixed mobile chrome (.mobile-header-container = top-header 64
+// + tabs-bar 60). Sticky period/league headers pin just below it. Tweak this
+// single constant if the mobile header height ever changes.
+const MOBILE_STICKY_TOP = 124;
+
 const periodTabBarStyle = {
     display: 'flex',
     gap: 8,
@@ -2878,12 +2883,15 @@ const periodTabBarStyle = {
     borderRadius: 8,
     overflowX: 'auto',
     WebkitOverflowScrolling: 'touch',
-    // NOT sticky. The mobile shell header (.mobile-header-container) is
-    // position:fixed at 124px; a sticky `top:0` here anchored the strip to
-    // the scrollport top BEHIND that fixed header, clipping the period chips
-    // (Game / F1-F7 / Q1-Q4) on every scroll. Flowing with the content keeps
-    // them fully visible since the content area is already padded clear of
-    // the fixed header.
+    // Sticky so the period chips (Game / F1-F7 / Q1-Q4) stay reachable and
+    // bettable while the user scrolls the live list. Pinned at
+    // MOBILE_STICKY_TOP = the fixed .mobile-header-container height. A prior
+    // attempt used top:0 and clipped the chips BEHIND that fixed header;
+    // offsetting by the header height fixes it. zIndex keeps match cards
+    // scrolling underneath.
+    position: 'sticky',
+    top: MOBILE_STICKY_TOP,
+    zIndex: 20,
     flexShrink: 0,
 };
 
@@ -3035,10 +3043,14 @@ const leagueHeaderStyle = {
     padding: '6px 10px 6px 14px',
     background: '#ff5051',
     color: '#fff',
-    // NOT sticky — see periodTabBarStyle. A sticky `top:0` pinned this
-    // league row (label pill + period chips) behind the 124px fixed mobile
-    // header, clipping the F1-F7 / Q1-Q4 chips. Flowing with the content
-    // keeps the row fully visible.
+    // Sticky section header: each sport's row (label pill + its period chips)
+    // pins below the fixed mobile header while you scroll that sport's games;
+    // the next sport's header scrolls up and pushes it out of view, taking
+    // over (iOS-style section headers). Pinned at MOBILE_STICKY_TOP so it
+    // clears the fixed chrome (a prior top:0 attempt clipped it behind it).
+    position: 'sticky',
+    top: MOBILE_STICKY_TOP,
+    zIndex: 20,
     flexShrink: 0,
     minHeight: 40,
 };
