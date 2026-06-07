@@ -488,16 +488,28 @@ final class BetSettlementService
                 $summary['matchesChecked']++;
                 $annotated = SportsMatchStatus::annotate($match);
                 $status = (string) ($annotated['status'] ?? '');
-                if (!in_array($status, ['finished', 'canceled', 'expired'], true)) {
-                    // Stuck-match heal: the upstream feed sometimes posts
-                    // final scores but never flips event_status to
-                    // FINAL/COMPLETE, leaving the match permanently in
-                    // `live`/`scheduled` and every dependent leg stuck
-                    // pending forever. Detect that with three independent
-                    // signals — non-zero score, started ≥90 min ago, and
-                    // no sync touch for ≥30 min — and force-finish so
-                    // settlement can run. All three must agree to avoid
-                    // misclassifying a live game whose score is in flux.
+                // Match must have a confirmed outcome before we settle.
+                // 'expired' (feed went quiet past grace) is intentionally
+                // NOT in this list — it routes into the heal block below so
+                // the Rundown re-pull can recover the real final instead of
+                // stranding the bet. Kept byte-identical to the cron sweep
+                // (settlePendingMatches) so a player loading My Bets heals
+                // exactly the same way the background worker does — critical
+                // when the cron isn't running yet.
+                if (!in_array($status, ['finished', 'canceled'], true)) {
+                    // Three heal paths, in order of trust; anything that
+                    // still can't be proven finished stays pending for an
+                    // operator — money never moves on a guess.
+                    //   1. looksProvablyFinished — score already on the row,
+                    //      just force the terminal status (local, no HTTP).
+                    //   2. tryRundownFinalRefetch — re-pull the FINAL from
+                    //      Rundown's single-event endpoint (not excluded by
+                    //      STATUS_FINAL), which carries the real score +
+                    //      by_period (tennis games). Authoritative source,
+                    //      bounded by a 180s per-event cooldown so repeated
+                    //      My Bets loads can't hammer the upstream.
+                    //   3. FallbackScoreService (ESPN) — last resort for the
+                    //      leagues Rundown drops but ESPN covers.
                     if (self::looksProvablyFinished($match)) {
                         $db->updateOne('matches', ['id' => SqlRepository::id($matchId)], [
                             'status' => 'finished',
@@ -512,6 +524,18 @@ final class BetSettlementService
                             'lastUpdated' => ($match['lastUpdated'] ?? null) ?: ($match['updatedAt'] ?? null),
                             'score' => $match['score'] ?? null,
                         ], 'bets');
+                    } elseif (self::shouldTryFallbackScore($match)) {
+                        if (self::tryRundownFinalRefetch($db, $match)) {
+                            $match = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]) ?? $match;
+                            $summary['stuckHealed']++;
+                            $summary['rundownHealed'] = ($summary['rundownHealed'] ?? 0) + 1;
+                        } elseif (FallbackScoreService::tryHealMatch($db, $match)) {
+                            $match = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]) ?? $match;
+                            $summary['stuckHealed']++;
+                            $summary['fallbackHealed'] = ($summary['fallbackHealed'] ?? 0) + 1;
+                        } else {
+                            continue;
+                        }
                     } else {
                         continue;
                     }

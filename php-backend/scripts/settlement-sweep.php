@@ -21,6 +21,18 @@ declare(strict_types=1);
  * Adjust the absolute path to match your server. No flags required.
  */
 
+// Register the on-demand autoloader FIRST so the stuck-match heal path in
+// settlePendingMatches can resolve its lazy dependencies — RundownClient,
+// RundownSyncService (+ Rundown* map classes) and FallbackScoreService.
+// Without this the manual require chain below loaded only the eager
+// settlement classes, so tryRundownFinalRefetch threw "class not found"
+// internally (swallowed → false) and FallbackScoreService::tryHealMatch
+// fatally errored — meaning a stuck tennis/low-coverage match could NEVER
+// auto-heal from the cron safety-net, only from the web app / odds-worker
+// which both register the autoloader. Idempotent.
+require_once __DIR__ . '/../src/Autoloader.php';
+Autoloader::register();
+
 require_once __DIR__ . '/../src/Env.php';
 require_once __DIR__ . '/../src/Logger.php';
 require_once __DIR__ . '/../src/Http.php';
