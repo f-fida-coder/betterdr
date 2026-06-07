@@ -547,6 +547,52 @@ final class BetSettlementService
      *
      * @param array<string,mixed> $match
      */
+    /**
+     * Re-pull a stuck match's FINAL straight from Rundown's single-event
+     * endpoint and report whether it now carries a terminal status.
+     *
+     * Why this exists: the live/date sync sends exclude_status=STATUS_FINAL,
+     * so a finished game's final score never lands on the matches row and the
+     * bet sits pending indefinitely. getEvent() is NOT excluded, so it returns
+     * the real final from the SAME authoritative source the bet was priced on
+     * (more accurate than the ESPN backup, and it carries tennis by_period
+     * games). Idempotent via syncEventFull's upsert; cooldown-gated so the 60s
+     * sweep can't hammer the upstream for the same event.
+     *
+     * @param array<string,mixed> $match
+     */
+    private static function tryRundownFinalRefetch(SqlRepository $db, array $match): bool
+    {
+        $eventId = trim((string) ($match['externalId'] ?? ''));
+        $matchId = (string) ($match['id'] ?? '');
+        if ($eventId === '' || $matchId === '' || !RundownClient::isConfigured()) {
+            return false;
+        }
+        // At most one upstream getEvent per event per cooldown window, even
+        // though the sweep runs every ~60s and may see the same stuck match
+        // for hours until the operator or the next final lands.
+        SharedFileCache::remember(
+            'rundown-final-refetch',
+            $eventId,
+            180,
+            static function () use ($db, $eventId): array {
+                try {
+                    $r = RundownSyncService::syncEventFull($db, $eventId);
+                    return ['ok' => (bool) ($r['ok'] ?? false), 'at' => time()];
+                } catch (Throwable $e) {
+                    Logger::warning('rundown final refetch failed', [
+                        'eventId' => $eventId,
+                        'error'   => $e->getMessage(),
+                    ], 'bets');
+                    return ['ok' => false, 'at' => time()];
+                }
+            }
+        );
+        $fresh = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
+        $status = strtolower((string) ($fresh['status'] ?? ''));
+        return in_array($status, ['finished', 'canceled', 'cancelled'], true);
+    }
+
     private static function shouldTryFallbackScore(array $match, ?int $nowTs = null): bool
     {
         $now = $nowTs ?? time();
@@ -670,13 +716,21 @@ final class BetSettlementService
                             'score' => $match['score'] ?? null,
                         ], 'bets');
                     } elseif (self::shouldTryFallbackScore($match)) {
-                        // The upstream odds source never published a final for
-                        // this match (KBO and similar international leagues
-                        // are the common offenders). Try ESPN as a backup
-                        // before giving up — if it returns a score, the
-                        // match row gets status='finished' + score populated,
-                        // and we proceed to settle on the same tick.
-                        if (FallbackScoreService::tryHealMatch($db, $match)) {
+                        // The live/date sync sets exclude_status=STATUS_FINAL,
+                        // so once a game ends its final score never lands on
+                        // the row and the bet sits pending forever — tennis
+                        // especially, where ESPN's backup often doesn't cover
+                        // lower-tier events. So try the PRIMARY source first:
+                        // re-pull the event straight from Rundown's single-
+                        // event endpoint (getEvent is NOT excluded and returns
+                        // the real final + score/by_period). Fall back to ESPN
+                        // only if Rundown still has no terminal result. Either
+                        // way we then settle on the same tick.
+                        if (self::tryRundownFinalRefetch($db, $match)) {
+                            $match = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]) ?? $match;
+                            $summary['stuckHealed']++;
+                            $summary['rundownHealed'] = ($summary['rundownHealed'] ?? 0) + 1;
+                        } elseif (FallbackScoreService::tryHealMatch($db, $match)) {
                             $match = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]) ?? $match;
                             $summary['stuckHealed']++;
                             $summary['fallbackHealed'] = ($summary['fallbackHealed'] ?? 0) + 1;
