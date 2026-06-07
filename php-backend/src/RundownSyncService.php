@@ -184,6 +184,11 @@ final class RundownSyncService
             ], 'sportsbook');
         }
         $avg = $eventsSeen > 0 ? round($bookmakersTotal / $eventsSeen, 2) : 0.0;
+        if (($created + $updated) > 0) {
+            // Push so anyone viewing this sport's upcoming board refetches and
+            // sees fresh lines without waiting for the ~60s prematch poll.
+            self::publishOddsEvent($sportKey, ['src' => 'prematch']);
+        }
         return [
             'ok'             => $errors === 0,
             'eventsSeen'     => $eventsSeen,

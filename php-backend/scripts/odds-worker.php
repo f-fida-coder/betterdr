@@ -71,6 +71,10 @@ $liveFullRefreshEveryT    = max(1,   (int) Env::get('RUNDOWN_LIVE_FULL_REFRESH_E
 $liveScoreEveryT          = max(1,   (int) Env::get('RUNDOWN_LIVE_SCORE_EVERY_TICKS', '4'));         // 20s — fast score+inning sweep
 $prematchEveryTicks       = max(1,   (int) Env::get('RUNDOWN_PREMATCH_EVERY_N_TICKS', '18'));         // ~90s
 $prematchBatch            = max(1,   (int) Env::get('PREMATCH_MAX_SPORTS_PER_TICK', '8'));
+// When the dedicated prematch-worker.php is running, it owns the prematch
+// sweep — skip it here so we don't double-fetch (and so this worker stays
+// lean for live scores + settlement).
+$prematchDedicated        = strtolower((string) Env::get('PREMATCH_DEDICATED_WORKER', 'false')) === 'true';
 $settleEveryTicks         = max(1,   (int) Env::get('RUNDOWN_SETTLE_EVERY_N_TICKS', '12'));           // ~60s
 $logEveryTicks            = max(1,   (int) Env::get('RUNDOWN_LOG_EVERY_N_TICKS', '12'));              // ~60s
 $maxRuntimeSeconds        = max(60,  (int) Env::get('RUNDOWN_WORKER_MAX_RUNTIME_SECONDS', '21600'));  // 6h then voluntary restart
@@ -213,7 +217,7 @@ while (!$shutdown) {
 
         // ── 2. Prematch rotation ────────────────────────────────────
         $prematchResult = null;
-        if ($tick % $prematchEveryTicks === 0 && RundownClient::isConfigured()) {
+        if (!$prematchDedicated && $tick % $prematchEveryTicks === 0 && RundownClient::isConfigured()) {
             // Phase 1 credit-save: rotate only sports that actually have
             // games (recent or upcoming). Falls back to the full catalog
             // if RUNDOWN_PREMATCH_ACTIVE_SPORTS_ONLY=false or if too few
