@@ -109,6 +109,23 @@ const liveGroupHeaderStyle = {
     textTransform: 'uppercase',
 };
 
+// Red pill next to the start time on a live card showing the current
+// inning/quarter/clock (e.g. "TOP 6TH"). Only rendered when status is LIVE.
+const liveStateStyle = {
+    marginLeft: 8,
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '2px 8px',
+    background: '#ff5051',
+    color: '#fff',
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 800,
+    letterSpacing: '0.02em',
+    textTransform: 'uppercase',
+    verticalAlign: 'middle',
+};
+
 const liveGroupCountStyle = {
     marginLeft: 'auto',
     background: '#ff5051',
@@ -818,7 +835,20 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     },
                     score1: awayScore,
                     score2: homeScore,
-                    period: match.score?.period, // e.g. 'Q1', '2nd Half'
+                    // Live game state — inning / quarter / period + clock. The
+                    // backend stores the human label in `eventStatusDetail`
+                    // (e.g. "Top 6th", "2nd Quarter") and a numeric period +
+                    // clock in score.game_period / score.display_clock. Prefer
+                    // the label; fall back to period+clock. Empty for non-live.
+                    liveState: (() => {
+                        const detail = String(match.eventStatusDetail || '').trim();
+                        if (detail) return detail;
+                        const clock = String(match.score?.display_clock || '').trim();
+                        const p = Number(match.score?.game_period || 0);
+                        if (p > 0 && clock) return `P${p} · ${clock}`;
+                        if (p > 0) return `Period ${p}`;
+                        return clock;
+                    })(),
                     // LIVE badge is the truth-test the user reads at a
                     // glance. It must reflect BOTH "this row is in-progress"
                     // AND "the odds you're seeing are fresh enough to bet
@@ -1072,6 +1102,9 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                     <div className="match-time">
                                         <span className="time">{match.time}</span>
                                         <span className="date">{match.date}</span>
+                                        {match.status === 'LIVE' && match.liveState ? (
+                                            <span style={liveStateStyle} title="Live game state">{match.liveState}</span>
+                                        ) : null}
                                         <OddsAge timestamp={match.rawMatch?.lastOddsSyncAt} live={(match.status || '').toString().toUpperCase() === 'LIVE' || (match.rawMatch?.status || '').toString().toLowerCase() === 'live'} style={{ marginLeft: 8 }} />
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -269,6 +269,83 @@ final class RundownSyncService
     }
 
     /**
+     * Fast, cheap LIVE-SCORE sweep. Pulls current score + inning/clock for a
+     * sport's in-progress events from the events endpoint (no affiliate_ids →
+     * no odds data-point cost) and patches ONLY the score block via
+     * scoreUpdate() — bookmakers/odds are never touched, so it can run far
+     * more often than the full sweep without clobbering WS odds or burning
+     * Rundown credit. Built because the event-delta poll (/api/v2/delta) is
+     * unbootstrappable at this account's volume, leaving scores otherwise
+     * stuck on the slow full-refresh cadence.
+     *
+     * Money-safe: the upstream query excludes finals, so this NEVER writes a
+     * terminal status — settlement still owns finished/canceled transitions.
+     * Only existing rows are patched (new events are created by the full sync).
+     *
+     * @return array<string,mixed>
+     */
+    public static function syncSportLiveScores(SqlRepository $db, string $sportKey, int $sportId): array
+    {
+        if (!RundownClient::isConfigured()) {
+            return self::skippedResult('not_configured');
+        }
+        $date = gmdate('Y-m-d', time() - self::offsetSeconds());
+        $eventsSeen = $updated = $errors = 0;
+        try {
+            $resp = RundownClient::getEventsForSport($sportId, $date, self::baseQueryParamsScores());
+            if (!is_array($resp)) {
+                return ['ok' => true, 'eventsSeen' => 0, 'updated' => 0, 'errors' => 0];
+            }
+            $events = is_array($resp['events'] ?? null) ? $resp['events'] : [];
+            foreach ($events as $event) {
+                if (!is_array($event)) continue;
+                $eventId = trim((string) ($event['event_id'] ?? ''));
+                if ($eventId === '') continue;
+                $eventsSeen++;
+                $matchId = RundownEventMapper::deterministicMatchId($eventId);
+                // Patch only — never create here. A missing row means the
+                // event hasn't been synced yet; the full/prematch sync owns
+                // creation (with odds).
+                if ($db->findOne('matches', ['id' => $matchId]) === null) {
+                    continue;
+                }
+                try {
+                    $db->updateOne('matches', ['id' => $matchId], RundownEventMapper::scoreUpdate($event));
+                    $updated++;
+                } catch (Throwable $rowErr) {
+                    $errors++;
+                }
+            }
+            if ($updated > 0) {
+                SportsbookHealth::recordOddsSourceSuccess($db, false);
+                // Tell the browser a score moved → it refetches and shows the
+                // new score/inning. App.jsx + useLiveSyncPoll both handle the
+                // `odds:sport:score` channel (does NOT advance odds-freshness,
+                // so the bet-ability gate stays honest).
+                if (class_exists('RealtimeEventBus')) {
+                    try {
+                        RealtimeEventBus::publish('odds:sport:score', [
+                            'sport_key' => $sportKey,
+                            'updated'   => $updated,
+                            'ts'        => gmdate(DATE_ATOM),
+                        ]);
+                    } catch (Throwable $pubErr) {
+                        // best-effort
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            $errors++;
+            Logger::warning('rundown.syncSportLiveScores error', [
+                'sportKey' => $sportKey,
+                'sportId'  => $sportId,
+                'error'    => $e->getMessage(),
+            ], 'sportsbook');
+        }
+        return ['ok' => $errors === 0, 'eventsSeen' => $eventsSeen, 'updated' => $updated, 'errors' => $errors];
+    }
+
+    /**
      * Full-market refresh for a single event — pulls core + player props
      * + period markets + alt lines in one /events/{id} call. Heavier than
      * syncSportLive() per event but produces complete prop coverage.
@@ -1308,6 +1385,27 @@ final class RundownSyncService
         if ($affiliateIds !== '') {
             $params['affiliate_ids'] = $affiliateIds;
         }
+        $offset = (int) Env::get('RUNDOWN_DATE_OFFSET_MINUTES', '300');
+        if ($offset > 0) {
+            $params['offset'] = $offset;
+        }
+        return $params;
+    }
+
+    /**
+     * Score-only query for the live-score sweep. NO affiliate_ids (so the
+     * upstream returns event + score blocks without expanding bookmaker
+     * odds — keeps Rundown data-point cost ~0) and NO market_ids. Excludes
+     * finals (those settle via the sweep; this path never marks finished).
+     *
+     * @return array<string,string|int>
+     */
+    private static function baseQueryParamsScores(): array
+    {
+        $params = [
+            'main_line'      => 'true',
+            'exclude_status' => 'STATUS_FINAL,STATUS_FINAL_AET,STATUS_FINAL_PEN,STATUS_CANCELED,STATUS_FORFEIT',
+        ];
         $offset = (int) Env::get('RUNDOWN_DATE_OFFSET_MINUTES', '300');
         if ($offset > 0) {
             $params['offset'] = $offset;

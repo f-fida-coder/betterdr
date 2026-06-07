@@ -68,6 +68,7 @@ $tickSeconds              = max(2,   (int) Env::get('RUNDOWN_WORKER_TICK_SECONDS
 $liveMarketDeltaEveryT    = max(1,   (int) Env::get('RUNDOWN_LIVE_MARKET_DELTA_EVERY_TICKS', '1'));  // 5s
 $liveEventDeltaEveryT     = max(1,   (int) Env::get('RUNDOWN_LIVE_EVENT_DELTA_EVERY_TICKS', '3'));   // 15s
 $liveFullRefreshEveryT    = max(1,   (int) Env::get('RUNDOWN_LIVE_FULL_REFRESH_EVERY_TICKS', '60')); // 5 min
+$liveScoreEveryT          = max(1,   (int) Env::get('RUNDOWN_LIVE_SCORE_EVERY_TICKS', '4'));         // 20s — fast score+inning sweep
 $prematchEveryTicks       = max(1,   (int) Env::get('RUNDOWN_PREMATCH_EVERY_N_TICKS', '18'));         // ~90s
 $prematchBatch            = max(1,   (int) Env::get('PREMATCH_MAX_SPORTS_PER_TICK', '8'));
 $settleEveryTicks         = max(1,   (int) Env::get('RUNDOWN_SETTLE_EVERY_N_TICKS', '12'));           // ~60s
@@ -124,6 +125,7 @@ while (!$shutdown) {
             'sportsTried'     => 0,
             'marketDeltas'    => 0,
             'eventDeltas'     => 0,
+            'scoreSweeps'     => 0,
             'fullRefreshes'   => 0,
             'errors'          => 0,
         ];
@@ -164,6 +166,19 @@ while (!$shutdown) {
                     foreach (($r['finishedMatchIds'] ?? []) as $fmid) {
                         $instantSettleIds[(string) $fmid] = true;
                     }
+                }
+
+                // Fast score+inning sweep — every Nth tick (default 20s).
+                // The event-delta poll above is unbootstrappable at this
+                // account's volume (400 "too many events"), so without this
+                // scores would only refresh on the slow full sweep. This
+                // pulls current score/inning per live sport WITHOUT odds
+                // (no affiliate_ids → ~0 data-point cost) and patches score
+                // fields only. Skipped on a full-refresh tick (already fresh).
+                if (!$needFullRefresh && $tick % $liveScoreEveryT === 0) {
+                    $r = RundownSyncService::syncSportLiveScores($repo, $sportKey, $sportId);
+                    $liveResult['scoreSweeps'] = ($liveResult['scoreSweeps'] ?? 0) + (int) ($r['updated'] ?? 0);
+                    $liveResult['errors']     += (int) ($r['errors'] ?? 0);
                 }
             }
         }

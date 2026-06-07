@@ -360,6 +360,7 @@ final class MatchesController
                 'odds' => 1,
                 'oddsSource' => 1,
                 'score' => 1,
+                'eventStatusDetail' => 1,
                 'lastUpdated' => 1,
                 'lastOddsSyncAt' => 1,
                 'lastScoreSyncAt' => 1,
