@@ -887,7 +887,11 @@ final class MatchesController
             return $match;
         }
 
-        $selected = self::selectMarketsFromBookmakers($bookmakers);
+        // In-play games can prefer a different book set (e.g. mirror a PPH
+        // book's live lines) via SPORTSBOOK_PREFERRED_BOOKS_LIVE. The same
+        // flag flows into bet placement (BetsController) so display = bet price.
+        $isLive = strtolower((string) ($match['status'] ?? '')) === 'live';
+        $selected = self::selectMarketsFromBookmakers($bookmakers, $isLive);
         if ($selected === []) {
             return $match;
         }
@@ -915,7 +919,7 @@ final class MatchesController
      * @param list<array<string,mixed>> $bookmakers
      * @return list<array<string,mixed>>
      */
-    private static function selectMarketsFromBookmakers(array $bookmakers): array
+    private static function selectMarketsFromBookmakers(array $bookmakers, bool $isLive = false): array
     {
         /** @var array<string, list<array{book:string,market:array<string,mixed>}>> $candidates */
         $candidates = [];
@@ -944,7 +948,7 @@ final class MatchesController
 
         $selected = [];
         foreach ($candidates as $marketKey => $rows) {
-            $preferredBooks = self::preferredBooksForMarket($marketKey);
+            $preferredBooks = self::preferredBooksForMarket($marketKey, $isLive);
             $chosen = null;
 
             foreach ($preferredBooks as $bookKey) {
@@ -970,8 +974,19 @@ final class MatchesController
     /**
      * @return list<string>
      */
-    private static function preferredBooksForMarket(string $marketKey): array
+    private static function preferredBooksForMarket(string $marketKey, bool $isLive = false): array
     {
+        // Live (in-play) games take a single dedicated book list when
+        // SPORTSBOOK_PREFERRED_BOOKS_LIVE is set — it overrides the per-market
+        // and general lists so the whole live board mirrors one book family.
+        // Prematch is untouched (falls through to the existing logic).
+        if ($isLive) {
+            $live = self::parsePreferredBookList((string) Env::get('SPORTSBOOK_PREFERRED_BOOKS_LIVE', ''));
+            if ($live !== []) {
+                return $live;
+            }
+        }
+
         $family = self::marketFamily($marketKey);
         $envKey = match ($family) {
             'spreads' => 'SPORTSBOOK_PREFERRED_BOOKS_SPREADS',

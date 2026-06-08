@@ -2716,8 +2716,11 @@ final class BetsController
     {
         $pool = [];
         $oddsRoot = $match['odds'] ?? [];
+        // Mirror MatchesController: in-play games select markets from the live
+        // book list so the bet price matches exactly what the player saw.
+        $isLive = strtolower((string) ($match['status'] ?? '')) === 'live';
         if (is_array($oddsRoot)) {
-            $oddsRoot = self::canonicalizeOddsMarketsFromBookmakers($oddsRoot);
+            $oddsRoot = self::canonicalizeOddsMarketsFromBookmakers($oddsRoot, $isLive);
             if (isset($oddsRoot['markets']) && is_array($oddsRoot['markets'])) {
                 foreach ($oddsRoot['markets'] as $m) {
                     if (is_array($m)) $pool[] = $m;
@@ -2745,14 +2748,14 @@ final class BetsController
      * @param array<string,mixed> $oddsRoot
      * @return array<string,mixed>
      */
-    private static function canonicalizeOddsMarketsFromBookmakers(array $oddsRoot): array
+    private static function canonicalizeOddsMarketsFromBookmakers(array $oddsRoot, bool $isLive = false): array
     {
         $bookmakers = is_array($oddsRoot['bookmakers'] ?? null) ? $oddsRoot['bookmakers'] : [];
         if ($bookmakers === []) {
             return $oddsRoot;
         }
 
-        $selected = self::selectMarketsFromBookmakers($bookmakers);
+        $selected = self::selectMarketsFromBookmakers($bookmakers, $isLive);
         if ($selected === []) {
             return $oddsRoot;
         }
@@ -2779,7 +2782,7 @@ final class BetsController
      * @param list<array<string,mixed>> $bookmakers
      * @return list<array<string,mixed>>
      */
-    private static function selectMarketsFromBookmakers(array $bookmakers): array
+    private static function selectMarketsFromBookmakers(array $bookmakers, bool $isLive = false): array
     {
         /** @var array<string, list<array{book:string,market:array<string,mixed>}>> $candidates */
         $candidates = [];
@@ -2808,7 +2811,7 @@ final class BetsController
 
         $selected = [];
         foreach ($candidates as $marketKey => $rows) {
-            $preferredBooks = self::preferredBooksForMarket($marketKey);
+            $preferredBooks = self::preferredBooksForMarket($marketKey, $isLive);
             $chosen = null;
 
             foreach ($preferredBooks as $bookKey) {
@@ -2834,8 +2837,19 @@ final class BetsController
     /**
      * @return list<string>
      */
-    private static function preferredBooksForMarket(string $marketKey): array
+    private static function preferredBooksForMarket(string $marketKey, bool $isLive = false): array
     {
+        // Live (in-play) games use SPORTSBOOK_PREFERRED_BOOKS_LIVE when set,
+        // overriding per-market + general lists. Must match MatchesController
+        // exactly so the bet price equals the displayed price. Prematch falls
+        // through unchanged.
+        if ($isLive) {
+            $live = self::parsePreferredBookList((string) Env::get('SPORTSBOOK_PREFERRED_BOOKS_LIVE', ''));
+            if ($live !== []) {
+                return $live;
+            }
+        }
+
         $family = self::marketFamily($marketKey);
         $envKey = match ($family) {
             'spreads' => 'SPORTSBOOK_PREFERRED_BOOKS_SPREADS',
