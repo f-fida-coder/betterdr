@@ -74,12 +74,18 @@ const OddsAge = ({ timestamp, live = false, className, style: extraStyle }) => {
     if (!Number.isFinite(ts)) return null;
 
     const ageMs = Math.max(0, nowTick - ts);
-    const seconds = Math.floor(ageMs / 1000);
     const minutes = Math.floor(ageMs / 60000);
 
     let label;
-    if (live && ageMs < 90 * 1000) {
-        label = ageMs < 10000 ? 'Live · now' : `Live · ${seconds}s`;
+    if (live) {
+        // A live (in-progress) game always reads "Live". The bettor cares that
+        // the game is happening now, not how many seconds ago the price last
+        // moved. lastOddsSyncAt legitimately ages between line moves and — the
+        // visible symptom here — while a backgrounded tab hasn't refetched, so
+        // showing that age made healthy live games tick up "13s… 4m ago" and
+        // then snap back to live on refocus. Bet placement re-validates odds
+        // server-side, so the cached odds-age is informational only.
+        label = 'Live';
     } else if (ageMs < 60000) {
         label = 'Just now';
     } else if (minutes === 1) {
