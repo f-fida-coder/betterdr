@@ -213,7 +213,12 @@ final class RundownSyncService
         }
         $offsetSeconds = self::offsetSeconds();
         $date = gmdate('Y-m-d', time() - $offsetSeconds);
-        $base = self::baseQueryParams();
+        // RUNDOWN_LIVE_ALL_LINES=true drops main_line=true on the LIVE pull so
+        // sports without a main-line flag (tennis et al.) aren't filtered to
+        // empty by hide_no_markets — the fix for live tennis/Challenger/ITF
+        // events never reaching the board. Prematch/schedule keep main_line.
+        $allLines = filter_var(Env::get('RUNDOWN_LIVE_ALL_LINES', 'false'), FILTER_VALIDATE_BOOLEAN);
+        $base = self::baseQueryParams($allLines);
         $eventsSeen = $created = $updated = $errors = 0;
 
         try {
@@ -1345,8 +1350,16 @@ final class RundownSyncService
         return $bookmakers;
     }
 
-    /** @return array<string,string|int> */
-    private static function baseQueryParams(): array
+    /**
+     * @param bool $allLines When true, omit `main_line=true` so the upstream
+     *   returns every posted line, not just the main one. Needed for sports
+     *   (e.g. tennis) where Rundown does not flag a single "main line" — with
+     *   `main_line=true` + `hide_no_markets=true` those events come back EMPTY
+     *   and get dropped, which is why most live tennis never reached the board.
+     *   Costs more data points (alt lines included), so it is opt-in per call.
+     * @return array<string,string|int>
+     */
+    private static function baseQueryParams(bool $allLines = false): array
     {
         $params = [
             // Request core markets PLUS every explicit period market
@@ -1354,13 +1367,17 @@ final class RundownSyncService
             // sets). Without this Rundown only sends the 8 core IDs and
             // every period chip in the UI stays blank.
             'market_ids'       => RundownMarketMap::csvForLivePolling(),
-            'main_line'        => 'true',
             'hide_no_markets'  => 'true',
             // Skip finished games — they still surface on the date endpoint
             // for events played today, but waste a mapping pass + DB write
             // since BetSettlementService already settled them.
             'exclude_status'   => 'STATUS_FINAL,STATUS_FINAL_AET,STATUS_FINAL_PEN,STATUS_CANCELED,STATUS_FORFEIT',
         ];
+        // main_line=true keeps the payload to one line per market (cheap), but
+        // some sports have no main-line flag and come back empty under it.
+        if (!$allLines) {
+            $params['main_line'] = 'true';
+        }
         $affiliateIds = trim((string) Env::get('RUNDOWN_AFFILIATE_IDS', ''));
         if ($affiliateIds !== '') {
             $params['affiliate_ids'] = $affiliateIds;
