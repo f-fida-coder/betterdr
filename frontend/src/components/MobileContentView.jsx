@@ -511,12 +511,18 @@ const PERIOD_CLOSE_THRESHOLDS = {
 };
 const SOCCER_HALF_THRESHOLDS = { '1h': 1, '2h': 2 };
 
+const TERMINAL_MATCH_STATUSES = new Set(['finished', 'final', 'ended', 'closed', 'expired', 'canceled', 'cancelled', 'settled']);
+const isLiveLikeMatch = (match) => {
+    const status = String(match?.status || '').toLowerCase();
+    if (TERMINAL_MATCH_STATUSES.has(status)) return false;
+    if (status === 'live') return true;
+    const eventStatus = String(match?.score?.event_status || '').toUpperCase();
+    return eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
+};
+
 const isPeriodClosedForMatch = (periodId, match) => {
     if (!periodId || periodId === 'full') return false;
-    const eventStatus = String(match?.score?.event_status || '').toUpperCase();
-    const isLive = match?.status === 'live'
-        || eventStatus.includes('IN_PROGRESS')
-        || eventStatus.includes('LIVE');
+    const isLive = isLiveLikeMatch(match);
     if (!isLive) return false;
     const periodNum = Number(match?.score?.period || 0);
     if (!Number.isFinite(periodNum) || periodNum <= 0) return false;
@@ -884,10 +890,7 @@ const MobileContentView = ({
             let anyLiveMatched = false;
             let anyOpen = false;
             for (const m of matches) {
-                const eventStatus = String(m?.score?.event_status || '').toUpperCase();
-                const isLive = m?.status === 'live'
-                    || eventStatus.includes('IN_PROGRESS')
-                    || eventStatus.includes('LIVE');
+                const isLive = isLiveLikeMatch(m);
                 if (!isLive) {
                     anyOpen = true;
                     break;
@@ -975,10 +978,7 @@ const MobileContentView = ({
                 // still showed action). Cards still show; App.jsx refuses
                 // live adds to teasers with a clear toast.
                 if (primarySport !== 'commercial-live') {
-                    const liveStatus = String(match?.status || '').toLowerCase() === 'live';
-                    const eventStatus = String(match?.score?.event_status || '').toUpperCase();
-                    const liveByEvent = eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
-                    if (liveStatus || liveByEvent) return false;
+                    if (isLiveLikeMatch(match)) return false;
                 }
             }
             if (sportKeywords) {
@@ -997,7 +997,7 @@ const MobileContentView = ({
             const homeName = match.homeTeam || match.home_team || '';
             const awayName = match.awayTeam || match.away_team || '';
             const eventStatus = (match.score?.event_status || '').toString().toUpperCase();
-            const isLive = match.status === 'live' || eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
+            const isLive = isLiveLikeMatch(match);
             const startDate = match.startTime ? new Date(match.startTime) : null;
             // Build a sportsbook-style label ("9TH INN", "3RD QTR 12:34",
             // "2ND PRD 8:42", "1ST H") from the score fields populated by
@@ -1633,9 +1633,7 @@ const MobileContentView = ({
         if (liveLeagueTabs.length > 1) return [];
         const counts = { early: 0, mid: 0, late: 0 };
         for (const m of matchesAfterLeagueFilter) {
-            const isLive = m?.status === 'live'
-                || String(m?.score?.event_status || '').toUpperCase().includes('IN_PROGRESS')
-                || String(m?.score?.event_status || '').toUpperCase().includes('LIVE');
+            const isLive = isLiveLikeMatch(m);
             if (!isLive) continue;
             const stage = classifyGameStage(m);
             counts[stage] = (counts[stage] || 0) + 1;

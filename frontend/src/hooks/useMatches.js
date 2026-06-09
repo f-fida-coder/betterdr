@@ -225,10 +225,14 @@ const isUpcomingMatch = (match) => {
 const isFinishedMatch = (match) => {
     if (!match) return false;
     const status = (match.status || '').toString().toLowerCase();
-    if (['finished', 'final', 'cancelled', 'canceled', 'closed', 'expired', 'suspended'].includes(status)) return true;
+    if (['finished', 'final', 'ended', 'cancelled', 'canceled', 'closed', 'expired', 'suspended', 'settled'].includes(status)) return true;
 
     const eventStatus = (match.score?.event_status || '').toString().toUpperCase();
-    return eventStatus.includes('FINAL') || eventStatus.includes('COMPLETE') || eventStatus.includes('STATUS_CLOSED');
+    return eventStatus.includes('FINAL')
+        || eventStatus.includes('COMPLETE')
+        || eventStatus.includes('STATUS_CLOSED')
+        || eventStatus.includes('STATUS_ENDED')
+        || eventStatus.includes('ENDED');
 };
 
 const isPastCommence = (match) => {
@@ -248,8 +252,7 @@ const filterMatches = (normalized, statusFilter) => {
     }
 
     if (statusFilter === 'live' || statusFilter === 'active') {
-        const filtered = normalized.filter(isLiveMatch);
-        return filtered.length === 0 && normalized.length > 0 ? normalized : filtered;
+        return normalized.filter(isLiveMatch);
     }
 
     if (statusFilter === 'upcoming' || statusFilter === 'scheduled') {

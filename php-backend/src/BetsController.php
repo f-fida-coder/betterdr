@@ -1787,7 +1787,10 @@ final class BetsController
                         $real = max(0.0, $risk - $fpUsed);
                         $expectedPending += $real;
                     }
-                    $expectedPending = (float) round($expectedPending);
+                    // Keep cent precision. Integer rounding caused the 60s
+                    // reconciler to shave/boost pending by up to $0.99,
+                    // which surfaced as sudden pending/available jumps.
+                    $expectedPending = (float) round($expectedPending, 2);
                     // Re-fetch the user — the settlement sweep above may
                     // have just decremented pendingBalance, and `$user`
                     // from $this->protect() is the pre-sweep snapshot. A
@@ -1795,8 +1798,8 @@ final class BetsController
                     $freshUser = $this->db->findOne('users', ['id' => SqlRepository::id($userId)], [
                         'projection' => ['pendingBalance' => 1],
                     ]);
-                    $currentPending = (float) round((float) ($freshUser['pendingBalance'] ?? 0));
-                    if (abs($expectedPending - $currentPending) >= 1.0) {
+                    $currentPending = (float) round((float) ($freshUser['pendingBalance'] ?? 0), 2);
+                    if (abs($expectedPending - $currentPending) >= 0.01) {
                         $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                             'pendingBalance' => $expectedPending,
                             'updatedAt' => SqlRepository::nowUtc(),

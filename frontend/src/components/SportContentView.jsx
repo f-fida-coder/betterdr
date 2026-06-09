@@ -136,6 +136,15 @@ const liveGroupCountStyle = {
     fontWeight: 800,
 };
 
+const TERMINAL_MATCH_STATUSES = new Set(['finished', 'final', 'ended', 'closed', 'expired', 'canceled', 'cancelled', 'settled']);
+const isLiveLikeMatch = (match) => {
+    const status = String(match?.status || '').toLowerCase();
+    if (TERMINAL_MATCH_STATUSES.has(status)) return false;
+    if (status === 'live') return true;
+    const eventStatus = String(match?.score?.event_status || '').toUpperCase();
+    return eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
+};
+
 // Module-level dedupe: when the user multi-selects sports, every mounted
 // SportContentView instance fires its own sync. If two instances both try
 // to toast about the same failed sportKey, the screen used to flood with
@@ -707,10 +716,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     // even when Teaser is selected — otherwise the hub reads
                     // empty while teaser add is already blocked in App.jsx.
                     if (!isStrictLiveBoard) {
-                        const liveStatus = String(m?.status || '').toLowerCase() === 'live';
-                        const eventStatus = String(m?.score?.event_status || '').toUpperCase();
-                        const liveByEvent = eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
-                        if (liveStatus || liveByEvent) return false;
+                        if (isLiveLikeMatch(m)) return false;
                     }
                 }
                 if (!resolvedSportId) return true;
@@ -860,10 +866,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     // bet buttons are disabled. SCHEDULED stays the
                     // default for pre-kickoff rows.
                     status: (() => {
-                        const liveByBackend = match.status === 'live';
-                        const eventStatus = String(match.score?.event_status || '').toUpperCase();
-                        const liveByEvent = eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
-                        if (!liveByBackend && !liveByEvent) return 'SCHEDULED';
+                        const normalizedStatus = String(match.status || '').toLowerCase();
+                        const isTerminal = TERMINAL_MATCH_STATUSES.has(normalizedStatus);
+                        if (isTerminal) return 'SCHEDULED';
+                        if (!isLiveLikeMatch(match)) return 'SCHEDULED';
                         return match.isBettable === false ? 'SUSPENDED' : 'LIVE';
                     })(),
                     odds: extractOdds(match, homeName, awayName),

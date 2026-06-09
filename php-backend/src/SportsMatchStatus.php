@@ -108,7 +108,11 @@ final class SportsMatchStatus
                 // promote postponed/abandoned games the feed has stopped
                 // updating — those fall through to the expiry grace path.
                 $staleAfter = self::envInt('MATCH_LIVE_STALE_AFTER_SECONDS', 45 * 60);
-                if ($lastUpdatedTs !== null && ($lastUpdatedTs + $staleAfter) >= $now) {
+                if (
+                    $lastUpdatedTs !== null
+                    && ($lastUpdatedTs + $staleAfter) >= $now
+                    && self::hasInProgressSignal($match)
+                ) {
                     return 'live';
                 }
             }
@@ -222,5 +226,33 @@ final class SportsMatchStatus
         }
 
         return $startTs <= ($nowTs ?? time());
+    }
+
+    /**
+     * @param array<string, mixed> $match
+     */
+    private static function hasInProgressSignal(array $match): bool
+    {
+        $eventStatus = strtoupper(trim((string) ($match['score']['event_status'] ?? '')));
+        if (
+            str_contains($eventStatus, 'IN_PROGRESS')
+            || str_contains($eventStatus, 'LIVE')
+            || str_contains($eventStatus, 'STATUS_IN_PROGRESS')
+        ) {
+            return true;
+        }
+
+        $score = is_array($match['score'] ?? null) ? $match['score'] : [];
+        $period = $score['period'] ?? ($score['game_period'] ?? null);
+        if (is_numeric($period) && (float) $period > 0) {
+            return true;
+        }
+
+        $clock = trim((string) (($score['clock'] ?? '') ?: ($score['display_clock'] ?? '')));
+        if ($clock !== '') {
+            return true;
+        }
+
+        return false;
     }
 }
