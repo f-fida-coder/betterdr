@@ -164,6 +164,23 @@ final class SportsMatchStatus
             return false;
         }
 
+        // Phantom-live guard (money-safety). A row can read 'live' purely on the
+        // feed's event_status=IN_PROGRESS flag while the game is actually over —
+        // fast/obscure markets (Bet365 table-tennis et al.) sit flagged
+        // in-progress at 0-0 with frozen, garbage odds long after they finish,
+        // because the terminal-status flip is settlement-paced. Such a row is
+        // bettable here, the wager is taken, then the next settlement sweep sees
+        // the terminal event_status and voids+refunds it within seconds — money
+        // out, money back, no bet. We refuse the bet UP FRONT (clear "closed"
+        // reason) instead of taking-then-voiding by requiring a real in-play
+        // movement signal (moving score / running clock / started period), not
+        // merely the live flag. A genuine in-play game carries at least one of
+        // these; only the first seconds of a true 0-0 kickoff are briefly
+        // gated, which is the safe trade. Mirrors the frontend hasInPlaySignal.
+        if ($effective === 'live' && !self::hasLiveMovementSignal($match)) {
+            return false;
+        }
+
         return true;
     }
 
@@ -184,6 +201,14 @@ final class SportsMatchStatus
         if ($effective === 'scheduled' && self::hasStarted($match, $nowTs)) {
             $label = trim((string) (($match['homeTeam'] ?? 'Match') . ' vs ' . ($match['awayTeam'] ?? '')));
             return 'Betting is closed for ' . $label;
+        }
+
+        // Phantom-live: flagged live but no real in-play movement (see the
+        // matching guard in isBettable). Refuse with a clear reason rather than
+        // taking the bet and auto-voiding it seconds later.
+        if ($effective === 'live' && !self::hasLiveMovementSignal($match)) {
+            $label = trim((string) (($match['homeTeam'] ?? 'Match') . ' vs ' . ($match['awayTeam'] ?? '')));
+            return 'Live betting is not available for ' . $label . ' right now';
         }
 
         if ($effective === 'scheduled' || $effective === 'live') {
@@ -250,6 +275,49 @@ final class SportsMatchStatus
 
         $clock = trim((string) (($score['clock'] ?? '') ?: ($score['display_clock'] ?? '')));
         if ($clock !== '') {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Real, concrete proof the game is actually being played right now — a
+     * non-zero score, a running clock, a started period, a human period label,
+     * or per-period score data. Deliberately does NOT count the bare
+     * event_status=IN_PROGRESS flag (unlike hasInProgressSignal, which is used
+     * for the looser "promote a started scheduled row to live" decision): a
+     * finished-but-feed-lagging row keeps that flag while frozen at 0-0, and we
+     * must not let those be bettable. Mirrors the frontend hasInPlaySignal so
+     * the board and the placement gate agree on what "live" means.
+     *
+     * @param array<string, mixed> $match
+     */
+    private static function hasLiveMovementSignal(array $match): bool
+    {
+        $score = is_array($match['score'] ?? null) ? $match['score'] : [];
+
+        if ((float) ($score['score_home'] ?? 0) > 0 || (float) ($score['score_away'] ?? 0) > 0) {
+            return true;
+        }
+
+        $clock = trim((string) (($score['display_clock'] ?? '') ?: ($score['clock'] ?? '')));
+        if ($clock !== '') {
+            return true;
+        }
+
+        $period = $score['game_period'] ?? ($score['period'] ?? null);
+        if (is_numeric($period) && (float) $period > 0) {
+            return true;
+        }
+
+        if (trim((string) ($match['eventStatusDetail'] ?? '')) !== '') {
+            return true;
+        }
+
+        $byHome = is_array($score['score_home_by_period'] ?? null) ? $score['score_home_by_period'] : [];
+        $byAway = is_array($score['score_away_by_period'] ?? null) ? $score['score_away_by_period'] : [];
+        if (count($byHome) > 0 || count($byAway) > 0) {
             return true;
         }
 

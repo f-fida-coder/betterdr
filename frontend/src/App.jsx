@@ -223,20 +223,38 @@ function AppInner() {
     enabled: isLoggedIn,
   });
 
-  // Hostinger-compatible push-feel fallback: when the WebSocket isn't
-  // available (production — port 5001 is blocked, no persistent socket),
-  // poll /api/sync/recent every ~3.5s for fresh events from the worker's
-  // event log. This is the path most production users actually traverse.
-  // We only enable it when the WebSocket isn't connected, so localhost
-  // dev (which gets a real WS) doesn't double-fire refetches.
-  //
-  // Each request is a tiny file-read on the backend — no DB, no upstream
-  // API, no long-poll. It's safe for shared PHP-FPM hosts and turns the
-  // ~15s polling window in useMatches into a ~3-4s effective push
-  // window for new data.
+  // Realtime-staleness watchdog. A WebSocket can report "connected" while
+  // silently delivering nothing — a half-open socket, or the publish side
+  // hiccupping — which would freeze live odds until the slow 15s useMatches
+  // backstop and make the player reach for Refresh. We treat realtime as
+  // STALE when the socket is down OR no odds event has landed for
+  // REALTIME_SILENT_MS, and let the cheap sync-poll cover the gap. Each
+  // realtime event resets the timer (the effect re-runs on lastRealtimeEventAt),
+  // so a healthy, actively-delivering socket keeps the poll OFF (no double
+  // refetch); only genuine quiet windows fall back to polling.
+  const REALTIME_SILENT_MS = 12000;
+  const [realtimeSilent, setRealtimeSilent] = useState(true);
+  useEffect(() => {
+    if (!realtimeConnected) {
+      setRealtimeSilent(true);
+      return undefined;
+    }
+    setRealtimeSilent(false);
+    const t = window.setTimeout(() => setRealtimeSilent(true), REALTIME_SILENT_MS);
+    return () => window.clearTimeout(t);
+  }, [realtimeConnected, lastRealtimeEventAt]);
+
+  // Hostinger-compatible push-feel transport: poll /api/sync/recent for fresh
+  // events from the worker's event log whenever realtime is down OR has gone
+  // quiet (the watchdog above). In production the WebSocket on port 5001 isn't
+  // reachable, so this is the path most users traverse. Each request is a tiny
+  // file-read on the backend — no DB, no upstream API, no long-poll — so a 3s
+  // cadence is safe for shared PHP-FPM and gives live odds a near-instant,
+  // no-Refresh-needed feel. When a healthy WS is actively delivering, the
+  // watchdog keeps this OFF so dev/WS users don't double-fetch.
   useLiveSyncPoll({
-    enabled: isLoggedIn && !realtimeConnected,
-    intervalMs: 5000,
+    enabled: isLoggedIn && (!realtimeConnected || realtimeSilent),
+    intervalMs: 3000,
   });
 
   const seedSessionState = useCallback(({ token: nextToken = '', user: nextUser = null, role: nextRole = '' } = {}) => {

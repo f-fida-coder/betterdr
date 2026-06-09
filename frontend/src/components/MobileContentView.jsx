@@ -15,6 +15,7 @@ import {
 } from '../utils/odds';
 import { logoUrlForTeam, fetchTeamBadgeUrl, prewarmTeamBadges } from '../utils/teamLogos';
 import { resolveBroadcast } from '../utils/broadcast';
+import { isLiveLikeMatch } from '../utils/liveStatus';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
 import TeaserTypePicker from './TeaserTypePicker';
@@ -511,14 +512,8 @@ const PERIOD_CLOSE_THRESHOLDS = {
 };
 const SOCCER_HALF_THRESHOLDS = { '1h': 1, '2h': 2 };
 
-const TERMINAL_MATCH_STATUSES = new Set(['finished', 'final', 'ended', 'closed', 'expired', 'canceled', 'cancelled', 'settled']);
-const isLiveLikeMatch = (match) => {
-    const status = String(match?.status || '').toLowerCase();
-    if (TERMINAL_MATCH_STATUSES.has(status)) return false;
-    if (status === 'live') return true;
-    const eventStatus = String(match?.score?.event_status || '').toUpperCase();
-    return eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
-};
+// isLiveLikeMatch (+ the terminal-status set) now live in utils/liveStatus so
+// every surface gates LIVE on a real in-play signal, not just the feed flag.
 
 const isPeriodClosedForMatch = (periodId, match) => {
     if (!periodId || periodId === 'full') return false;

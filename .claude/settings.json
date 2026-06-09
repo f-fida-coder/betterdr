@@ -48,7 +48,10 @@
       "Bash(sed -n '/function isLiveCoreVariant/,/}/p' php-backend/src/RundownMarketMap.php)",
       "Bash(sed -n '/function isCore/,/}/p' php-backend/src/RundownMarketMap.php)",
       "Bash(php -l src/RundownEventMapper.php)",
-      "Bash(git commit -q -m 'Live board: group desktop Live Now by sport + real-time odds over WebSocket *)"
+      "Bash(git commit -q -m 'Live board: group desktop Live Now by sport + real-time odds over WebSocket *)",
+      "Bash(php -l src/SportsMatchStatus.php)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(php php-backend/scripts/sportsbook-smoke.php)"
     ],
     "additionalDirectories": [
       "/Users/mac/Desktop/betterdr/php-backend/cache"

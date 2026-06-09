@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { getMatches, getAdminMatches } from '../api';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
+import { isLiveLikeMatch } from '../utils/liveStatus';
 
 const SCOREBOARD_CACHE_KEY = 'admin_scoreboard_matches_cache_v1';
 
@@ -96,12 +97,10 @@ const ScoreboardSidebar = ({ onClose }) => {
         };
     }, []);
 
-    const isLiveMatch = (match) => {
-        const status = String(match?.status || '').toLowerCase();
-        if (status === 'live') return true;
-        const eventStatus = String(match?.score?.event_status || '').toUpperCase();
-        return eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
-    };
+    // Shared with the board/mobile/Live Now so the scoreboard's "live" set
+    // matches what those surfaces badge LIVE — including the in-play guard that
+    // keeps phantom 0-0 rows out.
+    const isLiveMatch = isLiveLikeMatch;
 
     const isUpcomingMatch = (match) => {
         const status = String(match?.status || '').toLowerCase();
@@ -185,7 +184,10 @@ const ScoreboardSidebar = ({ onClose }) => {
     }, [matches, teamLogos]);
 
     const formatTime = (match) => {
-        if (match.status === 'live') return <span className="text-danger fw-bold">LIVE</span>;
+        // Same in-play guard as the cells above: a row flagged live but with no
+        // real in-play signal (0-0, no clock/period) shows its scheduled time,
+        // not a misleading red LIVE.
+        if (isLiveMatch(match)) return <span className="text-danger fw-bold">LIVE</span>;
         if (!match.startTime) return 'TBD';
         const date = new Date(match.startTime);
         const tz = getSiteTimezone();

@@ -6,6 +6,7 @@ import { useToast } from '../contexts/ToastContext';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import { teaserSportGroup } from '../utils/teaserAdjustment';
 import { resolveBroadcast } from '../utils/broadcast';
+import { TERMINAL_MATCH_STATUSES, isLiveLikeMatch } from '../utils/liveStatus';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import { getSportKeywords, findSportItemById, matchesSportKeyword } from '../data/sportsData';
@@ -136,14 +137,9 @@ const liveGroupCountStyle = {
     fontWeight: 800,
 };
 
-const TERMINAL_MATCH_STATUSES = new Set(['finished', 'final', 'ended', 'closed', 'expired', 'canceled', 'cancelled', 'settled']);
-const isLiveLikeMatch = (match) => {
-    const status = String(match?.status || '').toLowerCase();
-    if (TERMINAL_MATCH_STATUSES.has(status)) return false;
-    if (status === 'live') return true;
-    const eventStatus = String(match?.score?.event_status || '').toUpperCase();
-    return eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
-};
+// TERMINAL_MATCH_STATUSES + isLiveLikeMatch now live in utils/liveStatus so the
+// board, mobile view and scoreboard sidebar all gate LIVE the same way (and
+// require a real in-play signal, not just the feed's live flag).
 
 // Module-level dedupe: when the user multi-selects sports, every mounted
 // SportContentView instance fires its own sync. If two instances both try
