@@ -2865,10 +2865,16 @@ const refreshButtonStaleStyle = {
     color: '#c2410c',
 };
 
-// Height of the fixed mobile chrome (.mobile-header-container = top-header 64
-// + tabs-bar 60). Sticky period/league headers pin just below it. Tweak this
-// single constant if the mobile header height ever changes.
-const MOBILE_STICKY_TOP = 124;
+// Sticky offset for the period/league headers. These live INSIDE
+// MobileContentView's own scroll container (containerStyle: overflowY:auto),
+// which is a flex child of .dashboard-content-area sitting directly BELOW the
+// header chrome (balance bar + STRAIGHT/PARLAY tabs). position:sticky `top` is
+// measured from that scroll container's top edge — already under the chrome —
+// so the correct offset is 0. (A previous 124px value assumed page-level scroll
+// under a fixed header; with the current nested-scroll flex layout that pushed
+// the headers ~124px down into the middle of the list.) 0 also auto-adapts to
+// any chrome-height change since the content-area always renders below it.
+const MOBILE_STICKY_TOP = 0;
 
 const periodTabBarStyle = {
     display: 'flex',
