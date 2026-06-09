@@ -1,0 +1,304 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Integration tests for RundownEventMapper::toMatchDoc().
+ *
+ * Uses trimmed real Rundown payloads under tests/fixtures/rundown/ so a
+ * mapping regression (forgetting a period market_id, mis-routing live
+ * in-play to extendedMarkets, etc.) shows up as a failed assertion
+ * instead of silently dropping odds in prod.
+ *
+ * Fixtures are trimmed to one event per file with two affiliates
+ * (Pinnacle=3, DraftKings=19) and one line per market so the suite
+ * stays under 100 KB total but still exercises every classification
+ * route.
+ */
+
+require_once dirname(__DIR__) . '/src/RundownAffiliateMap.php';
+require_once dirname(__DIR__) . '/src/RundownSportMap.php';
+require_once dirname(__DIR__) . '/src/RundownMarketMap.php';
+require_once dirname(__DIR__) . '/src/RundownEventMapper.php';
+
+// SqlRepository::nowUtc() stub — the mapper only uses it to stamp
+// lastUpdated/createdAt timestamps. Any deterministic string works.
+if (!class_exists('SqlRepository')) {
+    class SqlRepository
+    {
+        public static function nowUtc(): string { return '2026-05-28T12:00:00+00:00'; }
+    }
+}
+
+// Helper — collect every extendedMarkets key off a mapped doc.
+function rmtExtendedKeys(array $doc): array
+{
+    $keys = [];
+    foreach (($doc['extendedMarkets'] ?? []) as $m) {
+        if (is_array($m) && isset($m['key'])) $keys[] = (string) $m['key'];
+    }
+    sort($keys);
+    return $keys;
+}
+
+// Helper — collect every market key inside odds.bookmakers[].markets[].
+function rmtBookmakerMarketKeys(array $doc): array
+{
+    $keys = [];
+    foreach (($doc['odds']['bookmakers'] ?? []) as $b) {
+        foreach (($b['markets'] ?? []) as $m) {
+            if (is_array($m) && isset($m['key'])) $keys[(string) $m['key']] = true;
+        }
+    }
+    $keys = array_keys($keys);
+    sort($keys);
+    return $keys;
+}
+
+function rmtLoad(string $name): array
+{
+    $path = __DIR__ . "/fixtures/rundown/{$name}.json";
+    $raw  = file_get_contents($path);
+    if ($raw === false) throw new RuntimeException("fixture missing: {$path}");
+    $j = json_decode($raw, true);
+    if (!is_array($j) || !isset($j['events'][0])) throw new RuntimeException("bad fixture: {$path}");
+    return $j['events'][0];
+}
+
+// ── NBA (basketball) — quarters + halves ─────────────────────────────────
+
+TestRunner::run('NBA: extendedMarkets includes h2h/spreads/totals for all quarters', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtLoad('nba_okc_at_san_antonio_scheduled'), 'basketball_nba');
+    TestRunner::assertNotNull($doc, 'event mapped');
+    $keys = rmtExtendedKeys($doc);
+    foreach (['h2h_q1','spreads_q1','totals_q1',
+              'h2h_q2','spreads_q2','totals_q2',
+              'h2h_q3','spreads_q3','totals_q3',
+              'h2h_q4','spreads_q4','totals_q4'] as $want) {
+        TestRunner::assertTrue(in_array($want, $keys, true), "missing key: {$want}");
+    }
+});
+
+TestRunner::run('NBA: extendedMarkets includes h2h/spreads/totals for both halves', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtLoad('nba_okc_at_san_antonio_scheduled'), 'basketball_nba');
+    $keys = rmtExtendedKeys($doc);
+    foreach (['h2h_h1','spreads_h1','totals_h1','h2h_h2','spreads_h2','totals_h2'] as $want) {
+        TestRunner::assertTrue(in_array($want, $keys, true), "missing half key: {$want}");
+    }
+});
+
+TestRunner::run('NBA: extendedMarkets does NOT contain any _7_innings garbage', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtLoad('nba_okc_at_san_antonio_scheduled'), 'basketball_nba');
+    foreach (rmtExtendedKeys($doc) as $k) {
+        TestRunner::assertFalse(str_contains($k, '_innings'), "leaked inning key on NBA event: {$k}");
+        TestRunner::assertFalse(str_contains($k, '_set_'),    "leaked tennis-set key on NBA event: {$k}");
+        TestRunner::assertFalse(str_contains($k, '_p1'),      "leaked hockey-period key on NBA event: {$k}");
+    }
+});
+
+// ── MLB (baseball) — F1 / F3 / F5 / F7 inning markets ────────────────────
+
+TestRunner::run('MLB: extendedMarkets uses _1st_N_innings suffix (matches frontend)', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtLoad('mlb_la_at_detroit_scheduled'), 'baseball_mlb');
+    TestRunner::assertNotNull($doc, 'event mapped');
+    $keys = rmtExtendedKeys($doc);
+    // F5 (first half) — all three lines present in our fixture.
+    foreach (['h2h_1st_5_innings','spreads_1st_5_innings','totals_1st_5_innings'] as $want) {
+        TestRunner::assertTrue(in_array($want, $keys, true), "missing F5 key: {$want}");
+    }
+    // F3 + F7 — affiliates vary per-game; require at least one chip's
+    // worth of each so the period strip lights up. Catches the regression
+    // (no F3/F7 ever) without flaking when one bookmaker drops a price.
+    $hasF3 = false; $hasF7 = false;
+    foreach ($keys as $k) {
+        if (str_contains($k, '_1st_3_innings')) $hasF3 = true;
+        if (str_contains($k, '_1st_7_innings')) $hasF7 = true;
+    }
+    TestRunner::assertTrue($hasF3, 'no _1st_3_innings keys produced');
+    TestRunner::assertTrue($hasF7, 'no _1st_7_innings keys produced');
+});
+
+TestRunner::run('MLB: no _5_innings / _7_innings keys (legacy bug)', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtLoad('mlb_la_at_detroit_scheduled'), 'baseball_mlb');
+    foreach (rmtExtendedKeys($doc) as $k) {
+        // Must always have the `_1st_` prefix — bare _N_innings is the old bug.
+        if (str_contains($k, '_innings')) {
+            TestRunner::assertTrue(str_contains($k, '_1st_'), "bare inning suffix leaked: {$k}");
+        }
+    }
+});
+
+TestRunner::run('MLB: no in-play / no _N_innings leaks into extendedMarkets', function (): void {
+    // Defence-in-depth: even if Rundown ships in-play core markets
+    // (41/42/43/96 with period_id=7), the mapper must never label them
+    // as `_7_innings` or `_in_play` extras. The MLB regression that
+    // caused this plan was exactly that leak.
+    $doc = RundownEventMapper::toMatchDoc(rmtLoad('mlb_la_at_detroit_scheduled'), 'baseball_mlb');
+    foreach (rmtExtendedKeys($doc) as $k) {
+        TestRunner::assertFalse(str_contains($k, '_in_play'), "in-play leaked to extendedMarkets: {$k}");
+        // Bare _N_innings without _1st_ prefix = the legacy bug.
+        if (str_contains($k, '_innings')) {
+            TestRunner::assertTrue(str_contains($k, '_1st_'), "bare inning key leaked: {$k}");
+        }
+    }
+});
+
+// ── NHL (hockey) — periods use _pN, not _qN ──────────────────────────────
+
+TestRunner::run('NHL: extendedMarkets uses _pN suffix (Rundown reuses "quarter" market_ids)', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtLoad('nhl_montreal_at_carolina_scheduled'), 'icehockey_nhl');
+    TestRunner::assertNotNull($doc, 'event mapped');
+    $keys = rmtExtendedKeys($doc);
+    foreach (['h2h_p1','spreads_p1','totals_p1',
+              'h2h_p2','spreads_p2','totals_p2',
+              'h2h_p3','spreads_p3','totals_p3'] as $want) {
+        TestRunner::assertTrue(in_array($want, $keys, true), "missing hockey period key: {$want}");
+    }
+});
+
+TestRunner::run('NHL: no Q1-Q4 keys (basketball semantics must not leak)', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtLoad('nhl_montreal_at_carolina_scheduled'), 'icehockey_nhl');
+    foreach (rmtExtendedKeys($doc) as $k) {
+        TestRunner::assertFalse(str_contains($k, '_q4'), "leaked basketball Q4 on NHL event: {$k}");
+        TestRunner::assertFalse(str_contains($k, '_innings'), "leaked MLB inning key on NHL event: {$k}");
+    }
+});
+
+// ── Sanity: core bookmakers still populate normally ──────────────────────
+
+TestRunner::run('core h2h/spreads/totals still land in odds.bookmakers for every fixture', function (): void {
+    foreach (['nba_okc_at_san_antonio_scheduled','mlb_la_at_detroit_scheduled','nhl_montreal_at_carolina_scheduled'] as $name) {
+        $doc = RundownEventMapper::toMatchDoc(rmtLoad($name));
+        TestRunner::assertNotNull($doc, "{$name} mapped");
+        $bk = rmtBookmakerMarketKeys($doc);
+        TestRunner::assertTrue(in_array('h2h', $bk, true),     "{$name}: h2h missing in bookmakers");
+        TestRunner::assertTrue(in_array('spreads', $bk, true), "{$name}: spreads missing in bookmakers");
+        TestRunner::assertTrue(in_array('totals', $bk, true),  "{$name}: totals missing in bookmakers");
+    }
+});
+
+// ── Odds format: outcome.price must be DECIMAL, not American ──────────────
+// Regression guard for the money bug where Rundown's American prices
+// (-110, +165) were stored raw. The whole platform (display, betslip,
+// BetsController pricing, settlement) treats outcome.price as DECIMAL, so
+// American storage rejected every favorite (-110 -> "invalid odds") and
+// mispriced underdogs catastrophically.
+
+TestRunner::run('priceToDecimal: American odds convert to the decimal format every consumer expects', function (): void {
+    $ref = new ReflectionMethod(RundownEventMapper::class, 'priceToDecimal');
+    $ref->setAccessible(true);
+    $approx = static fn (float $a, float $b): bool => abs($a - $b) < 1e-6;
+    TestRunner::assertTrue($approx($ref->invoke(null, -110.0), 1.0 + 100.0 / 110.0), '-110 -> ~1.9091');
+    TestRunner::assertTrue($approx($ref->invoke(null, 165.0), 2.65), '+165 -> 2.65');
+    TestRunner::assertTrue($approx($ref->invoke(null, 100.0), 2.0),  '+100 -> 2.0');
+    TestRunner::assertTrue($approx($ref->invoke(null, -100.0), 2.0), '-100 -> 2.0');
+    TestRunner::assertTrue($approx($ref->invoke(null, -200.0), 1.5), '-200 -> 1.5');
+    // Round-trip: the decimal must map back to the same American integer the
+    // bet engine derives (decimalToAmericanInt). This is what keeps
+    // ODDS_CHANGED validation and payout math correct.
+    foreach ([-110, -160, 100, 130, 165, 240, -200] as $am) {
+        $dec  = (float) $ref->invoke(null, (float) $am);
+        $back = $dec >= 2.0 ? (int) round(($dec - 1.0) * 100.0) : (int) round(-100.0 / ($dec - 1.0));
+        TestRunner::assertEquals($am, $back, "round-trip American {$am} via decimal {$dec}");
+    }
+});
+
+TestRunner::run('mapped odds.price is DECIMAL across every fixture (favorites land in 1.0-2.0)', function (): void {
+    $prices = [];
+    foreach (['nba_okc_at_san_antonio_scheduled','mlb_la_at_detroit_scheduled','nhl_montreal_at_carolina_scheduled'] as $name) {
+        $doc = RundownEventMapper::toMatchDoc(rmtLoad($name));
+        TestRunner::assertNotNull($doc, "{$name} mapped");
+        foreach (($doc['odds']['bookmakers'] ?? []) as $b) {
+            foreach (($b['markets'] ?? []) as $m) {
+                foreach (($m['outcomes'] ?? []) as $o) {
+                    if (isset($o['price'])) $prices[] = (float) $o['price'];
+                }
+            }
+        }
+    }
+    TestRunner::assertTrue(count($prices) > 0, 'core outcome prices present');
+    $hasFavoriteDecimal = false;
+    foreach ($prices as $p) {
+        // True decimal odds are always > 1.0. Raw American storage would
+        // include negatives (-110) which fail this immediately.
+        TestRunner::assertTrue($p > 1.0, "price not decimal (<=1.0): {$p}");
+        if ($p > 1.0 && $p < 2.0) $hasFavoriteDecimal = true;
+    }
+    // A favorite (American negative) maps into (1.0, 2.0). If storage were
+    // still American, no price would ever fall in that band.
+    TestRunner::assertTrue($hasFavoriteDecimal, 'no favorite price in (1.0, 2.0) — conversion not applied');
+});
+
+// ── Live in-play core supersedes the stale pre-match line ────────────────
+// Regression for the "NYY +1 while up 8-1" bug: pre-match spreads (market 2)
+// and live spreads (market 42) share the 'spreads' key. They were appended
+// into one outcome list and the frontend rendered the FIRST match — the dead
+// pre-match number. Live must fully supersede pre-match for the same market.
+
+function rmtSyntheticMlbEvent(bool $withLive): array
+{
+    $mk = function (int $marketId, int $periodId, float $nyPoint, int $nyPrice, float $oaPoint, int $oaPrice, int $idBase): array {
+        return [
+            'market_id' => $marketId,
+            'period_id' => $periodId,
+            'participants' => [
+                ['name' => 'New York Yankees', 'type' => 'TYPE_TEAM', 'id' => 1001, 'lines' => [
+                    ['value' => (string) $nyPoint, 'prices' => ['3' => ['price' => $nyPrice, 'is_main_line' => true, 'id' => $idBase + 1, 'updated_at' => '2026-05-30T02:00:00Z']]],
+                ]],
+                ['name' => 'Athletics', 'type' => 'TYPE_TEAM', 'id' => 1002, 'lines' => [
+                    ['value' => (string) $oaPoint, 'prices' => ['3' => ['price' => $oaPrice, 'is_main_line' => true, 'id' => $idBase + 2, 'updated_at' => '2026-05-30T02:00:00Z']]],
+                ]],
+            ],
+        ];
+    };
+    $markets = [$mk(2, 0, 1.0, -223, -1.5, 206, 5000)];          // pre-match spreads
+    if ($withLive) {
+        $markets[] = $mk(42, 7, -6.5, -282, 6.5, 205, 6000);     // live spreads
+    }
+    return [
+        'event_id' => 'synthetic-nyy-oak-live',
+        'sport_id' => 3,
+        'teams' => [
+            ['name' => 'Athletics', 'is_home' => true],
+            ['name' => 'New York Yankees', 'is_away' => true],
+        ],
+        'score' => ['event_status' => 'STATUS_INPROGRESS'],
+        'schedule' => ['event_name' => 'New York Yankees at Athletics'],
+        'markets' => $markets,
+    ];
+}
+
+// name => point map for the 'spreads' market on the first bookmaker.
+function rmtSpreadsByTeam(array $doc): array
+{
+    $out = [];
+    foreach (($doc['odds']['bookmakers'][0]['markets'] ?? []) as $m) {
+        if (($m['key'] ?? '') !== 'spreads') continue;
+        foreach (($m['outcomes'] ?? []) as $o) {
+            $out[(string) ($o['name'] ?? '')][] = $o; // list per team to detect dupes
+        }
+    }
+    return $out;
+}
+
+TestRunner::run('live spreads fully supersede the stale pre-match line', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtSyntheticMlbEvent(true), 'baseball_mlb');
+    TestRunner::assertNotNull($doc, 'doc should map');
+    $byTeam = rmtSpreadsByTeam($doc);
+
+    // Exactly one outcome per team — no pre-match/live duplication.
+    TestRunner::assertEquals(1, count($byTeam['New York Yankees'] ?? []), 'NYY should have exactly one spread outcome');
+    TestRunner::assertEquals(1, count($byTeam['Athletics'] ?? []), 'Athletics should have exactly one spread outcome');
+
+    // The surviving line is the LIVE one (-6.5 / +6.5), not the dead +1 / -1.5.
+    TestRunner::assertEqualsFloat(-6.5, (float) $byTeam['New York Yankees'][0]['point'], 'NYY spread must be the live -6.5');
+    TestRunner::assertEqualsFloat(6.5, (float) $byTeam['Athletics'][0]['point'], 'Athletics spread must be the live +6.5');
+});
+
+TestRunner::run('pre-match spreads survive when no live variant is present', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtSyntheticMlbEvent(false), 'baseball_mlb');
+    TestRunner::assertNotNull($doc, 'doc should map');
+    $byTeam = rmtSpreadsByTeam($doc);
+    TestRunner::assertEquals(1, count($byTeam['New York Yankees'] ?? []), 'NYY should have exactly one spread outcome');
+    TestRunner::assertEqualsFloat(1.0, (float) $byTeam['New York Yankees'][0]['point'], 'pre-match NYY spread preserved');
+});

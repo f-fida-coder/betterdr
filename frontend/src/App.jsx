@@ -220,7 +220,11 @@ function AppInner() {
   const { connectionState: realtimeConnectionState, isConnected: realtimeConnected } = useWebSocket({
     channel: '*',
     onMessage: handleRealtimeMessage,
-    enabled: isLoggedIn,
+    // Odds/score events are public display signals, same as GET /api/matches.
+    // Keep this transport on for logged-out visitors too so Live Now updates
+    // from the VPS WebSocket/event bus without requiring a login. Bet placement
+    // still re-validates odds server-side before money moves.
+    enabled: true,
   });
 
   // Realtime-staleness watchdog. A WebSocket can report "connected" while
@@ -253,7 +257,7 @@ function AppInner() {
   // no-Refresh-needed feel. When a healthy WS is actively delivering, the
   // watchdog keeps this OFF so dev/WS users don't double-fetch.
   useLiveSyncPoll({
-    enabled: isLoggedIn && (!realtimeConnected || realtimeSilent),
+    enabled: !realtimeConnected || realtimeSilent,
     intervalMs: 3000,
   });
 

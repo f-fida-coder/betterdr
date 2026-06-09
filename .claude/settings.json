@@ -51,7 +51,10 @@
       "Bash(git commit -q -m 'Live board: group desktop Live Now by sport + real-time odds over WebSocket *)",
       "Bash(php -l src/SportsMatchStatus.php)",
       "Bash(echo \"EXIT:$?\")",
-      "Bash(php php-backend/scripts/sportsbook-smoke.php)"
+      "Bash(php php-backend/scripts/sportsbook-smoke.php)",
+      "Bash(git fetch *)",
+      "Bash(git rev-list *)",
+      "Bash(git config *)"
     ],
     "additionalDirectories": [
       "/Users/mac/Desktop/betterdr/php-backend/cache"

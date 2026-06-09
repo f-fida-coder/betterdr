@@ -1,0 +1,118 @@
+# =============================================================================
+# Tier A — MySQL slow query log enable (diagnostic, read-only)
+# =============================================================================
+# Goal: collect a 7-day baseline of which queries are >100ms so phase B
+# (index audit + query rewrites) can be data-driven, not guesswork.
+#
+# This is PURELY OBSERVATIONAL. No query is rewritten, no index is changed,
+# no behavior changes. The site keeps working exactly as it does today.
+#
+# WHERE TO PLACE: in /etc/mysql/mysql.conf.d/99-tier-a-slowlog.cnf (Debian/
+# Ubuntu) or under [mysqld] in my.cnf. Reload with `systemctl restart mysql`
+# during a low-traffic window — the restart is the only intrusive part.
+#
+# DISK USAGE: at 100ms threshold on a normal API workload, expect ~5-50 MB/day
+# of slow log. log_output=FILE rotates with logrotate on most distros; if not,
+# add /etc/logrotate.d/mysql-slow as documented at the bottom of this file.
+#
+# DISABLE: comment out `slow_query_log=1` and restart. Site unaffected.
+# =============================================================================
+
+[mysqld]
+# Master switch — must be 1 for any of the rest to take effect.
+slow_query_log=1
+
+# Output target: FILE is the safest default (TABLE writes to mysql.slow_log
+# which itself can become a hotspot). Use FILE,TABLE only if you have a UI
+# tool that reads the table directly.
+log_output=FILE
+
+# Log file path. Make sure mysql user can write here:
+#   mkdir -p /var/log/mysql && chown mysql:mysql /var/log/mysql
+slow_query_log_file=/var/log/mysql/mysql-slow.log
+
+# Threshold in seconds. 0.1 = 100ms. This is the right starting point for
+# an API targeting 80ms p95 — anything slower is a candidate for review.
+# Raise to 0.5 if disk fills too quickly; lower to 0.05 once the obvious
+# offenders are fixed and you want to find the next tier.
+long_query_time=0.1
+
+# Capture queries that DO use an index but still scan many rows — these
+# are the silent killers (e.g., a "balanced" index that happens to match
+# 80% of the table). Comment out if log volume is too high initially.
+log_queries_not_using_indexes=1
+
+# Cap on how many index-less query lines we accept per minute, so a noisy
+# admin endpoint can't flood the log and mask real signal.
+log_throttle_queries_not_using_indexes=60
+
+# Capture min number of rows examined — filters out tiny lookups that just
+# happened to be slow due to disk cache miss. 1000 is a reasonable floor.
+min_examined_row_limit=1000
+
+# Capture admin queries (ALTER, ANALYZE, etc) — useful when investigating
+# whether a maintenance task is the cause of an unrelated p95 spike.
+log_slow_admin_statements=1
+
+# Capture replication slave queries if this server is a replica. Harmless
+# on a primary.
+log_slow_replica_statements=1
+
+
+# =============================================================================
+# === ANALYZING THE LOG =======================================================
+# =============================================================================
+# After 24-48 hours of collection, summarize the top offenders:
+#
+#   # Top 20 query patterns by total time spent:
+#   mysqldumpslow -s t -t 20 /var/log/mysql/mysql-slow.log
+#
+#   # Top 20 by average time (single-shot slow queries):
+#   mysqldumpslow -s at -t 20 /var/log/mysql/mysql-slow.log
+#
+#   # Top 20 by count (frequently-executed near-misses):
+#   mysqldumpslow -s c -t 20 /var/log/mysql/mysql-slow.log
+#
+# For deeper analysis, install pt-query-digest from Percona Toolkit:
+#
+#   pt-query-digest /var/log/mysql/mysql-slow.log > /tmp/digest.txt
+#
+# pt-query-digest groups queries by canonical pattern (with `?` for
+# literals), shows p95 / p99 latency, and is the tool DBAs use in practice.
+
+
+# =============================================================================
+# === LOG ROTATION (if your distro doesn't ship one) ==========================
+# =============================================================================
+# /etc/logrotate.d/mysql-slow:
+#
+#   /var/log/mysql/mysql-slow.log {
+#       daily
+#       missingok
+#       rotate 14
+#       compress
+#       delaycompress
+#       notifempty
+#       create 640 mysql adm
+#       sharedscripts
+#       postrotate
+#           # FLUSH SLOW LOGS reopens the file handle without restarting MySQL.
+#           mysql -e 'FLUSH SLOW LOGS;' 2>/dev/null || true
+#       endscript
+#   }
+#
+# This keeps 14 days of compressed slow-log history with zero-downtime rotation.
+
+
+# =============================================================================
+# === RUNTIME TOGGLE (no restart needed) ======================================
+# =============================================================================
+# If you can't restart right now, you can flip these at runtime via:
+#
+#   SET GLOBAL slow_query_log = 'ON';
+#   SET GLOBAL long_query_time = 0.1;
+#   SET GLOBAL log_queries_not_using_indexes = 'ON';
+#
+# Note: runtime changes are session-scoped for some variables. Connections
+# already open won't pick up `long_query_time` until they reconnect. The
+# persistent fix is the [mysqld] block above.
