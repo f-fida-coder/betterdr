@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getMatches, getLiveMatches, getUpcomingMatches } from '../api';
+import { isLiveLikeMatch } from '../utils/liveStatus';
 
 // Local React-side data cache: DISABLED. Live betting cannot show stale
 // odds. The previous 15 s TTL meant a user could land on a sport, see a
@@ -198,13 +199,13 @@ const buildClientId = (prefix) => {
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
-const isLiveMatch = (match) => {
-    if (!match) return false;
-    const status = (match.status || '').toString().toLowerCase();
-    if (status === 'live') return true;
-    const eventStatus = (match.score?.event_status || '').toString().toUpperCase();
-    return eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE') || eventStatus.includes('STATUS_IN_PROGRESS');
-};
+// Canonical live test: the feed must flag the row live AND a real in-play
+// signal must back it up (score/clock/period). This is the same guard the
+// board, scoreboard and mobile views use — it drops phantom rows that sit
+// flagged IN_PROGRESS at 0-0 with no clock (finished games whose terminal
+// flip is settlement-paced, or a feed that died with credits expired) so a
+// dead/stale feed hides those games instead of showing frozen odds.
+const isLiveMatch = (match) => isLiveLikeMatch(match);
 
 const isUpcomingMatch = (match) => {
     if (!match) return false;
@@ -252,7 +253,11 @@ const filterMatches = (normalized, statusFilter) => {
     }
 
     if (statusFilter === 'live' || statusFilter === 'active') {
-        return normalized.filter(isLiveMatch);
+        // Also drop rows the backend already flagged as stale-odds: when the
+        // feed is dead the backend marks them oddsStale (and not bettable), so
+        // showing them in the live list would just be frozen odds. Belt to the
+        // backend's own freshness gate, in case a row slips through.
+        return normalized.filter((match) => isLiveMatch(match) && !match.oddsStale);
     }
 
     if (statusFilter === 'upcoming' || statusFilter === 'scheduled') {

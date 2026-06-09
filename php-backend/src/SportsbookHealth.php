@@ -488,6 +488,16 @@ final class SportsbookHealth
         $oddsAgeSeconds = self::ageSeconds($lastOddsSuccessAt);
         $scoresAgeSeconds = self::ageSeconds($lastScoresSuccessAt);
         $oddsFeedStale = $oddsAgeSeconds === null || $oddsAgeSeconds > $staleAfterSeconds;
+        // Trip the suspend gate the moment the plan runs out of datapoints —
+        // don't wait out the age timer. Once credits expire the feed only
+        // returns frozen/empty data, so anything still "fresh" by timestamp is
+        // a stale snapshot we must stop offering for betting. Conservative:
+        // quotaExhausted() is true only when the API reported a real limit at
+        // zero remaining (see RundownClient::quotaExhausted).
+        $quotaExhausted = class_exists('RundownClient') && RundownClient::quotaExhausted();
+        if ($quotaExhausted) {
+            $oddsFeedStale = true;
+        }
         $lastResult = is_array($sync['lastResult'] ?? null) ? $sync['lastResult'] : [];
         $circuit = is_array($lastResult['circuitBreaker'] ?? null) ? $lastResult['circuitBreaker'] : [
             'state' => 'unknown',
@@ -516,6 +526,7 @@ final class SportsbookHealth
                 'staleAfterSeconds' => $staleAfterSeconds,
                 'isStale' => $oddsFeedStale,
                 'bettingSuspended' => $oddsFeedStale,
+                'quotaExhausted' => $quotaExhausted,
                 'circuitBreaker' => $circuit,
             ],
             'settlement' => [

@@ -255,6 +255,31 @@ final class RundownClient
         return is_array($snap) ? $snap : [];
     }
 
+    /**
+     * Authoritative "the Rundown plan is out of datapoints" signal, derived
+     * from the X-Datapoints-* headers the API stamps on every response.
+     *
+     * Deliberately conservative — returns true ONLY when the API actually
+     * reported a positive limit AND remaining has hit zero. When no quota
+     * snapshot exists yet, or the account doesn't return a limit header, we
+     * return false ("unknown") so callers never block a healthy feed on a
+     * guess. Used to (a) stop the delta heartbeat from faking odds freshness
+     * once credits expire, and (b) trip the global feed-stale gate instantly
+     * instead of waiting out the staleness timer.
+     */
+    public static function quotaExhausted(): bool
+    {
+        $snap = self::latestQuotaSnapshot();
+        if ($snap === []) {
+            return false; // never saw a quota header → can't conclude exhausted
+        }
+        $limit = (int) ($snap['datapointsLimit'] ?? 0);
+        if ($limit <= 0) {
+            return false; // no real limit reported → don't block on a guess
+        }
+        return (int) ($snap['datapointsRemain'] ?? 0) <= 0;
+    }
+
     // ── internals ─────────────────────────────────────────────────────
 
     /** @param array<string,string|int> $query @return array<string,mixed>|null */
