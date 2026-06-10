@@ -183,6 +183,13 @@ while (!$shutdown) {
                     $r = RundownSyncService::syncSportLiveScores($repo, $sportKey, $sportId);
                     $liveResult['scoreSweeps'] = ($liveResult['scoreSweeps'] ?? 0) + (int) ($r['updated'] ?? 0);
                     $liveResult['errors']     += (int) ($r['errors'] ?? 0);
+                    // The sweep now sees finals (the event-delta poll that
+                    // used to feed instant settlement is unbootstrappable),
+                    // so games it just flipped to finished/canceled get
+                    // graded this tick instead of waiting for the 60s sweep.
+                    foreach (($r['finishedMatchIds'] ?? []) as $fmid) {
+                        $instantSettleIds[(string) $fmid] = true;
+                    }
                 }
             }
         }

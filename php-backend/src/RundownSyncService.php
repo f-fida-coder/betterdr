@@ -288,9 +288,15 @@ final class RundownSyncService
      * unbootstrappable at this account's volume, leaving scores otherwise
      * stuck on the slow full-refresh cadence.
      *
-     * Money-safe: the upstream query excludes finals, so this NEVER writes a
-     * terminal status — settlement still owns finished/canceled transitions.
-     * Only existing rows are patched (new events are created by the full sync).
+     * This is also the TERMINAL-STATUS fast path: the upstream query
+     * includes finals (every other pull excludes them), so a finished /
+     * canceled game flips off the live board within one sweep (~20s)
+     * instead of staying live-and-bettable with frozen odds until the
+     * reaper (~5 min). Settlement still owns GRADING — this only flips
+     * the status that settlement keys on (and feeds it the final score).
+     * Rows already terminal in the DB are never rewritten or resurrected
+     * from here. Only existing rows are patched (new events are created
+     * by the full sync).
      *
      * @return array<string,mixed>
      */
@@ -299,14 +305,26 @@ final class RundownSyncService
         if (!RundownClient::isConfigured()) {
             return self::skippedResult('not_configured');
         }
-        $date = gmdate('Y-m-d', time() - self::offsetSeconds());
+        $offsetNow = time() - self::offsetSeconds();
+        // Late games cross the offset-day boundary (~midnight ET) while
+        // still in progress — a 10:30 PM ET tip is on "yesterday's" date
+        // endpoint until it ends. For the first 6h after the boundary,
+        // sweep yesterday too, or those games get frozen scores, never
+        // flip to finished, and age out of the odds heartbeat.
+        $dates = [gmdate('Y-m-d', $offsetNow)];
+        if ($offsetNow % 86400 < 6 * 3600) {
+            array_unshift($dates, gmdate('Y-m-d', $offsetNow - 86400));
+        }
         $eventsSeen = $updated = $errors = 0;
+        $finishedMatchIds = [];
         try {
-            $resp = RundownClient::getEventsForSport($sportId, $date, self::baseQueryParamsScores());
-            if (!is_array($resp)) {
-                return ['ok' => true, 'eventsSeen' => 0, 'updated' => 0, 'errors' => 0];
+            $events = [];
+            foreach ($dates as $date) {
+                $resp = RundownClient::getEventsForSport($sportId, $date, self::baseQueryParamsScores());
+                if (is_array($resp) && is_array($resp['events'] ?? null)) {
+                    $events = array_merge($events, $resp['events']);
+                }
             }
-            $events = is_array($resp['events'] ?? null) ? $resp['events'] : [];
             foreach ($events as $event) {
                 if (!is_array($event)) continue;
                 $eventId = trim((string) ($event['event_id'] ?? ''));
@@ -316,12 +334,25 @@ final class RundownSyncService
                 // Patch only — never create here. A missing row means the
                 // event hasn't been synced yet; the full/prematch sync owns
                 // creation (with odds).
-                if ($db->findOne('matches', ['id' => $matchId]) === null) {
+                $row = $db->findOne('matches', ['id' => $matchId]);
+                if ($row === null) {
+                    continue;
+                }
+                // Settled/expired rows are closed business: don't rewrite
+                // their score every sweep and never resurrect them if the
+                // feed briefly reports a final game as in-progress again.
+                $rowStatus = strtolower((string) ($row['status'] ?? ''));
+                if (in_array($rowStatus, ['finished', 'canceled', 'cancelled', 'expired'], true)) {
                     continue;
                 }
                 try {
-                    $db->updateOne('matches', ['id' => $matchId], RundownEventMapper::scoreUpdate($event));
+                    $patch = RundownEventMapper::scoreUpdate($event);
+                    $db->updateOne('matches', ['id' => $matchId], $patch);
                     $updated++;
+                    $newStatus = (string) ($patch['status'] ?? '');
+                    if (in_array($newStatus, ['finished', 'canceled'], true)) {
+                        $finishedMatchIds[] = $matchId;
+                    }
                 } catch (Throwable $rowErr) {
                     $errors++;
                 }
@@ -352,7 +383,7 @@ final class RundownSyncService
                 'error'    => $e->getMessage(),
             ], 'sportsbook');
         }
-        return ['ok' => $errors === 0, 'eventsSeen' => $eventsSeen, 'updated' => $updated, 'errors' => $errors];
+        return ['ok' => $errors === 0, 'eventsSeen' => $eventsSeen, 'updated' => $updated, 'errors' => $errors, 'finishedMatchIds' => $finishedMatchIds];
     }
 
     /**
@@ -680,18 +711,30 @@ final class RundownSyncService
                 ], 'sportsbook');
             } else {
                 // Heartbeat — the upstream responded cleanly but no prices
-                // moved. Bump lastOddsSyncAt on every live row of this
-                // sport so the freshness filter keeps them visible. The
-                // cursor advancing IS proof that we're actively polling;
-                // without this the row would drift past the 90s/180s
-                // staleness cliff (and stop being bettable) even though
-                // the worker is doing its job. NOTE: lastUpdated is NOT
-                // touched here — only the odds-freshness timestamp.
-                // Score/status changes still need a real upstream event.
+                // moved. Bump lastOddsSyncAt on live rows of this sport so
+                // the freshness filter keeps them visible. The cursor
+                // advancing IS proof that we're actively polling; without
+                // this the row would drift past the 90s/180s staleness
+                // cliff (and stop being bettable) even though the worker
+                // is doing its job. NOTE: lastUpdated is NOT touched here
+                // — only the odds-freshness timestamp.
+                //
+                // Scoped to rows the score sweep has confirmed recently:
+                // a game that finished or vanished from the feed stops
+                // producing deltas, and an unscoped heartbeat kept badging
+                // its frozen odds "fresh" forever — the freshness gates
+                // never tripped and the dead line stayed bettable. The
+                // sweep stamps lastScoreSyncAt every ~20s per live sport,
+                // so 600s tolerates long upstream blips while still
+                // letting truly-gone rows age out.
                 try {
                     $db->updateMany(
                         'matches',
-                        ['sportKey' => $sportKey, 'status' => 'live'],
+                        [
+                            'sportKey'        => $sportKey,
+                            'status'          => 'live',
+                            'lastScoreSyncAt' => ['$gt' => gmdate(DATE_ATOM, time() - 600)],
+                        ],
                         ['lastOddsSyncAt' => SqlRepository::nowUtc()]
                     );
                 } catch (Throwable $heartbeatErr) {
@@ -1128,6 +1171,15 @@ final class RundownSyncService
         if ($book === null) return false;
         $participantName = trim((string) ($delta['participant_name'] ?? ''));
         if ($participantName === '') return false;
+        // Normalized participant id (team_id / player_id / result_id) — the
+        // ONLY identity shared between the delta feed and stored outcomes.
+        // Delta participant_name is the feed's FULL form ("Boston Red Sox")
+        // while stored outcome names are the canonical SHORT form, so name
+        // matching alone either misses (teams) or, worse, matches the wrong
+        // line (Over/Under). Stored core outcomes carry this as `pid`.
+        $pidRaw = $delta['participant_id'] ?? null;
+        $pid = ($pidRaw === null || $pidRaw === '') ? null
+            : (string) (is_numeric($pidRaw) ? (int) $pidRaw : $pidRaw);
 
         $matchId = RundownEventMapper::deterministicMatchId($eventId);
 
@@ -1165,15 +1217,18 @@ final class RundownSyncService
                 'updatedAt'      => $now,
                 'oddsSource'     => RundownEventMapper::ODDS_SOURCE_TAG,
             ];
+            $changed = false;
 
             if ($coreKey !== null) {
-                $bookmakers = is_array($existing['odds']['bookmakers'] ?? null)
+                $before = is_array($existing['odds']['bookmakers'] ?? null)
                     ? $existing['odds']['bookmakers'] : [];
                 $bookmakers = self::patchBookmakerOutcome(
-                    $bookmakers,
+                    $before,
                     $book,
                     $coreKey,
                     $participantName,
+                    $pid,
+                    $point,
                     $offBoard ? null : [
                         'name'  => $participantName,
                         'price' => RundownEventMapper::boardPriceDecimal($coreKey, $priceFloat, $sportKey),
@@ -1181,6 +1236,7 @@ final class RundownSyncService
                     ],
                     $now
                 );
+                $changed = $bookmakers !== $before;
                 $update['odds'] = [
                     'bookmakers'      => $bookmakers,
                     'extendedMarkets' => is_array($existing['odds']['extendedMarkets'] ?? null)
@@ -1189,13 +1245,15 @@ final class RundownSyncService
             }
 
             if ($periodKey !== null) {
-                $topExt = is_array($existing['extendedMarkets'] ?? null)
+                $beforeExt = is_array($existing['extendedMarkets'] ?? null)
                     ? $existing['extendedMarkets'] : [];
                 $topExt = self::patchExtendedMarketOutcome(
-                    $topExt,
+                    $beforeExt,
                     $book,
                     $periodKey,
                     $participantName,
+                    $pid,
+                    $point,
                     $offBoard ? null : [
                         'name'  => $participantName,
                         'price' => $priceDecimal,
@@ -1203,6 +1261,7 @@ final class RundownSyncService
                         'book'  => $book['key'],
                     ]
                 );
+                $changed = $changed || $topExt !== $beforeExt;
                 $update['extendedMarkets'] = $topExt;
 
                 $bookmakers = is_array($existing['odds']['bookmakers'] ?? null)
@@ -1211,6 +1270,15 @@ final class RundownSyncService
                     'bookmakers'      => $bookmakers,
                     'extendedMarkets' => $topExt,
                 ];
+            }
+
+            // No stored outcome matched this delta (alt-line tick, book/market
+            // not on our board, or pre-pid legacy doc). Do NOT write: bumping
+            // lastOddsSyncAt here would vouch freshness for prices this delta
+            // never touched.
+            if (!$changed) {
+                $db->rollback();
+                return false;
             }
 
             $db->updateOne(self::COLLECTION, ['id' => $matchId], $update);
@@ -1225,18 +1293,21 @@ final class RundownSyncService
     /**
      * Apply one outcome change into an existing flat extendedMarkets[]
      * list. The layout is:
-     *   [{ key, outcomes: [{ name, price, point?, book }] }]
-     * Identity for an outcome row is (name, book) — same participant
-     * can have prices at multiple bookmakers, each gets its own row.
+     *   [{ key, outcomes: [{ name, price, point?, book, pid? }] }]
+     * Identity for an outcome row is (pid|name, book) plus an exact
+     * point match — the delta feed has no is_main_line flag, so a tick
+     * whose line differs from the stored point is an alternate line and
+     * must be skipped, never applied or appended.
      *
-     * Returns the new list (mutated semantically).
+     * Returns the new list (mutated semantically); returns the input
+     * unchanged when no stored outcome anchors the delta.
      *
      * @param list<array<string,mixed>>            $extended
      * @param array{key:string,name:string}        $book
      * @param array{name:string,price:int|float,point:?float,book:string}|null $outcome  null = remove this outcome
      * @return list<array<string,mixed>>
      */
-    private static function patchExtendedMarketOutcome(array $extended, array $book, string $marketKey, string $participantName, ?array $outcome): array
+    private static function patchExtendedMarketOutcome(array $extended, array $book, string $marketKey, string $participantName, ?string $pid, ?float $deltaPoint, ?array $outcome): array
     {
         $marketIndex = null;
         foreach ($extended as $i => $m) {
@@ -1245,45 +1316,36 @@ final class RundownSyncService
                 break;
             }
         }
-        if ($marketIndex === null) {
-            if ($outcome === null) return $extended;
-            $extended[] = ['key' => $marketKey, 'outcomes' => []];
-            $marketIndex = array_key_last($extended);
-        }
+        // PATCH-ONLY — see patchBookmakerOutcome: deltas carry no
+        // is_main_line, so unanchored ticks may be alternate lines.
+        // Creation is owned by the full-coverage sync. (Appending here
+        // also used to duplicate team outcomes under the feed's FULL
+        // name next to the stored canonical SHORT-name row.)
+        if ($marketIndex === null) return $extended;
 
         $outcomes = is_array($extended[$marketIndex]['outcomes'] ?? null)
             ? $extended[$marketIndex]['outcomes'] : [];
         $found = false;
         foreach ($outcomes as $k => $existing) {
             if (!is_array($existing)) continue;
-            if (($existing['name'] ?? '') !== $participantName) continue;
             if (($existing['book'] ?? '') !== $book['key']) continue;
+            $idMatch = ($pid !== null && isset($existing['pid']) && (string) $existing['pid'] === $pid)
+                || (($existing['name'] ?? '') === $participantName);
+            if (!$idMatch) continue;
+            if (!self::deltaPointMatches(
+                isset($existing['point']) && is_numeric($existing['point']) ? (float) $existing['point'] : null,
+                $deltaPoint
+            )) continue;
             $found = true;
             if ($outcome === null) {
                 unset($outcomes[$k]);
             } else {
                 $existing['price'] = $outcome['price'];
-                if ($outcome['point'] !== null) {
-                    $existing['point'] = $outcome['point'];
-                } else {
-                    unset($existing['point']);
-                }
-                $existing['book'] = $book['key'];
                 $outcomes[$k] = $existing;
             }
             break;
         }
-        if (!$found && $outcome !== null) {
-            $row = [
-                'name'  => $outcome['name'],
-                'price' => $outcome['price'],
-                'book'  => $book['key'],
-            ];
-            if ($outcome['point'] !== null) {
-                $row['point'] = $outcome['point'];
-            }
-            $outcomes[] = $row;
-        }
+        if (!$found) return $extended;
 
         $extended[$marketIndex]['outcomes'] = array_values($outcomes);
         return array_values($extended);
@@ -1291,14 +1353,18 @@ final class RundownSyncService
 
     /**
      * Apply one outcome change into an existing bookmakers[] list.
-     * Mutates the structure in-place semantically; returns the new list.
+     * Patch-only: matches a stored outcome by (pid|name) + exact point
+     * and updates its price (or removes it when off-board). Never
+     * creates bookmakers/markets/outcomes — the delta feed cannot
+     * prove a tick is the main line, so unanchored ticks are skipped.
+     * Returns the input unchanged when nothing matched.
      *
      * @param list<array<string,mixed>>            $bookmakers
      * @param array{key:string,name:string}        $book
      * @param array{name:string,price:int|float,point:?float}|null $outcome  null = remove this outcome
      * @return list<array<string,mixed>>
      */
-    private static function patchBookmakerOutcome(array $bookmakers, array $book, string $marketKey, string $participantName, ?array $outcome, string $now): array
+    private static function patchBookmakerOutcome(array $bookmakers, array $book, string $marketKey, string $participantName, ?string $pid, ?float $deltaPoint, ?array $outcome, string $now): array
     {
         $bookmakerIndex = null;
         foreach ($bookmakers as $i => $b) {
@@ -1307,12 +1373,11 @@ final class RundownSyncService
                 break;
             }
         }
-        if ($bookmakerIndex === null) {
-            if ($outcome === null) return $bookmakers;
-            $bookmakers[] = ['key' => $book['key'], 'name' => $book['name'], 'lastUpdate' => $now, 'markets' => []];
-            $bookmakerIndex = array_key_last($bookmakers);
-        }
-        $bookmakers[$bookmakerIndex]['lastUpdate'] = $now;
+        // PATCH-ONLY: the delta feed carries no is_main_line flag, so a
+        // delta we can't anchor to a stored (main-line) outcome may be an
+        // alternate line. Never create bookmakers/markets/outcomes here —
+        // the full sync (which filters main lines properly) owns creation.
+        if ($bookmakerIndex === null) return $bookmakers;
 
         $markets = is_array($bookmakers[$bookmakerIndex]['markets'] ?? null) ? $bookmakers[$bookmakerIndex]['markets'] : [];
         $marketIndex = null;
@@ -1322,44 +1387,57 @@ final class RundownSyncService
                 break;
             }
         }
-        if ($marketIndex === null) {
-            if ($outcome === null) {
-                $bookmakers[$bookmakerIndex]['markets'] = $markets;
-                return $bookmakers;
-            }
-            $markets[] = ['key' => $marketKey, 'outcomes' => []];
-            $marketIndex = array_key_last($markets);
-        }
+        if ($marketIndex === null) return $bookmakers;
 
         $outcomes = is_array($markets[$marketIndex]['outcomes'] ?? null) ? $markets[$marketIndex]['outcomes'] : [];
         $found = false;
         foreach ($outcomes as $k => $existing) {
-            if (!is_array($existing) || ($existing['name'] ?? '') !== $participantName) continue;
+            if (!is_array($existing)) continue;
+            // Identity: normalized participant id when both sides have it
+            // (stored names are canonical SHORT form, delta names are the
+            // feed's FULL form — they rarely string-match for teams);
+            // name equality is the legacy fallback for pre-pid docs and
+            // works for Over/Under/Draw.
+            $idMatch = ($pid !== null && isset($existing['pid']) && (string) $existing['pid'] === $pid)
+                || (($existing['name'] ?? '') === $participantName);
+            if (!$idMatch) continue;
+            // Alt-line guard: same participant, different line value ⇒ an
+            // alternate-line tick. Applying it would overwrite the main
+            // line's price AND point (and flat-juice repricing would then
+            // sell that alt point at house juice — sharp-exploitable).
+            // Main-line point moves arrive via the WS path (is_main_line)
+            // and the periodic full refresh.
+            if (!self::deltaPointMatches(
+                isset($existing['point']) && is_numeric($existing['point']) ? (float) $existing['point'] : null,
+                $deltaPoint
+            )) continue;
             $found = true;
             if ($outcome === null) {
                 unset($outcomes[$k]);
             } else {
                 $existing['price'] = $outcome['price'];
-                if ($outcome['point'] !== null) {
-                    $existing['point'] = $outcome['point'];
-                } else {
-                    unset($existing['point']);
-                }
                 $outcomes[$k] = $existing;
             }
             break;
         }
-        if (!$found && $outcome !== null) {
-            $row = ['name' => $outcome['name'], 'price' => $outcome['price']];
-            if ($outcome['point'] !== null) {
-                $row['point'] = $outcome['point'];
-            }
-            $outcomes[] = $row;
-        }
+        if (!$found) return $bookmakers;
 
+        $bookmakers[$bookmakerIndex]['lastUpdate'] = $now;
         $markets[$marketIndex]['outcomes'] = array_values($outcomes);
         $bookmakers[$bookmakerIndex]['markets'] = array_values($markets);
         return $bookmakers;
+    }
+
+    /**
+     * The delta's `line` must equal the stored outcome's point for the
+     * delta to apply — anything else is an alternate line for the same
+     * participant. Moneyline (no point on either side) always matches.
+     */
+    private static function deltaPointMatches(?float $storedPoint, ?float $deltaPoint): bool
+    {
+        if ($storedPoint === null && $deltaPoint === null) return true;
+        if ($storedPoint === null || $deltaPoint === null) return false;
+        return abs($storedPoint - $deltaPoint) < 1e-4;
     }
 
     /**
@@ -1429,8 +1507,13 @@ final class RundownSyncService
     /**
      * Score-only query for the live-score sweep. NO affiliate_ids (so the
      * upstream returns event + score blocks without expanding bookmaker
-     * odds — keeps Rundown data-point cost ~0) and NO market_ids. Excludes
-     * finals (those settle via the sweep; this path never marks finished).
+     * odds — keeps Rundown data-point cost ~0) and NO market_ids.
+     * Deliberately INCLUDES finals: every other pull excludes them, and
+     * with the event-delta feed unbootstrappable this sweep is the only
+     * fast path that can see a game finish. Without it a finished game
+     * stayed `live` (frozen odds, still bettable) for up to ~5 minutes
+     * until the reaper/settlement sweep — long enough to bet a known
+     * winner.
      *
      * @return array<string,string|int>
      */
@@ -1438,7 +1521,6 @@ final class RundownSyncService
     {
         $params = [
             'main_line'      => 'true',
-            'exclude_status' => 'STATUS_FINAL,STATUS_FINAL_AET,STATUS_FINAL_PEN,STATUS_CANCELED,STATUS_FORFEIT',
         ];
         $offset = (int) Env::get('RUNDOWN_DATE_OFFSET_MINUTES', '300');
         if ($offset > 0) {

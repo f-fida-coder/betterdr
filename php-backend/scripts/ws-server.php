@@ -115,6 +115,10 @@ while (true) {
         sendJson($socket, ['type' => 'error', 'message' => 'unsupported_message_type']);
     }
 
+    // PHP caches stat results per-path; without this the filesize() below is
+    // pinned to its boot-time value and no event written after startup is ever
+    // broadcast (clients get heartbeats only — a zombie "connected" socket).
+    clearstatcache(true, $eventLogPath);
     if (is_file($eventLogPath)) {
         $size = (int) filesize($eventLogPath);
         if ($size < $cursor) {

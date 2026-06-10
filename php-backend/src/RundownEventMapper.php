@@ -176,11 +176,13 @@ final class RundownEventMapper
     public static function scoreUpdate(array $event): array
     {
         $score = is_array($event['score'] ?? null) ? $event['score'] : [];
-        $statusRaw = (string) ($score['event_status'] ?? 'STATUS_SCHEDULED');
-        $status    = self::STATUS_MAP[$statusRaw] ?? 'scheduled';
+        $statusRaw = (string) ($score['event_status'] ?? '');
+        // Only write `status` when the feed sent a status we recognize.
+        // The old `?? 'scheduled'` default meant a malformed or
+        // sport-specific payload DEMOTED a live row back to scheduled.
+        $status = self::STATUS_MAP[$statusRaw] ?? null;
         $now = SqlRepository::nowUtc();
-        return [
-            'status'            => $status,
+        $update = [
             'eventStatusDetail' => trim((string) ($score['event_status_detail'] ?? '')),
             'score'             => [
                 'score_home'           => (int) ($score['score_home'] ?? 0),
@@ -196,6 +198,10 @@ final class RundownEventMapper
             'lastUpdated'       => $now,
             'updatedAt'         => $now,
         ];
+        if ($status !== null) {
+            $update['status'] = $status;
+        }
+        return $update;
     }
 
     /** Deterministic 24-hex match id from a Rundown event_id (re-sync-safe). */
@@ -360,6 +366,15 @@ final class RundownEventMapper
                         $outcome = ['name' => $canonicalTeamName, 'price' => $priceDecimal, 'book' => $book['key']];
                         if ($point !== null) {
                             $outcome['point'] = $point;
+                        }
+                        // pid = normalized participant id, same id-space as the
+                        // delta feed's participant_id — lets the delta patcher
+                        // anchor period-market ticks without name-matching
+                        // (stored names are canonical SHORT form, delta names
+                        // are the feed's FULL form).
+                        $extPid = $participant['id'] ?? null;
+                        if ($extPid !== null && $extPid !== '') {
+                            $outcome['pid'] = is_numeric($extPid) ? (int) $extPid : (string) $extPid;
                         }
                         $extendedByKey[$extKey][] = $outcome;
                     }
