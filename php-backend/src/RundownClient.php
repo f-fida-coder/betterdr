@@ -319,38 +319,45 @@ final class RundownClient
         if ($cap <= 0) return;
 
         $file = sys_get_temp_dir() . '/betterdr-rundown-ratelimit.json';
-        $fp = @fopen($file, 'c+');
-        if ($fp === false) return;
-        try {
-            if (!flock($fp, LOCK_EX)) return;
-            $raw = stream_get_contents($fp) ?: '';
-            $stamps = json_decode($raw, true);
-            $stamps = is_array($stamps) ? array_values(array_filter($stamps, 'is_numeric')) : [];
+        // NEVER sleep while holding the lock. The old code slept up to 60s
+        // inside the flock, so one throttled caller serialized EVERY Rundown
+        // call on the host behind it — observed in prod as 3-7 minute API
+        // latencies and 51-minute prematch cycles once demand crossed the
+        // cap. Each pass holds the lock only long enough to read/update the
+        // window; when the window is full we release, sleep, and retry.
+        for ($attempt = 0; $attempt < 30; $attempt++) {
+            $fp = @fopen($file, 'c+');
+            if ($fp === false) return;
+            $sleepUs = 0;
+            try {
+                if (!flock($fp, LOCK_EX)) return;
+                $raw = stream_get_contents($fp) ?: '';
+                $stamps = json_decode($raw, true);
+                $stamps = is_array($stamps) ? array_values(array_filter($stamps, 'is_numeric')) : [];
 
-            $now = microtime(true);
-            $cutoff = $now - 60.0;
-            $stamps = array_values(array_filter($stamps, static fn ($t) => (float) $t > $cutoff));
-
-            if (count($stamps) >= $cap) {
-                $oldest = (float) $stamps[0];
-                $sleepFor = 60.0 - ($now - $oldest);
-                if ($sleepFor > 0) {
-                    usleep((int) min(60_000_000, $sleepFor * 1_000_000));
-                }
                 $now = microtime(true);
                 $cutoff = $now - 60.0;
                 $stamps = array_values(array_filter($stamps, static fn ($t) => (float) $t > $cutoff));
-            }
 
-            $stamps[] = $now;
-            ftruncate($fp, 0);
-            rewind($fp);
-            fwrite($fp, json_encode($stamps) ?: '[]');
-            fflush($fp);
-        } finally {
-            @flock($fp, LOCK_UN);
-            @fclose($fp);
+                if (count($stamps) < $cap) {
+                    $stamps[] = $now;
+                    ftruncate($fp, 0);
+                    rewind($fp);
+                    fwrite($fp, json_encode($stamps) ?: '[]');
+                    fflush($fp);
+                    return; // slot acquired
+                }
+
+                $oldest = (float) $stamps[0];
+                $sleepUs = (int) min(5_000_000, max(100_000, (60.0 - ($now - $oldest)) * 1_000_000));
+            } finally {
+                @flock($fp, LOCK_UN);
+                @fclose($fp);
+            }
+            usleep($sleepUs);
         }
+        // ~30 retries exhausted (cap saturated for minutes) — proceed rather
+        // than block forever; the upstream 429 path handles true overrun.
     }
 
     /** @return array<string,mixed>|null */
