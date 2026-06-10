@@ -448,8 +448,10 @@ final class MatchesController
                     // of Live Now.
                     $source = strtolower((string) ($match['oddsSource'] ?? ''));
                     if ($source === 'oddsapi') return false;
-                    $maxAge = self::liveFreshnessSecondsForSport($sportKey);
-                    return ($now - $lastTs) <= $maxAge;
+                    // VISIBILITY window, wider than the bettable window: a
+                    // row past per-sport freshness is suspended in place by
+                    // the decoration below, not dropped from the board.
+                    return ($now - $lastTs) <= self::liveListingVisibilitySeconds($sportKey);
                 }
 
                 if ($status === 'scheduled') {
@@ -532,8 +534,11 @@ final class MatchesController
                 $kickoffPassed = $startTs !== false && $startTs <= $now;
                 $isEffectivelyLive = $matchStatus === 'live' || $kickoffPassed;
                 if ($isEffectivelyLive) {
+                    // Visibility window (wider than the bettable window) —
+                    // see the strict-'live' branch above. The freshness
+                    // decoration below suspends 180s+ rows in place.
                     $sportKey = (string) ($match['sportKey'] ?? '');
-                    $maxAge = self::liveFreshnessSecondsForSport($sportKey);
+                    $maxAge = self::liveListingVisibilitySeconds($sportKey);
                 } else {
                     $maxAge = $prematchListingAge;
                 }
@@ -2114,6 +2119,31 @@ final class MatchesController
         $default = (int) Env::get('LIVE_FRESHNESS_SECONDS_DEFAULT', '0');
         if ($default > 0) return $default;
         return $hard;
+    }
+
+    /**
+     * Live LISTING visibility window in seconds — how long a live row stays
+     * on the board after its last odds stamp.
+     *
+     * Deliberately WIDER than the bettable window: real books suspend a
+     * delayed market in place, they don't yank the game off the board.
+     * Dropping at the 90s freshness window made live games vanish and
+     * reappear one sport at a time as the worker walked its per-sport
+     * rotation (and emptied the whole live board for the first seconds
+     * after a worker restart). Rows older than the per-sport live window
+     * survive here and are decorated by freshnessFor() instead: "delayed"
+     * badge at 90s, SUSPENDED (isBettable=false) at 180s. Past this
+     * visibility window the row is hidden outright — that's the phantom /
+     * dead-feed backstop (quotaExhausted blocks the heartbeat, so a dead
+     * feed ages everything out within this window).
+     *
+     * Floored at the hard-stale suspend threshold and the per-sport live
+     * window so it can never be configured tighter than the suspend cliff.
+     */
+    public static function liveListingVisibilitySeconds(string $sportKey): int
+    {
+        $configured = (int) Env::get('LIVE_LISTING_VISIBILITY_SECONDS', '300');
+        return max($configured, self::ODDS_STALE_HARD_SECONDS, self::liveFreshnessSecondsForSport($sportKey));
     }
 
     /**

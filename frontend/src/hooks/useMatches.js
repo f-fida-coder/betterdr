@@ -253,11 +253,16 @@ const filterMatches = (normalized, statusFilter) => {
     }
 
     if (statusFilter === 'live' || statusFilter === 'active') {
-        // Also drop rows the backend already flagged as stale-odds: when the
-        // feed is dead the backend marks them oddsStale (and not bettable), so
-        // showing them in the live list would just be frozen odds. Belt to the
-        // backend's own freshness gate, in case a row slips through.
-        return normalized.filter((match) => isLiveMatch(match) && !match.oddsStale);
+        // Stale-odds rows are KEPT and render as SUSPENDED cards (backend
+        // sets isBettable=false + bettingBlockedReason at the 180s hard
+        // threshold). Dropping them here made live games vanish/reappear
+        // one sport at a time whenever the worker rotation lagged — real
+        // books suspend a delayed market in place, they don't pull the
+        // game off the board. The backend listing gate still hides rows
+        // outright past LIVE_LISTING_VISIBILITY_SECONDS (dead feed /
+        // phantom backstop), and isLiveMatch keeps requiring a real
+        // in-play movement signal so finished-stuck 0-0 rows stay hidden.
+        return normalized.filter((match) => isLiveMatch(match));
     }
 
     if (statusFilter === 'upcoming' || statusFilter === 'scheduled') {

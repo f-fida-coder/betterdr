@@ -34,6 +34,12 @@ if (!class_exists('ApiException')) {
 // Inline replica of the new live filter — mirrors the PHP block in
 // MatchesController.php lines ~256-310 (post-fix). When the controller
 // changes, update this too.
+//
+// NOTE: $liveMaxAgeForSport is the LISTING drop window. In prod this is
+// liveListingVisibilitySeconds() (default 300s, wider than the 90s
+// bettable window) — rows between the two windows stay listed but are
+// suspended in place by the freshness decoration (isBettable=false).
+// The filter SHAPE tested here is unchanged: past the window → dropped.
 function liveFilterStub(int $now, int $prematchMaxAge, int $liveMaxAgeForSport): callable
 {
     return static function (array $match) use ($now, $prematchMaxAge, $liveMaxAgeForSport): bool {
