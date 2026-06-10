@@ -86,10 +86,12 @@ const OddsAge = ({ timestamp, live = false, className, style: extraStyle }) => {
         // then snap back to live on refocus. Bet placement re-validates odds
         // server-side, so the cached odds-age is informational only.
         label = 'Live';
-    } else if (ageMs < 60000) {
+    } else if (ageMs < 150000) {
+        // 150s covers the worst case of normal operation: prematch worker
+        // re-stamps every ~75s + the browser's 60s poll gap + label tick.
+        // A healthy board must never read "2m ago" — minutes appearing at
+        // all means the sync is genuinely delayed, not just between polls.
         label = 'Just now';
-    } else if (minutes === 1) {
-        label = '1m ago';
     } else {
         label = `${minutes}m ago`;
     }
