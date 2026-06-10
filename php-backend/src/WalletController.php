@@ -110,7 +110,18 @@ final class WalletController
 
             $balance = (float) round($this->num($user['balance'] ?? 0));
             $pendingBalance = (float) round($this->num($user['pendingBalance'] ?? 0));
+            // Cash available (for withdrawals) stays balance - pending: a credit
+            // account must never be able to withdraw their credit line.
             $availableBalance = max(0, $balance - $pendingBalance);
+            // Betting available ("available credit") is what every bet (casino
+            // + sportsbook) is staked against. Credit accounts wager against
+            // creditLimit + balance - pending; cash accounts against balance -
+            // pending. Same canonical formula as AuthController::buildMePayload.
+            $role = strtolower(trim((string) ($user['role'] ?? 'user')));
+            $creditLimit = (float) round($this->num($user['creditLimit'] ?? 0));
+            $isCreditAccount = $role === 'user' && $creditLimit > 0;
+            $creditAvailable = (float) round(max(0.0, $creditLimit + $balance - $pendingBalance));
+            $bettingAvailable = $isCreditAccount ? $creditAvailable : $availableBalance;
             $limits = is_array($user['gamblingLimits'] ?? null) ? $user['gamblingLimits'] : [];
             $accountMinBet = isset($user['minBet']) && is_numeric($user['minBet']) && (float) $user['minBet'] > 0
                 ? (float) round((float) $user['minBet'])
@@ -123,6 +134,10 @@ final class WalletController
                 'balance' => $balance,
                 'pendingBalance' => $pendingBalance,
                 'availableBalance' => $availableBalance,
+                'creditLimit' => $creditLimit,
+                'creditAvailable' => $creditAvailable,
+                'isCreditAccount' => $isCreditAccount,
+                'bettingAvailable' => $bettingAvailable,
                 'minBet' => $accountMinBet,
                 'maxBet' => $accountMaxBet,
                 'totalWinnings' => (float) round($this->num($user['totalWinnings'] ?? 0)),

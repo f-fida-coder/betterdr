@@ -88,7 +88,17 @@ const normalizeEmbeddedGameSlug = (value) => {
 };
 
 const resolveWalletBalance = (payload, fallbackValue = null) => {
+    // Every bet (casino + sportsbook) is staked against "available credit".
+    // For credit accounts that is creditLimit + balance - pending, which the
+    // backend resolves into `bettingAvailable` / `creditAvailable`; cash
+    // accounts fall through to `availableBalance` (= balance - pending). These
+    // credit-aware fields must rank above plain availableBalance/balance so a
+    // credit player sees their wagerable credit line, not just cash on hand.
     const fieldPriority = [
+        'bettingAvailable',
+        'betting_available',
+        'creditAvailable',
+        'credit_available',
         'availableBalance',
         'available_balance',
         'playableBalance',

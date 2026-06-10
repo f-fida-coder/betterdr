@@ -1184,7 +1184,7 @@ final class CasinoController
 
                 $balanceBefore = round($this->num($lockedUser['balance'] ?? 0));
                 $pendingBalance = round($this->num($lockedUser['pendingBalance'] ?? 0));
-                $availableBalance = round(max(0, $balanceBefore - $pendingBalance));
+                $availableBalance = $this->availableCredit($balanceBefore, $pendingBalance, $lockedUser);
                 if ($totalWager > $availableBalance) {
                     $this->db->rollback();
                     Response::json(['message' => 'Insufficient balance. Available: $' . round($availableBalance)], 400);
@@ -1202,7 +1202,7 @@ final class CasinoController
 
                 $balanceAfterDebit = round($balanceBefore - $totalWager);
                 $balanceAfter = round($balanceAfterDebit + $totalReturn);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $pendingBalance));
+                $availableBalanceAfter = $this->availableCredit($balanceAfter, $pendingBalance, $lockedUser);
 
                 $now = SqlRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
@@ -1437,7 +1437,7 @@ final class CasinoController
                 $netResult = round($totalReturn - $totalWager);
                 $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
                 $balanceAfter = round($balanceAfterDebit + $totalReturn);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
+                $availableBalanceAfter = $this->availableCredit($balanceAfter, $balanceSnapshot['pendingBalance'], $lockedUser);
 
                 $now = SqlRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
@@ -1725,7 +1725,7 @@ final class CasinoController
 
                 $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
                 $balanceAfter = round($balanceAfterDebit + $totalReturn);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
+                $availableBalanceAfter = $this->availableCredit($balanceAfter, $balanceSnapshot['pendingBalance'], $lockedUser);
 
                 $debitEntry = $this->buildCasinoTransactionEntry(
                     $userId,
@@ -2303,7 +2303,7 @@ final class CasinoController
 
                 $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
                 $balanceAfter = round($balanceAfterDebit + $totalReturn);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
+                $availableBalanceAfter = $this->availableCredit($balanceAfter, $balanceSnapshot['pendingBalance'], $lockedUser);
 
                 $debitEntry = $this->buildCasinoTransactionEntry(
                     $userId,
@@ -2577,7 +2577,7 @@ final class CasinoController
 
                 $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
                 $balanceAfter = round($balanceAfterDebit + $totalReturn);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
+                $availableBalanceAfter = $this->availableCredit($balanceAfter, $balanceSnapshot['pendingBalance'], $lockedUser);
 
                 $roundId = $this->newRoundId();
                 $now = SqlRepository::nowUtc();
@@ -2919,7 +2919,7 @@ final class CasinoController
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
                 $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
                 $balanceAfter = round($balanceAfterDebit + $totalReturn);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
+                $availableBalanceAfter = $this->availableCredit($balanceAfter, $balanceSnapshot['pendingBalance'], $lockedUser);
 
                 $debitEntry = null;
                 $debitEntryId = null;
@@ -3582,7 +3582,7 @@ final class CasinoController
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
                 $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
                 $balanceAfter = round($balanceAfterDebit + $totalReturn);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
+                $availableBalanceAfter = $this->availableCredit($balanceAfter, $balanceSnapshot['pendingBalance'], $lockedUser);
 
                 $debitEntry = null;
                 $debitEntryId = null;
@@ -4472,7 +4472,7 @@ final class CasinoController
 
                 if ($mode === 'snapshot') {
                     $this->db->commit();
-                    $availableBalance = round(max(0, $this->num($lockedUser['balance'] ?? 0) - $this->num($lockedUser['pendingBalance'] ?? 0)));
+                    $availableBalance = $this->availableCredit($this->num($lockedUser['balance'] ?? 0), $this->num($lockedUser['pendingBalance'] ?? 0), $lockedUser);
                     $this->writeCasinoAuditLog('craps_state_snapshot', [
                         'requestId' => $requestId,
                         'mode' => $mode,
@@ -4563,7 +4563,7 @@ final class CasinoController
                 $totalReturn = $releasedStake;
                 $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
                 $balanceAfter = round($balanceAfterDebit + $totalReturn);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
+                $availableBalanceAfter = $this->availableCredit($balanceAfter, $balanceSnapshot['pendingBalance'], $lockedUser);
 
                 $now = SqlRepository::nowUtc();
                 $roundId = $this->newRoundId();
@@ -6674,11 +6674,30 @@ final class CasinoController
         return null;
     }
 
+    /**
+     * Spendable "available credit" for any bet, identical to the sportsbook
+     * rule in BetsController. Credit accounts (role=user with a creditLimit)
+     * wager against their credit line: available = creditLimit + balance -
+     * pending. Cash accounts use balance - pending. Every casino gate and
+     * displayed "available" figure routes through here so casino and
+     * sportsbook agree on what a player can stake.
+     *
+     * @param array<string, mixed> $user
+     */
+    private function availableCredit(float $balance, float $pending, array $user): float
+    {
+        $role = strtolower(trim((string) ($user['role'] ?? 'user')));
+        $creditLimit = $this->num($user['creditLimit'] ?? 0);
+        $base = ($role === 'user' && $creditLimit > 0) ? ($creditLimit + $balance) : $balance;
+
+        return round(max(0, $base - $pending));
+    }
+
     private function getUserBalanceSnapshot(array $lockedUser): array
     {
         $balanceBefore = round($this->num($lockedUser['balance'] ?? 0));
         $pendingBalance = round($this->num($lockedUser['pendingBalance'] ?? 0));
-        $availableBalance = round(max(0, $balanceBefore - $pendingBalance));
+        $availableBalance = $this->availableCredit($balanceBefore, $pendingBalance, $lockedUser);
 
         return [
             'balanceBefore' => $balanceBefore,
