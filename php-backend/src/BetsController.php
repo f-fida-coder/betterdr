@@ -2143,7 +2143,15 @@ final class BetsController
         // book would have moved off. Goes through the existing per-sport
         // SharedFileCache::remember dedup, so concurrent bets on the same
         // sport share one upstream call.
-        $betTimeFreshSecs = max(5, (int) Env::get('BET_TIME_ODDS_FRESH_SECONDS', '30'));
+        // Live bets get a much tighter window than prematch: in-play prices
+        // move pitch-by-pitch, so a live bet must never validate against a
+        // price older than ~5s (sharps exploit exactly that gap). Prematch
+        // lines move slowly — the wider window keeps those placements
+        // instant instead of forcing an upstream round-trip per bet.
+        $matchIsLive = strtolower((string) ($match['status'] ?? '')) === 'live';
+        $betTimeFreshSecs = $matchIsLive
+            ? max(2, (int) Env::get('BET_TIME_ODDS_FRESH_SECONDS_LIVE', '5'))
+            : max(5, (int) Env::get('BET_TIME_ODDS_FRESH_SECONDS', '30'));
         $sportKey = (string) ($match['sportKey'] ?? '');
         $lastOddsAt = (string) ($match['lastOddsSyncAt'] ?? $match['lastUpdated'] ?? '');
         $oddsAge = $lastOddsAt !== '' ? max(0, time() - (int) strtotime($lastOddsAt)) : PHP_INT_MAX;
