@@ -340,6 +340,66 @@ while (!$shutdown) {
             }
         }
 
+        // ── 3b. Stale-live janitor ──────────────────────────────────
+        // A row stuck status='live' that no feed has touched for a day is a
+        // fossil (dropped coverage, dead provider key) — no score update will
+        // ever flip it to finished, so without this sweep it stays 'live'
+        // forever, bloating the live query and the live-sport rotation.
+        // Rows with pending bets are never touched here: expiring them would
+        // orphan the bets outside the settlement/void path, so they're logged
+        // for manual review instead.
+        $fossilEveryTicks = max(1, (int) Env::get('LIVE_FOSSIL_SWEEP_EVERY_N_TICKS', '720')); // ~1h @ 5s
+        $fossilAgeSeconds = max(3600, (int) Env::get('LIVE_FOSSIL_EXPIRE_SECONDS', '86400'));
+        if ($tick % $fossilEveryTicks === 0) {
+            try {
+                $fossilCutoff = time() - $fossilAgeSeconds;
+                $fossilExpired = 0;
+                $fossilSkippedWithBets = 0;
+                foreach ($repo->findMany('matches', ['status' => 'live'], ['limit' => 1000]) as $fossilRow) {
+                    $newestTouch = 0;
+                    foreach (['updatedAt', 'lastUpdated', 'lastScoreSyncAt', 'lastOddsSyncAt'] as $touchField) {
+                        if (!empty($fossilRow[$touchField])) {
+                            $touchTs = (int) strtotime((string) $fossilRow[$touchField]);
+                            if ($touchTs > $newestTouch) $newestTouch = $touchTs;
+                        }
+                    }
+                    if ($newestTouch >= $fossilCutoff) continue;
+                    $fossilId = (string) ($fossilRow['id'] ?? '');
+                    if ($fossilId === '') continue;
+                    $fossilBets = $repo->findMany('bets', [
+                        'status' => 'pending',
+                        '$or' => [
+                            ['matchId' => SqlRepository::id($fossilId)],
+                            ['selections.matchId' => SqlRepository::id($fossilId)],
+                        ],
+                    ], ['projection' => ['id' => 1], 'limit' => 1]);
+                    if (is_array($fossilBets) && $fossilBets !== []) {
+                        $fossilSkippedWithBets++;
+                        Logger::warning('stale-live janitor: fossil row has pending bets — left for manual review', [
+                            'matchId'    => $fossilId,
+                            'matchup'    => ($fossilRow['homeTeam'] ?? '?') . ' vs ' . ($fossilRow['awayTeam'] ?? '?'),
+                            'staleHours' => $newestTouch > 0 ? (int) floor((time() - $newestTouch) / 3600) : null,
+                        ], 'sportsbook');
+                        continue;
+                    }
+                    $repo->updateOne('matches', ['id' => SqlRepository::id($fossilId)], [
+                        'status'     => 'expired',
+                        'statusNote' => 'stale-live janitor',
+                    ]);
+                    $fossilExpired++;
+                }
+                if ($fossilExpired > 0 || $fossilSkippedWithBets > 0) {
+                    Logger::info('stale-live janitor', [
+                        'expired'          => $fossilExpired,
+                        'skippedWithBets'  => $fossilSkippedWithBets,
+                        'olderThanSeconds' => $fossilAgeSeconds,
+                    ], 'sportsbook');
+                }
+            } catch (Throwable $e) {
+                Logger::warning('stale-live janitor failed', ['error' => $e->getMessage()], 'sportsbook');
+            }
+        }
+
         // ── 4. Periodic status line ─────────────────────────────────
         if ($tick % $logEveryTicks === 0) {
             Logger::info('odds-worker tick', [
