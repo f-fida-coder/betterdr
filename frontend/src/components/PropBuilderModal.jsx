@@ -2,13 +2,14 @@ import React from 'react';
 import { getMatchProps } from '../api';
 import { formatLineValue, formatOdds } from '../utils/odds';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
+import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
 
 const MARKET_LABELS = {
     player_points: 'Points',
     player_rebounds: 'Rebounds',
     player_assists: 'Assists',
-    player_threes: '3-Pointers Made',
-    player_blocks: 'Blocks',
+    player_threes: 'Three Point Field Goals Made',
+    player_blocks: 'Blocked Shots',
     player_steals: 'Steals',
     player_turnovers: 'Turnovers',
     player_blocks_steals: 'Blocks + Steals',
@@ -98,6 +99,32 @@ const MARKET_LABELS = {
     // (outcome.description) and match context already disambiguate.
 };
 
+/**
+ * Display order for the category accordion. Basketball first (NBA is the
+ * headline product and the sport this layout was modeled on); keys not
+ * listed here sort after these, alphabetically — so NFL/MLB/NHL props
+ * still get a stable, predictable order without a per-sport table.
+ */
+const CATEGORY_ORDER = [
+    'player_points',
+    'player_rebounds',
+    'player_assists',
+    'player_threes',
+    'player_blocks',
+    'player_turnovers',
+    'player_points_rebounds_assists',
+    'player_points_rebounds',
+    'player_points_assists',
+    'player_rebounds_assists',
+    'player_double_double',
+    'player_triple_double',
+];
+
+// Mirrors SPORTSBOOK_PREFERRED_BOOKS on the server. Only used when the
+// match doc carries no odds.bookmakers list (the server orders that list
+// by the live env value, which is always the source of truth).
+const FALLBACK_BOOK_PRIORITY = ['pinnacle', 'draftkings', 'fanduel', 'betmgm', 'bovada'];
+
 const prettyMarketLabel = (key) => {
     const base = String(key || '').replace(/_alternate$/, '');
     if (MARKET_LABELS[base]) {
@@ -110,25 +137,30 @@ const prettyMarketLabel = (key) => {
         .replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
+const isOverUnderName = (name) => /^(over|under)$/i.test(String(name || '').trim());
+
 /**
- * Group prop-market outcomes by the player name (outcome.description) and
- * within a player, by market key. Over/Under pairs are preserved per line.
+ * The feed appends one outcome per (book × line × side). The board shows
+ * one price per selection (the server orders odds.bookmakers by the
+ * preferred-books config and the row takes the first), so the prop sheet
+ * must do the same — otherwise every selection renders N near-duplicate
+ * buttons, one per book. Placement validates against the FULL pool
+ * (BetsController::collectMatchMarkets pools every book's prop outcomes),
+ * so whichever book's price we surface here is accepted as-is.
  */
-const groupPropsByPlayer = (playerProps) => {
-    const byPlayer = new Map();
-    (playerProps || []).forEach((market) => {
-        const marketKey = String(market?.key || '');
-        const outcomes = Array.isArray(market?.outcomes) ? market.outcomes : [];
-        outcomes.forEach((outcome) => {
-            const playerName = String(outcome?.description || outcome?.participant || outcome?.name || '').trim();
-            if (!playerName) return;
-            if (!byPlayer.has(playerName)) byPlayer.set(playerName, new Map());
-            const byMarket = byPlayer.get(playerName);
-            if (!byMarket.has(marketKey)) byMarket.set(marketKey, []);
-            byMarket.get(marketKey).push(outcome);
-        });
+const dedupeByPreferredBook = (outcomes, bookRank) => {
+    const best = new Map();
+    (outcomes || []).forEach((outcome) => {
+        const player = String(outcome?.description || outcome?.name || '').trim();
+        if (!player) return;
+        const key = `${player}|${String(outcome?.name || '')}|${outcome?.point ?? ''}`;
+        const rank = bookRank.get(String(outcome?.book || '').toLowerCase()) ?? Infinity;
+        const current = best.get(key);
+        if (!current || rank < current.rank) {
+            best.set(key, { outcome, rank });
+        }
     });
-    return byPlayer;
+    return Array.from(best.values()).map((v) => v.outcome);
 };
 
 const PropBuilderModal = ({ match, onClose }) => {
@@ -138,15 +170,37 @@ const PropBuilderModal = ({ match, onClose }) => {
     const [payload, setPayload] = React.useState({ extendedMarkets: [], playerProps: [], cached: false });
     const [selectedKeys, setSelectedKeys] = React.useState(() => new Set());
     // playerFilter is the exact player name selected from the dropdown
-    // ('all' = no filter). Was a free-text "contains" search; the
-    // dropdown is faster on the common case (pick the star, see only
-    // their props) and avoids typo / partial-name mismatches against
-    // ESPN's canonical descriptions.
+    // ('all' = no filter). The dropdown is faster on the common case
+    // (pick the star, see only their props) and avoids typo / partial-name
+    // mismatches against the feed's canonical descriptions.
     const [playerFilter, setPlayerFilter] = React.useState('all');
-    const [marketFilter, setMarketFilter] = React.useState('all');
+    // Category accordion state. Default collapsed — the category bars ARE
+    // the overview (mirrors the market-list-first layout players know from
+    // competitor prop screens); expanding everything up front buries the
+    // list under the first market's full ladder.
+    const [expanded, setExpanded] = React.useState({});
 
     const matchId = match?.id || match?.externalId || '';
-    const matchName = `${match?.awayTeam || match?.away_team || 'Away'} @ ${match?.homeTeam || match?.home_team || 'Home'}`;
+    const awayTeam = match?.awayTeam || match?.away_team || 'Away';
+    const homeTeam = match?.homeTeam || match?.home_team || 'Home';
+    const matchName = `${awayTeam} @ ${homeTeam}`;
+    const sportKey = String(match?.sportKey || match?.sport || '').toLowerCase();
+
+    // Team badges for the VS header strip. Async lookup with the standard
+    // generated-initials fallback so a slow/missing badge service never
+    // shows a broken image.
+    const [teamLogos, setTeamLogos] = React.useState({ away: null, home: null });
+    React.useEffect(() => {
+        let cancelled = false;
+        const ctx = { sportKey };
+        Promise.all([
+            fetchTeamBadgeUrl(awayTeam, ctx),
+            fetchTeamBadgeUrl(homeTeam, ctx),
+        ]).then(([away, home]) => {
+            if (!cancelled) setTeamLogos({ away, home });
+        }).catch(() => { /* fallback data-URIs render instead */ });
+        return () => { cancelled = true; };
+    }, [awayTeam, homeTeam, sportKey]);
 
     // Reuse the same `match-detail:state` / `match-detail:close` events the
     // matchup detail sheet uses, so DashboardHeader swaps its leftmost cell
@@ -165,10 +219,10 @@ const PropBuilderModal = ({ match, onClose }) => {
 
     // Measure the page DashboardHeader so the sheet can cap its max height to
     // (viewport - header). Without this the sheet's top — which carries the
-    // title and player/market filter selects — sits behind the sticky page
-    // header and is unreachable on mobile (the user reported they couldn't
-    // scroll up to access the filters). Falls back to 0 if the header isn't
-    // found, which restores the legacy full-height behavior.
+    // title and player filter — sits behind the sticky page header and is
+    // unreachable on mobile (the user reported they couldn't scroll up to
+    // access the filters). Falls back to 0 if the header isn't found, which
+    // restores the legacy full-height behavior.
     const [headerOffsetPx, setHeaderOffsetPx] = React.useState(0);
     React.useLayoutEffect(() => {
         const measure = () => {
@@ -202,19 +256,71 @@ const PropBuilderModal = ({ match, onClose }) => {
         return () => { cancelled = true; };
     }, [matchId]);
 
-    const byPlayer = React.useMemo(() => groupPropsByPlayer(payload.playerProps), [payload.playerProps]);
-    const marketKeys = React.useMemo(() => {
-        const keys = new Set();
-        (payload.playerProps || []).forEach((m) => keys.add(String(m?.key || '')));
-        return Array.from(keys).filter(Boolean).sort();
-    }, [payload.playerProps]);
-    // Sorted player roster for the dropdown. Pulled off the already-
-    // built `byPlayer` map so we don't walk `payload.playerProps`
-    // twice per render.
-    const playerNames = React.useMemo(
-        () => Array.from(byPlayer.keys()).sort((a, b) => a.localeCompare(b)),
-        [byPlayer]
-    );
+    // book key → priority rank, taken from the server-ordered bookmaker
+    // list on the match doc (already sorted by SPORTSBOOK_PREFERRED_BOOKS).
+    const bookRank = React.useMemo(() => {
+        const rank = new Map();
+        const books = Array.isArray(match?.odds?.bookmakers) ? match.odds.bookmakers : [];
+        books.forEach((b, idx) => {
+            const key = String(b?.key || '').toLowerCase();
+            if (key && !rank.has(key)) rank.set(key, idx);
+        });
+        if (rank.size === 0) {
+            FALLBACK_BOOK_PRIORITY.forEach((key, idx) => rank.set(key, idx));
+        }
+        return rank;
+    }, [match]);
+
+    /**
+     * categories: [{ key, label, byPlayer: Map<player, outcomes[]> }]
+     * One entry per prop market key, outcomes deduped to the preferred
+     * book and grouped by player.
+     */
+    const categories = React.useMemo(() => {
+        const outcomesByKey = new Map();
+        (payload.playerProps || []).forEach((market) => {
+            const key = String(market?.key || '');
+            if (!key) return;
+            const outcomes = Array.isArray(market?.outcomes) ? market.outcomes : [];
+            if (!outcomesByKey.has(key)) outcomesByKey.set(key, []);
+            outcomesByKey.get(key).push(...outcomes);
+        });
+
+        const cats = [];
+        outcomesByKey.forEach((outcomes, key) => {
+            const deduped = dedupeByPreferredBook(outcomes, bookRank);
+            const byPlayer = new Map();
+            let hasOverUnder = false;
+            deduped.forEach((outcome) => {
+                const player = String(outcome?.description || outcome?.name || '').trim();
+                if (!player) return;
+                if (isOverUnderName(outcome?.name)) hasOverUnder = true;
+                if (!byPlayer.has(player)) byPlayer.set(player, []);
+                byPlayer.get(player).push(outcome);
+            });
+            if (byPlayer.size === 0) return;
+            const base = prettyMarketLabel(key);
+            cats.push({
+                key,
+                label: hasOverUnder ? `Over/Under - ${base}` : base,
+                byPlayer,
+            });
+        });
+
+        cats.sort((a, b) => {
+            const ai = CATEGORY_ORDER.indexOf(a.key);
+            const bi = CATEGORY_ORDER.indexOf(b.key);
+            if (ai !== -1 || bi !== -1) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+            return a.key.localeCompare(b.key);
+        });
+        return cats;
+    }, [payload.playerProps, bookRank]);
+
+    const playerNames = React.useMemo(() => {
+        const names = new Set();
+        categories.forEach((cat) => cat.byPlayer.forEach((_, name) => names.add(name)));
+        return Array.from(names).sort((a, b) => a.localeCompare(b));
+    }, [categories]);
 
     // When the modal swaps to a different match (or the API serves a
     // refreshed payload that no longer includes the previously-selected
@@ -222,18 +328,23 @@ const PropBuilderModal = ({ match, onClose }) => {
     // stale name that filters everything out and leaves the user
     // staring at an empty sheet.
     React.useEffect(() => {
-        if (playerFilter !== 'all' && !byPlayer.has(playerFilter)) {
+        if (playerFilter !== 'all' && !playerNames.includes(playerFilter)) {
             setPlayerFilter('all');
         }
-    }, [byPlayer, playerFilter]);
+    }, [playerNames, playerFilter]);
 
-    const filteredPlayers = React.useMemo(() => {
-        const players = Array.from(byPlayer.entries());
-        return players
-            .filter(([name]) => playerFilter === 'all' || name === playerFilter)
-            .filter(([, byMarket]) => marketFilter === 'all' || byMarket.has(marketFilter))
-            .sort(([a], [b]) => a.localeCompare(b));
-    }, [byPlayer, playerFilter, marketFilter]);
+    const visibleCategories = React.useMemo(() => {
+        if (playerFilter === 'all') return categories;
+        return categories.filter((cat) => cat.byPlayer.has(playerFilter));
+    }, [categories, playerFilter]);
+
+    const allOpen = visibleCategories.length > 0 && visibleCategories.every((cat) => expanded[cat.key]);
+    const openAll = () => {
+        const next = {};
+        visibleCategories.forEach((cat) => { next[cat.key] = true; });
+        setExpanded(next);
+    };
+    const closeAll = () => setExpanded({});
 
     const addSelection = (marketKey, playerName, outcome) => {
         const price = Number(outcome?.price);
@@ -242,9 +353,14 @@ const PropBuilderModal = ({ match, onClose }) => {
         const pointLabel = outcome?.point != null ? ` ${formatLineValue(outcome.point)}` : '';
         const selection = `${playerName} ${sideLabel}${pointLabel}`.trim();
         const key = `${marketKey}|${selection}`;
+        // The App-level betslip:add handler toggles — sending the same
+        // {matchId, marketType, selection} a second time removes the leg
+        // from the slip. Mirror that locally so the highlight releases on
+        // the second tap (same fix MatchDetailView carries).
         setSelectedKeys((prev) => {
             const next = new Set(prev);
-            next.add(key);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
             return next;
         });
         window.dispatchEvent(new CustomEvent('betslip:add', {
@@ -255,6 +371,10 @@ const PropBuilderModal = ({ match, onClose }) => {
                 odds: price,
                 matchName,
                 marketLabel: prettyMarketLabel(marketKey),
+                // sportKey lets the betslip enforce per-mode sport rules
+                // (e.g. teaser only allows football + basketball) without
+                // round-tripping the matchId.
+                sportKey,
             },
         }));
     };
@@ -271,8 +391,8 @@ const PropBuilderModal = ({ match, onClose }) => {
         justifyContent: 'center',
     };
     const sheetStyle = {
-        background: '#111',
-        color: '#f1f1f1',
+        background: '#fff',
+        color: '#1a1a1a',
         width: '100%',
         maxWidth: 720,
         maxHeight: headerOffsetPx > 0 ? `calc(100vh - ${headerOffsetPx}px)` : '92vh',
@@ -282,186 +402,337 @@ const PropBuilderModal = ({ match, onClose }) => {
         overflow: 'hidden',
         boxShadow: '0 -10px 40px rgba(0,0,0,0.6)',
     };
-    const headerStyle = {
-        padding: '14px 16px',
-        borderBottom: '1px solid #222',
+    // VS header strip — away vs home with badges, like the game header on
+    // mainstream prop screens.
+    const vsHeaderStyle = {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        gap: 12,
-    };
-    const titleStyle = { display: 'flex', flexDirection: 'column', gap: 2 };
-    const closeBtnStyle = {
-        background: 'transparent',
-        border: '1px solid #444',
-        color: '#eee',
-        width: 32,
-        height: 32,
-        borderRadius: 8,
-        cursor: 'pointer',
-        fontSize: 16,
-    };
-    const toolbarStyle = {
-        display: 'flex',
         gap: 8,
-        padding: '10px 16px',
-        borderBottom: '1px solid #222',
-        flexWrap: 'wrap',
+        padding: '12px 14px',
+        background: '#f2f2f2',
+        borderBottom: '1px solid #e0e0e0',
     };
-    const inputStyle = {
-        background: '#1c1c1c',
-        color: '#eee',
-        border: '1px solid #333',
-        borderRadius: 8,
-        padding: '8px 10px',
-        fontSize: 13,
-        flex: '1 1 200px',
-        minWidth: 140,
-    };
-    // Two selects share the toolbar row. `flex: 1 1 140px` lets them
-    // grow to fill on a wide modal yet shrink to 140px each on narrow
-    // mobile widths before the parent `flexWrap: wrap` stacks them.
-    const selectStyle = { ...inputStyle, flex: '1 1 140px', minWidth: 140 };
-    const bodyStyle = {
-        padding: '10px 16px 24px',
-        overflowY: 'auto',
+    const vsTeamStyle = {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        minWidth: 0,
         flex: 1,
     };
-    const playerCardStyle = {
-        background: '#1a1a1a',
-        borderRadius: 10,
-        padding: '12px 14px',
-        marginBottom: 10,
+    const vsLogoStyle = {
+        width: 22,
+        height: 22,
+        borderRadius: '50%',
+        border: '1px solid #d5d5d5',
+        objectFit: 'contain',
+        background: '#fff',
+        flexShrink: 0,
     };
-    const playerNameStyle = {
-        fontSize: 14,
+    const vsNameStyle = {
+        fontSize: 13,
         fontWeight: 700,
-        marginBottom: 8,
-        color: '#ffd700',
+        color: '#1a1a1a',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
     };
-    const marketRowStyle = { marginBottom: 10 };
-    const marketLabelStyle = { fontSize: 12, color: '#aaa', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 };
-    const oddsGridStyle = {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
-        gap: 6,
-    };
-    const oddsBtnStyle = (selected) => ({
-        background: selected ? '#0a6cdc' : '#242424',
-        color: selected ? '#fff' : '#eee',
-        border: selected ? '1px solid #0a6cdc' : '1px solid #333',
-        borderRadius: 8,
-        padding: '8px 10px',
-        fontSize: 12,
-        cursor: 'pointer',
-        textAlign: 'left',
+    // Dark PROPS toolbar under the VS strip: title + player filter +
+    // open/close-all, mirroring the competitor's dark market toolbar.
+    const toolbarStyle = {
         display: 'flex',
-        justifyContent: 'space-between',
         alignItems: 'center',
-        gap: 6,
+        gap: 8,
+        padding: '10px 14px',
+        background: '#262626',
+        borderBottom: '1px solid #1a1a1a',
+    };
+    const toolbarTitleStyle = {
+        color: '#fff',
+        fontSize: 14,
+        fontWeight: 800,
+        fontStyle: 'italic',
+        letterSpacing: 0.5,
+        flexShrink: 0,
+    };
+    const selectStyle = {
+        background: '#1c1c1c',
+        color: '#eee',
+        border: '1px solid #3a3a3a',
+        borderRadius: 8,
+        padding: '9px 10px',
+        fontSize: 13,
+        flex: 1,
+        minWidth: 0,
+    };
+    const toggleAllBtnStyle = {
+        background: '#d0451b',
+        color: '#fff',
+        border: 'none',
+        borderRadius: 6,
+        padding: '9px 12px',
+        fontSize: 11,
+        fontWeight: 700,
+        cursor: 'pointer',
+        flexShrink: 0,
+        whiteSpace: 'nowrap',
+    };
+    const bodyStyle = {
+        overflowY: 'auto',
+        flex: 1,
+        padding: '6px 6px 24px',
+        background: '#fff',
+    };
+    // Category bars follow the competitor's market-list language: red bar,
+    // white label, chevron on the right, thin white gaps between bars.
+    const categoryHeaderStyle = {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        padding: '13px 14px',
+        background: '#e0584a',
+        borderRadius: 4,
+        marginBottom: 5,
+        cursor: 'pointer',
+        fontSize: 13,
+        fontWeight: 600,
+        color: '#fff',
+        minHeight: 44,
+    };
+    const categoryChevronStyle = (isOpen) => ({
+        fontSize: 16,
+        fontWeight: 700,
+        lineHeight: 1,
+        flexShrink: 0,
+        display: 'inline-block',
+        transform: isOpen ? 'rotate(90deg)' : 'none',
+        transition: 'transform 0.12s ease',
     });
+    const categoryBodyStyle = {
+        marginBottom: 5,
+        borderRadius: 4,
+        overflow: 'hidden',
+        border: '1px solid #d9d9d9',
+    };
+    const playerHeaderStyle = {
+        padding: '8px 14px',
+        background: '#efefef',
+        borderBottom: '1px solid #ddd',
+        fontSize: 12,
+        fontWeight: 800,
+        letterSpacing: 0.4,
+        color: '#222',
+        textTransform: 'uppercase',
+    };
+    const oddsPairStyle = {
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        background: '#c7c7c7',
+        borderBottom: '1px solid #999',
+    };
+    const pairBtnStyle = (selected, isFirst) => ({
+        background: selected ? '#d0451b' : 'transparent',
+        color: selected ? '#fff' : '#111',
+        border: 'none',
+        borderRight: isFirst ? '1px solid #999' : 'none',
+        padding: '12px 10px',
+        fontSize: 13,
+        fontWeight: 600,
+        cursor: 'pointer',
+        textAlign: 'center',
+        minHeight: 52,
+    });
+    const altRowStyle = {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+        gap: 4,
+        padding: '8px',
+        background: '#c7c7c7',
+        borderBottom: '1px solid #999',
+    };
+    const altBtnStyle = (selected) => ({
+        background: selected ? '#d0451b' : '#fff',
+        color: selected ? '#fff' : '#111',
+        border: '1px solid #aaa',
+        borderRadius: 4,
+        padding: '10px 6px',
+        fontSize: 12,
+        fontWeight: 600,
+        cursor: 'pointer',
+        minHeight: 44,
+    });
+
+    const selectionKeyFor = (marketKey, playerName, outcome) => {
+        const pointLabel = outcome?.point != null ? ` ${formatLineValue(outcome.point)}` : '';
+        return `${marketKey}|${`${playerName} ${outcome?.name || ''}${pointLabel}`.trim()}`;
+    };
+
+    /**
+     * One player's outcomes inside a category. Over/Under sides are paired
+     * per line (sorted ascending, so the main line reads in ladder context);
+     * anything else (Yes/No doubles, scorer markets) renders as a button
+     * grid.
+     */
+    const renderPlayerOutcomes = (catKey, playerName, outcomes) => {
+        const linesByPoint = new Map();
+        const rest = [];
+        outcomes.forEach((outcome) => {
+            if (isOverUnderName(outcome?.name)) {
+                const pointKey = String(outcome?.point ?? '');
+                if (!linesByPoint.has(pointKey)) linesByPoint.set(pointKey, {});
+                linesByPoint.get(pointKey)[/^over$/i.test(outcome.name) ? 'over' : 'under'] = outcome;
+            } else {
+                rest.push(outcome);
+            }
+        });
+        const lines = Array.from(linesByPoint.entries())
+            .sort(([a], [b]) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
+
+        const renderSide = (outcome, isFirst) => {
+            if (!outcome) return <div style={{ padding: 14, color: '#888', textAlign: 'center' }}>—</div>;
+            const selKey = selectionKeyFor(catKey, playerName, outcome);
+            const selected = selectedKeys.has(selKey);
+            return (
+                <button
+                    style={pairBtnStyle(selected, isFirst)}
+                    onClick={() => addSelection(catKey, playerName, outcome)}
+                >
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>
+                        {outcome.name}{outcome?.point != null ? ` ${formatLineValue(outcome.point)}` : ''}
+                    </div>
+                    <div style={{ fontSize: 11, marginTop: 4, color: selected ? '#fff' : '#b36a00', fontWeight: 700 }}>
+                        {formatOdds(outcome.price, oddsFormat)}
+                    </div>
+                </button>
+            );
+        };
+
+        return (
+            <React.Fragment key={`${catKey}-${playerName}`}>
+                <div style={playerHeaderStyle}>{playerName}</div>
+                {lines.map(([pointKey, pair]) => (
+                    <div key={`${catKey}-${playerName}-${pointKey}`} style={oddsPairStyle}>
+                        {renderSide(pair.over, true)}
+                        {renderSide(pair.under, false)}
+                    </div>
+                ))}
+                {rest.length > 0 && (
+                    <div style={altRowStyle}>
+                        {rest.map((outcome, idx) => {
+                            const selKey = selectionKeyFor(catKey, playerName, outcome);
+                            const selected = selectedKeys.has(selKey);
+                            const text = `${outcome?.name || ''}${outcome?.point != null ? ` ${formatLineValue(outcome.point)}` : ''}`.trim();
+                            return (
+                                <button
+                                    key={`${catKey}-${playerName}-rest-${idx}`}
+                                    style={altBtnStyle(selected)}
+                                    onClick={() => addSelection(catKey, playerName, outcome)}
+                                >
+                                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text || 'Pick'}</div>
+                                    <div style={{ fontSize: 11, marginTop: 4, color: selected ? '#fff' : '#b36a00', fontWeight: 700 }}>
+                                        {formatOdds(outcome.price, oddsFormat)}
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+            </React.Fragment>
+        );
+    };
+
+    const renderCategory = (cat) => {
+        const isOpen = !!expanded[cat.key];
+        const players = Array.from(cat.byPlayer.entries())
+            .filter(([name]) => playerFilter === 'all' || name === playerFilter)
+            .sort(([a], [b]) => a.localeCompare(b));
+        if (players.length === 0) return null;
+        return (
+            <div key={cat.key}>
+                <div
+                    style={categoryHeaderStyle}
+                    onClick={() => setExpanded((prev) => ({ ...prev, [cat.key]: !prev[cat.key] }))}
+                >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cat.label}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.75)', fontWeight: 600 }}>
+                            {players.length} {players.length === 1 ? 'player' : 'players'}
+                        </span>
+                        <span style={categoryChevronStyle(isOpen)}>›</span>
+                    </span>
+                </div>
+                {isOpen && (
+                    <div style={categoryBodyStyle}>
+                        {players.map(([playerName, outcomes]) => renderPlayerOutcomes(cat.key, playerName, outcomes))}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const renderTeam = (name, logoUrl, reverse) => (
+        <div style={{ ...vsTeamStyle, flexDirection: reverse ? 'row-reverse' : 'row' }}>
+            <img
+                src={logoUrl || createFallbackTeamLogoDataUri(name)}
+                onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(name || ''); }}
+                alt=""
+                style={vsLogoStyle}
+                loading="lazy"
+            />
+            <span style={{ ...vsNameStyle, textAlign: reverse ? 'right' : 'left' }}>{name}</span>
+        </div>
+    );
 
     return (
         <div style={overlayStyle} onClick={onClose}>
             <div style={sheetStyle} onClick={(e) => e.stopPropagation()}>
-                <div style={headerStyle}>
-                    <div style={titleStyle}>
-                        <strong style={{ fontSize: 15 }}>Prop Builder</strong>
-                        <span style={{ fontSize: 12, color: '#9aa' }}>{matchName}</span>
-                    </div>
+                <div style={vsHeaderStyle}>
+                    {renderTeam(awayTeam, teamLogos.away, false)}
+                    <span style={{ fontSize: 12, fontWeight: 800, color: '#555', flexShrink: 0 }}>VS</span>
+                    {renderTeam(homeTeam, teamLogos.home, true)}
                 </div>
 
-                {/* Filter toolbar — only renders when there's data to
-                    filter. Hiding it on empty payloads (no markets, no
-                    players) avoids a native-select popover quirk where
-                    clicking a useless 1-option dropdown produced a
-                    stray "All markets" pill floating mid-page above the
-                    modal. The "No player props available" body copy is
-                    the right empty-state anchor on its own. */}
-                {(marketKeys.length > 0 || playerNames.length > 0) && (
-                    <div style={toolbarStyle}>
-                        <select
-                            style={selectStyle}
-                            value={marketFilter}
-                            onChange={(e) => setMarketFilter(e.target.value)}
-                            aria-label="Filter by market"
-                        >
-                            <option value="all">All markets</option>
-                            {marketKeys.map((k) => (
-                                <option key={k} value={k}>{prettyMarketLabel(k)}</option>
-                            ))}
-                        </select>
+                <div style={toolbarStyle}>
+                    <span style={toolbarTitleStyle}>PROPS</span>
+                    {playerNames.length > 0 && (
                         <select
                             style={selectStyle}
                             value={playerFilter}
                             onChange={(e) => setPlayerFilter(e.target.value)}
                             aria-label="Filter by player"
-                            disabled={playerNames.length === 0}
                         >
                             <option value="all">All players</option>
                             {playerNames.map((name) => (
                                 <option key={name} value={name}>{name}</option>
                             ))}
                         </select>
-                    </div>
-                )}
+                    )}
+                    {visibleCategories.length > 0 && (
+                        <button style={toggleAllBtnStyle} onClick={allOpen ? closeAll : openAll}>
+                            {allOpen ? 'Close All' : 'Open All'}
+                        </button>
+                    )}
+                </div>
 
                 <div style={bodyStyle}>
                     {loading && (
-                        <div style={{ padding: 30, textAlign: 'center', color: '#aaa' }}>
+                        <div style={{ padding: 30, textAlign: 'center', color: '#777' }}>
                             <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 8 }} />
                             Loading props from sportsbook…
                         </div>
                     )}
                     {!loading && error && (
-                        <div style={{ padding: 30, textAlign: 'center', color: '#f55' }}>{error}</div>
+                        <div style={{ padding: 30, textAlign: 'center', color: '#c0392b' }}>{error}</div>
                     )}
-                    {!loading && !error && filteredPlayers.length === 0 && (
-                        <div style={{ padding: 30, textAlign: 'center', color: '#999' }}>
-                            {byPlayer.size === 0
+                    {!loading && !error && visibleCategories.length === 0 && (
+                        <div style={{ padding: 30, textAlign: 'center', color: '#777' }}>
+                            {categories.length === 0
                                 ? 'No player props available for this match right now.'
-                                : playerFilter !== 'all' && marketFilter !== 'all'
-                                    ? `No ${prettyMarketLabel(marketFilter)} props for ${playerFilter}. Try All markets or another player.`
-                                    : marketFilter !== 'all'
-                                        ? `No ${prettyMarketLabel(marketFilter)} props in this match.`
-                                        : `No props for ${playerFilter}.`}
+                                : `No props for ${playerFilter}.`}
                         </div>
                     )}
-                    {!loading && !error && filteredPlayers.map(([playerName, byMarket]) => {
-                        const marketEntries = Array.from(byMarket.entries())
-                            .filter(([k]) => marketFilter === 'all' || k === marketFilter)
-                            .sort(([a], [b]) => a.localeCompare(b));
-                        if (marketEntries.length === 0) return null;
-                        return (
-                            <div key={playerName} style={playerCardStyle}>
-                                <div style={playerNameStyle}>{playerName}</div>
-                                {marketEntries.map(([mKey, outcomes]) => (
-                                    <div key={mKey} style={marketRowStyle}>
-                                        <div style={marketLabelStyle}>{prettyMarketLabel(mKey)}</div>
-                                        <div style={oddsGridStyle}>
-                                            {outcomes.map((outcome, idx) => {
-                                                const selection = `${playerName} ${outcome?.name || ''}${outcome?.point != null ? ` ${formatLineValue(outcome.point)}` : ''}`.trim();
-                                                const key = `${mKey}|${selection}`;
-                                                const selected = selectedKeys.has(key);
-                                                const sideLabel = outcome?.name || '';
-                                                const pointText = outcome?.point != null ? ` ${formatLineValue(outcome.point)}` : '';
-                                                return (
-                                                    <button
-                                                        key={`${mKey}-${idx}`}
-                                                        style={oddsBtnStyle(selected)}
-                                                        onClick={() => addSelection(mKey, playerName, outcome)}
-                                                    >
-                                                        <span>{`${sideLabel}${pointText}`.trim() || 'Pick'}</span>
-                                                        <strong>{formatOdds(outcome?.price, oddsFormat)}</strong>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        );
-                    })}
+                    {!loading && !error && visibleCategories.map(renderCategory)}
                 </div>
             </div>
         </div>
