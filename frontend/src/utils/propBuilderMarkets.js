@@ -1,0 +1,303 @@
+/**
+ * Shared market metadata for the unified Prop Builder screen.
+ *
+ * This mirrors the lookup tables that live inside MatchDetailView (game /
+ * period / alt markets) and PropBuilderModal (player-prop labels + book
+ * dedupe). Those two components keep their own copies because they sit on
+ * the money path (each dispatches `betslip:add`) and we don't want a refactor
+ * to risk that flow — this module is the read-only metadata the *new*
+ * PropBuilderView consumes. Keep the values in sync if the originals change.
+ *
+ * Nothing here touches balances or bet placement — these are pure label /
+ * ordering helpers. The selection strings that ARE load-bearing for leg
+ * validation are built in the view, copied verbatim from the originals.
+ */
+
+// ---------------------------------------------------------------------------
+// Game-props / alt / period sections (mirrors MatchDetailView SECTION_DEFS).
+// `kind` drives which renderer the view uses.
+// ---------------------------------------------------------------------------
+export const GAME_PROP_SECTIONS = [
+    { key: 'alternate_spreads', label: 'Alt Game Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals', label: 'Alt Game Total', kind: 'alt-lines' },
+    { key: 'team_totals', label: 'Team Totals', kind: 'team-totals' },
+    { key: 'alternate_team_totals', label: 'Alt Team Totals', kind: 'team-totals' },
+
+    { key: 'alternate_spreads_h1', label: 'Alt 1st Half Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_h1', label: 'Alt 1st Half Total', kind: 'alt-lines' },
+    { key: 'team_totals_h1', label: '1st Half Team Totals', kind: 'team-totals' },
+    { key: 'alternate_spreads_h2', label: 'Alt 2nd Half Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_h2', label: 'Alt 2nd Half Total', kind: 'alt-lines' },
+    { key: 'team_totals_h2', label: '2nd Half Team Totals', kind: 'team-totals' },
+
+    { key: 'alternate_spreads_q1', label: 'Alt 1st Quarter Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_q1', label: 'Alt 1st Quarter Total', kind: 'alt-lines' },
+    { key: 'team_totals_q1', label: '1st Quarter Team Totals', kind: 'team-totals' },
+    { key: 'alternate_spreads_q2', label: 'Alt 2nd Quarter Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_q2', label: 'Alt 2nd Quarter Total', kind: 'alt-lines' },
+    { key: 'team_totals_q2', label: '2nd Quarter Team Totals', kind: 'team-totals' },
+    { key: 'alternate_spreads_q3', label: 'Alt 3rd Quarter Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_q3', label: 'Alt 3rd Quarter Total', kind: 'alt-lines' },
+    { key: 'team_totals_q3', label: '3rd Quarter Team Totals', kind: 'team-totals' },
+    { key: 'alternate_spreads_q4', label: 'Alt 4th Quarter Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_q4', label: 'Alt 4th Quarter Total', kind: 'alt-lines' },
+    { key: 'team_totals_q4', label: '4th Quarter Team Totals', kind: 'team-totals' },
+
+    { key: 'alternate_team_totals_q1', label: 'Alt 1st Quarter Team Totals', kind: 'team-totals' },
+    { key: 'alternate_team_totals_q2', label: 'Alt 2nd Quarter Team Totals', kind: 'team-totals' },
+    { key: 'alternate_team_totals_q3', label: 'Alt 3rd Quarter Team Totals', kind: 'team-totals' },
+    { key: 'alternate_team_totals_q4', label: 'Alt 4th Quarter Team Totals', kind: 'team-totals' },
+    { key: 'h2h_3_way_q1', label: 'Moneyline 3-Way (1Q)', kind: 'alt-lines' },
+    { key: 'h2h_3_way_q2', label: 'Moneyline 3-Way (2Q)', kind: 'alt-lines' },
+    { key: 'h2h_3_way_q3', label: 'Moneyline 3-Way (3Q)', kind: 'alt-lines' },
+    { key: 'h2h_3_way_q4', label: 'Moneyline 3-Way (4Q)', kind: 'alt-lines' },
+
+    { key: 'alternate_spreads_p1', label: 'Alt 1st Period Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_p1', label: 'Alt 1st Period Total', kind: 'alt-lines' },
+    { key: 'team_totals_p1', label: '1st Period Team Totals', kind: 'team-totals' },
+    { key: 'alternate_team_totals_p1', label: 'Alt 1st Period Team Totals', kind: 'team-totals' },
+    { key: 'h2h_3_way_p1', label: 'Moneyline 3-Way (1st Period)', kind: 'alt-lines' },
+    { key: 'alternate_spreads_p2', label: 'Alt 2nd Period Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_p2', label: 'Alt 2nd Period Total', kind: 'alt-lines' },
+    { key: 'team_totals_p2', label: '2nd Period Team Totals', kind: 'team-totals' },
+    { key: 'alternate_team_totals_p2', label: 'Alt 2nd Period Team Totals', kind: 'team-totals' },
+    { key: 'h2h_3_way_p2', label: 'Moneyline 3-Way (2nd Period)', kind: 'alt-lines' },
+    { key: 'alternate_spreads_p3', label: 'Alt 3rd Period Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_p3', label: 'Alt 3rd Period Total', kind: 'alt-lines' },
+    { key: 'team_totals_p3', label: '3rd Period Team Totals', kind: 'team-totals' },
+    { key: 'alternate_team_totals_p3', label: 'Alt 3rd Period Team Totals', kind: 'team-totals' },
+    { key: 'h2h_3_way_p3', label: 'Moneyline 3-Way (3rd Period)', kind: 'alt-lines' },
+
+    { key: 'alternate_spreads_1st_1_innings', label: 'Alt 1st Inning Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_1st_1_innings', label: 'Alt 1st Inning Total', kind: 'alt-lines' },
+    { key: 'alternate_spreads_1st_3_innings', label: 'Alt 1st 3 Innings Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_1st_3_innings', label: 'Alt 1st 3 Innings Total', kind: 'alt-lines' },
+    { key: 'alternate_spreads_1st_5_innings', label: 'Alt 1st 5 Innings Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_1st_5_innings', label: 'Alt 1st 5 Innings Total', kind: 'alt-lines' },
+    { key: 'alternate_spreads_1st_7_innings', label: 'Alt 1st 7 Innings Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_1st_7_innings', label: 'Alt 1st 7 Innings Total', kind: 'alt-lines' },
+    { key: 'team_totals_1st_5_innings', label: '1st 5 Innings Team Totals', kind: 'team-totals' },
+    { key: 'h2h_3_way_1st_1_innings', label: 'Moneyline 3-Way (1st Inning)', kind: 'alt-lines' },
+    { key: 'h2h_3_way_1st_3_innings', label: 'Moneyline 3-Way (1st 3 Inn)', kind: 'alt-lines' },
+    { key: 'h2h_3_way_1st_5_innings', label: 'Moneyline 3-Way (1st 5 Inn)', kind: 'alt-lines' },
+    { key: 'h2h_3_way_1st_7_innings', label: 'Moneyline 3-Way (1st 7 Inn)', kind: 'alt-lines' },
+
+    { key: 'h2h_3_way', label: 'Moneyline 3-Way', kind: 'alt-lines' },
+    { key: 'h2h_3_way_h1', label: 'Moneyline 3-Way (1st Half)', kind: 'alt-lines' },
+    { key: 'h2h_3_way_h2', label: 'Moneyline 3-Way (2nd Half)', kind: 'alt-lines' },
+    { key: 'btts', label: 'Both Teams to Score', kind: 'alt-lines' },
+    { key: 'btts_h1', label: 'BTTS 1st Half', kind: 'alt-lines' },
+    { key: 'btts_h2', label: 'BTTS 2nd Half', kind: 'alt-lines' },
+    { key: 'draw_no_bet', label: 'Draw No Bet', kind: 'two-team' },
+    { key: 'draw_no_bet_h1', label: 'Draw No Bet (1st Half)', kind: 'two-team' },
+    { key: 'draw_no_bet_h2', label: 'Draw No Bet (2nd Half)', kind: 'two-team' },
+    { key: 'double_chance', label: 'Double Chance', kind: 'alt-lines' },
+    { key: 'double_chance_h1', label: 'Double Chance (1st Half)', kind: 'alt-lines' },
+    { key: 'double_chance_h2', label: 'Double Chance (2nd Half)', kind: 'alt-lines' },
+    { key: 'alternate_team_totals_h1', label: 'Alt 1st Half Team Totals', kind: 'team-totals' },
+    { key: 'alternate_team_totals_h2', label: 'Alt 2nd Half Team Totals', kind: 'team-totals' },
+    { key: 'alternate_asian_handicap', label: 'Asian Handicap (Alt Lines)', kind: 'alt-lines' },
+    { key: 'first_team_to_score', label: 'First Team to Score', kind: 'alt-lines' },
+    { key: 'last_team_to_score', label: 'Last Team to Score', kind: 'alt-lines' },
+    { key: 'alternate_spreads_corners', label: 'Corners — Alt Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_corners', label: 'Corners — Alt Total', kind: 'alt-lines' },
+    { key: 'alternate_spreads_cards', label: 'Cards — Alt Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_cards', label: 'Cards — Alt Total', kind: 'alt-lines' },
+];
+
+// ---------------------------------------------------------------------------
+// Core game markets (moneyline / spread / total) and their period variants.
+// These come off `match.odds.markets`, not the props payload. We discover
+// them dynamically rather than enumerate every period suffix.
+// ---------------------------------------------------------------------------
+const CORE_BASE_LABEL = { h2h: 'Moneyline', spreads: 'Handicap', totals: 'Total Points' };
+
+const PERIOD_LABEL = {
+    '': '',
+    h1: '1st Half', h2: '2nd Half',
+    q1: '1st Quarter', q2: '2nd Quarter', q3: '3rd Quarter', q4: '4th Quarter',
+    p1: '1st Period', p2: '2nd Period', p3: '3rd Period',
+    '1st_1_innings': '1st Inning',
+    '1st_3_innings': '1st 3 Innings',
+    '1st_5_innings': '1st 5 Innings',
+    '1st_7_innings': '1st 7 Innings',
+};
+
+const titleizeToken = (token) => String(token || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+/**
+ * Classify a base game-market key (h2h / spreads / totals, optionally with a
+ * 3-way or period suffix) into { key, label, kind, signed }. Returns null for
+ * anything that isn't a core game market (alts/props are handled elsewhere).
+ */
+export const parseCoreMarket = (rawKey) => {
+    const key = String(rawKey || '').toLowerCase();
+    const m = key.match(/^(h2h|spreads|totals)(?:_(.+))?$/);
+    if (!m) return null;
+    const base = m[1];
+    let rest = m[2] || '';
+    let threeWay = false;
+    if (base === 'h2h' && rest.startsWith('3_way')) {
+        threeWay = true;
+        rest = rest.replace(/^3_way_?/, '');
+    }
+    const periodLabel = PERIOD_LABEL[rest] ?? (rest ? titleizeToken(rest) : '');
+    const baseLabel = threeWay ? 'Moneyline 3-Way' : CORE_BASE_LABEL[base];
+    const label = [periodLabel, baseLabel].filter(Boolean).join(' ');
+    const kind = base === 'totals' ? 'over-under' : (threeWay ? 'alt-lines' : 'two-team');
+    return { key, label, kind, signed: base === 'spreads' };
+};
+
+// ---------------------------------------------------------------------------
+// Player-prop labels (mirrors PropBuilderModal MARKET_LABELS).
+// ---------------------------------------------------------------------------
+export const PLAYER_MARKET_LABELS = {
+    player_points: 'Points',
+    player_rebounds: 'Rebounds',
+    player_assists: 'Assists',
+    player_threes: 'Three Point Field Goals Made',
+    player_blocks: 'Blocked Shots',
+    player_steals: 'Steals',
+    player_turnovers: 'Turnovers',
+    player_blocks_steals: 'Blocks + Steals',
+    player_points_q1: 'Points (1Q)',
+    player_rebounds_q1: 'Rebounds (1Q)',
+    player_assists_q1: 'Assists (1Q)',
+    player_points_rebounds_assists: 'Pts + Reb + Ast',
+    player_points_rebounds: 'Pts + Reb',
+    player_points_assists: 'Pts + Ast',
+    player_rebounds_assists: 'Reb + Ast',
+    player_double_double: 'Double-Double',
+    player_triple_double: 'Triple-Double',
+    player_first_basket: 'First Basket',
+    player_first_team_basket: 'First Team Basket',
+    player_method_of_first_basket: 'First Basket Method',
+    player_field_goals: 'Field Goals',
+    player_frees_made: 'Free Throws Made',
+    player_frees_attempts: 'Free Throw Attempts',
+    player_pass_tds: 'Passing TDs',
+    player_pass_yds: 'Passing Yards',
+    player_pass_yds_q1: 'Passing Yards (1Q)',
+    player_pass_completions: 'Pass Completions',
+    player_pass_attempts: 'Pass Attempts',
+    player_pass_interceptions: 'Interceptions Thrown',
+    player_pass_longest_completion: 'Longest Completion',
+    player_pass_rush_yds: 'Pass + Rush Yards',
+    player_pass_rush_reception_yds: 'Pass + Rush + Rec Yards',
+    player_pass_rush_reception_tds: 'Pass + Rush + Rec TDs',
+    player_rush_yds: 'Rushing Yards',
+    player_rush_tds: 'Rushing TDs',
+    player_rush_attempts: 'Rushing Attempts',
+    player_rush_longest: 'Longest Rush',
+    player_rush_reception_yds: 'Rush + Rec Yards',
+    player_rush_reception_tds: 'Rush + Rec TDs',
+    player_reception_yds: 'Receiving Yards',
+    player_receptions: 'Receptions',
+    player_reception_longest: 'Longest Reception',
+    player_reception_tds: 'Receiving TDs',
+    player_kicking_points: 'Kicking Points',
+    player_pats: 'Extra Points (PATs)',
+    player_tackles_assists: 'Tackles + Assists',
+    player_sacks: 'Sacks',
+    player_solo_tackles: 'Solo Tackles',
+    player_defensive_interceptions: 'Defensive Interceptions',
+    player_1st_td: 'First TD Scorer',
+    player_last_td: 'Last TD Scorer',
+    player_anytime_td: 'Anytime TD Scorer',
+    player_tds_over: 'Total TDs O/U',
+    player_goals: 'Goals',
+    player_power_play_points: 'Power-Play Points',
+    player_blocked_shots: 'Blocked Shots',
+    player_shots_on_goal: 'Shots on Goal',
+    player_total_saves: 'Saves',
+    player_hits: 'Hits',
+    player_faceoffs_won: 'Faceoffs Won',
+    player_goal_scorer_first: 'First Goal Scorer',
+    player_goal_scorer_last: 'Last Goal Scorer',
+    player_goal_scorer_anytime: 'Anytime Goal Scorer',
+    batter_home_runs: 'Home Runs',
+    batter_hits: 'Hits',
+    batter_total_bases: 'Total Bases',
+    batter_rbis: 'RBIs',
+    batter_runs_scored: 'Runs Scored',
+    batter_hits_runs_rbis: 'Hits + Runs + RBIs',
+    batter_singles: 'Singles',
+    batter_doubles: 'Doubles',
+    batter_triples: 'Triples',
+    batter_walks: 'Walks',
+    batter_strikeouts: 'Strikeouts',
+    batter_stolen_bases: 'Stolen Bases',
+    batter_first_home_run: 'First Home Run',
+    batter_fantasy_score: 'Fantasy Score',
+    pitcher_strikeouts: 'Pitcher Strikeouts',
+    pitcher_record_a_win: 'Pitcher to Record a Win',
+    pitcher_hits_allowed: 'Hits Allowed',
+    pitcher_walks: 'Walks Allowed',
+    pitcher_earned_runs: 'Earned Runs',
+    pitcher_outs: 'Outs Recorded',
+    player_first_goal_scorer: 'First Goal Scorer',
+    player_last_goal_scorer: 'Last Goal Scorer',
+    player_to_receive_card: 'To Receive a Card',
+    player_to_receive_red_card: 'To Receive a Red Card',
+    player_shots_on_target: 'Shots on Target',
+    player_shots: 'Shots',
+};
+
+// Category accordion order — basketball headline markets first; unlisted keys
+// sort after, alphabetically (mirrors PropBuilderModal CATEGORY_ORDER).
+export const PLAYER_CATEGORY_ORDER = [
+    'player_points',
+    'player_rebounds',
+    'player_assists',
+    'player_threes',
+    'player_blocks',
+    'player_turnovers',
+    'player_points_rebounds_assists',
+    'player_points_rebounds',
+    'player_points_assists',
+    'player_rebounds_assists',
+    'player_double_double',
+    'player_triple_double',
+];
+
+// Mirrors SPORTSBOOK_PREFERRED_BOOKS — only used when the match doc carries no
+// odds.bookmakers list (the server orders that list, always source of truth).
+export const FALLBACK_BOOK_PRIORITY = ['pinnacle', 'draftkings', 'fanduel', 'betmgm', 'bovada'];
+
+export const prettyPlayerMarketLabel = (key) => {
+    const base = String(key || '').replace(/_alternate$/, '');
+    if (PLAYER_MARKET_LABELS[base]) {
+        const isAlt = String(key || '').endsWith('_alternate');
+        return isAlt ? `${PLAYER_MARKET_LABELS[base]} (Alt Lines)` : PLAYER_MARKET_LABELS[base];
+    }
+    return String(key || 'Market')
+        .replace(/^player_|^batter_|^pitcher_/, '')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+export const isOverUnderName = (name) => /^(over|under)$/i.test(String(name || '').trim());
+
+/**
+ * The feed appends one outcome per (book × line × side). The board surfaces a
+ * single price per selection (server orders odds.bookmakers by the preferred
+ * books config, the row takes the first), so the builder must do the same or
+ * every selection renders N near-duplicate buttons. Placement validates
+ * against the FULL pool, so whichever book we surface is accepted as-is.
+ */
+export const dedupeByPreferredBook = (outcomes, bookRank) => {
+    const best = new Map();
+    (outcomes || []).forEach((outcome) => {
+        const player = String(outcome?.description || outcome?.name || '').trim();
+        if (!player) return;
+        const key = `${player}|${String(outcome?.name || '')}|${outcome?.point ?? ''}`;
+        const rank = bookRank.get(String(outcome?.book || '').toLowerCase()) ?? Infinity;
+        const current = best.get(key);
+        if (!current || rank < current.rank) {
+            best.set(key, { outcome, rank });
+        }
+    });
+    return Array.from(best.values()).map((v) => v.outcome);
+};
