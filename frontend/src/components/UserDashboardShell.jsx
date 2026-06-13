@@ -38,7 +38,6 @@ const STYLE_FEEDBACK = {
 const CasinoView = React.lazy(() => import('./CasinoView'));
 const LiveCasinoView = React.lazy(() => import('./LiveCasinoView'));
 const PropsView = React.lazy(() => import('./PropsView'));
-const PropBuilderView = React.lazy(() => import('./PropBuilderView'));
 const RulesView = React.lazy(() => import('./RulesView'));
 const BonusView = React.lazy(() => import('./BonusView'));
 const TutorialsView = React.lazy(() => import('./TutorialsView'));
@@ -221,11 +220,6 @@ function UserDashboardShell({
           )}
 
           {dashboardView === 'props' && <PropsView />}
-          {dashboardView === 'prop-builder' && (
-            <div style={STYLE_FLEX_SCROLL_TOUCH}>
-              <PropBuilderView />
-            </div>
-          )}
           {dashboardView === 'rules' && <RulesView />}
           {dashboardView === 'bonus' && <BonusView />}
           {dashboardView === 'tutorials' && <TutorialsView />}
