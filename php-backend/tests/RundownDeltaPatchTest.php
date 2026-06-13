@@ -93,32 +93,36 @@ if (!class_exists('BetSettlementService')) {
 require_once dirname(__DIR__) . '/src/RundownSyncService.php';
 
 // Bridge to private helpers via reflection.
-function rdtPatchExt(array $ext, string $bookKey, string $bookName, string $marketKey, string $participant, ?array $outcome): array
+function rdtPatchExt(array $ext, string $bookKey, string $bookName, string $marketKey, string $participant, ?string $pid, ?float $deltaPoint, ?array $outcome): array
 {
     $ref = new ReflectionClass(RundownSyncService::class);
     $m = $ref->getMethod('patchExtendedMarketOutcome');
-    $m->setAccessible(true);
-    return $m->invoke(null, $ext, ['key' => $bookKey, 'name' => $bookName], $marketKey, $participant, $outcome);
+    return $m->invoke(null, $ext, ['key' => $bookKey, 'name' => $bookName], $marketKey, $participant, $pid, $deltaPoint, $outcome);
 }
 
 // ── patchExtendedMarketOutcome ───────────────────────────────────────────
 
-TestRunner::run('patchExtendedMarketOutcome: insert into empty list creates row', function (): void {
+// PATCH-ONLY contract (RundownSyncService June fix): the live delta feed
+// carries no `is_main_line` flag, so an unanchored tick may be an alternate
+// line. patchExtendedMarketOutcome therefore NEVER creates a market, book, or
+// outcome — it only updates the price of (or removes) an EXISTING outcome that
+// matches on book + (pid|name) + exact point. Creation is owned by the full
+// sync. These tests pin that money-critical contract.
+
+TestRunner::run('patchExtendedMarketOutcome: empty list — a delta never creates a market (patch-only)', function (): void {
     $out = rdtPatchExt(
         [],
         'pinnacle', 'Pinnacle',
         'h2h_q1',
         'Oklahoma City Thunder',
+        null, null,
         ['name' => 'Oklahoma City Thunder', 'price' => -160, 'point' => null, 'book' => 'pinnacle']
     );
-    TestRunner::assertEquals(1, count($out), 'one market row');
-    TestRunner::assertEquals('h2h_q1', $out[0]['key']);
-    TestRunner::assertEquals(1, count($out[0]['outcomes']));
-    TestRunner::assertEquals(-160, $out[0]['outcomes'][0]['price']);
-    TestRunner::assertEquals('pinnacle', $out[0]['outcomes'][0]['book']);
+    TestRunner::assertEquals(0, count($out), 'no market row created from a delta');
 });
 
-TestRunner::run('patchExtendedMarketOutcome: update existing outcome by (name, book) identity', function (): void {
+TestRunner::run('patchExtendedMarketOutcome: update existing outcome price by (name, book) identity', function (): void {
+    // Stored OKC outcome has no point → delta must carry a null point to match.
     $seed = [['key' => 'h2h_q1', 'outcomes' => [
         ['name' => 'Oklahoma City Thunder', 'price' => -150, 'book' => 'pinnacle'],
         ['name' => 'San Antonio Spurs',     'price' => 130,  'book' => 'pinnacle'],
@@ -128,6 +132,7 @@ TestRunner::run('patchExtendedMarketOutcome: update existing outcome by (name, b
         'pinnacle', 'Pinnacle',
         'h2h_q1',
         'Oklahoma City Thunder',
+        null, null,
         ['name' => 'Oklahoma City Thunder', 'price' => -175, 'point' => null, 'book' => 'pinnacle']
     );
     TestRunner::assertEquals(2, count($out[0]['outcomes']));
@@ -139,8 +144,9 @@ TestRunner::run('patchExtendedMarketOutcome: update existing outcome by (name, b
     TestRunner::assertEquals(-175, $okc['price'], 'price overwritten');
 });
 
-TestRunner::run('patchExtendedMarketOutcome: same (name, different book) does NOT collide', function (): void {
-    // Two affiliates posting the same Q1 spread on OKC must coexist.
+TestRunner::run('patchExtendedMarketOutcome: a book not already on the row is NOT added (patch-only)', function (): void {
+    // A DraftKings delta for an outcome only Pinnacle has posted must not be
+    // appended — the delta can't prove it's a main line. The row is unchanged.
     $seed = [['key' => 'spreads_q1', 'outcomes' => [
         ['name' => 'Oklahoma City Thunder', 'price' => -110, 'point' => -2.5, 'book' => 'pinnacle'],
     ]]];
@@ -149,22 +155,26 @@ TestRunner::run('patchExtendedMarketOutcome: same (name, different book) does NO
         'draftkings', 'DraftKings',
         'spreads_q1',
         'Oklahoma City Thunder',
+        null, -2.5,
         ['name' => 'Oklahoma City Thunder', 'price' => -108, 'point' => -2.5, 'book' => 'draftkings']
     );
-    TestRunner::assertEquals(2, count($out[0]['outcomes']), 'both bookmakers present');
+    TestRunner::assertEquals(1, count($out[0]['outcomes']), 'new book not appended by a delta');
+    TestRunner::assertEquals(-110, $out[0]['outcomes'][0]['price'], 'existing pinnacle price untouched');
 });
 
-TestRunner::run('patchExtendedMarketOutcome: off-board (null outcome) removes the row', function (): void {
+TestRunner::run('patchExtendedMarketOutcome: off-board (null outcome) removes the matched row', function (): void {
     $seed = [['key' => 'totals_q1', 'outcomes' => [
         ['name' => 'Over',  'price' => -110, 'point' => 56.5, 'book' => 'pinnacle'],
         ['name' => 'Under', 'price' => -110, 'point' => 56.5, 'book' => 'pinnacle'],
     ]]];
-    $out = rdtPatchExt($seed, 'pinnacle', 'Pinnacle', 'totals_q1', 'Over', null);
+    // Delta point must match the stored 56.5 to anchor the removal.
+    $out = rdtPatchExt($seed, 'pinnacle', 'Pinnacle', 'totals_q1', 'Over', null, 56.5, null);
     TestRunner::assertEquals(1, count($out[0]['outcomes']));
     TestRunner::assertEquals('Under', $out[0]['outcomes'][0]['name']);
 });
 
-TestRunner::run('patchExtendedMarketOutcome: point=null removes any stale point on update', function (): void {
+TestRunner::run('patchExtendedMarketOutcome: update patches price only and preserves the stored point', function (): void {
+    // Anchored update (delta point == stored point): price changes, point stays.
     $seed = [['key' => 'h2h_h1', 'outcomes' => [
         ['name' => 'Detroit Tigers', 'price' => -120, 'point' => -1.5, 'book' => 'fanduel'],
     ]]];
@@ -173,13 +183,33 @@ TestRunner::run('patchExtendedMarketOutcome: point=null removes any stale point 
         'fanduel', 'FanDuel',
         'h2h_h1',
         'Detroit Tigers',
+        null, -1.5,
         ['name' => 'Detroit Tigers', 'price' => -130, 'point' => null, 'book' => 'fanduel']
     );
-    TestRunner::assertFalse(isset($out[0]['outcomes'][0]['point']), 'point removed when null');
-    TestRunner::assertEquals(-130, $out[0]['outcomes'][0]['price']);
+    TestRunner::assertEquals(-130, $out[0]['outcomes'][0]['price'], 'price patched');
+    TestRunner::assertEquals(-1.5, $out[0]['outcomes'][0]['point'], 'stored point preserved');
 });
 
-TestRunner::run('patchExtendedMarketOutcome: missing key adds a fresh market row', function (): void {
+TestRunner::run('patchExtendedMarketOutcome: alt-line tick (different point) is rejected — money-safe guard', function (): void {
+    // Same participant+book but a DIFFERENT line value is an alternate-line
+    // tick. Applying it would overwrite the main line and let flat-juice
+    // reprice an alt point at house juice (sharp-exploitable). Must no-op.
+    $seed = [['key' => 'spreads_q1', 'outcomes' => [
+        ['name' => 'Detroit Tigers', 'price' => -110, 'point' => -1.5, 'book' => 'fanduel'],
+    ]]];
+    $out = rdtPatchExt(
+        $seed,
+        'fanduel', 'FanDuel',
+        'spreads_q1',
+        'Detroit Tigers',
+        null, -2.5, // delta line ≠ stored -1.5
+        ['name' => 'Detroit Tigers', 'price' => -130, 'point' => -2.5, 'book' => 'fanduel']
+    );
+    TestRunner::assertEquals(-110, $out[0]['outcomes'][0]['price'], 'main-line price NOT overwritten by alt tick');
+    TestRunner::assertEquals(-1.5, $out[0]['outcomes'][0]['point'], 'main-line point intact');
+});
+
+TestRunner::run('patchExtendedMarketOutcome: a market key not present is NOT created (patch-only)', function (): void {
     $seed = [['key' => 'h2h_q1', 'outcomes' => [
         ['name' => 'Team A', 'price' => -110, 'book' => 'pinnacle'],
     ]]];
@@ -188,9 +218,11 @@ TestRunner::run('patchExtendedMarketOutcome: missing key adds a fresh market row
         'pinnacle', 'Pinnacle',
         'spreads_q1',
         'Team A',
+        null, -3.5,
         ['name' => 'Team A', 'price' => -105, 'point' => -3.5, 'book' => 'pinnacle']
     );
-    TestRunner::assertEquals(2, count($out));
+    TestRunner::assertEquals(1, count($out), 'missing market not created by a delta');
+    TestRunner::assertEquals('h2h_q1', $out[0]['key'], 'existing market untouched');
 });
 
 // ── Live delta market routing ────────────────────────────────────────────

@@ -186,7 +186,6 @@ TestRunner::run('core h2h/spreads/totals still land in odds.bookmakers for every
 
 TestRunner::run('priceToDecimal: American odds convert to the decimal format every consumer expects', function (): void {
     $ref = new ReflectionMethod(RundownEventMapper::class, 'priceToDecimal');
-    $ref->setAccessible(true);
     $approx = static fn (float $a, float $b): bool => abs($a - $b) < 1e-6;
     TestRunner::assertTrue($approx($ref->invoke(null, -110.0), 1.0 + 100.0 / 110.0), '-110 -> ~1.9091');
     TestRunner::assertTrue($approx($ref->invoke(null, 165.0), 2.65), '+165 -> 2.65');

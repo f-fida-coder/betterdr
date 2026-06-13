@@ -1,0 +1,71 @@
+name: CI
+
+# Money-critical platform: gate every push and PR on a clean PHP lint, the
+# backend test suite, and a successful frontend build. This does NOT touch
+# deployment (still `git reset --hard origin/main` on the VPS) — it is purely a
+# pre-merge safety net so a syntax error, a failing settlement test, or a
+# broken build never reaches `main` (which is the deploy artifact).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer commit on the same ref supersedes an in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: PHP lint + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP 8.5
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          tools: none
+
+      - name: Lint all backend PHP (php -l)
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r f; do
+            if ! php -l "$f" > /dev/null 2>&1; then
+              echo "::error file=$f::PHP syntax error"
+              php -l "$f" || true
+              fail=1
+            fi
+          done < <(find php-backend/src php-backend/tests php-backend/public -name '*.php')
+          if [ "$fail" -ne 0 ]; then exit 1; fi
+          echo "PHP lint clean."
+
+      - name: Run backend test suite
+        working-directory: php-backend
+        run: php tests/run.php
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build

@@ -48,7 +48,7 @@ function match_(string $home, string $away, float $scoreHome, float $scoreAway, 
     return [
         'homeTeam'        => $home,
         'awayTeam'        => $away,
-        'effectiveStatus' => $status,
+        'status'          => $status,
         'score'           => ['score_home' => $scoreHome, 'score_away' => $scoreAway],
     ];
 }
@@ -166,7 +166,7 @@ function tennis_(string $home, string $away, array $homeGamesBySet, array $awayG
         'homeTeam'        => $home,
         'awayTeam'        => $away,
         'sportKey'        => 'tennis_atp',
-        'effectiveStatus' => $status,
+        'status'          => $status,
         'score'           => [
             'score_home'           => $setsHome,
             'score_away'           => $setsAway,
@@ -238,7 +238,7 @@ function periodMatch_(string $sportKey, string $home, string $away, array $homeB
         'homeTeam'        => $home,
         'awayTeam'        => $away,
         'sportKey'        => $sportKey,
-        'effectiveStatus' => 'finished',
+        'status'          => 'finished',
         'score'           => [
             'score_home'           => array_sum($homeBy),
             'score_away'           => array_sum($awayBy),

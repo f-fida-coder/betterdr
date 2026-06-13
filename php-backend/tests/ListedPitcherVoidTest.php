@@ -72,7 +72,9 @@ TestRunner::run('RundownEventMapper pitcher extraction', function () {
 });
 
 TestRunner::run('listedPitcherVoid branch table', function () {
-    Env::$vals = []; // flag defaults to enabled
+    // Real Env::get reads $_ENV first; unset → falls back to default '1' (enabled).
+    unset($_ENV['MLB_LISTED_PITCHER_VOID_ENABLED'], $_SERVER['MLB_LISTED_PITCHER_VOID_ENABLED']);
+    putenv('MLB_LISTED_PITCHER_VOID_ENABLED');
 
     $snap = [
         'sportKey'     => 'baseball_mlb',
@@ -126,10 +128,11 @@ TestRunner::run('listedPitcherVoid branch table', function () {
     );
 
     // Kill switch disables everything.
-    Env::$vals = ['MLB_LISTED_PITCHER_VOID_ENABLED' => '0'];
+    $_ENV['MLB_LISTED_PITCHER_VOID_ENABLED'] = '0';
     TestRunner::assertFalse(
         SportsbookBetSupport::listedPitcherVoid($matchAwayChanged, $baseSel),
         'kill switch off → no void'
     );
-    Env::$vals = [];
+    unset($_ENV['MLB_LISTED_PITCHER_VOID_ENABLED'], $_SERVER['MLB_LISTED_PITCHER_VOID_ENABLED']);
+    putenv('MLB_LISTED_PITCHER_VOID_ENABLED');
 });
