@@ -54,7 +54,14 @@
       "Bash(php php-backend/scripts/sportsbook-smoke.php)",
       "Bash(git fetch *)",
       "Bash(git rev-list *)",
-      "Bash(git config *)"
+      "Bash(git config *)",
+      "Bash(curl -sL -o /tmp/live.json -w \"HTTP %{http_code} url=%{url_effective}\\\\n\" \"https://bettorplays247.com/api/matches?status=live&payload=core\" --max-time 20)",
+      "Bash(curl -sL -o /tmp/live.json -w \"HTTP %{http_code}\\\\n\" \"https://www.bettorplays247.com/api/matches?status=live&payload=core\" --max-time 25)",
+      "Bash(curl -s -m 60 -o /tmp/live.json -w \"live: HTTP %{http_code} time=%{time_total}s size=%{size_download}\\\\n\" \"https://www.bettorplays247.com/api/matches?status=live&payload=core\")",
+      "Bash(curl -s -m 60 -o /tmp/up.json -w \"upcoming: HTTP %{http_code} time=%{time_total}s size=%{size_download}\\\\n\" \"https://www.bettorplays247.com/api/matches?status=upcoming&payload=core&limit=5\")",
+      "Bash(curl -s -m 8 -o /dev/null -w \"google: %{http_code} t=%{time_total}\\\\n\" \"https://www.google.com\")",
+      "Bash(curl -s -m 8 -o /dev/null -w \"cloudflare: %{http_code} t=%{time_total}\\\\n\" \"https://1.1.1.1\")",
+      "Bash(curl -s -m 12 -o /dev/null -w \"site again: %{http_code} t=%{time_total}\\\\n\" \"https://www.bettorplays247.com/\")"
     ],
     "additionalDirectories": [
       "/Users/mac/Desktop/betterdr/php-backend/cache"
