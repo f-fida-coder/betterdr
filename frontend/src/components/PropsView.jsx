@@ -1,10 +1,32 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import '../props.css';
 import useMatches from '../hooks/useMatches';
-import { getMyBets } from '../api';
+import { getMyBets, getMatchProps } from '../api';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatLineValue, formatOdds } from '../utils/odds';
 import { formatSiteTime } from '../utils/timezone';
+import {
+    GAME_PROP_SECTIONS,
+    PLAYER_CATEGORY_ORDER,
+    FALLBACK_BOOK_PRIORITY,
+    parseCoreMarket,
+    prettyPlayerMarketLabel,
+    isOverUnderName,
+    dedupeByPreferredBook,
+} from '../utils/propBuilderMarkets';
+
+/**
+ * Desktop "Props Builder" page (P+ in the bet-mode bar, dashboardView 'props').
+ *
+ * Keeps the desktop chrome players know — left sport/game rail + market-filter
+ * tabs — but its market content now uses the SAME unified data model as the
+ * standalone PropBuilderView: base game markets off `odds.markets` PLUS the
+ * lazy-loaded extended markets (alts / team totals / period lines) and player
+ * props from `getMatchProps`. Previously this screen only rendered h2h /
+ * spreads / totals, so "All Markets" was nearly empty. Shared metadata +
+ * book-dedupe live in utils/propBuilderMarkets.js. betslip:add contract is
+ * reused verbatim — no new money logic.
+ */
 
 const PropsView = () => {
     const { oddsFormat } = useOddsFormat();
@@ -15,10 +37,15 @@ const PropsView = () => {
     const [marketTab, setMarketTab] = useState('popular');
     const [selectedMatchId, setSelectedMatchId] = useState(null);
     const [collapsedMarkets, setCollapsedMarkets] = useState({});
-    const [selectedOddsKey, setSelectedOddsKey] = useState(null);
+    const [selectedKeys, setSelectedKeys] = useState(() => new Set());
     const [myBets, setMyBets] = useState([]);
     const [myBetsLoading, setMyBetsLoading] = useState(false);
     const [myBetsError, setMyBetsError] = useState('');
+
+    // Extended markets + player props for the selected game (lazy-loaded).
+    const [payload, setPayload] = useState({ extendedMarkets: [], playerProps: [] });
+    const [propsLoading, setPropsLoading] = useState(false);
+    const [propsError, setPropsError] = useState('');
 
     const matches = useMatches({ status: 'live-upcoming' });
 
@@ -54,25 +81,166 @@ const PropsView = () => {
         return filteredMatches.find((match) => getMatchId(match) === selectedMatchId) || filteredMatches[0] || null;
     }, [filteredMatches, selectedMatchId]);
 
-    const marketRows = useMemo(() => {
-        const markets = selectedMatch?.odds?.markets || [];
-        if (!Array.isArray(markets)) return [];
-        const tabKeys = {
-            popular: ['h2h', 'spreads', 'totals'],
-            moneyline: ['h2h'],
-            spread: ['spreads'],
-            total: ['totals'],
-            all: null
-        };
-        const allowed = tabKeys[marketTab];
-        return markets
-            .filter((market) => allowed === null || allowed.includes(String(market.key || '').toLowerCase()))
-            .map((market) => ({
-                key: String(market.key || 'market').toLowerCase(),
-                title: marketTitle(String(market.key || 'market')),
-                outcomes: Array.isArray(market.outcomes) ? market.outcomes : []
-            }));
-    }, [selectedMatch, marketTab]);
+    const matchId = selectedMatch ? getMatchId(selectedMatch) : '';
+    const sportKey = String(selectedMatch?.sportKey || selectedMatch?.sport || '').toLowerCase();
+
+    // Lazy-load extended markets + player props whenever the game changes.
+    useEffect(() => {
+        if (!matchId) {
+            setPayload({ extendedMarkets: [], playerProps: [] });
+            return;
+        }
+        let cancelled = false;
+        setPropsLoading(true);
+        setPropsError('');
+        setSelectedKeys(new Set());
+        getMatchProps(matchId)
+            .then((data) => { if (!cancelled) setPayload(data || { extendedMarkets: [], playerProps: [] }); })
+            .catch((err) => { if (!cancelled) setPropsError(err?.message || 'Failed to load markets'); })
+            .finally(() => { if (!cancelled) setPropsLoading(false); });
+        return () => { cancelled = true; };
+    }, [matchId]);
+
+    // book key → priority rank from the server-ordered bookmaker list.
+    const bookRank = useMemo(() => {
+        const rank = new Map();
+        const books = Array.isArray(selectedMatch?.odds?.bookmakers) ? selectedMatch.odds.bookmakers : [];
+        books.forEach((b, idx) => {
+            const key = String(b?.key || '').toLowerCase();
+            if (key && !rank.has(key)) rank.set(key, idx);
+        });
+        if (rank.size === 0) FALLBACK_BOOK_PRIORITY.forEach((key, idx) => rank.set(key, idx));
+        return rank;
+    }, [selectedMatch]);
+
+    const marketsByKey = useMemo(() => {
+        const idx = new Map();
+        const base = Array.isArray(selectedMatch?.odds?.markets) ? selectedMatch.odds.markets : [];
+        const extended = Array.isArray(payload?.extendedMarkets) ? payload.extendedMarkets : [];
+        [...base, ...extended].forEach((m) => {
+            if (!m || !m.key) return;
+            const k = String(m.key).toLowerCase();
+            if (!idx.has(k)) idx.set(k, m);
+        });
+        return idx;
+    }, [selectedMatch, payload]);
+
+    // Unified card list. Each card → { key, title, buttons[] }; a button carries
+    // the load-bearing selection string + marketType for the betslip.
+    const allCards = useMemo(() => {
+        const coreCards = [];
+        const propCards = [];
+
+        marketsByKey.forEach((market, key) => {
+            const outcomes = Array.isArray(market.outcomes) ? market.outcomes : [];
+            if (outcomes.length === 0) return;
+
+            const core = parseCoreMarket(key);
+            if (core) {
+                coreCards.push({
+                    key, title: core.label, base: coreBase(key),
+                    buttons: outcomes.map((o) => ({
+                        label: `${o.name || ''}${o.point != null ? ` (${formatLineValue(o.point, { signed: core.signed })})` : ''}`.trim(),
+                        selection: o.name || '',
+                        marketType: key,
+                        marketLabel: core.label,
+                        price: o.price,
+                    })),
+                });
+                return;
+            }
+
+            const section = GAME_PROP_BY_KEY.get(key);
+            if (!section) return;
+            if (section.kind === 'team-totals') {
+                // Split by team (description); marketType disambiguates per team.
+                const byTeam = new Map();
+                outcomes.forEach((o) => {
+                    const team = String(o?.description || '').trim();
+                    if (!team || isOverUnderName(team)) return;
+                    if (!byTeam.has(team)) byTeam.set(team, []);
+                    byTeam.get(team).push(o);
+                });
+                if (byTeam.size === 0) {
+                    propCards.push(altCard(key, section.label, outcomes));
+                } else {
+                    byTeam.forEach((teamOutcomes, team) => {
+                        propCards.push({
+                            key: `${key}:${team}`, title: `${section.label} — ${team}`,
+                            buttons: teamOutcomes.map((o) => ({
+                                label: `${o.name || ''}${o.point != null ? ` ${formatLineValue(o.point)}` : ''}`.trim(),
+                                selection: o.name || '',
+                                marketType: `${key}:${team}`,
+                                marketLabel: section.label,
+                                price: o.price,
+                            })),
+                        });
+                    });
+                }
+            } else {
+                propCards.push(altCard(key, section.label, outcomes));
+            }
+        });
+
+        // Full-game lines lead; then alphabetical.
+        coreCards.sort((a, b) => {
+            const fa = Number(isFullGameKey(b.key)) - Number(isFullGameKey(a.key));
+            if (fa !== 0) return fa;
+            return a.title.localeCompare(b.title);
+        });
+
+        // Player-prop categories → one card each, buttons grouped by player.
+        const outcomesByKey = new Map();
+        (payload.playerProps || []).forEach((market) => {
+            const k = String(market?.key || '');
+            if (!k) return;
+            const outcomes = Array.isArray(market?.outcomes) ? market.outcomes : [];
+            if (!outcomesByKey.has(k)) outcomesByKey.set(k, []);
+            outcomesByKey.get(k).push(...outcomes);
+        });
+        const playerCards = [];
+        outcomesByKey.forEach((outcomes, key) => {
+            const deduped = dedupeByPreferredBook(outcomes, bookRank);
+            const byPlayer = new Map();
+            let hasOU = false;
+            deduped.forEach((o) => {
+                const player = String(o?.description || o?.name || '').trim();
+                if (!player) return;
+                if (isOverUnderName(o?.name)) hasOU = true;
+                if (!byPlayer.has(player)) byPlayer.set(player, []);
+                byPlayer.get(player).push(o);
+            });
+            if (byPlayer.size === 0) return;
+            const base = prettyPlayerMarketLabel(key);
+            const title = hasOU ? `Over/Under - ${base}` : base;
+            const buttons = [];
+            Array.from(byPlayer.entries())
+                .sort(([a], [b]) => a.localeCompare(b))
+                .forEach(([player, list]) => {
+                    list.forEach((o) => {
+                        const sel = `${player} ${o.name || ''}${o.point != null ? ` ${formatLineValue(o.point)}` : ''}`.trim();
+                        buttons.push({ label: sel, selection: sel, marketType: key, marketLabel: title, price: o.price });
+                    });
+                });
+            playerCards.push({ key: `prop:${key}`, title, order: PLAYER_CATEGORY_ORDER.indexOf(key), buttons });
+        });
+        playerCards.sort((a, b) => {
+            if (a.order !== -1 || b.order !== -1) return (a.order === -1 ? 999 : a.order) - (b.order === -1 ? 999 : b.order);
+            return a.title.localeCompare(b.title);
+        });
+
+        return { coreCards, propCards, playerCards };
+    }, [marketsByKey, payload.playerProps, bookRank]);
+
+    // Apply the market-filter tab.
+    const visibleCards = useMemo(() => {
+        const { coreCards, propCards, playerCards } = allCards;
+        if (marketTab === 'popular') return coreCards.filter((c) => isFullGameKey(c.key));
+        if (marketTab === 'moneyline') return coreCards.filter((c) => c.base === 'h2h');
+        if (marketTab === 'spread') return coreCards.filter((c) => c.base === 'spreads');
+        if (marketTab === 'total') return coreCards.filter((c) => c.base === 'totals');
+        return [...coreCards, ...propCards, ...playerCards]; // all
+    }, [allCards, marketTab]);
 
     useEffect(() => {
         if (activeView !== 'my_bets') return;
@@ -86,8 +254,8 @@ const PropsView = () => {
             try {
                 setMyBetsLoading(true);
                 setMyBetsError('');
-                const payload = await getMyBets(token);
-                setMyBets(Array.isArray(payload) ? payload : []);
+                const data = await getMyBets(token);
+                setMyBets(Array.isArray(data) ? data : []);
             } catch (error) {
                 setMyBetsError(error.message || 'Failed to load bets');
             } finally {
@@ -97,27 +265,28 @@ const PropsView = () => {
         loadBets();
     }, [activeView]);
 
-    const toggleMarket = (key) => {
-        setCollapsedMarkets((prev) => ({ ...prev, [key]: !prev[key] }));
-    };
+    const toggleMarket = (key) => setCollapsedMarkets((prev) => ({ ...prev, [key]: !prev[key] }));
 
-    const addSelection = (market, outcome) => {
-        if (!selectedMatch || outcome?.price == null || outcome?.price === '-') return;
-        const matchId = getMatchId(selectedMatch);
-        const selection = outcome.name || 'Selection';
-        const odds = Number(outcome.price);
-        if (Number.isNaN(odds)) return;
-        const oddsKey = `${matchId}-${market.key}-${selection}`;
-        setSelectedOddsKey(oddsKey);
+    const addSelection = (button) => {
+        const price = Number(button?.price);
+        if (!matchId || !button?.selection || !Number.isFinite(price)) return;
+        const dedupeKey = `${button.marketType}|${button.selection}`;
+        setSelectedKeys((prev) => {
+            const next = new Set(prev);
+            if (next.has(dedupeKey)) next.delete(dedupeKey);
+            else next.add(dedupeKey);
+            return next;
+        });
         window.dispatchEvent(new CustomEvent('betslip:add', {
             detail: {
                 matchId,
-                selection,
-                marketType: market.key,
-                odds,
-                matchName: `${selectedMatch.homeTeam || selectedMatch.home_team} vs ${selectedMatch.awayTeam || selectedMatch.away_team}`,
-                marketLabel: market.title
-            }
+                selection: button.selection,
+                marketType: button.marketType,
+                odds: price,
+                matchName: `${selectedMatch?.homeTeamShort || selectedMatch?.homeTeam || selectedMatch?.home_team} vs ${selectedMatch?.awayTeamShort || selectedMatch?.awayTeam || selectedMatch?.away_team}`,
+                marketLabel: button.marketLabel,
+                sportKey,
+            },
         }));
     };
 
@@ -125,9 +294,7 @@ const PropsView = () => {
         <div className="props-container">
             <div className="props-mini-sidebar">
                 <button className={`props-ms-item ${activeRail === 'props' ? 'active' : ''}`} onClick={() => setActiveRail('props')}>
-                    <div className="props-ms-icon">
-                        <i className="fa-solid fa-chart-line"></i>
-                    </div>
+                    <div className="props-ms-icon"><i className="fa-solid fa-chart-line"></i></div>
                     <div>PROPS+</div>
                 </button>
                 <button className={`props-ms-item ${activeRail === 'horses' ? 'active' : ''}`} onClick={() => setActiveRail('horses')}>
@@ -178,13 +345,13 @@ const PropsView = () => {
 
                 <div className="props-track-list">
                     {filteredMatches.map((match) => {
-                        const matchId = getMatchId(match);
-                        const isActive = matchId === getMatchId(selectedMatch);
+                        const id = getMatchId(match);
+                        const isActive = id === getMatchId(selectedMatch);
                         return (
                             <button
-                                key={matchId}
+                                key={id}
                                 className={`props-track-item ${isActive ? 'active' : ''}`}
-                                onClick={() => setSelectedMatchId(matchId)}
+                                onClick={() => setSelectedMatchId(id)}
                             >
                                 <span>{match.homeTeamShort || match.homeTeam || match.home_team}</span>
                                 <span>{match.awayTeamShort || match.awayTeam || match.away_team}</span>
@@ -231,7 +398,7 @@ const PropsView = () => {
                         <div className="props-help-card">
                             <h3>How to use Props Builder</h3>
                             <p>1. Select a sport and game from the left board.</p>
-                            <p>2. Choose a market tab, then click any odds button.</p>
+                            <p>2. Choose a market tab (or "All Markets" for game props + player props), then click any odds button.</p>
                             <p>3. Selection is sent to your live bet slip immediately.</p>
                             <p>4. Use mode tabs (Straight/Parlay/Teaser/If Bet/Reverse) at top to control bet rules.</p>
                         </div>
@@ -261,41 +428,45 @@ const PropsView = () => {
                                     <p>Try another sport or refresh the board.</p>
                                 </div>
                             )}
-                            {selectedMatch && marketRows.length === 0 && (
+                            {selectedMatch && propsLoading && visibleCards.length === 0 && (
                                 <div className="props-help-card">
-                                    <h3>No markets for this game</h3>
-                                    <p>Pick another game or switch market tab.</p>
+                                    <h3><i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 8 }} />Loading markets…</h3>
+                                    <p>Pulling game props and player props for this game.</p>
                                 </div>
                             )}
-                            {selectedMatch && marketRows.map((market) => {
-                                const isCollapsed = Boolean(collapsedMarkets[market.key]);
+                            {selectedMatch && !propsLoading && propsError && visibleCards.length === 0 && (
+                                <div className="props-help-card"><h3>Couldn’t load markets</h3><p>{propsError}</p></div>
+                            )}
+                            {selectedMatch && !propsLoading && !propsError && visibleCards.length === 0 && (
+                                <div className="props-help-card">
+                                    <h3>No markets for this tab</h3>
+                                    <p>Try "All Markets", pick another game, or refresh the board.</p>
+                                </div>
+                            )}
+                            {selectedMatch && visibleCards.map((card) => {
+                                const isCollapsed = Boolean(collapsedMarkets[card.key]);
                                 return (
-                                    <div key={market.key} className="props-market-card">
-                                        <button className="props-market-header" onClick={() => toggleMarket(market.key)}>
-                                            <span>{market.title}</span>
+                                    <div key={card.key} className="props-market-card">
+                                        <button className="props-market-header" onClick={() => toggleMarket(card.key)}>
+                                            <span>{card.title}</span>
                                             <i className={`fa-solid ${isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'}`}></i>
                                         </button>
                                         {!isCollapsed && (
                                             <div className="props-market-outcomes">
-                                                {market.outcomes.length === 0 && (
+                                                {card.buttons.length === 0 && (
                                                     <div className="props-empty-outcomes">No odds currently available.</div>
                                                 )}
-                                                {market.outcomes.map((outcome, index) => {
-                                                    const labelPoint = outcome.point != null
-                                                        ? ` (${formatLineValue(outcome.point, { signed: market.key === 'spreads' })})`
-                                                        : '';
-                                                    const label = `${outcome.name || `Selection ${index + 1}`}${labelPoint}`;
-                                                    const outcomeKey = `${getMatchId(selectedMatch)}-${market.key}-${outcome.name || index}`;
-                                                    const selected = selectedOddsKey === outcomeKey;
+                                                {card.buttons.map((button, index) => {
+                                                    const selected = selectedKeys.has(`${button.marketType}|${button.selection}`);
                                                     return (
                                                         <button
-                                                            key={`${market.key}-${outcome.name || index}`}
+                                                            key={`${card.key}-${button.selection}-${index}`}
                                                             className={`props-odds-btn ${selected ? 'selected' : ''}`}
-                                                            onClick={() => addSelection(market, outcome)}
-                                                            disabled={outcome.price == null}
+                                                            onClick={() => addSelection(button)}
+                                                            disabled={button.price == null}
                                                         >
-                                                            <span>{label}</span>
-                                                            <strong>{formatOdds(outcome.price, oddsFormat)}</strong>
+                                                            <span>{button.label || 'Pick'}</span>
+                                                            <strong>{formatOdds(button.price, oddsFormat)}</strong>
                                                         </button>
                                                     );
                                                 })}
@@ -312,22 +483,31 @@ const PropsView = () => {
     );
 };
 
-const marketTitle = (key) => {
-    const map = {
-        h2h: 'Game Winner',
-        spreads: 'Spread',
-        totals: 'Total'
-    };
-    if (map[key]) return map[key];
-    return key.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+const GAME_PROP_BY_KEY = new Map(GAME_PROP_SECTIONS.map((s) => [s.key, s]));
+
+// A game-prop alt-lines card: each outcome → one button (name + point).
+const altCard = (key, title, outcomes) => ({
+    key, title,
+    buttons: (Array.isArray(outcomes) ? outcomes : []).map((o) => {
+        const sel = [o?.name, o?.point != null ? formatLineValue(o.point) : ''].filter(Boolean).join(' ');
+        return { label: sel || 'Pick', selection: sel, marketType: key, marketLabel: title, price: o?.price };
+    }),
+});
+
+const coreBase = (key) => {
+    const k = String(key || '').toLowerCase();
+    if (k.startsWith('h2h')) return 'h2h';
+    if (k.startsWith('spreads')) return 'spreads';
+    if (k.startsWith('totals')) return 'totals';
+    return '';
 };
 
-const formatSportLabel = (sportKey = 'unknown') => {
-    return sportKey
-        .split('_')
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(' ');
-};
+const isFullGameKey = (key) => /^(h2h|spreads|totals)$/.test(String(key || '').toLowerCase());
+
+const formatSportLabel = (sportKey = 'unknown') => sportKey
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 
 const getMatchId = (match) => match?.id || match?.externalId || `${match?.homeTeam || match?.home_team}-${match?.awayTeam || match?.away_team}`;
 
