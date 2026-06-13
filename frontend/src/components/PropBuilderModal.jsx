@@ -226,11 +226,21 @@ const PropBuilderModal = ({ match, onClose }) => {
     const [headerOffsetPx, setHeaderOffsetPx] = React.useState(0);
     React.useLayoutEffect(() => {
         const measure = () => {
-            const el = document.querySelector('.mobile-header-container, .top-header');
-            if (el) {
-                const rect = el.getBoundingClientRect();
-                setHeaderOffsetPx(Math.max(0, Math.round(rect.bottom)));
-            }
+            // The top chrome can be MORE than the page header: on the betslip /
+            // bet-type screen the STRAIGHT/PARLAY/… row (`.tabs-bar`) is pinned
+            // below the header too. Offset below the LOWEST bar pinned near the
+            // top so the sheet's title + player filter never hide behind them.
+            // Only count bars currently at the top (rect.top small) — a tabs-bar
+            // that has scrolled away in another context must not push the sheet.
+            let bottom = 0;
+            document.querySelectorAll('.mobile-header-container, .top-header, .tabs-bar')
+                .forEach((el) => {
+                    const rect = el.getBoundingClientRect();
+                    if (rect.height > 0 && rect.top <= 160 && rect.bottom > bottom) {
+                        bottom = rect.bottom;
+                    }
+                });
+            setHeaderOffsetPx(Math.max(0, Math.round(bottom)));
         };
         measure();
         window.addEventListener('resize', measure);
