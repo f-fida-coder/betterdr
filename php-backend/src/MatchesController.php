@@ -341,7 +341,7 @@ final class MatchesController
         
         $queryOptions = ['sort' => ['startTime' => 1]];
         $coreSqlProjectionEnabled = $this->isTruthy(Env::get('SPORTSBOOK_CORE_SQL_PROJECTION', 'false'));
-        if ($payloadMode === 'core' && $coreSqlProjectionEnabled) {
+        if (($payloadMode === 'core' || $payloadMode === 'light') && $coreSqlProjectionEnabled) {
             $queryOptions['projection'] = [
                 'id' => 1,
                 'externalId' => 1,
@@ -660,6 +660,8 @@ final class MatchesController
 
         if ($payloadMode === 'core') {
             $annotated = array_map(fn(array $match): array => $this->coreMatchPayload($match), $annotated);
+        } elseif ($payloadMode === 'light') {
+            $annotated = array_map(fn(array $match): array => $this->lightMatchPayload($match), $annotated);
         }
 
         // Backfill the short-name fields at serve time so legacy rows
@@ -863,9 +865,20 @@ final class MatchesController
                 }
             }
 
+            // Canonical base game markets (h2h/spreads/totals with the same
+            // per-market preferred-book selection the board applies) so callers
+            // that fetch the game list in 'light' mode (no odds) can still
+            // render moneyline/handicap/total for the selected game without a
+            // second board call — and see identical prices to the board.
+            $canonical = self::canonicalizeOddsMarkets($refreshed ?? $match);
+            $baseMarkets = is_array($canonical['odds']['markets'] ?? null) ? $canonical['odds']['markets'] : [];
+            $bookmakers  = is_array($canonical['odds']['bookmakers'] ?? null) ? $canonical['odds']['bookmakers'] : [];
+
             $payload = [
                 'matchId' => $id,
                 'cached'  => true,
+                'markets' => $baseMarkets,
+                'bookmakers' => $bookmakers,
                 'extendedMarkets' => $extended,
                 'playerProps' => $props,
             ];
@@ -2212,6 +2225,12 @@ final class MatchesController
     private function normalizePayloadMode(string $value): string
     {
         $mode = strtolower(trim($value));
+        // 'light' drops odds entirely — used by views that only need the game
+        // list (e.g. the Prop Builder rail/selector), which then load the
+        // selected game's odds on demand via /matches/{id}/props.
+        if ($mode === 'light') {
+            return 'light';
+        }
         return $mode === 'core' ? 'core' : 'full';
     }
 
@@ -2231,6 +2250,20 @@ final class MatchesController
         // Q1-Q4 for basketball/football, P1-P3 for hockey, alt lines,
         // team totals). The list view needs them so period tabs can
         // render and switch instantly without a per-match fetch.
+        return $match;
+    }
+
+    /**
+     * Minimal list payload: everything needed to render a game rail/selector
+     * (teams, sport, startTime, status, score, pitchers, bettability) but NO
+     * odds. The full live-upcoming board carries ~12 KB of odds per game; a
+     * 250-row unscoped pull is ~3 MB and times out on mobile, leaving prop
+     * views blank. Consumers load the selected game's odds on demand via
+     * /matches/{id}/props (which now returns canonical base markets too).
+     */
+    private function lightMatchPayload(array $match): array
+    {
+        unset($match['odds'], $match['extendedMarkets'], $match['playerProps']);
         return $match;
     }
 

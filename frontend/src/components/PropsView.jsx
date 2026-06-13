@@ -20,7 +20,10 @@ const PropsView = () => {
     const [myBetsLoading, setMyBetsLoading] = useState(false);
     const [myBetsError, setMyBetsError] = useState('');
 
-    const matches = useMatches({ status: 'live-upcoming' });
+    // Cap the fetch (live + soonest by start time). An uncapped live-upcoming
+    // pull is now 250+ rows / ~3 MB once far-future games load and times out on
+    // mobile, leaving the page empty. Mirrors PropBuilderView + the landing view.
+    const matches = useMatches({ status: 'live-upcoming', limit: 200 });
 
     const sportBuckets = useMemo(() => {
         const map = new Map();

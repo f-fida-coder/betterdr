@@ -303,7 +303,15 @@ const buildMatchesFingerprint = (matches) => {
 
 export default function useMatches(options = {}) {
     const statusFilter = (options.status || 'all').toString().toLowerCase();
-    const scopeKey = (options.scopeKey || '').toString();
+    // Payload mode forwarded to /api/matches?payload=. Defaults to 'core'
+    // (odds + period markets). Views that only need the game list pass
+    // 'light' (no odds) for a much smaller, mobile-safe response. Folded into
+    // the scope key so a light snapshot (no odds) is never served from cache
+    // to a core consumer that needs odds.
+    const payloadMode = ['core', 'light', 'full'].includes(String(options.payload || '').toLowerCase())
+        ? String(options.payload).toLowerCase()
+        : 'core';
+    const scopeKey = ((options.scopeKey || '') + (payloadMode !== 'core' ? `|payload:${payloadMode}` : '')).toString();
     // Seed from the last-known-good snapshot for this exact view so the
     // first render shows the previously-loaded rows immediately. Hand-off
     // is silent: the fetch effect below will overwrite once new data
@@ -482,7 +490,7 @@ export default function useMatches(options = {}) {
                     requestPromise = null;
                 }
                 if (!requestPromise) {
-                    const requestOptions = { trigger, refresh, payload: 'core' };
+                    const requestOptions = { trigger, refresh, payload: payloadMode };
                     if (rowLimit > 0) requestOptions.limit = rowLimit;
                     requestPromise = (statusFilter === 'live' || statusFilter === 'active')
                         ? getLiveMatches(requestOptions)

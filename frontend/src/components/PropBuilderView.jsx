@@ -68,7 +68,13 @@ const GAME_PROP_BY_KEY = new Map(GAME_PROP_SECTIONS.map((s) => [s.key, s]));
 
 const PropBuilderView = () => {
     const { oddsFormat } = useOddsFormat();
-    const matches = useMatches({ status: 'live-upcoming' });
+    // 'light' = game list WITHOUT odds. The full unscoped live-upcoming board
+    // carries ~12 KB of odds per game; 250+ rows is a ~3 MB payload that times
+    // out on mobile and leaves the builder showing "No games available". We
+    // only need teams/sport/time here for the rail + selector; the selected
+    // game's odds (base markets, period markets, player props) load on demand
+    // via getMatchProps below. limit caps to live + soonest by start time.
+    const matches = useMatches({ status: 'live-upcoming', payload: 'light', limit: 200 });
 
     const [activeSport, setActiveSport] = React.useState('all');
     const [selectedMatchId, setSelectedMatchId] = React.useState('');
@@ -165,19 +171,29 @@ const PropBuilderView = () => {
     // book key → priority rank from the server-ordered bookmaker list.
     const bookRank = React.useMemo(() => {
         const rank = new Map();
-        const books = Array.isArray(selectedMatch?.odds?.bookmakers) ? selectedMatch.odds.bookmakers : [];
+        // Prefer the bookmaker order from the on-demand props payload (the
+        // light game list carries no odds); fall back to the match doc if a
+        // core list ever feeds this view.
+        const books = Array.isArray(payload?.bookmakers) && payload.bookmakers.length
+            ? payload.bookmakers
+            : (Array.isArray(selectedMatch?.odds?.bookmakers) ? selectedMatch.odds.bookmakers : []);
         books.forEach((b, idx) => {
             const key = String(b?.key || '').toLowerCase();
             if (key && !rank.has(key)) rank.set(key, idx);
         });
         if (rank.size === 0) FALLBACK_BOOK_PRIORITY.forEach((key, idx) => rank.set(key, idx));
         return rank;
-    }, [selectedMatch]);
+    }, [selectedMatch, payload]);
 
     // Index every market (base + extended) by key for O(1) lookup.
     const marketsByKey = React.useMemo(() => {
         const idx = new Map();
-        const base = Array.isArray(selectedMatch?.odds?.markets) ? selectedMatch.odds.markets : [];
+        // Base game markets come from the on-demand props payload (canonical,
+        // preferred-book prices — same as the board); the light game list has
+        // no odds. Fall back to the match doc for a core-list feed.
+        const base = Array.isArray(payload?.markets) && payload.markets.length
+            ? payload.markets
+            : (Array.isArray(selectedMatch?.odds?.markets) ? selectedMatch.odds.markets : []);
         const extended = Array.isArray(payload?.extendedMarkets) ? payload.extendedMarkets : [];
         [...base, ...extended].forEach((m) => {
             if (!m || !m.key) return;
