@@ -260,6 +260,23 @@ export const PLAYER_CATEGORY_ORDER = [
     'player_rebounds_assists',
     'player_double_double',
     'player_triple_double',
+    // MLB headline props lead on baseball games (NBA keys above never match).
+    'pitcher_strikeouts',
+    'batter_hits',
+    'batter_home_runs',
+    'batter_rbis',
+    'batter_total_bases',
+    'batter_runs_scored',
+    'batter_stolen_bases',
+    'batter_hits_runs_rbis',
+    'pitcher_hits_allowed',
+    'pitcher_earned_runs',
+    'pitcher_outs',
+    'pitcher_walks',
+    'batter_walks',
+    'batter_singles',
+    'batter_doubles',
+    'batter_triples',
 ];
 
 // Mirrors SPORTSBOOK_PREFERRED_BOOKS — only used when the match doc carries no

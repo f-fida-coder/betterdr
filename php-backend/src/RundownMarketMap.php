@@ -68,6 +68,33 @@ final class RundownMarketMap
         988 => 'player_points_rebounds',
         989 => 'player_points_assists',
         990 => 'player_rebounds_assists',
+
+        // ── MLB player props (over/under counts) ────────────────────────
+        // Keys use the batter_/pitcher_ prefixes the frontend label maps and
+        // listedPitcherVoid() already expect. Only line_value_is_participant
+        // markets are over/under shaped — the yes/no "to record X" markets
+        // (755/761/772/...) are intentionally excluded (different outcome
+        // structure than buildPropOutcome handles).
+        10  => 'batter_home_runs',
+        11  => 'batter_total_bases',
+        12  => 'batter_hits',
+        13  => 'batter_doubles',
+        15  => 'batter_triples',
+        16  => 'batter_singles',
+        17  => 'batter_runs_scored',
+        18  => 'batter_rbis',
+        40  => 'batter_stolen_bases',
+        966 => 'batter_hits_runs_rbis',
+        967 => 'batter_walks',
+        19   => 'pitcher_strikeouts',
+        47   => 'pitcher_hits_allowed',
+        973  => 'pitcher_outs',
+        1121 => 'pitcher_earned_runs',
+        1147 => 'pitcher_walks',
+        // Live mirrors of the same MLB markets.
+        980  => 'batter_hits',
+        979  => 'batter_rbis',
+        1122 => 'pitcher_earned_runs',
     ];
 
     /**
