@@ -145,6 +145,29 @@ const MatchDetailView = ({ match, onClose }) => {
         };
     }, [onClose]);
 
+    // Cap the sheet height below the top chrome so its header ("Alt Lines &
+    // Totals" + Close All) is fully visible instead of sitting behind the page
+    // header / bet-type bar. Mirrors PropBuilderModal. Measures the LOWEST bar
+    // pinned near the top (page header + .tabs-bar). Replaces the old fixed
+    // 96vh height + duplicate in-body back bar workaround.
+    const [headerOffsetPx, setHeaderOffsetPx] = React.useState(0);
+    React.useLayoutEffect(() => {
+        const measure = () => {
+            let bottom = 0;
+            document.querySelectorAll('.mobile-header-container, .top-header, .tabs-bar')
+                .forEach((el) => {
+                    const rect = el.getBoundingClientRect();
+                    if (rect.height > 0 && rect.top <= 160 && rect.bottom > bottom) {
+                        bottom = rect.bottom;
+                    }
+                });
+            setHeaderOffsetPx(Math.max(0, Math.round(bottom)));
+        };
+        measure();
+        window.addEventListener('resize', measure);
+        return () => window.removeEventListener('resize', measure);
+    }, []);
+
     React.useEffect(() => {
         let cancelled = false;
         setLoading(true);
@@ -281,7 +304,7 @@ const MatchDetailView = ({ match, onClose }) => {
         color: '#f5f5f5',
         width: '100%',
         maxWidth: 720,
-        height: '96vh',
+        maxHeight: headerOffsetPx > 0 ? `calc(100vh - ${headerOffsetPx}px)` : '92vh',
         borderRadius: '14px 14px 0 0',
         display: 'flex',
         flexDirection: 'column',
@@ -297,16 +320,6 @@ const MatchDetailView = ({ match, onClose }) => {
         gap: 10,
     };
     const titleStyle = { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 };
-    const backBtnStyle = {
-        background: '#d0451b',
-        color: '#fff',
-        border: 'none',
-        borderRadius: 6,
-        padding: '6px 14px',
-        fontSize: 12,
-        fontWeight: 700,
-        cursor: 'pointer',
-    };
     const toggleAllBtnStyle = {
         background: '#d0451b',
         color: '#fff',
@@ -318,31 +331,6 @@ const MatchDetailView = ({ match, onClose }) => {
         cursor: 'pointer',
     };
     const bodyStyle = { flex: 1, overflowY: 'auto', padding: '0 0 24px' };
-    // A second back row pinned to the top of the scrollable body. The
-    // existing top-of-sheet Back button can get hidden behind the page's
-    // sticky mobile header on some iOS Safari layouts, so this duplicates
-    // the affordance right above GAME SPREAD where the user is actually
-    // looking — guarantees a visible exit no matter how the modal is
-    // composited above the page chrome.
-    const stickyBackBarStyle = {
-        position: 'sticky',
-        top: 0,
-        zIndex: 2,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '10px 14px',
-        background: '#0f0f0f',
-        borderBottom: '1px solid #1e1e1e',
-    };
-    const stickyBackBtnStyle = {
-        ...backBtnStyle,
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '8px 14px',
-        fontSize: 13,
-    };
     const sectionHeaderStyle = {
         display: 'flex',
         alignItems: 'center',
@@ -535,12 +523,6 @@ const MatchDetailView = ({ match, onClose }) => {
                 </div>
 
                 <div style={bodyStyle}>
-                    <div style={stickyBackBarStyle}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: '#ddd', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{matchName}</span>
-                        <button style={toggleAllBtnStyle} onClick={allOpen ? closeAll : openAll}>
-                            {allOpen ? 'Close All' : 'Open All'}
-                        </button>
-                    </div>
                     {loading && (
                         <div style={{ padding: 30, textAlign: 'center', color: '#aaa' }}>
                             <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 8 }} />
