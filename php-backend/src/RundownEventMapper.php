@@ -127,6 +127,14 @@ final class RundownEventMapper
             'awayTeamShort'     => (string) ($away['abbreviation'] ?? ''),
             'homeTeamRecord'    => (string) ($home['record'] ?? ''),
             'awayTeamRecord'    => (string) ($away['record'] ?? ''),
+            // Listed starting pitchers (MLB). Rundown returns pitcher_home /
+            // pitcher_away only for baseball events; null elsewhere. Drives the
+            // "listed pitcher / Action" rule — a bet voids if a listed pitcher
+            // is scratched unless the player took Action on that side. Stored on
+            // the match doc so the placement snapshot captures who was listed at
+            // bet time, and settlement can compare against the actual starter.
+            'homePitcher'       => self::extractPitcher($event['pitcher_home'] ?? null),
+            'awayPitcher'       => self::extractPitcher($event['pitcher_away'] ?? null),
             'broadcast'         => trim((string) ($score['broadcast'] ?? '')),
             'eventName'         => $eventName,
             'startTime'         => (string) ($event['event_date'] ?? $now),
@@ -293,7 +301,7 @@ final class RundownEventMapper
                         // ── Route 1: player prop ────────────────────
                         if ($isProp || $participantType === 'TYPE_PLAYER') {
                             $propKey = RundownMarketMap::propKey($marketId) ?? 'player_unknown';
-                            $propOutcome = self::buildPropOutcome($rawParticipantName, $priceDecimal, $point);
+                            $propOutcome = self::buildPropOutcome($rawParticipantName, $lineValueRaw, $point, $priceDecimal);
                             if ($propOutcome !== null) {
                                 $propsByKey[$propKey][] = $propOutcome + ['book' => $book['key']];
                             }
@@ -465,26 +473,66 @@ final class RundownEventMapper
      *
      * @return array{name:string,description:string,price:int|float,point:?float}|null
      */
-    private static function buildPropOutcome(string $participantName, int|float $price, ?float $point): ?array
+    /**
+     * Normalize one Rundown player-prop price into the outcome shape the
+     * prop modal renders and BetsController validates against:
+     *   { name: 'Over'|'Under'|<side label>, description: <player>, point, price }
+     *
+     * Rundown ships O/U player props with the PLAYER on the participant
+     * ("Luke Kornet", type TYPE_PLAYER) and the SIDE + LINE together in the
+     * line value string ("Over 1.5" / "Under 23.5"). The point is therefore
+     * NOT a numeric line value (so $pointNumeric, parsed from a numeric
+     * line.value upstream, is null here) — it has to be pulled out of that
+     * string. The old code looked for an Over/Under prefix on the participant
+     * name and a numeric line value, found neither, and collapsed every
+     * player to one lineless price. Parse the line value first; fall back to
+     * the legacy participant-name prefix and bare-numeric shapes.
+     */
+    private static function buildPropOutcome(string $participantName, string $lineValueRaw, ?float $pointNumeric, int|float $price): ?array
     {
         if ($participantName === '') return null;
 
+        $lineValue = trim($lineValueRaw);
+
+        // Primary shape: line value carries the side + point, e.g. "Over 1.5".
+        if (preg_match('/^(over|under)\s+([+-]?\d+(?:\.\d+)?)$/i', $lineValue, $m) === 1) {
+            return [
+                'name'        => ucfirst(strtolower($m[1])),
+                'description' => $participantName,
+                'price'       => $price,
+                'point'       => (float) $m[2],
+            ];
+        }
+
+        // Legacy shape: the participant name itself carries the O/U prefix
+        // ("Over 1.5 Luke Kornet"). Keep supporting it.
         if (preg_match('/^(over|under)\s+(.+)$/i', $participantName, $m) === 1) {
             return [
                 'name'        => ucfirst(strtolower($m[1])),
                 'description' => trim($m[2]),
                 'price'       => $price,
-                'point'       => $point,
+                'point'       => $pointNumeric,
             ];
         }
 
-        // No Over/Under prefix detected — keep the player name in
-        // description so the prop modal still groups by player.
+        // Non-O/U side label (e.g. "Yes"/"No" for double-double, scorer
+        // buckets): use the label as the side, player as the description.
+        if ($lineValue !== '' && !is_numeric($lineValue)) {
+            return [
+                'name'        => $lineValue,
+                'description' => $participantName,
+                'price'       => $price,
+                'point'       => $pointNumeric,
+            ];
+        }
+
+        // Bare player prop: numeric or empty line value, no side. Prefer the
+        // numeric line value as the point when present.
         return [
             'name'        => $participantName,
             'description' => $participantName,
             'price'       => $price,
-            'point'       => $point,
+            'point'       => $pointNumeric ?? ($lineValue !== '' && is_numeric($lineValue) ? (float) $lineValue : null),
         ];
     }
 
@@ -501,6 +549,36 @@ final class RundownEventMapper
             if ($side === 'away' && (bool) ($team['is_away'] ?? false)) return $team;
         }
         return null;
+    }
+
+    /**
+     * Normalize a Rundown pitcher_home / pitcher_away object into the compact
+     * shape the rest of the app stores and renders:
+     *   ['id' => int, 'name' => string, 'hand' => 'R'|'L'|'']
+     * `hand` is the throwing hand shown next to the pitcher ("- R" / "- L").
+     * Returns null when no pitcher is listed (so non-baseball events and
+     * not-yet-announced games carry a clean null rather than an empty shell).
+     *
+     * @param mixed $pitcher Raw Rundown pitcher object (or null).
+     * @return array{id:int,name:string,hand:string}|null
+     */
+    private static function extractPitcher(mixed $pitcher): ?array
+    {
+        if (!is_array($pitcher)) {
+            return null;
+        }
+        $name = trim((string) ($pitcher['name'] ?? ''));
+        $id   = (int) ($pitcher['id'] ?? 0);
+        if ($name === '' && $id <= 0) {
+            return null;
+        }
+        $hand = '';
+        if (($pitcher['throws_right_handed'] ?? null) === true) {
+            $hand = 'R';
+        } elseif (($pitcher['throws_left_handed'] ?? null) === true) {
+            $hand = 'L';
+        }
+        return ['id' => $id, 'name' => $name, 'hand' => $hand];
     }
 
     /**

@@ -335,6 +335,9 @@ export const resolveStatusBadge = (input) => {
         if (reason === 'match_canceled') {
             return { label: 'VOID', title: 'Match canceled or no result; stake refunded', theme: 'void' };
         }
+        if (reason === 'pitcher_changed') {
+            return { label: 'VOID', title: 'Listed pitcher changed; stake refunded', theme: 'void' };
+        }
         return { label: 'VOID', title: 'No result; stake refunded', theme: 'void' };
     }
     return null;

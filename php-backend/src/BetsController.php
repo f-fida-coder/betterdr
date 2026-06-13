@@ -236,13 +236,22 @@ final class BetsController
                             $sel['odds'] ?? null
                         );
                     } else {
-                        $validatedSelections[] = $this->validateSelection(
+                        $validated = $this->validateSelection(
                             trim((string) ($sel['matchId'] ?? '')),
                             trim((string) ($sel['selection'] ?? '')),
                             $sel['odds'] ?? null,
                             $selType,
                             $boughtPoints
                         );
+                        // MLB listed-pitcher "Action" choice (per side). When a
+                        // side is NOT marked Action, the bet voids if that
+                        // listed starting pitcher is scratched (honored at
+                        // settlement, see SportsbookBetSupport::listedPitcherVoid).
+                        // Server-derived from the leg's own snapshot, so a
+                        // tampered client can't fabricate pitchers; we only
+                        // record which sides the player waived the void on.
+                        $validated['pitcherAction'] = self::normalizePitcherAction($sel['pitcherAction'] ?? null);
+                        $validatedSelections[] = $validated;
                     }
                 } catch (ApiException $e) {
                     $details = $e->payload();
@@ -2448,6 +2457,26 @@ final class BetsController
         ];
     }
 
+    /**
+     * Coerce a client-supplied pitcherAction blob into a strict
+     * {home:bool, away:bool} shape. Anything missing/garbage → false (the
+     * conservative default: the listed pitcher applies, so the leg voids if
+     * that pitcher is scratched). Returning a plain bool[] keeps the stored
+     * shape tiny and JSON-stable.
+     *
+     * @return array{home:bool,away:bool}
+     */
+    private static function normalizePitcherAction(mixed $raw): array
+    {
+        $home = false;
+        $away = false;
+        if (is_array($raw)) {
+            $home = !empty($raw['home']);
+            $away = !empty($raw['away']);
+        }
+        return ['home' => $home, 'away' => $away];
+    }
+
     private function selectionForInsert(array $selection): array
     {
         $isOutright = ($selection['marketType'] ?? '') === 'outrights' || !empty($selection['isOutright']);
@@ -2478,6 +2507,11 @@ final class BetsController
             'boughtPoints' => isset($selection['boughtPoints']) ? (float) $selection['boughtPoints'] : 0.0,
             'pointAdjustment' => isset($selection['pointAdjustment']) ? (float) $selection['pointAdjustment'] : 0.0,
             'status' => 'pending',
+            // MLB listed-pitcher Action waiver (per side). Settlement reads
+            // this alongside the leg's matchSnapshot to decide whether a
+            // pitcher change voids the leg. Defaults to no-action (void on
+            // change) for every non-baseball / legacy leg.
+            'pitcherAction' => self::normalizePitcherAction($selection['pitcherAction'] ?? null),
             'matchSnapshot' => $selection['matchSnapshot'] ?? new stdClass(),
         ];
     }

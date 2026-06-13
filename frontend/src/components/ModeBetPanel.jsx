@@ -5,6 +5,7 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal } from '../utils/odds';
 import { computeMidQuickStakes } from '../utils/money';
 import { formatSiteDateTime } from '../utils/timezone';
+import { isMlbSportKey, formatPitcherLabel } from '../utils/pitchers';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
 import BetConfirmationModal from './BetConfirmationModal';
 import WagerConfirmedScreen from './WagerConfirmedScreen';
@@ -1606,6 +1607,8 @@ const ModeBetPanel = ({
                             // so legacy backends don't see an unexpected
                             // field; backend default is 0.0 either way.
                             ...(Number(sel.boughtPoints) > 0 ? { boughtPoints: Number(sel.boughtPoints) } : {}),
+                            // MLB listed-pitcher Action waiver, per side.
+                            ...(isMlbSportKey(sel.sportKey) ? { pitcherAction: { home: !!sel.pitcherAction?.home, away: !!sel.pitcherAction?.away } } : {}),
                         }],
                         // Legacy top-level mirror for older backend path.
                         matchId: sel.matchId,
@@ -1716,6 +1719,8 @@ const ModeBetPanel = ({
                     odds: Number(sel.odds),
                     type: sel.marketType || 'straight',
                     ...(Number(sel.boughtPoints) > 0 ? { boughtPoints: Number(sel.boughtPoints) } : {}),
+                    // MLB listed-pitcher Action waiver, per side.
+                    ...(isMlbSportKey(sel.sportKey) ? { pitcherAction: { home: !!sel.pitcherAction?.home, away: !!sel.pitcherAction?.away } } : {}),
                 })),
             };
 
@@ -2629,6 +2634,44 @@ const ModeBetPanel = ({
                                         {formatOddsSign(sel.odds)}
                                     </span>
                                 </div>
+
+                                {/* MLB listed-pitcher Action toggles. Each box
+                                    starts UNCHECKED = listed pitcher (the leg
+                                    voids if that starter is scratched). Checking
+                                    a box waives the void for that side ("Action"
+                                    — the bet stands regardless). Settlement reads
+                                    the same flags (SportsbookBetSupport::
+                                    listedPitcherVoid). */}
+                                {isMlbSportKey(sel.sportKey) && (sel.pitchers?.away || sel.pitchers?.home) && (
+                                    <div style={{ marginTop: 7, borderTop: `1px solid ${palette.cardBorder}`, paddingTop: 6 }}>
+                                        <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', color: palette.textMuted, marginBottom: 4 }}>
+                                            Listed Pitchers
+                                        </div>
+                                        {[{ side: 'away', pitcher: sel.pitchers?.away }, { side: 'home', pitcher: sel.pitchers?.home }].map(({ side, pitcher }) => {
+                                            if (!pitcher) return null;
+                                            const checked = !!sel.pitcherAction?.[side];
+                                            return (
+                                                <label key={side} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: palette.textPrimary }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={checked}
+                                                        onChange={(e) => updateSelection(sel.id, { pitcherAction: { ...(sel.pitcherAction || {}), [side]: e.target.checked } })}
+                                                        style={{ width: 15, height: 15, flexShrink: 0, accentColor: palette.accent, cursor: 'pointer' }}
+                                                    />
+                                                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                        {formatPitcherLabel(pitcher)}
+                                                        <span style={{ color: palette.textMuted, fontWeight: 600 }}> · Action</span>
+                                                    </span>
+                                                </label>
+                                            );
+                                        })}
+                                        <div style={{ fontSize: 10, color: palette.textMuted, marginTop: 3, lineHeight: 1.3 }}>
+                                            {sel.pitchers?.away && sel.pitchers?.home && sel.pitcherAction?.away && sel.pitcherAction?.home
+                                                ? 'Action: bet stands regardless of pitching changes.'
+                                                : 'Unchecked = listed pitcher; bet voids if that pitcher is scratched.'}
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* Buy Points selector — Spread/Total only.
                                     Tapping the trigger opens a popup of up

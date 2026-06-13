@@ -6,6 +6,7 @@ import { useToast } from '../contexts/ToastContext';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import { teaserSportGroup } from '../utils/teaserAdjustment';
 import { resolveBroadcast } from '../utils/broadcast';
+import { isMlbSportKey, formatPitcherLabel, hasListedPitchers } from '../utils/pitchers';
 import { TERMINAL_MATCH_STATUSES, isLiveLikeMatch } from '../utils/liveStatus';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
@@ -169,6 +170,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     const [activeTab] = useState('matches');
     const [teamLogos, setTeamLogos] = useState({});
     const [propsOpenMatch, setPropsOpenMatch] = useState(null);
+    // Board-level MLB pitcher "Action" toggles, keyed by matchId → {home,away}.
+    // Checking a pitcher's box on the board means the player takes Action on
+    // that side (the bet stands even if that listed pitcher is scratched). The
+    // state is read at add-to-slip time and travels with the selection into the
+    // bet slip + backend. Default (absent) = listed pitcher (voids on change).
+    const [pitcherActionByMatch, setPitcherActionByMatch] = useState({});
     const [detailOpenMatch, setDetailOpenMatch] = useState(null);
     const attemptedLogoFetchesRef = React.useRef(new Set());
 
@@ -837,6 +844,13 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     },
                     score1: awayScore,
                     score2: homeScore,
+                    // Listed starting pitchers (MLB only; null elsewhere).
+                    // Rendered under the matchup and surfaced into the bet slip
+                    // so the player can take Action per pitcher.
+                    pitchers: {
+                        away: match.awayPitcher || null,
+                        home: match.homePitcher || null,
+                    },
                     // Live game state — inning / quarter / period + clock. The
                     // backend stores the human label in `eventStatusDetail`
                     // (e.g. "Top 6th", "2nd Quarter") and a numeric period +
@@ -915,10 +929,18 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         });
     }, [content.matches]);
 
+    const togglePitcherAction = (matchId, side) => {
+        setPitcherActionByMatch((prev) => {
+            const cur = prev[matchId] || { home: false, away: false };
+            return { ...prev, [matchId]: { ...cur, [side]: !cur[side] } };
+        });
+    };
+
     const handleAddToSlip = (matchId, selection, marketType, odds, matchName, marketLabel, line = null, meta = {}) => {
         const parsedOdds = parseOddsNumber(odds);
         if (!matchId || !selection || parsedOdds === null) return;
         const parsedLine = Number(line);
+        const action = pitcherActionByMatch[matchId] || { home: false, away: false };
         window.dispatchEvent(new CustomEvent('betslip:add', {
             detail: {
                 matchId,
@@ -929,6 +951,14 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 marketLabel,
                 line: Number.isFinite(parsedLine) ? parsedLine : null,
                 isLive: !!meta?.isLive,
+                // MLB listed pitchers, carried into the slip so the leg can
+                // render the per-pitcher "Action" toggles. Null for non-MLB.
+                pitchers: meta?.pitchers || null,
+                sportKey: meta?.sportKey || '',
+                // Action choice set on the board's pitcher checkboxes — carried
+                // through so the slip + backend honor what the player picked
+                // before clicking the odds.
+                pitcherAction: { home: !!action.home, away: !!action.away },
             }
         }));
     };
@@ -1231,6 +1261,46 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                     </div>
                                 </div>
 
+                                {isMlbSportKey(match.sportKey) && hasListedPitchers(match.pitchers) && (() => {
+                                    const act = pitcherActionByMatch[match.id] || { home: false, away: false };
+                                    const renderSide = (side, pitcher, isAway) => {
+                                        const label = formatPitcherLabel(pitcher);
+                                        if (!label) {
+                                            return <span style={{ color: '#94a3b8', fontWeight: 600 }}>TBD</span>;
+                                        }
+                                        return (
+                                            <label
+                                                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', minWidth: 0, maxWidth: '48%' }}
+                                                title="Action — check to keep this bet live even if this listed pitcher is scratched"
+                                            >
+                                                {isAway && <i className="fa-solid fa-baseball" style={{ opacity: 0.45, flexShrink: 0 }} />}
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{label}</span>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={!!act[side]}
+                                                    onChange={() => togglePitcherAction(match.id, side)}
+                                                    style={{ width: 14, height: 14, flexShrink: 0, accentColor: '#e0584a', cursor: 'pointer' }}
+                                                />
+                                            </label>
+                                        );
+                                    };
+                                    return (
+                                        <div className="match-pitchers" style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            gap: 8,
+                                            padding: '6px 12px',
+                                            borderTop: '1px solid #eef0f2',
+                                            fontSize: '0.78em',
+                                            color: '#475569',
+                                        }}>
+                                            {renderSide('away', match.pitchers.away, true)}
+                                            {renderSide('home', match.pitchers.home, false)}
+                                        </div>
+                                    );
+                                })()}
+
                                 {match.odds && (
                                     <div className="match-odds">
                                         <div className="odds-row">
@@ -1243,7 +1313,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: formatSpreadDisplay(match.odds.spread.awayPoint, match.odds.spread.awayOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'spreads', match.odds.spread.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread', match.odds.spread.awayPoint, { isLive: match.status === 'LIVE' }),
+                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'spreads', match.odds.spread.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread', match.odds.spread.awayPoint, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
                                                             available: awayAvail,
                                                             peerAvailable: homeAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1251,7 +1321,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         })}
                                                         {renderOddsButton({
                                                             label: formatSpreadDisplay(match.odds.spread.homePoint, match.odds.spread.homeOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'spreads', match.odds.spread.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread', match.odds.spread.homePoint, { isLive: match.status === 'LIVE' }),
+                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'spreads', match.odds.spread.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread', match.odds.spread.homePoint, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
                                                             available: homeAvail,
                                                             peerAvailable: awayAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1270,7 +1340,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: formatOdds(match.odds.moneyline.awayOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'h2h', match.odds.moneyline.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline', null, { isLive: match.status === 'LIVE' }),
+                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'h2h', match.odds.moneyline.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline', null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
                                                             available: awayAvail,
                                                             peerAvailable: homeAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1278,7 +1348,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         })}
                                                         {renderOddsButton({
                                                             label: formatOdds(match.odds.moneyline.homeOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'h2h', match.odds.moneyline.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline', null, { isLive: match.status === 'LIVE' }),
+                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'h2h', match.odds.moneyline.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline', null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
                                                             available: homeAvail,
                                                             peerAvailable: awayAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1309,7 +1379,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: overLabel,
-                                                            onClick: () => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, `${match.team1.name} vs ${match.team2.name}`, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE' }),
+                                                            onClick: () => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, `${match.team1.name} vs ${match.team2.name}`, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
                                                             available: overAvail,
                                                             peerAvailable: underAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1317,7 +1387,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         })}
                                                         {renderOddsButton({
                                                             label: underLabel,
-                                                            onClick: () => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, `${match.team1.name} vs ${match.team2.name}`, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE' }),
+                                                            onClick: () => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, `${match.team1.name} vs ${match.team2.name}`, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
                                                             available: underAvail,
                                                             peerAvailable: overAvail,
                                                             disabled: match.rawMatch?.isBettable === false,

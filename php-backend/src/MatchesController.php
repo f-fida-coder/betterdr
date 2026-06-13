@@ -351,6 +351,12 @@ final class MatchesController
                 'awayTeamShort' => 1,
                 'homeTeamRecord' => 1,
                 'awayTeamRecord' => 1,
+                // MLB listed starting pitchers — needed by the board's pitcher
+                // row and the bet slip's Action toggles. Without these in the
+                // core projection the fields are silently dropped and the
+                // pitcher row never renders.
+                'homePitcher' => 1,
+                'awayPitcher' => 1,
                 'broadcast' => 1,
                 'eventName' => 1,
                 'startTime' => 1,

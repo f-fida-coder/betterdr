@@ -381,6 +381,63 @@ final class SportsbookBetSupport
      * @param array<string, mixed> $match
      * @param array<string, mixed> $selection
      */
+    /**
+     * MLB "listed pitcher" void test for a single leg.
+     *
+     * Returns true when this baseball team-vs-team leg should be voided (and
+     * the stake refunded) because a listed starting pitcher was changed and
+     * the player did not take Action on that side. The listed pitchers come
+     * from the leg's own placement snapshot (who was posted when the bet was
+     * accepted); the actual starters come from the match doc at settlement.
+     *
+     * Money-safe by construction:
+     *  - Disabled wholesale via MLB_LISTED_PITCHER_VOID_ENABLED=0 (kill switch
+     *    so prod can turn it off without a deploy).
+     *  - Only baseball, only non-prop markets (props have their own grading).
+     *  - Voids ONLY on a positively-confirmed different pitcher id on a side
+     *    the player didn't waive. Any missing id (no pitcher listed at
+     *    placement, or none recorded at settlement) is treated as "no change"
+     *    and never voids — we never refund on a guess.
+     *
+     * @param array<string,mixed> $match
+     * @param array<string,mixed> $selection  betselections row / bet selection
+     */
+    public static function listedPitcherVoid(array $match, array $selection): bool
+    {
+        $flag = strtolower(trim((string) Env::get('MLB_LISTED_PITCHER_VOID_ENABLED', '1')));
+        if ($flag === '0' || $flag === 'false' || $flag === 'off') {
+            return false;
+        }
+
+        $snapshot = is_array($selection['matchSnapshot'] ?? null) ? $selection['matchSnapshot'] : [];
+        $sportKey = strtolower((string) ($match['sportKey'] ?? ($snapshot['sportKey'] ?? '')));
+        if (!str_starts_with($sportKey, 'baseball')) {
+            return false;
+        }
+
+        // Player props are not the team-vs-team listed-pitcher markets the
+        // rule applies to (a pitcher-strikeouts prop voids under its own rule).
+        $marketType = strtolower((string) ($selection['marketType'] ?? ''));
+        foreach (['pitcher_', 'batter_', 'player_'] as $propPrefix) {
+            if (str_starts_with($marketType, $propPrefix)) {
+                return false;
+            }
+        }
+
+        $action = is_array($selection['pitcherAction'] ?? null) ? $selection['pitcherAction'] : [];
+        foreach (['home' => 'homePitcher', 'away' => 'awayPitcher'] as $side => $field) {
+            if (!empty($action[$side])) {
+                continue; // player took Action on this side → it never voids
+            }
+            $listedId  = (int) ($snapshot[$field]['id'] ?? 0);
+            $currentId = (int) ($match[$field]['id'] ?? 0);
+            if ($listedId > 0 && $currentId > 0 && $listedId !== $currentId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static function selectionResult(array $match, array $selection, ?string $manualWinner = null): string
     {
         $effectiveStatus = SportsMatchStatus::effectiveStatus($match);
@@ -404,6 +461,17 @@ final class SportsbookBetSupport
 
         if ($effectiveStatus !== 'finished') {
             return 'pending';
+        }
+
+        // MLB listed-pitcher rule: a team-vs-team baseball leg (moneyline,
+        // run line, total, team total, 1st-5-innings, NRFI) voids if a listed
+        // starting pitcher was scratched and the player didn't take Action on
+        // that side. Checked before grading so a pitcher change wins over the
+        // score result — the player gets their stake back regardless of how
+        // the game finished. Money-safe: only voids on a positively-confirmed
+        // different starter (see listedPitcherVoid).
+        if (self::listedPitcherVoid($match, $selection)) {
+            return 'void';
         }
 
         $marketType = strtolower((string) ($selection['marketType'] ?? ''));
@@ -1142,6 +1210,12 @@ final class SportsbookBetSupport
         if ($effective !== 'finished') {
             return null;
         }
+        // A listed-pitcher change is the reason this leg voided, regardless of
+        // market — surface it before the push-on-tie checks so the My Bets
+        // chip reads "Pitcher changed" instead of an empty void.
+        if (self::listedPitcherVoid($match, $leg)) {
+            return 'pitcher_changed';
+        }
         $marketType = strtolower((string) ($leg['marketType'] ?? ''));
         if ($marketType !== 'spreads' && $marketType !== 'totals') {
             return null;
@@ -1219,6 +1293,11 @@ final class SportsbookBetSupport
             'basePoint' => $basePoint,
             'teaserAdjustment' => isset($selection['teaserAdjustment']) && is_numeric($selection['teaserAdjustment']) ? (float) $selection['teaserAdjustment'] : 0.0,
             'status' => (string) ($selection['status'] ?? 'pending'),
+            // MLB listed-pitcher Action waiver, carried onto the settlement row
+            // so listedPitcherVoid() can read it without re-opening the bet doc.
+            'pitcherAction' => is_array($selection['pitcherAction'] ?? null)
+                ? ['home' => !empty($selection['pitcherAction']['home']), 'away' => !empty($selection['pitcherAction']['away'])]
+                : ['home' => false, 'away' => false],
             'matchSnapshot' => $selection['matchSnapshot'] ?? new stdClass(),
             'createdAt' => $createdAt,
             'updatedAt' => $updatedAt,

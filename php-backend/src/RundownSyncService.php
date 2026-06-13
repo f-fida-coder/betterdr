@@ -1146,6 +1146,20 @@ final class RundownSyncService
             $doc['playerProps'] = $existing['playerProps'];
         }
 
+        // Keep a previously-listed starting pitcher (MLB) when an incoming
+        // sync carries none. Rundown announces probable pitchers ahead of
+        // first pitch and occasionally serves a transient null between
+        // updates; without this a momentary null would wipe homePitcher /
+        // awayPitcher and the board would flash "TBD". A real pitcher change
+        // arrives as a NON-empty object and replaces cleanly, so this only
+        // prevents data loss, never masks a genuine swap (the swap is what
+        // settlement keys the listed-pitcher void on).
+        foreach (['homePitcher', 'awayPitcher'] as $pk) {
+            if (array_key_exists($pk, $doc) && empty($doc[$pk]) && !empty($existing[$pk] ?? null)) {
+                $doc[$pk] = $existing[$pk];
+            }
+        }
+
         return $doc;
     }
 
