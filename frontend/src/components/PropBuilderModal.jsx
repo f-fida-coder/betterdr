@@ -416,12 +416,25 @@ const PropBuilderModal = ({ match, onClose }) => {
     // mainstream prop screens.
     const vsHeaderStyle = {
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 8,
+        flexDirection: 'column',
+        gap: 10,
         padding: '12px 14px',
         background: '#f2f2f2',
         borderBottom: '1px solid #e0e0e0',
+    };
+    // Row 1 of the header: away VS home. Row 2 (below) carries the player
+    // filter + Open All — folded in here so there's no separate dark toolbar
+    // strip above the market list.
+    const vsMatchupRowStyle = {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+    };
+    const vsControlsRowStyle = {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
     };
     const vsTeamStyle = {
         display: 'flex',
@@ -447,28 +460,11 @@ const PropBuilderModal = ({ match, onClose }) => {
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
     };
-    // Dark PROPS toolbar under the VS strip: title + player filter +
-    // open/close-all, mirroring the competitor's dark market toolbar.
-    const toolbarStyle = {
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '10px 14px',
-        background: '#262626',
-        borderBottom: '1px solid #1a1a1a',
-    };
-    const toolbarTitleStyle = {
-        color: '#fff',
-        fontSize: 14,
-        fontWeight: 800,
-        fontStyle: 'italic',
-        letterSpacing: 0.5,
-        flexShrink: 0,
-    };
+    // Player filter — lives in the light header now (no dark toolbar strip).
     const selectStyle = {
-        background: '#1c1c1c',
-        color: '#eee',
-        border: '1px solid #3a3a3a',
+        background: '#fff',
+        color: '#1a1a1a',
+        border: '1px solid #ccc',
         borderRadius: 8,
         padding: '9px 10px',
         fontSize: 13,
@@ -698,30 +694,32 @@ const PropBuilderModal = ({ match, onClose }) => {
         <div style={overlayStyle} onClick={onClose}>
             <div style={sheetStyle} onClick={(e) => e.stopPropagation()}>
                 <div style={vsHeaderStyle}>
-                    {renderTeam(awayTeam, teamLogos.away, false)}
-                    <span style={{ fontSize: 12, fontWeight: 800, color: '#555', flexShrink: 0 }}>VS</span>
-                    {renderTeam(homeTeam, teamLogos.home, true)}
-                </div>
-
-                <div style={toolbarStyle}>
-                    <span style={toolbarTitleStyle}>PROPS</span>
-                    {playerNames.length > 0 && (
-                        <select
-                            style={selectStyle}
-                            value={playerFilter}
-                            onChange={(e) => setPlayerFilter(e.target.value)}
-                            aria-label="Filter by player"
-                        >
-                            <option value="all">All players</option>
-                            {playerNames.map((name) => (
-                                <option key={name} value={name}>{name}</option>
-                            ))}
-                        </select>
-                    )}
-                    {visibleCategories.length > 0 && (
-                        <button style={toggleAllBtnStyle} onClick={allOpen ? closeAll : openAll}>
-                            {allOpen ? 'Close All' : 'Open All'}
-                        </button>
+                    <div style={vsMatchupRowStyle}>
+                        {renderTeam(awayTeam, teamLogos.away, false)}
+                        <span style={{ fontSize: 12, fontWeight: 800, color: '#555', flexShrink: 0 }}>VS</span>
+                        {renderTeam(homeTeam, teamLogos.home, true)}
+                    </div>
+                    {(playerNames.length > 0 || visibleCategories.length > 0) && (
+                        <div style={vsControlsRowStyle}>
+                            {playerNames.length > 0 && (
+                                <select
+                                    style={selectStyle}
+                                    value={playerFilter}
+                                    onChange={(e) => setPlayerFilter(e.target.value)}
+                                    aria-label="Filter by player"
+                                >
+                                    <option value="all">All players</option>
+                                    {playerNames.map((name) => (
+                                        <option key={name} value={name}>{name}</option>
+                                    ))}
+                                </select>
+                            )}
+                            {visibleCategories.length > 0 && (
+                                <button style={toggleAllBtnStyle} onClick={allOpen ? closeAll : openAll}>
+                                    {allOpen ? 'Close All' : 'Open All'}
+                                </button>
+                            )}
+                        </div>
                     )}
                 </div>
 
