@@ -431,6 +431,40 @@ final class SportsbookBetSupport
     }
 
     /**
+     * Append ONE new leg row to an existing ticket at $index (the current
+     * leg count, 0-based). upsertSelectionRowsForBet inserts the WHOLE set
+     * by array index and would duplicate the legs already stored, so the
+     * open-parlay add-leg path uses this to insert just the new row at the
+     * correct selectionOrder. The row id hash keys off betId|index, matching
+     * selectionRowFromTicket, so it stays stable and collision-free.
+     *
+     * @param array<string, mixed> $bet
+     * @param array<string, mixed> $selection a selectionForInsert-shaped leg
+     */
+    public static function appendSelectionRowForBet(SqlRepository $db, array $bet, array $selection, int $index): void
+    {
+        $betId = (string) ($bet['id'] ?? '');
+        if ($betId === '') {
+            return;
+        }
+        $ticketId = (string) ($bet['ticketId'] ?? $betId);
+        $userId = (string) ($bet['userId'] ?? '');
+        $betType = (string) ($bet['type'] ?? 'parlay');
+        $createdAt = (string) ($bet['createdAt'] ?? SqlRepository::nowUtc());
+        $updatedAt = SqlRepository::nowUtc();
+        $db->insertOne('betselections', self::selectionRowFromTicket(
+            $betId,
+            $ticketId,
+            $userId,
+            $betType,
+            $selection,
+            $index,
+            $createdAt,
+            $updatedAt
+        ));
+    }
+
+    /**
      * @param array<string, mixed> $bet
      * @param array<int, array<string, mixed>> $selectionRows
      * @return array<string, mixed>

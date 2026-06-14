@@ -144,4 +144,38 @@ final class BuyPointsPricing
     {
         return self::MAX_HALF_STEPS * self::HALF_POINT;
     }
+
+    /**
+     * Build the full buyable-points ladder for one spread/total selection,
+     * composing the existing primitives (expectedAmericanOdds +
+     * signedPointDelta) — no new pricing math. Returns up to
+     * MAX_HALF_STEPS options, one per half-point step, each:
+     *   ['points' => float, 'line' => float, 'american' => int]
+     * The base (0-point) line is intentionally NOT included — the caller
+     * already has it and prepends the original row.
+     *
+     * Returns [] for ineligible markets or unusable base odds so the caller
+     * can simply omit `alternateLines` (the frontend then falls back to its
+     * local ladder, and placement stays server-authoritative regardless).
+     *
+     * @return list<array{points: float, line: float, american: int}>
+     */
+    public static function buildLadder(string $sportKey, string $marketType, string $selection, int $baseAmerican, float $basePoint): array
+    {
+        if (!self::isAllowedMarket($marketType) || $baseAmerican === 0) {
+            return [];
+        }
+        $ladder = [];
+        for ($steps = 1; $steps <= self::MAX_HALF_STEPS; $steps++) {
+            $points = $steps * self::HALF_POINT;
+            $american = self::expectedAmericanOdds($sportKey, $marketType, $baseAmerican, $steps);
+            $delta = self::signedPointDelta($marketType, $selection, $points);
+            $ladder[] = [
+                'points' => $points,
+                'line' => round($basePoint + $delta, 2),
+                'american' => $american,
+            ];
+        }
+        return $ladder;
+    }
 }

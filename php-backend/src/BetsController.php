@@ -20,6 +20,17 @@ final class BetsController
             $this->placeBet();
             return true;
         }
+        // Open Parlay ("open play"): commit a parlay in status='open' with
+        // 1+ legs, then add more legs before any leg's game starts. Stake is
+        // reserved at create exactly like a normal parlay (no new money path).
+        if ($path === '/api/bets/open-parlay/create' && $method === 'POST') {
+            $this->placeOpenParlay();
+            return true;
+        }
+        if ($path === '/api/bets/open-parlay/add-leg' && $method === 'POST') {
+            $this->addOpenParlayLeg();
+            return true;
+        }
         if ($path === '/api/bets/my-bets' && $method === 'GET') {
             $this->getMyBets();
             return true;
@@ -865,6 +876,658 @@ final class BetsController
                 ]);
             }
             Response::serverError('Error placing bet', $e, 400);
+        }
+    }
+
+    /**
+     * Create an Open Parlay ("open play"). Commits a plain parlay in
+     * status='open' with 1+ starting legs, reserving the stake in
+     * pendingBalance exactly like a normal parlay (no new money path). The
+     * player adds more legs via addOpenParlayLeg() before any leg's game
+     * starts; the finalizer flips the ticket open->pending at closesAt, or
+     * voids+refunds it if it never reached 2 legs.
+     *
+     * Differences from placeBet: type is forced to 'parlay', freeplay is
+     * disallowed (v1), a per-player open-ticket cap applies, every leg passes
+     * a HARD commenceTime>now() anti-past-posting gate, and acceptedPayout is
+     * never pinned (payout is always recomputed authoritatively from legs).
+     */
+    private function placeOpenParlay(): void
+    {
+        $requestDocId = '';
+        $requestDocOwned = false;
+        try {
+            if (RateLimiter::fromEnv($this->db, 'place_bet')) {
+                return;
+            }
+            if (!OpenParlayService::isEnabled()) {
+                throw new ApiException('Open parlays are not currently available.', 400, ['code' => 'OPEN_PARLAY_DISABLED']);
+            }
+
+            $user = $this->protect();
+            if ($user === null) {
+                return;
+            }
+
+            $body = Http::jsonBody();
+            $requestId = SportsbookBetSupport::normalizeRequestId((string) (($body['requestId'] ?? '') ?: Http::header('x-request-id')));
+            if ($requestId === '') {
+                throw new ApiException('requestId is required for open parlay creation', 400, ['code' => 'REQUEST_ID_REQUIRED']);
+            }
+
+            // Open parlays are plain parlays only (M7) and never freeplay-funded (Addition 1).
+            $type = 'parlay';
+            if (!empty($body['useFreeplay'])) {
+                throw new ApiException('Freeplay cannot be used on open parlays.', 400, ['code' => 'OPEN_PARLAY_NO_FREEPLAY']);
+            }
+
+            $amount = $body['amount'] ?? null;
+            $betAmount = is_numeric($amount) ? (float) round((float) $amount, 2) : 0.0;
+            if (!is_finite($betAmount) || $betAmount <= 0) {
+                throw new ApiException('Bet amount must be positive', 400);
+            }
+
+            $selections = is_array($body['selections'] ?? null) ? $body['selections'] : [];
+            if (count($selections) < 1) {
+                throw new ApiException('An open parlay needs at least one starting leg.', 400, ['code' => 'OPEN_PARLAY_NO_LEGS']);
+            }
+            if (count($selections) > OpenParlayService::MAX_LEGS) {
+                throw new ApiException('An open parlay can hold at most ' . OpenParlayService::MAX_LEGS . ' legs.', 400, ['code' => 'OPEN_PARLAY_TOO_MANY_LEGS']);
+            }
+
+            $modeRule = $this->getModeRule($type);
+            if ($modeRule === null) {
+                throw new ApiException('Parlay mode is not supported', 400);
+            }
+
+            if (in_array((string) ($user['status'] ?? ''), ['suspended', 'disabled', 'read only'], true)) {
+                throw new ApiException('Account is suspended, disabled, or read-only', 400);
+            }
+
+            $userId = SqlRepository::id((string) $user['id']);
+
+            // Per-player open-ticket cap (M6).
+            $openCount = $this->db->countDocuments('bets', ['userId' => $userId, 'type' => 'parlay', 'status' => 'open']);
+            $maxOpen = OpenParlayService::maxOpenPerUser();
+            if ($openCount >= $maxOpen) {
+                throw new ApiException(
+                    'You already have ' . $openCount . ' open parlays (max ' . $maxOpen . '). Finish or let one close before opening another.',
+                    400,
+                    ['code' => 'OPEN_PARLAY_LIMIT_REACHED', 'open' => $openCount, 'max' => $maxOpen]
+                );
+            }
+
+            // Validate every starting leg: odds-change handshake + HARD past-post gate.
+            $acceptance = SportsbookBetSupport::resolveOddsAcceptance(is_array($user['settings'] ?? null) ? $user['settings'] : null);
+            $validatedSelections = [];
+            $priceChanges = [];
+            foreach ($selections as $idx => $sel) {
+                if (!is_array($sel)) {
+                    throw new ApiException('Invalid selection at index ' . $idx, 400);
+                }
+                $boughtPointsRaw = $sel['boughtPoints'] ?? null;
+                $boughtPoints = is_numeric($boughtPointsRaw) ? (float) $boughtPointsRaw : 0.0;
+                $selType = BetModeRules::normalize((string) ($sel['type'] ?? ($sel['marketType'] ?? 'straight')));
+                if ($selType === 'outrights') {
+                    throw new ApiException('Outright legs are not allowed on open parlays.', 400, ['code' => 'OPEN_PARLAY_OUTRIGHT_NOT_ALLOWED']);
+                }
+                try {
+                    $validated = $this->validateSelection(
+                        trim((string) ($sel['matchId'] ?? '')),
+                        trim((string) ($sel['selection'] ?? '')),
+                        $sel['odds'] ?? null,
+                        $selType,
+                        $boughtPoints,
+                        $acceptance['policy'],
+                        $acceptance['bandCents']
+                    );
+                } catch (ApiException $e) {
+                    $details = $e->payload();
+                    if (($details['code'] ?? null) === 'ODDS_CHANGED') {
+                        $priceChanges[] = [
+                            'index' => $idx,
+                            'matchId' => (string) ($details['matchId'] ?? trim((string) ($sel['matchId'] ?? ''))),
+                            'selection' => (string) ($details['selection'] ?? trim((string) ($sel['selection'] ?? ''))),
+                            'marketType' => $selType,
+                            'officialOdds' => $details['officialOdds'] ?? null,
+                            'officialAmericanOdds' => $details['officialAmericanOdds'] ?? null,
+                        ];
+                        continue;
+                    }
+                    throw $e;
+                }
+                // HARD anti-past-posting gate — never trust isBettable alone (M1).
+                OpenParlayService::assertLegStartsInFuture(is_array($validated['matchSnapshot'] ?? null) ? $validated['matchSnapshot'] : []);
+                $validated['pitcherAction'] = self::normalizePitcherAction($sel['pitcherAction'] ?? null);
+                $validatedSelections[] = $validated;
+            }
+            if (count($priceChanges) > 0) {
+                $first = $priceChanges[0];
+                throw new ApiException('Odds changed. Please review the updated price before placing the bet.', 409, [
+                    'code' => 'ODDS_CHANGED',
+                    'legs' => $priceChanges,
+                    'officialOdds' => $first['officialOdds'],
+                    'officialAmericanOdds' => $first['officialAmericanOdds'],
+                    'selection' => $first['selection'],
+                    'matchId' => $first['matchId'],
+                ]);
+            }
+
+            SportsbookBetSupport::validateTicketComposition('parlay', $validatedSelections);
+
+            $minBetLimit = isset($user['minBet']) && is_numeric($user['minBet']) ? (float) $user['minBet'] : 0.0;
+            $maxBetLimit = isset($user['maxBet']) && is_numeric($user['maxBet']) ? (float) $user['maxBet'] : 0.0;
+            $totalRisk = SportsbookBetSupport::ticketRiskAmount($type, $betAmount);
+            $payoutCalc = OpenParlayService::recomputePayout($betAmount, $validatedSelections, $modeRule, $maxBetLimit);
+            $potentialPayout = $payoutCalc['potentialPayout'];
+            $combinedOdds = $payoutCalc['combinedOdds'];
+
+            if ($minBetLimit > 0 && $totalRisk < $minBetLimit) {
+                throw new ApiException(
+                    'Min bet is $' . rtrim(rtrim(number_format($minBetLimit, 2, '.', ''), '0'), '.')
+                    . ' — this ticket only risks $' . rtrim(rtrim(number_format($totalRisk, 2, '.', ''), '0'), '.'),
+                    400,
+                    ['code' => 'BELOW_MIN_BET']
+                );
+            }
+            if ($maxBetLimit > 0 && $totalRisk > $maxBetLimit) {
+                throw new ApiException(
+                    'Max bet is $' . rtrim(rtrim(number_format($maxBetLimit, 2, '.', ''), '0'), '.')
+                    . ' — this ticket risks $' . rtrim(rtrim(number_format($totalRisk, 2, '.', ''), '0'), '.') . ' (over limit)',
+                    400,
+                    ['code' => 'ABOVE_MAX_BET']
+                );
+            }
+
+            $requestFingerprint = SportsbookBetSupport::payloadHash([
+                'kind' => 'open_parlay_create',
+                'type' => $type,
+                'amount' => round($betAmount, 2),
+                'selections' => array_map(static function (array $item): array {
+                    return [
+                        'matchId' => (string) ($item['matchId'] ?? ''),
+                        'selection' => (string) ($item['selection'] ?? ''),
+                        'odds' => round((float) ($item['odds'] ?? 0), 4),
+                        'marketType' => (string) ($item['marketType'] ?? ''),
+                        'point' => isset($item['point']) && is_numeric($item['point']) ? round((float) $item['point'], 2) : null,
+                    ];
+                }, $validatedSelections),
+            ]);
+
+            $requestDocId = SportsbookBetSupport::idempotencyDocumentId('open_parlay_create', $userId, $requestId);
+            $requestNow = SqlRepository::nowUtc();
+            $requestDoc = [
+                'id' => $requestDocId,
+                'userId' => $userId,
+                'requestId' => $requestId,
+                'payloadHash' => $requestFingerprint,
+                'status' => 'processing',
+                'createdAt' => $requestNow,
+                'updatedAt' => $requestNow,
+            ];
+            if (!$this->db->insertOneIfAbsent('betrequests', $requestDoc)) {
+                $existingRequest = $this->db->findOne('betrequests', ['id' => SqlRepository::id($requestDocId)]);
+                if ($existingRequest === null) {
+                    throw new ApiException('Unable to lock request id', 409, ['code' => 'REQUEST_CONFLICT']);
+                }
+                if ((string) ($existingRequest['payloadHash'] ?? '') !== $requestFingerprint) {
+                    throw new ApiException('requestId has already been used for a different open parlay payload', 409, ['code' => 'REQUEST_ID_REUSED']);
+                }
+                $existingStatus = (string) ($existingRequest['status'] ?? 'processing');
+                if ($existingStatus === 'completed') {
+                    $betIds = is_array($existingRequest['betIds'] ?? null) ? $existingRequest['betIds'] : [];
+                    $existingResponse = $this->buildBetPlacementResponse($betIds, [
+                        'requestId' => $requestId,
+                        'balance' => $existingRequest['responseBalance'] ?? ($user['balance'] ?? 0),
+                        'pendingBalance' => $existingRequest['responsePendingBalance'] ?? ($user['pendingBalance'] ?? 0),
+                        'freeplayBalance' => $existingRequest['responseFreeplayBalance'] ?? ($user['freeplayBalance'] ?? 0),
+                    ]);
+                    $existingResponse['idempotentReplay'] = true;
+                    Response::json($existingResponse);
+                    return;
+                }
+                if ($existingStatus === 'processing') {
+                    throw new ApiException('This open parlay request is already being processed', 409, ['code' => 'REQUEST_IN_PROGRESS']);
+                }
+                $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
+                    'payloadHash' => $requestFingerprint,
+                    'status' => 'processing',
+                    'error' => null,
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ]);
+            }
+            $requestDocOwned = true;
+
+            $ticketId = SportsbookBetSupport::idempotencyDocumentId('open_parlay_ticket', $userId, $requestId);
+            $selectionDocs = array_map(fn (array $row): array => $this->selectionForInsert($row), $validatedSelections);
+            $closesAt = OpenParlayService::earliestStart($validatedSelections);
+
+            $createdBetIds = [];
+            $newBalance = 0.0;
+            $newPending = 0.0;
+            $newFreeplay = 0.0;
+
+            $this->db->beginTransaction();
+            try {
+                $lockedUser = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id((string) $user['id'])]);
+                if ($lockedUser === null) {
+                    $this->db->rollback();
+                    throw new ApiException('User not found', 404);
+                }
+
+                $balance         = $this->num($lockedUser['balance'] ?? 0);
+                $pending         = $this->num($lockedUser['pendingBalance'] ?? 0);
+                $freeplayBalance = $this->num($lockedUser['freeplayBalance'] ?? 0);
+                $creditLimit     = $this->num($lockedUser['creditLimit'] ?? 0);
+                $role            = strtolower((string) ($lockedUser['role'] ?? 'user'));
+                $isCreditAccount = $role === 'user' && $creditLimit > 0;
+                $available       = $isCreditAccount
+                    ? max(0.0, $creditLimit + $balance - $pending)
+                    : max(0.0, $balance - $pending);
+
+                // No freeplay on open parlays — the whole stake is real money.
+                $realPortion = $totalRisk;
+                if ($available < $realPortion) {
+                    $this->db->rollback();
+                    throw new ApiException('Insufficient available balance', 400, ['code' => 'INSUFFICIENT_BALANCE']);
+                }
+                $gamblingLimits = is_array($lockedUser['gamblingLimits'] ?? null) ? $lockedUser['gamblingLimits'] : [];
+                $lossLimitMsg = $this->checkLossLimits($lockedUser, $gamblingLimits, $realPortion);
+                if ($lossLimitMsg !== null) {
+                    $this->db->rollback();
+                    throw new ApiException($lossLimitMsg, 400);
+                }
+
+                // Cash accounts move stake out of `balance` at create; credit
+                // accounts hold it in `pendingBalance` only (mirrors placeBet).
+                $newBalance  = $isCreditAccount ? $balance : ($balance - $realPortion);
+                $newPending  = $pending + $realPortion;
+                $newFreeplay = max(0.0, $freeplayBalance);
+
+                $this->db->updateOne('users', ['id' => SqlRepository::id((string) $lockedUser['id'])], [
+                    'balance'        => $newBalance,
+                    'pendingBalance' => $newPending,
+                    'betCount'       => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
+                    'totalWagered'   => $this->num($lockedUser['totalWagered'] ?? 0) + $realPortion,
+                    'updatedAt'      => SqlRepository::nowUtc(),
+                ]);
+
+                $ipAddress = IpUtils::clientIp();
+                $userAgent = Http::header('user-agent');
+                $now = SqlRepository::nowUtc();
+
+                $createEvent = [
+                    'event' => 'create',
+                    'at' => $now,
+                    'by' => $userId,
+                    'requestId' => $requestId,
+                    'legCount' => count($selectionDocs),
+                    'combinedOdds' => $combinedOdds,
+                    'potentialPayout' => $potentialPayout,
+                ];
+
+                $doc = [
+                    'userId' => $userId,
+                    'requestId' => $requestId,
+                    'ticketId' => $ticketId,
+                    'amount' => $totalRisk,
+                    'riskAmount' => $totalRisk,
+                    'unitStake' => $betAmount,
+                    'type' => 'parlay',
+                    'isOpenParlay' => true,
+                    'potentialPayout' => $potentialPayout,
+                    'combinedOdds' => $combinedOdds,
+                    'status' => 'open',
+                    'closesAt' => $closesAt,
+                    'isFreeplay' => false,
+                    'freeplayAmountUsed' => 0.0,
+                    'ipAddress' => $ipAddress,
+                    'userAgent' => $userAgent,
+                    'teaserPoints' => 0.0,
+                    'openParlayLegEvents' => [$createEvent],
+                    'selections' => $selectionDocs,
+                    'matchId' => null,
+                    'selection' => 'MULTI',
+                    'selectionFull' => 'MULTI',
+                    'odds' => $combinedOdds,
+                    'oddsAmerican' => null,
+                    'marketType' => 'parlay',
+                    'description' => SportsbookBetSupport::descriptionForSelections($selectionDocs),
+                    'matchSnapshot' => new stdClass(),
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ];
+                $betId = $this->db->insertOne('bets', $doc);
+                $createdBetIds[] = $betId;
+                $createdBet = $this->db->findOne('bets', ['id' => SqlRepository::id($betId)]) ?? array_merge($doc, ['id' => $betId]);
+                SportsbookBetSupport::upsertSelectionRowsForBet($this->db, $createdBet, $selectionDocs);
+
+                $this->db->insertOne('transactions', [
+                    'userId' => $userId,
+                    'amount' => $totalRisk,
+                    'type' => 'bet_placed',
+                    'status' => 'completed',
+                    'isFreeplay' => false,
+                    'freeplayAmountUsed' => 0.0,
+                    'balanceBefore' => $balance,
+                    'balanceAfter' => $newBalance,
+                    'referenceType' => 'Bet',
+                    'referenceId' => SqlRepository::id($betId),
+                    'reason' => 'OPEN_PARLAY_PLACED',
+                    'description' => 'PARLAY open play created (' . count($selectionDocs) . ' leg' . (count($selectionDocs) === 1 ? '' : 's') . ')',
+                    'ipAddress' => $ipAddress,
+                    'userAgent' => $userAgent,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+
+                $this->db->commit();
+            } catch (Throwable $txErr) {
+                $this->db->rollback();
+                throw $txErr;
+            }
+
+            $responsePayload = $this->buildBetPlacementResponse($createdBetIds, [
+                'requestId' => $requestId,
+                'balance' => $newBalance,
+                'pendingBalance' => $newPending,
+                'freeplayBalance' => $newFreeplay,
+            ]);
+
+            $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
+                'status' => 'completed',
+                'betIds' => $createdBetIds,
+                'ticketId' => $ticketId,
+                'responseBalance' => $newBalance,
+                'responsePendingBalance' => $newPending,
+                'responseFreeplayBalance' => $newFreeplay,
+                'updatedAt' => SqlRepository::nowUtc(),
+            ]);
+            $requestDocOwned = false;
+
+            QueryCache::getInstance()->forgetPattern('bets:' . $userId . ':*');
+            Response::json($responsePayload, 201);
+        } catch (ApiException $e) {
+            if ($requestDocOwned && $requestDocId !== '') {
+                $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
+                    'status' => 'failed',
+                    'error' => $e->getMessage(),
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ]);
+            }
+            Response::json(array_merge(['message' => $e->getMessage()], $e->payload()), $e->statusCode());
+        } catch (Throwable $e) {
+            if ($requestDocOwned && $requestDocId !== '') {
+                $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
+                    'status' => 'failed',
+                    'error' => $e->getMessage(),
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ]);
+            }
+            Response::serverError('Error creating open parlay', $e, 400);
+        }
+    }
+
+    /**
+     * Add one leg to an existing open parlay. Risk is FIXED at create —
+     * adding a leg never moves money — so this method takes only the bet's
+     * row lock (not the user row): no balance/pending mutation happens here.
+     * The leg passes the same odds-change handshake and the HARD
+     * commenceTime>now() anti-past-posting gate, payout is recomputed
+     * authoritatively from all locked legs with the 3xmaxBet cap re-applied
+     * (M3/M4), an audit event is appended, and a dedicated idempotency key
+     * (M5) makes a double-tap a no-op.
+     */
+    private function addOpenParlayLeg(): void
+    {
+        $requestDocId = '';
+        $requestDocOwned = false;
+        try {
+            if (RateLimiter::fromEnv($this->db, 'place_bet')) {
+                return;
+            }
+            if (!OpenParlayService::isEnabled()) {
+                throw new ApiException('Open parlays are not currently available.', 400, ['code' => 'OPEN_PARLAY_DISABLED']);
+            }
+
+            $user = $this->protect();
+            if ($user === null) {
+                return;
+            }
+
+            $body = Http::jsonBody();
+            $requestId = SportsbookBetSupport::normalizeRequestId((string) (($body['requestId'] ?? '') ?: Http::header('x-request-id')));
+            if ($requestId === '') {
+                throw new ApiException('requestId is required to add a leg', 400, ['code' => 'REQUEST_ID_REQUIRED']);
+            }
+
+            $betId = trim((string) ($body['betId'] ?? ($body['ticketId'] ?? '')));
+            if (preg_match('/^[a-f0-9]{24}$/i', $betId) !== 1) {
+                throw new ApiException('A valid open parlay ticket id is required.', 400, ['code' => 'OPEN_PARLAY_TICKET_INVALID']);
+            }
+
+            $leg = is_array($body['leg'] ?? null) ? $body['leg'] : [];
+            if ($leg === []) {
+                throw new ApiException('A leg object is required.', 400, ['code' => 'OPEN_PARLAY_LEG_REQUIRED']);
+            }
+            $boughtPointsRaw = $leg['boughtPoints'] ?? null;
+            $boughtPoints = is_numeric($boughtPointsRaw) ? (float) $boughtPointsRaw : 0.0;
+            $selType = BetModeRules::normalize((string) ($leg['type'] ?? ($leg['marketType'] ?? 'straight')));
+            if ($selType === 'outrights') {
+                throw new ApiException('Outright legs are not allowed on open parlays.', 400, ['code' => 'OPEN_PARLAY_OUTRIGHT_NOT_ALLOWED']);
+            }
+
+            $acceptance = SportsbookBetSupport::resolveOddsAcceptance(is_array($user['settings'] ?? null) ? $user['settings'] : null);
+            try {
+                $validated = $this->validateSelection(
+                    trim((string) ($leg['matchId'] ?? '')),
+                    trim((string) ($leg['selection'] ?? '')),
+                    $leg['odds'] ?? null,
+                    $selType,
+                    $boughtPoints,
+                    $acceptance['policy'],
+                    $acceptance['bandCents']
+                );
+            } catch (ApiException $e) {
+                $details = $e->payload();
+                if (($details['code'] ?? null) === 'ODDS_CHANGED') {
+                    throw new ApiException('Odds changed. Please review the updated price before adding this leg.', 409, [
+                        'code' => 'ODDS_CHANGED',
+                        'officialOdds' => $details['officialOdds'] ?? null,
+                        'officialAmericanOdds' => $details['officialAmericanOdds'] ?? null,
+                        'selection' => $details['selection'] ?? trim((string) ($leg['selection'] ?? '')),
+                        'matchId' => $details['matchId'] ?? trim((string) ($leg['matchId'] ?? '')),
+                    ]);
+                }
+                throw $e;
+            }
+            // HARD anti-past-posting gate (M1) — independent of isBettable.
+            OpenParlayService::assertLegStartsInFuture(is_array($validated['matchSnapshot'] ?? null) ? $validated['matchSnapshot'] : []);
+            $validated['pitcherAction'] = self::normalizePitcherAction($leg['pitcherAction'] ?? null);
+            $newLegDoc = $this->selectionForInsert($validated);
+
+            $userId = SqlRepository::id((string) $user['id']);
+
+            // Dedicated add-leg idempotency (M5).
+            $requestFingerprint = SportsbookBetSupport::payloadHash([
+                'kind' => 'open_parlay_addleg',
+                'betId' => $betId,
+                'matchId' => (string) ($validated['matchId'] ?? ''),
+                'selection' => (string) ($validated['selection'] ?? ''),
+                'odds' => round((float) ($validated['odds'] ?? 0), 4),
+                'marketType' => (string) ($validated['marketType'] ?? ''),
+                'point' => isset($validated['point']) && is_numeric($validated['point']) ? round((float) $validated['point'], 2) : null,
+            ]);
+            $requestDocId = SportsbookBetSupport::idempotencyDocumentId('open_parlay_addleg', $userId, $requestId);
+            $requestNow = SqlRepository::nowUtc();
+            $requestDoc = [
+                'id' => $requestDocId,
+                'userId' => $userId,
+                'requestId' => $requestId,
+                'payloadHash' => $requestFingerprint,
+                'status' => 'processing',
+                'createdAt' => $requestNow,
+                'updatedAt' => $requestNow,
+            ];
+            if (!$this->db->insertOneIfAbsent('betrequests', $requestDoc)) {
+                $existingRequest = $this->db->findOne('betrequests', ['id' => SqlRepository::id($requestDocId)]);
+                if ($existingRequest === null) {
+                    throw new ApiException('Unable to lock request id', 409, ['code' => 'REQUEST_CONFLICT']);
+                }
+                if ((string) ($existingRequest['payloadHash'] ?? '') !== $requestFingerprint) {
+                    throw new ApiException('requestId has already been used for a different add-leg payload', 409, ['code' => 'REQUEST_ID_REUSED']);
+                }
+                $existingStatus = (string) ($existingRequest['status'] ?? 'processing');
+                if ($existingStatus === 'completed') {
+                    $existingResponse = $this->buildBetPlacementResponse([$betId], [
+                        'requestId' => $requestId,
+                        'balance' => $existingRequest['responseBalance'] ?? ($user['balance'] ?? 0),
+                        'pendingBalance' => $existingRequest['responsePendingBalance'] ?? ($user['pendingBalance'] ?? 0),
+                        'freeplayBalance' => $existingRequest['responseFreeplayBalance'] ?? ($user['freeplayBalance'] ?? 0),
+                    ]);
+                    $existingResponse['idempotentReplay'] = true;
+                    Response::json($existingResponse);
+                    return;
+                }
+                if ($existingStatus === 'processing') {
+                    throw new ApiException('This add-leg request is already being processed', 409, ['code' => 'REQUEST_IN_PROGRESS']);
+                }
+                $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
+                    'payloadHash' => $requestFingerprint,
+                    'status' => 'processing',
+                    'error' => null,
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ]);
+            }
+            $requestDocOwned = true;
+
+            $modeRule = $this->getModeRule('parlay') ?? [];
+            $maxBetLimit = isset($user['maxBet']) && is_numeric($user['maxBet']) ? (float) $user['maxBet'] : 0.0;
+
+            $this->db->beginTransaction();
+            try {
+                $bet = $this->db->findOneForUpdate('bets', ['id' => SqlRepository::id($betId)]);
+                if ($bet === null) {
+                    $this->db->rollback();
+                    throw new ApiException('Open parlay not found.', 404, ['code' => 'OPEN_PARLAY_NOT_FOUND']);
+                }
+                if ((string) ($bet['userId'] ?? '') !== $userId) {
+                    $this->db->rollback();
+                    throw new ApiException('This open parlay does not belong to you.', 403, ['code' => 'OPEN_PARLAY_FORBIDDEN']);
+                }
+                if ((string) ($bet['status'] ?? '') !== 'open' || (string) ($bet['type'] ?? '') !== 'parlay') {
+                    $this->db->rollback();
+                    throw new ApiException('This ticket is no longer open for adding legs.', 409, ['code' => 'OPEN_PARLAY_NOT_OPEN']);
+                }
+
+                $existingLegs = is_array($bet['selections'] ?? null) ? array_values($bet['selections']) : [];
+                $legCount = count($existingLegs);
+                if ($legCount >= OpenParlayService::MAX_LEGS) {
+                    $this->db->rollback();
+                    throw new ApiException('This open parlay already has the maximum ' . OpenParlayService::MAX_LEGS . ' legs.', 400, ['code' => 'OPEN_PARLAY_TOO_MANY_LEGS']);
+                }
+                // No same-game / duplicate-event leg (mirrors validateTicketComposition).
+                $newMatchId = (string) ($validated['matchId'] ?? '');
+                foreach ($existingLegs as $existing) {
+                    if (is_array($existing) && (string) ($existing['matchId'] ?? '') === $newMatchId) {
+                        $this->db->rollback();
+                        throw new ApiException('That game is already on this parlay. Pick a different event.', 400, ['code' => 'INVALID_COMBINATION']);
+                    }
+                }
+
+                $updatedLegs = array_merge($existingLegs, [$newLegDoc]);
+                $unitStake = $this->num($bet['unitStake'] ?? ($bet['riskAmount'] ?? ($bet['amount'] ?? 0)));
+                $payoutCalc = OpenParlayService::recomputePayout($unitStake, $updatedLegs, $modeRule, $maxBetLimit);
+                $potentialPayout = $payoutCalc['potentialPayout'];
+                $combinedOdds = $payoutCalc['combinedOdds'];
+
+                // closesAt only ever moves EARLIER when the new leg starts sooner.
+                $existingCloses = (string) ($bet['closesAt'] ?? '');
+                $newLegCloses = OpenParlayService::earliestStart([$validated]);
+                $closesAt = $existingCloses !== '' ? $existingCloses : null;
+                if ($newLegCloses !== null) {
+                    if ($closesAt === null || strtotime($newLegCloses) < (int) strtotime($closesAt)) {
+                        $closesAt = $newLegCloses;
+                    }
+                }
+
+                $now = SqlRepository::nowUtc();
+                $events = is_array($bet['openParlayLegEvents'] ?? null) ? array_values($bet['openParlayLegEvents']) : [];
+                $events[] = [
+                    'event' => 'add_leg',
+                    'at' => $now,
+                    'by' => $userId,
+                    'requestId' => $requestId,
+                    'legIndex' => $legCount,
+                    'matchId' => $newMatchId,
+                    'selection' => (string) ($validated['selection'] ?? ''),
+                    'oddsAmerican' => isset($validated['oddsAmerican']) ? (int) $validated['oddsAmerican'] : null,
+                    'odds' => round((float) ($validated['odds'] ?? 0), 4),
+                    'legCount' => $legCount + 1,
+                    'combinedOdds' => $combinedOdds,
+                    'potentialPayout' => $potentialPayout,
+                    'capped' => $payoutCalc['capped'],
+                ];
+
+                $this->db->updateOne('bets', ['id' => SqlRepository::id($betId)], [
+                    'selections' => $updatedLegs,
+                    'potentialPayout' => $potentialPayout,
+                    'combinedOdds' => $combinedOdds,
+                    'odds' => $combinedOdds,
+                    'closesAt' => $closesAt,
+                    'description' => SportsbookBetSupport::descriptionForSelections($updatedLegs),
+                    'openParlayLegEvents' => $events,
+                    'updatedAt' => $now,
+                ]);
+
+                // Insert ONLY the new leg row at index=legCount (upsert would
+                // duplicate the legs already stored).
+                SportsbookBetSupport::appendSelectionRowForBet($this->db, array_merge($bet, ['id' => $betId]), $newLegDoc, $legCount);
+
+                $this->db->commit();
+            } catch (Throwable $txErr) {
+                $this->db->rollback();
+                throw $txErr;
+            }
+
+            // Adding a leg moves no money; surface the user's current balances unchanged.
+            $responsePayload = $this->buildBetPlacementResponse([$betId], [
+                'requestId' => $requestId,
+                'balance' => $user['balance'] ?? 0,
+                'pendingBalance' => $user['pendingBalance'] ?? 0,
+                'freeplayBalance' => $user['freeplayBalance'] ?? 0,
+            ]);
+
+            $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
+                'status' => 'completed',
+                'betIds' => [$betId],
+                'responseBalance' => $this->num($user['balance'] ?? 0),
+                'responsePendingBalance' => $this->num($user['pendingBalance'] ?? 0),
+                'responseFreeplayBalance' => $this->num($user['freeplayBalance'] ?? 0),
+                'updatedAt' => SqlRepository::nowUtc(),
+            ]);
+            $requestDocOwned = false;
+
+            QueryCache::getInstance()->forgetPattern('bets:' . $userId . ':*');
+            Response::json($responsePayload);
+        } catch (ApiException $e) {
+            if ($requestDocOwned && $requestDocId !== '') {
+                $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
+                    'status' => 'failed',
+                    'error' => $e->getMessage(),
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ]);
+            }
+            Response::json(array_merge(['message' => $e->getMessage()], $e->payload()), $e->statusCode());
+        } catch (Throwable $e) {
+            if ($requestDocOwned && $requestDocId !== '') {
+                $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
+                    'status' => 'failed',
+                    'error' => $e->getMessage(),
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ]);
+            }
+            Response::serverError('Error adding open parlay leg', $e, 400);
         }
     }
 
@@ -2556,6 +3219,11 @@ final class BetsController
             // value the client submitted).
             'boughtPoints' => isset($selection['boughtPoints']) ? (float) $selection['boughtPoints'] : 0.0,
             'pointAdjustment' => isset($selection['pointAdjustment']) ? (float) $selection['pointAdjustment'] : 0.0,
+            // Explicit flag so downstream consumers (receipts, settlement
+            // audit, reporting) can filter buy-points legs without
+            // re-deriving from boughtPoints. Derived here from the magnitude
+            // the validator already vetted, so it stays in lockstep.
+            'isBuyPoints' => (isset($selection['boughtPoints']) && (float) $selection['boughtPoints'] > 0.0),
             'status' => 'pending',
             // MLB listed-pitcher Action waiver (per side). Settlement reads
             // this alongside the leg's matchSnapshot to decide whether a

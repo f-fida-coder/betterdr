@@ -20,6 +20,12 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 //     team totals (game + per-period), and soccer-specific alts (BTTS,
 //     Draw No Bet, Double Chance, 3-way ML). Player props have their own
 //     P+ button on the row, so they aren't surfaced here either.
+// Height of a sticky market-section header inside the scroll body. Used as the
+// scroll-padding/scroll-margin offset so a section that scrolls to the top of
+// the body (on expand/collapse) doesn't tuck its heading under the next sticky
+// header. 12px top + 12px bottom padding + ~20px line box ≈ 44px.
+const SECTION_HEADER_HEIGHT = 44;
+
 const SECTION_DEFS = [
     { key: 'alternate_spreads', label: 'Alt Game Spread', kind: 'alt-lines' },
     { key: 'alternate_totals', label: 'Alt Game Total', kind: 'alt-lines' },
@@ -168,8 +174,17 @@ const MatchDetailView = ({ match, onClose }) => {
             setHeaderOffsetPx(Math.max(0, Math.round(bottom)));
         };
         measure();
+        // Re-measure after paint: the page chrome swaps its top cell to a Back
+        // button when this view opens (match-detail:state event), which can
+        // change the chrome's height after the initial layout pass.
+        const raf = requestAnimationFrame(measure);
         window.addEventListener('resize', measure);
-        return () => window.removeEventListener('resize', measure);
+        window.addEventListener('orientationchange', measure);
+        return () => {
+            cancelAnimationFrame(raf);
+            window.removeEventListener('resize', measure);
+            window.removeEventListener('orientationchange', measure);
+        };
     }, []);
 
     React.useEffect(() => {
@@ -340,8 +355,13 @@ const MatchDetailView = ({ match, onClose }) => {
         fontWeight: 700,
         cursor: 'pointer',
     };
-    const bodyStyle = { flex: 1, overflowY: 'auto', padding: '0 0 24px', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' };
+    const bodyStyle = { flex: 1, overflowY: 'auto', padding: '0 0 24px', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', scrollPaddingTop: SECTION_HEADER_HEIGHT };
     const sectionHeaderStyle = {
+        position: 'sticky',
+        top: 0,
+        zIndex: 5,
+        minHeight: SECTION_HEADER_HEIGHT,
+        boxSizing: 'border-box',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -550,7 +570,7 @@ const MatchDetailView = ({ match, onClose }) => {
                     {!loading && !error && availableSections.map((section) => {
                         const isOpen = !!expanded[section.key];
                         return (
-                            <div key={section.key}>
+                            <div key={section.key} style={{ scrollMarginTop: SECTION_HEADER_HEIGHT }}>
                                 <div
                                     style={sectionHeaderStyle}
                                     onClick={() => setExpanded((prev) => ({ ...prev, [section.key]: !prev[section.key] }))}

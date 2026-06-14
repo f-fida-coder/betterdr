@@ -343,6 +343,35 @@ TestRunner::run('selectionResult — unsupported market families stay pending (m
     TestRunner::assertEquals('pending', SportsbookBetSupport::selectionResult($m, selection_('player_points', 'LeBron Over', 27.5)), 'player prop → pending');
 });
 
+// ── selectionResult — Buy Points (graded off the ADJUSTED bought line) ────────
+
+TestRunner::run('selectionResult — buy points spread grades off bought line', function (): void {
+    // Eagles were +1.5 underdogs; bettor bought +0.5 → stored point is +2.0
+    // (selectionForInsert persists the adjusted `point`; settlement reads it).
+    // Three Chiefs-by-N scenarios prove win / push / loss flip around +2.
+    // Eagles are the AWAY side here.
+    $lostBy1 = match_('Chiefs', 'Eagles', 24, 23); // away +2 → 25 > 24 → won
+    TestRunner::assertEquals('won', SportsbookBetSupport::selectionResult($lostBy1, selection_('spreads', 'Eagles', 2.0)), 'bought +2, lose by 1 → won');
+
+    $lostBy2 = match_('Chiefs', 'Eagles', 24, 22); // away +2 → 24 == 24 → push
+    TestRunner::assertEquals('void', SportsbookBetSupport::selectionResult($lostBy2, selection_('spreads', 'Eagles', 2.0)), 'bought +2, lose by 2 → push/void');
+
+    $lostBy3 = match_('Chiefs', 'Eagles', 24, 21); // away +2 → 23 < 24 → lost
+    TestRunner::assertEquals('lost', SportsbookBetSupport::selectionResult($lostBy3, selection_('spreads', 'Eagles', 2.0)), 'bought +2, lose by 3 → lost');
+});
+
+TestRunner::run('selectionResult — buy points total grades off bought line', function (): void {
+    // Over 47.5, bought 1.0 → stored point 46.5 (Over shrinks the number).
+    // Game lands on 46 → win; 47 → win; 46.5 can't occur (half-point), but a
+    // bought-to-whole push case: buy 1.5 → 46.0, total exactly 46 → push.
+    $total46 = match_('Chiefs', 'Eagles', 23, 23); // total 46
+    TestRunner::assertEquals('won', SportsbookBetSupport::selectionResult($total46, selection_('totals', 'Over Chiefs Eagles', 45.5)), 'bought Over to 45.5, total 46 → won');
+    // Bought Over down to exactly 46 (e.g. 47.5 - 1.5) → push on a 46 total.
+    TestRunner::assertEquals('void', SportsbookBetSupport::selectionResult($total46, selection_('totals', 'Over Chiefs Eagles', 46.0)), 'bought Over to 46.0, total 46 → push/void');
+    // Under bought UP to 46.5: total 46 < 46.5 → won.
+    TestRunner::assertEquals('won', SportsbookBetSupport::selectionResult($total46, selection_('totals', 'Under Chiefs Eagles', 46.5)), 'bought Under to 46.5, total 46 → won');
+});
+
 // ── evaluateTicket — straight ────────────────────────────────────────────────
 
 TestRunner::run('evaluateTicket — straight', function (): void {

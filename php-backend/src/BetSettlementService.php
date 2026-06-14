@@ -112,7 +112,17 @@ final class BetSettlementService
                     $db->beginTransaction();
 
                     $bet = $db->findOneForUpdate('bets', ['id' => SqlRepository::id($betId)]);
-                    if ($bet === null || (string) ($bet['status'] ?? '') !== 'pending') {
+                    // Only grade tickets that are actually pending. This is
+                    // also the third anti-past-posting layer for OPEN parlays
+                    // (M1.3): a ticket in status='open' is NEVER graded here,
+                    // even if the finalizer hasn't flipped it to 'pending'
+                    // yet. The grader must refuse to touch an open ticket
+                    // regardless — a leg added to an open parlay can carry a
+                    // pending betselection row whose matchId matches this
+                    // settling match, and without this guard the ticket could
+                    // be settled before its earliest leg even closed.
+                    $betStatus = (string) ($bet['status'] ?? '');
+                    if ($bet === null || $betStatus !== 'pending') {
                         $db->rollback();
                         continue;
                     }

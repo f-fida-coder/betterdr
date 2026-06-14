@@ -957,9 +957,74 @@ final class MatchesController
             $byKey[$key] = $market;
         }
 
-        $odds['markets'] = array_values($byKey);
+        $odds['markets'] = self::attachBuyPointsLadders(array_values($byKey), (string) ($match['sportKey'] ?? ''));
         $match['odds'] = $odds;
         return $match;
+    }
+
+    /**
+     * Server-authoritative Buy Points display ladder. For every spread/total
+     * outcome that carries a numeric line + valid price, attach an
+     * `alternateLines` list ([{points, line, odds}]) computed via the
+     * existing BuyPointsPricing engine. The frontend dropdown consumes this
+     * directly; if it's absent it falls back to its local ladder. This is
+     * DISPLAY ONLY — placement (validateSelection) recomputes the price from
+     * the live line via the same engine, so a stale or tampered alternate
+     * can never be accepted. Cheap integer math (≤5 steps per outcome) and
+     * runs inside the already-cached public-matches payload.
+     *
+     * @param list<array<string,mixed>> $markets
+     * @return list<array<string,mixed>>
+     */
+    private static function attachBuyPointsLadders(array $markets, string $sportKey): array
+    {
+        foreach ($markets as $mi => $market) {
+            if (!is_array($market)) {
+                continue;
+            }
+            $marketKey = strtolower((string) ($market['key'] ?? ''));
+            if (!BuyPointsPricing::isAllowedMarket($marketKey)) {
+                continue;
+            }
+            $outcomes = is_array($market['outcomes'] ?? null) ? $market['outcomes'] : [];
+            foreach ($outcomes as $oi => $outcome) {
+                if (!is_array($outcome)) {
+                    continue;
+                }
+                $pointRaw = $outcome['point'] ?? null;
+                $priceRaw = $outcome['price'] ?? null;
+                if (!is_numeric($pointRaw) || !is_numeric($priceRaw)) {
+                    continue;
+                }
+                $snapped = SportsbookBetSupport::snapDecimalOdds($priceRaw);
+                $baseAmerican = SportsbookBetSupport::decimalToAmericanInt($snapped);
+                if ($baseAmerican === 0) {
+                    continue;
+                }
+                $ladder = BuyPointsPricing::buildLadder(
+                    $sportKey,
+                    $marketKey,
+                    (string) ($outcome['name'] ?? ''),
+                    $baseAmerican,
+                    (float) $pointRaw
+                );
+                if ($ladder === []) {
+                    continue;
+                }
+                $alternates = [];
+                foreach ($ladder as $rung) {
+                    $alternates[] = [
+                        'points' => $rung['points'],
+                        'line' => $rung['line'],
+                        'odds' => SportsbookBetSupport::americanToDecimalExact((int) $rung['american']),
+                        'americanOdds' => (int) $rung['american'],
+                    ];
+                }
+                $outcomes[$oi]['alternateLines'] = $alternates;
+            }
+            $markets[$mi]['outcomes'] = $outcomes;
+        }
+        return $markets;
     }
 
     /**

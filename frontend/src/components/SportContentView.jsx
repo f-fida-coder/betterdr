@@ -773,8 +773,14 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     spread: {
                         homePoint: spreadHome?.point ?? null,
                         homeOdds: parseOddsNumber(spreadHome?.price),
+                        // Server-computed Buy Points ladder for this side
+                        // (BuyPointsPricing). Carried into the slip leg so the
+                        // dropdown shows authoritative options; null falls back
+                        // to the client ladder.
+                        homeAlternateLines: Array.isArray(spreadHome?.alternateLines) ? spreadHome.alternateLines : null,
                         awayPoint: spreadAway?.point ?? null,
                         awayOdds: parseOddsNumber(spreadAway?.price),
+                        awayAlternateLines: Array.isArray(spreadAway?.alternateLines) ? spreadAway.alternateLines : null,
                     },
                     moneyline: {
                         homeOdds: parseOddsNumber(h2hHome?.price),
@@ -783,7 +789,9 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     total: {
                         point: totalOver?.point ?? totalUnder?.point ?? null,
                         overOdds: parseOddsNumber(totalOver?.price),
+                        overAlternateLines: Array.isArray(totalOver?.alternateLines) ? totalOver.alternateLines : null,
                         underOdds: parseOddsNumber(totalUnder?.price),
+                        underAlternateLines: Array.isArray(totalUnder?.alternateLines) ? totalUnder.alternateLines : null,
                     },
                 };
             };
@@ -966,6 +974,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 matchName,
                 marketLabel,
                 line: Number.isFinite(parsedLine) ? parsedLine : null,
+                // Server-computed Buy Points ladder for this side (spreads/
+                // totals only). null for other markets / when the API didn't
+                // supply it — the slip's dropdown then uses its local ladder.
+                alternateLines: Array.isArray(meta?.alternateLines) ? meta.alternateLines : null,
                 isLive: !!meta?.isLive,
                 // MLB listed pitchers, carried into the slip so the leg can
                 // render the per-pitcher "Action" toggles. Null for non-MLB.
@@ -1333,7 +1345,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: formatSpreadDisplay(match.odds.spread.awayPoint, match.odds.spread.awayOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'spreads', match.odds.spread.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread', match.odds.spread.awayPoint, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
+                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'spreads', match.odds.spread.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread', match.odds.spread.awayPoint, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.spread.awayAlternateLines }),
                                                             available: awayAvail,
                                                             peerAvailable: homeAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1341,7 +1353,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         })}
                                                         {renderOddsButton({
                                                             label: formatSpreadDisplay(match.odds.spread.homePoint, match.odds.spread.homeOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'spreads', match.odds.spread.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread', match.odds.spread.homePoint, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
+                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'spreads', match.odds.spread.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread', match.odds.spread.homePoint, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.spread.homeAlternateLines }),
                                                             available: homeAvail,
                                                             peerAvailable: awayAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1399,7 +1411,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: overLabel,
-                                                            onClick: () => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, `${match.team1.name} vs ${match.team2.name}`, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
+                                                            onClick: () => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, `${match.team1.name} vs ${match.team2.name}`, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.total.overAlternateLines }),
                                                             available: overAvail,
                                                             peerAvailable: underAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1407,7 +1419,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         })}
                                                         {renderOddsButton({
                                                             label: underLabel,
-                                                            onClick: () => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, `${match.team1.name} vs ${match.team2.name}`, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
+                                                            onClick: () => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, `${match.team1.name} vs ${match.team2.name}`, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.total.underAlternateLines }),
                                                             available: underAvail,
                                                             peerAvailable: overAvail,
                                                             disabled: match.rawMatch?.isBettable === false,

@@ -843,6 +843,73 @@ export const placeBet = async (betData, token, { requestId = '' } = {}) => {
     };
 };
 
+// Open Parlay ("open play"): commit a plain parlay with 1+ legs that the
+// player can add to before any leg's game starts. Stake is reserved at
+// create exactly like a normal parlay; no freeplay (v1). Mirrors placeBet's
+// idempotent requestId handling.
+export const createOpenParlay = async (betData, token, { requestId = '' } = {}) => {
+    const normalizedSelections = Array.isArray(betData?.selections)
+        ? betData.selections.map((sel) => ({
+            ...sel,
+            type: normalizeBetMode(sel?.type || sel?.marketType || 'straight')
+        }))
+        : [];
+    const safeRequestId = String(requestId || betData?.requestId || createRequestId()).trim();
+    const payload = {
+        ...betData,
+        type: 'parlay',
+        selections: normalizedSelections,
+        requestId: safeRequestId
+    };
+    const response = await fetch(buildApiUrl('/bets/open-parlay/create'), {
+        method: 'POST',
+        headers: {
+            ...getHeaders(token),
+            'X-Request-Id': safeRequestId
+        },
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        const err = new Error(error.message || 'Failed to create open parlay');
+        Object.assign(err, error, { requestId: safeRequestId });
+        throw err;
+    }
+    const result = await response.json();
+    return { ...result, requestId: result?.requestId || safeRequestId };
+};
+
+// Add one leg to an existing open parlay. Server enforces a HARD
+// commenceTime>now() anti-past-posting gate, recomputes payout, and dedups
+// the add via the dedicated requestId. Adding a leg never moves money.
+export const addOpenParlayLeg = async (betId, leg, token, { requestId = '' } = {}) => {
+    const safeRequestId = String(requestId || createRequestId()).trim();
+    const payload = {
+        betId,
+        requestId: safeRequestId,
+        leg: {
+            ...leg,
+            type: normalizeBetMode(leg?.type || leg?.marketType || 'straight')
+        }
+    };
+    const response = await fetch(buildApiUrl('/bets/open-parlay/add-leg'), {
+        method: 'POST',
+        headers: {
+            ...getHeaders(token),
+            'X-Request-Id': safeRequestId
+        },
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        const err = new Error(error.message || 'Failed to add leg to open parlay');
+        Object.assign(err, error, { requestId: safeRequestId });
+        throw err;
+    }
+    const result = await response.json();
+    return { ...result, requestId: result?.requestId || safeRequestId };
+};
+
 export const getPublicBetModeRules = async (token) => {
     const response = await fetch(buildApiUrl('/betting/rules'), {
         headers: getHeaders(token)
