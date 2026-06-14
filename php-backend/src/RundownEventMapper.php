@@ -121,10 +121,22 @@ final class RundownEventMapper
         return [
             'id'                => self::deterministicMatchId($eventId),
             'externalId'        => $eventId,
+            // homeTeam/awayTeam stay the SHORT canonical (Rundown `name` = the
+            // city, e.g. "Los Angeles") — this is the stable match key the rest
+            // of the backend keys on (outcome normalization by team_id,
+            // placement, settlement side-resolution). DO NOT switch these to the
+            // full name; matching depends on them matching the outcome names.
             'homeTeam'          => (string) ($home['name'] ?? ''),
             'awayTeam'          => (string) ($away['name'] ?? ''),
             'homeTeamShort'     => (string) ($home['abbreviation'] ?? ''),
             'awayTeamShort'     => (string) ($away['abbreviation'] ?? ''),
+            // Canonical full name ("City Mascot", e.g. "Los Angeles Angels"),
+            // derived from the feed — DISPLAY ONLY. Plus the stable team_id so
+            // bets/snapshots can carry an id-anchor independent of any name.
+            'homeTeamFull'      => self::deriveFullTeamName($home),
+            'awayTeamFull'      => self::deriveFullTeamName($away),
+            'homeTeamId'        => (string) ($home['team_id'] ?? ''),
+            'awayTeamId'        => (string) ($away['team_id'] ?? ''),
             'homeTeamRecord'    => (string) ($home['record'] ?? ''),
             'awayTeamRecord'    => (string) ($away['record'] ?? ''),
             // Listed starting pitchers (MLB). Rundown returns pitcher_home /
@@ -392,7 +404,12 @@ final class RundownEventMapper
 
         return [
             'bookmakers'      => self::materializeBookmakers($bookmakersById),
-            'extendedMarkets' => self::materializeFlatMarkets($extendedByKey),
+            // Collapse alt-spread / alt-total / period LADDERS to one rung per
+            // (side, point) at the house-safe price — Rundown sends one outcome
+            // per book per rung, which otherwise shows "Germany -4.5" once per
+            // book. Player props are NOT collapsed here: they key on the player
+            // (description) and are deduped to the preferred book client-side.
+            'extendedMarkets' => self::dedupeExtendedMarkets(self::materializeFlatMarkets($extendedByKey)),
             'playerProps'     => self::materializeFlatMarkets($propsByKey),
         ];
     }
@@ -460,6 +477,116 @@ final class RundownEventMapper
             ];
         }
         return $out;
+    }
+
+    /**
+     * Collapse handicap/total LADDER markets to ONE outcome per rung.
+     *
+     * Rundown ships an alternate-spread / alternate-total / period market as
+     * one outcome PER SPORTSBOOK for every (side, point) — so "Germany -4.5"
+     * arrives once per book, each with its own juice. Stored raw, the builder
+     * shows the same handicap many times at different prices and (worse) lets a
+     * player cherry-pick the most generous book's line. We collapse each
+     * (side name, point) rung to a single, house-safe price:
+     *   1) the highest-ranked SPORTSBOOK_PREFERRED_BOOKS book that priced the
+     *      rung — keeps the ladder consistent with how the mainline is priced; else
+     *   2) the MEDIAN price across the books that priced it (consensus, never
+     *      the best-for-player line; even counts take the lower-payout middle).
+     * Grouping is per market key, so different periods / market families
+     * (alternate_spreads vs alternate_spreads_h1) never merge. Rungs with no
+     * usable price are dropped. Public so the read path (MatchesController)
+     * can apply the same collapse to docs stored before this shipped.
+     *
+     * @param array<int, array{key:string, outcomes:array<int,array<string,mixed>>}> $flatMarkets
+     * @return array<int, array{key:string, outcomes:array<int,array<string,mixed>>}>
+     */
+    public static function dedupeExtendedMarkets(array $flatMarkets): array
+    {
+        $rank = [];
+        foreach (array_values(self::preferredBookOrder()) as $i => $bookKey) {
+            $rank[$bookKey] = $i;
+        }
+        $rankOf = static function (array $o) use ($rank): int {
+            $book = strtolower(trim((string) ($o['book'] ?? '')));
+            return $rank[$book] ?? PHP_INT_MAX;
+        };
+
+        $out = [];
+        foreach ($flatMarkets as $market) {
+            $key = (string) ($market['key'] ?? '');
+            $outcomes = is_array($market['outcomes'] ?? null) ? $market['outcomes'] : [];
+            if ($key === '' || $outcomes === []) {
+                continue;
+            }
+            // Bucket every book's outcome for the same (side name, point),
+            // preserving first-seen rung order so the ladder stays stable.
+            $byRung = [];
+            $order = [];
+            foreach ($outcomes as $o) {
+                if (!is_array($o) || !isset($o['price'])) {
+                    continue;
+                }
+                $name = (string) ($o['name'] ?? '');
+                $point = array_key_exists('point', $o) && $o['point'] !== null && $o['point'] !== '' && is_numeric($o['point'])
+                    ? (string) (0 + $o['point'])
+                    : '';
+                $rungKey = strtolower($name) . '|' . $point;
+                if (!isset($byRung[$rungKey])) {
+                    $byRung[$rungKey] = [];
+                    $order[] = $rungKey;
+                }
+                $byRung[$rungKey][] = $o;
+            }
+
+            $deduped = [];
+            foreach ($order as $rungKey) {
+                $cands = $byRung[$rungKey];
+                // 1) Best-ranked preferred book that priced this rung.
+                $chosen = null;
+                $chosenRank = PHP_INT_MAX;
+                foreach ($cands as $o) {
+                    $r = $rankOf($o);
+                    if ($r < $chosenRank) {
+                        $chosenRank = $r;
+                        $chosen = $o;
+                    }
+                }
+                // 2) No preferred book priced it → median (house-safe consensus).
+                if ($chosen === null || $chosenRank === PHP_INT_MAX) {
+                    $chosen = self::medianByPrice($cands);
+                }
+                if (is_array($chosen) && isset($chosen['price'])) {
+                    $deduped[] = $chosen;
+                }
+            }
+
+            if ($deduped !== []) {
+                $out[] = ['key' => $key, 'outcomes' => array_values($deduped)];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Median-priced outcome (by decimal price) from a rung's candidates.
+     * Deterministic + house-safe: an even count takes the LOWER-payout of the
+     * two middle prices, so the player never gets the most generous duplicate.
+     *
+     * @param array<int, array<string,mixed>> $candidates
+     * @return array<string,mixed>|null
+     */
+    private static function medianByPrice(array $candidates): ?array
+    {
+        $valid = array_values(array_filter(
+            $candidates,
+            static fn ($o): bool => is_array($o) && isset($o['price']) && is_numeric($o['price'])
+        ));
+        if ($valid === []) {
+            return null;
+        }
+        usort($valid, static fn ($a, $b): int => ((float) $a['price']) <=> ((float) $b['price']));
+        // Lower-middle index → house-safe on even counts (lower decimal = lower payout).
+        return $valid[intdiv(count($valid) - 1, 2)];
     }
 
     /**
@@ -549,6 +676,30 @@ final class RundownEventMapper
             if ($side === 'away' && (bool) ($team['is_away'] ?? false)) return $team;
         }
         return null;
+    }
+
+    /**
+     * Canonical DISPLAY full name from a Rundown team object. Rundown gives
+     * `name` = city/location ("Los Angeles") and `mascot` = "Angels", so the
+     * full name is "City Mascot". Derived, never hardcoded. Guards the rare
+     * case where `name` already contains the mascot (avoid "Angels Angels"),
+     * and falls back to name → abbreviation when a field is missing. This is a
+     * display string only — nothing matches on it.
+     */
+    private static function deriveFullTeamName(array $team): string
+    {
+        $name = trim((string) ($team['name'] ?? ''));
+        $mascot = trim((string) ($team['mascot'] ?? ''));
+        if ($name !== '' && $mascot !== '' && stripos($name, $mascot) === false) {
+            return $name . ' ' . $mascot;
+        }
+        if ($name !== '') {
+            return $name;
+        }
+        if ($mascot !== '') {
+            return $mascot;
+        }
+        return trim((string) ($team['abbreviation'] ?? ''));
     }
 
     /**

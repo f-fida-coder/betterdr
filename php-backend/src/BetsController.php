@@ -212,6 +212,13 @@ final class BetsController
             // user accepts the whole new ticket with one tap.
             $validatedSelections = [];
             $priceChanges = [];
+            // Odds-acceptance policy (per-user, env-defaulted). Decides whether
+            // a live line move auto-places at the current price or returns
+            // ODDS_CHANGED. Resolved once and applied uniformly to every leg of
+            // every bet type, so a parlay and a straight gate identically.
+            $acceptance = SportsbookBetSupport::resolveOddsAcceptance(
+                is_array($user['settings'] ?? null) ? $user['settings'] : null
+            );
             foreach ($selectionInputs as $idx => $sel) {
                 $boughtPointsRaw = $sel['boughtPoints'] ?? null;
                 $boughtPoints = is_numeric($boughtPointsRaw) ? (float) $boughtPointsRaw : 0.0;
@@ -233,7 +240,9 @@ final class BetsController
                         $validatedSelections[] = $this->validateOutrightSelection(
                             trim((string) ($sel['matchId'] ?? ($sel['outrightId'] ?? ''))),
                             trim((string) ($sel['selection'] ?? '')),
-                            $sel['odds'] ?? null
+                            $sel['odds'] ?? null,
+                            $acceptance['policy'],
+                            $acceptance['bandCents']
                         );
                     } else {
                         $validated = $this->validateSelection(
@@ -241,7 +250,9 @@ final class BetsController
                             trim((string) ($sel['selection'] ?? '')),
                             $sel['odds'] ?? null,
                             $selType,
-                            $boughtPoints
+                            $boughtPoints,
+                            $acceptance['policy'],
+                            $acceptance['bandCents']
                         );
                         // MLB listed-pitcher "Action" choice (per side). When a
                         // side is NOT marked Action, the bet voids if that
@@ -770,6 +781,9 @@ final class BetsController
                     'selections' => $selectionDocs,
                     'matchId' => $single ? SqlRepository::id((string) $single['matchId']) : null,
                     'selection' => $single ? $single['selection'] : 'MULTI',
+                    // Full display name for the single-leg ticket (combined
+                    // tickets read per-leg selectionFull from betselections).
+                    'selectionFull' => $single ? (string) ($single['selectionFull'] ?? $single['selection'] ?? '') : 'MULTI',
                     'odds' => $single ? (float) $single['odds'] : $combinedOdds,
                     'oddsAmerican' => $single && isset($single['oddsAmerican']) ? (int) $single['oddsAmerican'] : null,
                     'marketType' => $single ? (string) ($single['marketType'] ?? '') : $type,
@@ -2017,7 +2031,7 @@ final class BetsController
      *
      * @return array<string, mixed>
      */
-    private function validateOutrightSelection(string $outrightId, string $selection, mixed $odds): array
+    private function validateOutrightSelection(string $outrightId, string $selection, mixed $odds, string $acceptancePolicy = 'exact', int $acceptanceBandCents = 0): array
     {
         if (preg_match('/^[a-f0-9]{24}$/i', $outrightId) !== 1) {
             throw new ApiException('Outright not found: ' . $outrightId, 404);
@@ -2086,12 +2100,17 @@ final class BetsController
         if (is_numeric($odds)) {
             $clientSnapped = SportsbookBetSupport::snapDecimalOdds((float) $odds);
             $clientAmericanInt = SportsbookBetSupport::decimalToAmericanInt($clientSnapped);
-            if ($clientAmericanInt !== 0 && $clientAmericanInt !== $officialAmericanInt) {
+            // Gate by the acceptance policy, not raw inequality: a favorable
+            // move or a small adverse move (within the band) auto-places at the
+            // official price below; only a policy-breaching move prompts.
+            if (!SportsbookBetSupport::oddsAcceptable($clientAmericanInt, $officialAmericanInt, $acceptancePolicy, $acceptanceBandCents)) {
                 throw new ApiException('Odds changed. Please review the updated price before placing the bet.', 409, [
                     'code' => 'ODDS_CHANGED',
                     'officialOdds' => $officialOdds,
                     'officialAmericanOdds' => $officialAmericanInt,
-                    'selection' => (string) ($outcome['name'] ?? $selection),
+                    // Echo the client's own selection string so the frontend
+                    // can match-and-patch the moved leg (see validateSelection).
+                    'selection' => $selection,
                     'matchId' => $outrightId,
                 ]);
             }
@@ -2125,6 +2144,11 @@ final class BetsController
             'matchId' => $outrightId,
             'outrightId' => $outrightId,
             'selection' => (string) ($outcome['name'] ?? $selection),
+            // Outright competitor/event names are already the full form, so the
+            // display label IS the selection. selectionPid carries the stable
+            // outcome id when present (display/audit only).
+            'selectionFull' => (string) ($outcome['name'] ?? $selection),
+            'selectionPid' => $outcome['pid'] ?? null,
             'odds' => $officialOdds,
             'oddsAmerican' => $officialAmericanInt,
             'marketType' => 'outrights',
@@ -2134,7 +2158,7 @@ final class BetsController
         ];
     }
 
-    private function validateSelection(string $matchId, string $selection, mixed $odds, string $type, float $boughtPoints = 0.0): array
+    private function validateSelection(string $matchId, string $selection, mixed $odds, string $type, float $boughtPoints = 0.0, string $acceptancePolicy = 'exact', int $acceptanceBandCents = 0): array
     {
         if (preg_match('/^[a-f0-9]{24}$/i', $matchId) !== 1) {
             throw new ApiException('Match not found: ' . $matchId, 404);
@@ -2429,12 +2453,25 @@ final class BetsController
         if (is_numeric($odds)) {
             $clientSnapped = SportsbookBetSupport::snapDecimalOdds((float) $odds);
             $clientAmericanInt = SportsbookBetSupport::decimalToAmericanInt($clientSnapped);
-            if ($clientAmericanInt !== 0 && $clientAmericanInt !== $effectiveAmerican) {
+            // Gate by the acceptance policy, not raw inequality: a favorable
+            // move or a small adverse move (within the band) auto-places at the
+            // official price below; only a policy-breaching move prompts. For
+            // Buy Points legs, "official" is the server's repriced ladder value.
+            if (!SportsbookBetSupport::oddsAcceptable($clientAmericanInt, $effectiveAmerican, $acceptancePolicy, $acceptanceBandCents)) {
                 throw new ApiException('Odds changed. Please review the updated price before placing the bet.', 409, [
                     'code' => 'ODDS_CHANGED',
                     'officialOdds' => $effectiveDecimal,
                     'officialAmericanOdds' => $effectiveAmerican,
-                    'selection' => (string) ($outcome['name'] ?? $selection),
+                    // Echo the client's OWN selection string (the stitched
+                    // "Player Over 0.5" for props, the short team name for
+                    // h2h/spreads) — NOT $outcome['name'], which for props is
+                    // just "Over"/"Under" and for full-name odds sources is the
+                    // long team name. The frontend patches the moved leg by
+                    // matching this against the slip's selection; if it doesn't
+                    // match verbatim the patch silently no-ops and the user is
+                    // stuck in an unbreakable "Odds updated — tap PLACE" loop.
+                    'selection' => $selection,
+                    'marketType' => $normalizedType,
                     'matchId' => $matchId,
                 ]);
             }
@@ -2442,7 +2479,16 @@ final class BetsController
 
         return [
             'matchId' => $matchId,
+            // `selection` stays the SHORT canonical (= the normalized outcome
+            // name, which equals homeTeam/awayTeam for team markets). This is
+            // the stable match key settlement and the odds-change handshake run
+            // on — do NOT replace it with the full name.
             'selection' => (string) ($outcome['name'] ?? $selection),
+            // selectionFull / selectionPid are DISPLAY + audit only: the full
+            // "City Mascot" team name for the picked side, and the outcome's
+            // stable team_id. Nothing matches on them.
+            'selectionFull' => $this->fullSelectionLabel($match, $outcome, $selection),
+            'selectionPid' => $outcome['pid'] ?? null,
             'odds' => $effectiveDecimal,
             'oddsAmerican' => $effectiveAmerican,
             'marketType' => $marketKey,
@@ -2488,6 +2534,10 @@ final class BetsController
             // Null on non-outright legs — keeps the index sparse.
             'outrightId' => $isOutright ? SqlRepository::id((string) ($selection['outrightId'] ?? $selection['matchId'])) : null,
             'selection' => $selection['selection'],
+            // Full display name + stable outcome id snapshot (display/audit only;
+            // settlement still grades off `selection` + the matchSnapshot).
+            'selectionFull' => (string) ($selection['selectionFull'] ?? $selection['selection'] ?? ''),
+            'selectionPid' => $selection['selectionPid'] ?? null,
             'odds' => (float) $selection['odds'],
             'oddsAmerican' => isset($selection['oddsAmerican']) ? (int) $selection['oddsAmerican'] : null,
             'marketType' => $selection['marketType'] ?? '',
@@ -2745,6 +2795,34 @@ final class BetsController
             return 'away';
         }
         return null;
+    }
+
+    /**
+     * Full DISPLAY label for a validated selection. Team markets (h2h / spreads
+     * and their period variants) resolve the matched outcome's side to the
+     * match's full "City Mascot" name; Over/Under, player props, and any
+     * unresolved side fall back to the short selection verbatim. Display only —
+     * the stored `selection` stays the short canonical match key.
+     *
+     * @param array<string,mixed> $match
+     * @param array<string,mixed> $outcome
+     */
+    private function fullSelectionLabel(array $match, array $outcome, string $selection): string
+    {
+        $name = (string) ($outcome['name'] ?? $selection);
+        $side = $this->resolveTeamSide($name, (string) ($match['homeTeam'] ?? ''), (string) ($match['awayTeam'] ?? ''));
+        if ($side === 'home') {
+            $full = trim((string) ($match['homeTeamFull'] ?? ''));
+            if ($full !== '') {
+                return $full;
+            }
+        } elseif ($side === 'away') {
+            $full = trim((string) ($match['awayTeamFull'] ?? ''));
+            if ($full !== '') {
+                return $full;
+            }
+        }
+        return $name;
     }
 
     /**

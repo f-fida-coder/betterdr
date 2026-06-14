@@ -60,8 +60,8 @@ const shortSportLabel = (key) => {
     return formatSportLabel(key);
 };
 
-const awayName = (m) => m?.awayTeamShort || m?.awayTeam || m?.away_team || 'Away';
-const homeName = (m) => m?.homeTeamShort || m?.homeTeam || m?.home_team || 'Home';
+const awayName = (m) => m?.awayTeamFull || m?.awayTeam || m?.away_team || 'Away';
+const homeName = (m) => m?.homeTeamFull || m?.homeTeam || m?.home_team || 'Home';
 const matchTitle = (m) => `${awayName(m)} @ ${homeName(m)}`;
 
 const GAME_PROP_BY_KEY = new Map(GAME_PROP_SECTIONS.map((s) => [s.key, s]));

@@ -827,6 +827,9 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     sport: match.sport || match.sportTitle || '',
                     team1: {
                         name: awayName,
+                        // Full "City Mascot" for DISPLAY. `name` (the short city)
+                        // stays the placement selection + dedupe key.
+                        fullName: match.awayTeamFull || awayName,
                         shortName: match.awayTeamShort || awayName,
                         // Raw short code (e.g. "CIN", "SF", "CWS") fed to the
                         // sport-aware logo resolver. Kept separate from the
@@ -838,6 +841,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     },
                     team2: {
                         name: homeName,
+                        fullName: match.homeTeamFull || homeName,
                         shortName: match.homeTeamShort || homeName,
                         abbr: match.homeTeamShort || '',
                         record: match.homeTeamRecord || '',
@@ -941,10 +945,22 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         if (!matchId || !selection || parsedOdds === null) return;
         const parsedLine = Number(line);
         const action = pitcherActionByMatch[matchId] || { home: false, away: false };
+        // Resolve the leg's full DISPLAY name from the short selection by
+        // matching it to the raw match's team names. `selection` stays the
+        // short match key; only the display label is the full "City Mascot".
+        const raw = (content?.matches || []).find((m) => (m.id || m.externalId) === matchId);
+        const selectionFull = raw
+            ? (selection === (raw.awayTeam || raw.away_team)
+                ? (raw.awayTeamFull || selection)
+                : (selection === (raw.homeTeam || raw.home_team)
+                    ? (raw.homeTeamFull || selection)
+                    : selection))
+            : selection;
         window.dispatchEvent(new CustomEvent('betslip:add', {
             detail: {
                 matchId,
                 selection,
+                selectionFull,
                 marketType,
                 odds: parsedOdds,
                 matchName,
@@ -1148,6 +1164,8 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 externalId: match.rawMatch?.externalId,
                                                 homeTeam: match.team2.name,
                                                 awayTeam: match.team1.name,
+                                                homeTeamFull: match.team2.fullName,
+                                                awayTeamFull: match.team1.fullName,
                                                 odds: match.rawMatch?.odds,
                                             })}
                                             disabled={match.rawMatch?.isBettable === false}
@@ -1175,6 +1193,8 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 externalId: match.rawMatch?.externalId,
                                                 homeTeam: match.team2.name,
                                                 awayTeam: match.team1.name,
+                                                homeTeamFull: match.team2.fullName,
+                                                awayTeamFull: match.team1.fullName,
                                                 odds: match.rawMatch?.odds,
                                             })}
                                             disabled={match.rawMatch?.isBettable === false}
@@ -1222,7 +1242,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                         </span>
                                         <div className="team-info">
                                             <span className="team-name">
-                                                {match.team1.shortName || match.team1.name}
+                                                {match.team1.fullName || match.team1.shortName || match.team1.name}
                                                 {match.team1.record && (
                                                     <span style={teamRecordStyle}> ({match.team1.record})</span>
                                                 )}
@@ -1251,7 +1271,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                         </span>
                                         <div className="team-info">
                                             <span className="team-name">
-                                                {match.team2.shortName || match.team2.name}
+                                                {match.team2.fullName || match.team2.shortName || match.team2.name}
                                                 {match.team2.record && (
                                                     <span style={teamRecordStyle}> ({match.team2.record})</span>
                                                 )}

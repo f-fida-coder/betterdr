@@ -95,14 +95,16 @@ const statusTheme = (value) => {
 };
 
 const matchLabel = (bet) => {
+    // Prefer the full "City Mascot" names (match doc or the placement snapshot);
+    // fall back to the short/city name for rows that predate the full fields.
     if (bet?.match?.homeTeam && bet?.match?.awayTeam) {
-        return `${bet.match.homeTeamShort || shortTeam(bet.match.homeTeam)} vs ${bet.match.awayTeamShort || shortTeam(bet.match.awayTeam)}`;
+        return `${bet.match.homeTeamFull || bet.match.homeTeam} vs ${bet.match.awayTeamFull || bet.match.awayTeam}`;
     }
     if (Array.isArray(bet?.selections) && bet.selections.length > 1) {
         return `${bet.selections.length}-leg ticket`;
     }
     if (bet?.matchSnapshot?.homeTeam && bet?.matchSnapshot?.awayTeam) {
-        return `${bet.matchSnapshot.homeTeamShort || shortTeam(bet.matchSnapshot.homeTeam)} vs ${bet.matchSnapshot.awayTeamShort || shortTeam(bet.matchSnapshot.awayTeam)}`;
+        return `${bet.matchSnapshot.homeTeamFull || bet.matchSnapshot.homeTeam} vs ${bet.matchSnapshot.awayTeamFull || bet.matchSnapshot.awayTeam}`;
     }
     return 'Ticket';
 };
@@ -149,7 +151,7 @@ const ticketSummary = (bet) => {
     const selection = String(leg?.selection || '').trim();
     if (market === 'spreads') {
         const line = point === null ? '' : formatLineValue(point, { signed: true });
-        const team = shortTeam(selection) || selection;
+        const team = String(leg?.selectionFull || '').trim() || selection;
         return line ? `${team} ${line}` : team || 'Spread';
     }
     if (market === 'totals') {
@@ -158,7 +160,7 @@ const ticketSummary = (bet) => {
         return line ? `${isUnder ? 'Under' : 'Over'} ${line}` : (isUnder ? 'Under' : 'Over');
     }
     // h2h / moneyline / fallback
-    const team = shortTeam(selection) || selection || 'Pick';
+    const team = String(leg?.selectionFull || '').trim() || selection || 'Pick';
     return `${team} ML`;
 };
 
@@ -172,7 +174,7 @@ const legDescription = (leg, oddsFormat) => {
     const selection = String(leg?.selection || '').trim();
     const odds = formatOdds(leg?.odds, oddsFormat);
     if (market === 'spreads') {
-        const team = shortTeam(selection) || selection;
+        const team = String(leg?.selectionFull || '').trim() || selection;
         const line = point === null ? '' : formatLineValue(point, { signed: true });
         return [team, line, odds].filter(Boolean).join(' ');
     }
@@ -181,7 +183,7 @@ const legDescription = (leg, oddsFormat) => {
         const line = point === null ? '' : formatLineValue(Math.abs(point));
         return [`${isUnder ? 'Under' : 'Over'}`, line, odds].filter(Boolean).join(' ');
     }
-    const team = shortTeam(selection) || selection || 'Pick';
+    const team = String(leg?.selectionFull || '').trim() || selection || 'Pick';
     return [team, odds].filter(Boolean).join(' ');
 };
 
@@ -541,15 +543,15 @@ const settledTimestamp = (bet) => bet?.settledAt || bet?.updatedAt || bet?.creat
 // something meaningful instead of "—".
 const expandedMatchup = (bet) => {
     if (bet?.match?.homeTeam && bet?.match?.awayTeam) {
-        return `${bet.match.awayTeamShort || shortTeam(bet.match.awayTeam)} @ ${bet.match.homeTeamShort || shortTeam(bet.match.homeTeam)}`;
+        return `${bet.match.awayTeamFull || bet.match.awayTeam} @ ${bet.match.homeTeamFull || bet.match.homeTeam}`;
     }
     if (bet?.matchSnapshot?.homeTeam && bet?.matchSnapshot?.awayTeam) {
-        return `${bet.matchSnapshot.awayTeamShort || shortTeam(bet.matchSnapshot.awayTeam)} @ ${bet.matchSnapshot.homeTeamShort || shortTeam(bet.matchSnapshot.homeTeam)}`;
+        return `${bet.matchSnapshot.awayTeamFull || bet.matchSnapshot.awayTeam} @ ${bet.matchSnapshot.homeTeamFull || bet.matchSnapshot.homeTeam}`;
     }
     const firstLeg = Array.isArray(bet?.selections) ? bet.selections[0] : null;
     const snap = firstLeg?.matchSnapshot;
     if (snap?.homeTeam && snap?.awayTeam) {
-        return `${snap.awayTeamShort || shortTeam(snap.awayTeam)} @ ${snap.homeTeamShort || shortTeam(snap.homeTeam)}`;
+        return `${snap.awayTeamFull || snap.awayTeam} @ ${snap.homeTeamFull || snap.homeTeam}`;
     }
     return null;
 };

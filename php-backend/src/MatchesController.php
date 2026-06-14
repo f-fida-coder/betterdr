@@ -349,6 +349,13 @@ final class MatchesController
                 'awayTeam' => 1,
                 'homeTeamShort' => 1,
                 'awayTeamShort' => 1,
+                // Canonical full names + team ids (display only) — must be in the
+                // core projection or they're dropped and the board falls back to
+                // the short/city name.
+                'homeTeamFull' => 1,
+                'awayTeamFull' => 1,
+                'homeTeamId' => 1,
+                'awayTeamId' => 1,
                 'homeTeamRecord' => 1,
                 'awayTeamRecord' => 1,
                 // MLB listed starting pitchers — needed by the board's pitcher
@@ -790,6 +797,15 @@ final class MatchesController
         if (empty($match['awayTeamShort']) && !empty($match['awayTeam'])) {
             $match['awayTeamShort'] = TeamNormalizer::shortName((string) $match['awayTeam'], $sportKey);
         }
+        // Full-name fallback for docs synced before homeTeamFull/awayTeamFull
+        // existed: degrade to the short/city name so the UI always has a value
+        // to show. Re-sync replaces these with the true "City Mascot".
+        if (empty($match['homeTeamFull']) && !empty($match['homeTeam'])) {
+            $match['homeTeamFull'] = (string) $match['homeTeam'];
+        }
+        if (empty($match['awayTeamFull']) && !empty($match['awayTeam'])) {
+            $match['awayTeamFull'] = (string) $match['awayTeam'];
+        }
         return $match;
     }
 
@@ -873,6 +889,13 @@ final class MatchesController
             $canonical = self::canonicalizeOddsMarkets($refreshed ?? $match);
             $baseMarkets = is_array($canonical['odds']['markets'] ?? null) ? $canonical['odds']['markets'] : [];
             $bookmakers  = is_array($canonical['odds']['bookmakers'] ?? null) ? $canonical['odds']['bookmakers'] : [];
+
+            // Collapse alt-spread / alt-total / period ladders to one rung per
+            // (side, point) at the house-safe price. Ingestion now stores them
+            // already-collapsed, but re-applying here is idempotent and fixes
+            // docs written before this shipped (and any that bypassed mapping)
+            // so the builder never shows the same handicap at multiple juices.
+            $extended = RundownEventMapper::dedupeExtendedMarkets($extended);
 
             $payload = [
                 'matchId' => $id,

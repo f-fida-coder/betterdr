@@ -393,7 +393,19 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                     {showMenuButton && (
                         <button
                             type="button"
-                            onClick={onToggleSidebar}
+                            onClick={() => {
+                                // Dismiss the betslip overlay first. The slip
+                                // (ModeBetPanel) is a fixed z-index:1200 layer
+                                // while the menu grid renders at z-index:1000,
+                                // so opening the menu while the slip is up puts
+                                // it BEHIND the slip — invisible, so the tap
+                                // reads as a no-op. Same fix as the Balance
+                                // cell (goToMyBetsPending). The slip's
+                                // selections live in App state, so this only
+                                // hides the overlay; it's a no-op when closed.
+                                window.dispatchEvent(new CustomEvent('betslip:close', { detail: { source: 'header-menu' } }));
+                                if (onToggleSidebar) onToggleSidebar();
+                            }}
                             aria-label="Open menu"
                             style={mhCellBtnStyle}
                         >

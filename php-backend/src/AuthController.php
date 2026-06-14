@@ -714,6 +714,31 @@ final class AuthController
                 $user['settings'] = $existingSettings;
                 $updates['settings'] = $existingSettings;
             }
+            // Odds-acceptance policy — controls when a live line move forces the
+            // "Odds updated, tap PLACE to confirm" prompt vs. auto-placing at
+            // the current price. Stored in the settings JSON; enforced server-
+            // side in BetsController via SportsbookBetSupport::oddsAcceptable.
+            // The shape is settings.oddsAcceptance: { policy, bandCents }.
+            if (array_key_exists('oddsAcceptance', $incomingSettings)) {
+                $oa = is_array($incomingSettings['oddsAcceptance']) ? $incomingSettings['oddsAcceptance'] : [];
+                $policy = strtolower(trim((string) ($oa['policy'] ?? '')));
+                if (!in_array($policy, SportsbookBetSupport::ODDS_ACCEPT_POLICIES, true)) {
+                    Response::json(['message' => 'oddsAcceptance.policy must be any, higher, or band'], 400);
+                    return;
+                }
+                $bandRaw = $oa['bandCents'] ?? SportsbookBetSupport::ODDS_ACCEPT_DEFAULT_BAND_CENTS;
+                $bandCents = is_numeric($bandRaw) ? (int) $bandRaw : SportsbookBetSupport::ODDS_ACCEPT_DEFAULT_BAND_CENTS;
+                // Cap the band so a tampered/over-eager client can't opt into
+                // silently accepting an unbounded adverse move.
+                if ($bandCents < 0 || $bandCents > SportsbookBetSupport::ODDS_ACCEPT_MAX_BAND_CENTS) {
+                    Response::json(['message' => 'oddsAcceptance.bandCents must be between 0 and ' . SportsbookBetSupport::ODDS_ACCEPT_MAX_BAND_CENTS], 400);
+                    return;
+                }
+                $existingSettings = is_array($user['settings'] ?? null) ? $user['settings'] : [];
+                $existingSettings['oddsAcceptance'] = ['policy' => $policy, 'bandCents' => $bandCents];
+                $user['settings'] = $existingSettings;
+                $updates['settings'] = $existingSettings;
+            }
 
             if (count($updates) > 1) {
                 $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));

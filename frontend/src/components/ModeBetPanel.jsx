@@ -1536,6 +1536,22 @@ const ModeBetPanel = ({
         // failed request's idempotency record.
         requestStateRef.current = { requestId: '', signature: '' };
 
+        // Loop-proofing: the "tap PLACE to confirm" banner is ONLY safe to
+        // show once we've actually rewritten at least one leg's baseline odds
+        // to the server's new price. If patchedCount === 0 the slip still
+        // holds the SAME stale price, so a second PLACE tap re-sends it and
+        // the backend rejects again — the exact infinite confirm loop this
+        // bug was. When nothing matched (e.g. a leg the backend identifies by
+        // a name we can't reconcile), give an actionable dead-end instead of
+        // inviting a doomed retry, so a loop can never form structurally —
+        // independent of how cleanly the backend echoes the selection.
+        if (patchedCount === 0) {
+            const text = 'Odds changed — this selection couldn’t be refreshed automatically. Please remove and re-add it, then place again.';
+            setMessage({ type: 'error', text });
+            showToast(text, 'error');
+            return true;
+        }
+
         const text = patchedCount > 1
             ? `Odds updated on ${patchedCount} legs — review and tap PLACE to confirm at the new price.`
             : 'Odds updated — review and tap PLACE to confirm at the new price.';
@@ -2565,7 +2581,7 @@ const ModeBetPanel = ({
                                     flexWrap: 'wrap',
                                     gap: 8,
                                 }}>
-                                    <span>{sel.selection}</span>
+                                    <span>{sel.selectionFull || sel.selection}</span>
                                     {sel.isLive && (
                                         // LIVE BET pill — flagged at add-to-slip
                                         // time from match.isLive, which is true

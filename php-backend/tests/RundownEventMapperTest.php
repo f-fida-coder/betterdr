@@ -98,6 +98,31 @@ TestRunner::run('NBA: extendedMarkets does NOT contain any _7_innings garbage', 
 
 // ── MLB (baseball) — F1 / F3 / F5 / F7 inning markets ────────────────────
 
+TestRunner::run('team identity: short canonical stays city, full = "City Mascot", team_id stored', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtLoad('mlb_la_at_detroit_scheduled'), 'baseball_mlb');
+    TestRunner::assertNotNull($doc, 'event mapped');
+    // SHORT canonical (match key) is the city/location, unchanged.
+    TestRunner::assertEquals('Detroit', $doc['homeTeam'], 'homeTeam stays short city');
+    TestRunner::assertEquals('Los Angeles', $doc['awayTeam'], 'awayTeam stays short city');
+    // DISPLAY full name = "City Mascot", derived from the feed.
+    TestRunner::assertEquals('Detroit Tigers', $doc['homeTeamFull'], 'homeTeamFull = City Mascot');
+    TestRunner::assertEquals('Los Angeles Angels', $doc['awayTeamFull'], 'awayTeamFull = City Mascot');
+    // Stable team_id captured for id-anchored display/audit.
+    TestRunner::assertEquals('53', (string) $doc['homeTeamId'], 'homeTeamId');
+    TestRunner::assertEquals('57', (string) $doc['awayTeamId'], 'awayTeamId');
+    // Outcome names remain the SHORT canonical (so placement/settlement still
+    // match) — the full name lives only on the team display fields.
+    $found = false;
+    foreach (($doc['odds']['bookmakers'] ?? []) as $bk) {
+        foreach (($bk['markets'] ?? []) as $mk) {
+            foreach (($mk['outcomes'] ?? []) as $o) {
+                if (($o['name'] ?? '') === 'Detroit Tigers') $found = true;
+            }
+        }
+    }
+    TestRunner::assertFalse($found, 'no outcome carries the full name — outcomes stay short');
+});
+
 TestRunner::run('MLB: extendedMarkets uses _1st_N_innings suffix (matches frontend)', function (): void {
     $doc = RundownEventMapper::toMatchDoc(rmtLoad('mlb_la_at_detroit_scheduled'), 'baseball_mlb');
     TestRunner::assertNotNull($doc, 'event mapped');

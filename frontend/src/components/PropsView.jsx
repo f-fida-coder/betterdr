@@ -189,8 +189,8 @@ const PropsView = () => {
                                 className={`props-track-item ${isActive ? 'active' : ''}`}
                                 onClick={() => setSelectedMatchId(matchId)}
                             >
-                                <span>{match.homeTeamShort || match.homeTeam || match.home_team}</span>
-                                <span>{match.awayTeamShort || match.awayTeam || match.away_team}</span>
+                                <span>{match.homeTeamFull || match.homeTeam || match.home_team}</span>
+                                <span>{match.awayTeamFull || match.awayTeam || match.away_team}</span>
                                 <div className="props-track-time-badges">
                                     <span className="props-time-badge">{formatStartTime(match.startTime)}</span>
                                 </div>

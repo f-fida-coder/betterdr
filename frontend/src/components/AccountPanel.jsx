@@ -564,6 +564,41 @@ const AccountPanel = ({
     const { showToast } = useToast();
     const [language, setLanguage] = React.useState('English');
     const [siteTimezone, setSiteTimezoneState] = React.useState(() => getSiteTimezone());
+    // Odds-acceptance policy (settings.oddsAcceptance) — controls when a live
+    // line move forces the "Odds updated, tap PLACE" prompt vs. auto-placing at
+    // the current price. Enforced server-side in BetsController; this is just
+    // the per-user toggle. 'band' is the default when the user hasn't chosen.
+    const storedAcceptance = (user?.settings?.oddsAcceptance && typeof user.settings.oddsAcceptance === 'object')
+        ? user.settings.oddsAcceptance
+        : null;
+    const [oddsPolicy, setOddsPolicy] = React.useState(() => {
+        const p = String(storedAcceptance?.policy || 'band').toLowerCase();
+        return ['any', 'higher', 'band'].includes(p) ? p : 'band';
+    });
+    const [oddsBandCents, setOddsBandCents] = React.useState(() => {
+        const n = Number(storedAcceptance?.bandCents);
+        return Number.isFinite(n) && n >= 0 ? Math.min(100, Math.round(n)) : 10;
+    });
+    // Re-sync if /auth/me brings down a fresh saved policy (e.g. changed on
+    // another device) — mirrors the BetDefaultsCard round-trip.
+    React.useEffect(() => {
+        const oa = user?.settings?.oddsAcceptance;
+        if (!oa || typeof oa !== 'object') return;
+        const p = String(oa.policy || '').toLowerCase();
+        if (['any', 'higher', 'band'].includes(p)) setOddsPolicy(p);
+        const n = Number(oa.bandCents);
+        if (Number.isFinite(n) && n >= 0) setOddsBandCents(Math.min(100, Math.round(n)));
+    }, [user?.settings?.oddsAcceptance]);
+
+    const persistOddsAcceptance = React.useCallback(async (policy, bandCents) => {
+        const token = getStoredAuthToken();
+        if (!token) return;
+        try {
+            await updateProfile({ settings: { oddsAcceptance: { policy, bandCents } } }, token);
+        } catch (err) {
+            showToast(err?.message || 'Odds preference saved locally, but profile sync failed.', 'warning');
+        }
+    }, [showToast]);
 
     // Lock body scroll while the sheet is open on mobile.
     React.useEffect(() => {
@@ -962,6 +997,62 @@ const AccountPanel = ({
                                     label: opt.label,
                                 }))}
                             />
+                        </div>
+                    </section>
+
+                    {/* Odds acceptance — how live line moves are handled at
+                        placement. 'band' (default) auto-accepts small moves so
+                        live bets don't re-prompt on every ~5s odds refresh;
+                        the threshold only shows for the band policy. Enforced
+                        server-side (BetsController), persisted on change. */}
+                    <section>
+                        <div style={{
+                            fontSize: 11,
+                            color: palette.textMuted,
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.6,
+                            fontWeight: 700,
+                            marginBottom: 8,
+                            paddingLeft: 2,
+                        }}>
+                            Odds Acceptance
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: oddsPolicy === 'band' ? '2fr 1fr' : '1fr', gap: 8 }}>
+                            <SelectField
+                                label="When odds change"
+                                icon="fa-arrows-rotate"
+                                value={oddsPolicy}
+                                onChange={(e) => {
+                                    const next = e.target.value;
+                                    setOddsPolicy(next);
+                                    persistOddsAcceptance(next, oddsBandCents);
+                                }}
+                                options={[
+                                    { value: 'band', label: 'Accept small moves' },
+                                    { value: 'higher', label: 'Accept better odds only' },
+                                    { value: 'any', label: 'Accept any odds' },
+                                ]}
+                            />
+                            {oddsPolicy === 'band' && (
+                                <SelectField
+                                    label="Tolerance"
+                                    icon="fa-sliders"
+                                    value={String(oddsBandCents)}
+                                    onChange={(e) => {
+                                        const next = Number(e.target.value);
+                                        setOddsBandCents(next);
+                                        persistOddsAcceptance(oddsPolicy, next);
+                                    }}
+                                    options={[5, 10, 15, 20, 30].map((n) => ({ value: String(n), label: `±${n}¢` }))}
+                                />
+                            )}
+                        </div>
+                        <div style={{ fontSize: 11, color: palette.textFaint, marginTop: 6, paddingLeft: 2, lineHeight: 1.4 }}>
+                            {oddsPolicy === 'any'
+                                ? 'Bets always place at the current price — you’re never asked to re-confirm.'
+                                : oddsPolicy === 'higher'
+                                    ? 'Better prices place automatically; you’re only asked to confirm when odds move against you.'
+                                    : `Moves up to ±${oddsBandCents}¢ place automatically; larger moves ask you to confirm.`}
                         </div>
                     </section>
 

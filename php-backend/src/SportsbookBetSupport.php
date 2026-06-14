@@ -136,6 +136,99 @@ final class SportsbookBetSupport
     }
 
     /**
+     * Odds-acceptance policy — default + bounds in one place so the place-bet
+     * validators, the settings endpoint, and the tests share a single source
+     * of truth. 'band' is the recommended default (real sportsbooks auto-
+     * accept small moves rather than re-prompting on every ~5s live refresh).
+     */
+    public const ODDS_ACCEPT_POLICIES = ['any', 'higher', 'band'];
+    public const ODDS_ACCEPT_DEFAULT_POLICY = 'band';
+    public const ODDS_ACCEPT_DEFAULT_BAND_CENTS = 10;
+    public const ODDS_ACCEPT_MAX_BAND_CENTS = 100;
+
+    /**
+     * Decide whether a client's accepted odds may be auto-placed at the
+     * CURRENT official odds under the user's acceptance policy. Pure +
+     * canonical: both inputs are signed American integers (the same form the
+     * ODDS_CHANGED comparison already uses). Returns true to ACCEPT (place at
+     * the official price), false to PROMPT (return ODDS_CHANGED).
+     *
+     * Direction is judged on decimal payout (monotonic): a move is favorable
+     * when the official decimal >= the client's decimal — the user gets the
+     * same-or-better payout, so it is always safe to auto-accept. Only adverse
+     * moves are ever gated:
+     *   - 'any'    → accept everything (never prompt).
+     *   - 'higher' → accept favorable moves; prompt on any adverse move.
+     *   - 'band'   → accept favorable moves AND adverse moves within bandCents
+     *                American on the same side of even money. A sign flip
+     *                (favorite↔underdog) is a large move, so we prompt.
+     * Unknown policies fall back to exact-match (prompt on any change),
+     * preserving pre-policy behavior. The bet always places at the official
+     * current odds, so accepting never pays out at a stale price.
+     */
+    public static function oddsAcceptable(int $clientAmerican, int $officialAmerican, string $policy, int $bandCents): bool
+    {
+        // No usable client odds, or no movement → nothing to gate.
+        if ($clientAmerican === 0 || $clientAmerican === $officialAmerican) {
+            return true;
+        }
+        if ($policy === 'any') {
+            return true;
+        }
+
+        $clientDecimal = self::americanToDecimalExact($clientAmerican);
+        $officialDecimal = self::americanToDecimalExact($officialAmerican);
+        // Favorable (or equal) payout — always safe to auto-accept.
+        if ($officialDecimal >= $clientDecimal) {
+            return true;
+        }
+
+        // Adverse move from here.
+        if ($policy === 'higher') {
+            return false;
+        }
+        if ($policy === 'band') {
+            $band = max(0, min(self::ODDS_ACCEPT_MAX_BAND_CENTS, $bandCents));
+            // American "cents" are only well-defined within one side of even
+            // money; a sign flip is a big move, so never silently accept it.
+            $sameSide = ($clientAmerican > 0) === ($officialAmerican > 0);
+            return $sameSide && abs($officialAmerican - $clientAmerican) <= $band;
+        }
+        // Unknown / 'exact' → preserve legacy: prompt on any change.
+        return false;
+    }
+
+    /**
+     * Resolve the effective odds-acceptance policy for a user: saved settings
+     * (settings.oddsAcceptance) override env defaults
+     * (SPORTSBOOK_ODDS_ACCEPTANCE_POLICY / _BAND_CENTS), which override the
+     * code defaults. Returned values are validated + clamped so callers can
+     * trust them directly.
+     *
+     * @param array<string, mixed>|null $userSettings the user doc's `settings`
+     * @return array{policy: string, bandCents: int}
+     */
+    public static function resolveOddsAcceptance(?array $userSettings): array
+    {
+        $envPolicy = strtolower(trim((string) Env::get('SPORTSBOOK_ODDS_ACCEPTANCE_POLICY', self::ODDS_ACCEPT_DEFAULT_POLICY)));
+        $policy = in_array($envPolicy, self::ODDS_ACCEPT_POLICIES, true) ? $envPolicy : self::ODDS_ACCEPT_DEFAULT_POLICY;
+        $envBand = (int) Env::get('SPORTSBOOK_ODDS_ACCEPTANCE_BAND_CENTS', (string) self::ODDS_ACCEPT_DEFAULT_BAND_CENTS);
+        $bandCents = max(0, min(self::ODDS_ACCEPT_MAX_BAND_CENTS, $envBand));
+
+        $oa = is_array($userSettings['oddsAcceptance'] ?? null) ? $userSettings['oddsAcceptance'] : null;
+        if ($oa !== null) {
+            $userPolicy = strtolower(trim((string) ($oa['policy'] ?? '')));
+            if (in_array($userPolicy, self::ODDS_ACCEPT_POLICIES, true)) {
+                $policy = $userPolicy;
+            }
+            if (isset($oa['bandCents']) && is_numeric($oa['bandCents'])) {
+                $bandCents = max(0, min(self::ODDS_ACCEPT_MAX_BAND_CENTS, (int) $oa['bandCents']));
+            }
+        }
+        return ['policy' => $policy, 'bandCents' => $bandCents];
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $validatedSelections
      */
     public static function validateTicketComposition(string $betType, array $validatedSelections): void
@@ -1286,6 +1379,10 @@ final class SportsbookBetSupport
             'matchId' => SqlRepository::id((string) ($selection['matchId'] ?? '')),
             'outrightId' => $outrightId !== '' ? SqlRepository::id($outrightId) : null,
             'selection' => (string) ($selection['selection'] ?? ''),
+            // Full display name + stable outcome id (display/audit only; grading
+            // runs off `selection` + matchSnapshot, never these).
+            'selectionFull' => (string) ($selection['selectionFull'] ?? $selection['selection'] ?? ''),
+            'selectionPid' => $selection['selectionPid'] ?? null,
             'odds' => self::num($selection['odds'] ?? 0),
             'oddsAmerican' => $americanOdds,
             'marketType' => (string) ($selection['marketType'] ?? ''),

@@ -1102,6 +1102,11 @@ const MobileContentView = ({
                 // row predates the normalization layer.
                 team1Short: match.awayTeamShort || awayName,
                 team2Short: match.homeTeamShort || homeName,
+                // Canonical full "City Mascot" names for DISPLAY. team1/team2
+                // (the short city) stay the placement selection + dedupe key;
+                // these are render-only. Fall back to the short name pre-sync.
+                team1Full: match.awayTeamFull || awayName,
+                team2Full: match.homeTeamFull || homeName,
                 team1Record: match.awayTeamRecord || '',
                 team2Record: match.homeTeamRecord || '',
                 broadcast: resolveBroadcast(match.broadcast),
@@ -1505,6 +1510,9 @@ const MobileContentView = ({
                 // in the slip (teaser → football+basketball only) work
                 // without re-resolving the match.
                 sportKey: String(meta?.sportKey || '').toLowerCase(),
+                // Full DISPLAY label for the leg (short `selection` above stays
+                // the match key). Falls back to the short selection.
+                selectionFull: meta?.selectionFull || selection,
             },
         }));
     }, []);
@@ -2289,7 +2297,9 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
             },
         };
     }, [teaserPoints]);
-    const matchName = `${match.team1} vs ${match.team2}`;
+    // Display matchup uses full names; not a key (dedupe keys on matchId +
+    // marketType + the short selection, never matchName).
+    const matchName = `${match.team1Full || match.team1} vs ${match.team2Full || match.team2}`;
     const blocked = match.isBettable === false;
     const rotationAway = match.rotation?.away;
     const rotationHome = match.rotation?.home;
@@ -2312,6 +2322,14 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
         : (match.odds.totalPoint === null ? '—' : `U ${formatLineValue(teaserPreview.total(match.odds.totalPoint, 'Under'))}`);
     const addIfAllowed = (...args) => {
         if (blocked) return;
+        // Resolve the leg's full DISPLAY name from the short selection (args[1])
+        // — team markets map to the full "City Mascot"; Over/Under pass through.
+        // The short selection itself is unchanged, so the placement match key
+        // is untouched.
+        const selArg = args[1];
+        const selectionFull = selArg === match.team1
+            ? (match.team1Full || selArg)
+            : (selArg === match.team2 ? (match.team2Full || selArg) : selArg);
         // Inject isLive + sportKey once per card so every odds-button
         // click on this match carries them through to the slip without
         // changing each onClick's signature. sportKey lets the betslip
@@ -2320,6 +2338,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
         onAddToSlip(...args, {
             isLive: !!match.isLive,
             sportKey: String(match?.sportKey || match?.sport || '').toLowerCase(),
+            selectionFull,
         });
     };
     const [propsOpen, setPropsOpen] = React.useState(false);
@@ -2329,8 +2348,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
         externalId: match.externalId,
         homeTeam: match.team2,
         awayTeam: match.team1,
+        homeTeamFull: match.team2Full,
+        awayTeamFull: match.team1Full,
         odds: match.odds,
-    }), [match.id, match.externalId, match.team1, match.team2, match.odds]);
+    }), [match.id, match.externalId, match.team1, match.team2, match.team1Full, match.team2Full, match.odds]);
     return (
         <div style={matchCardStyle}>
             {/* Broadcast row sits at the very top so the player sees
@@ -2499,7 +2520,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         )}
                         <span style={{ ...teamNameStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6 }}>
                             <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {match.team1Short || match.team1}
+                                {match.team1Full || match.team1Short || match.team1}
                                 {match.team1Record && (
                                     <span style={teamRecordStyle}> ({match.team1Record})</span>
                                 )}
@@ -2623,7 +2644,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         )}
                         <span style={{ ...teamNameStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6 }}>
                             <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {match.team2Short || match.team2}
+                                {match.team2Full || match.team2Short || match.team2}
                                 {match.team2Record && (
                                     <span style={teamRecordStyle}> ({match.team2Record})</span>
                                 )}
