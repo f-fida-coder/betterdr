@@ -211,9 +211,13 @@ const PropBuilderModal = ({ match, onClose }) => {
         window.dispatchEvent(new CustomEvent('match-detail:state', { detail: { open: true } }));
         const handleClose = () => onClose?.();
         window.addEventListener('match-detail:close', handleClose);
+        // Lock the page behind so it can't scroll while the sheet is open.
+        const prevBodyOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
         return () => {
             window.removeEventListener('match-detail:close', handleClose);
             window.dispatchEvent(new CustomEvent('match-detail:state', { detail: { open: false } }));
+            document.body.style.overflow = prevBodyOverflow;
         };
     }, [onClose]);
 
@@ -391,13 +395,18 @@ const PropBuilderModal = ({ match, onClose }) => {
 
     const overlayStyle = {
         position: 'fixed',
-        inset: 0,
+        // Start just below the top chrome (page header + bet-type bar) and
+        // fill the rest of the screen, so the page behind (period tabs, date
+        // row) is fully covered — no gap showing the previous screen. The
+        // chrome above stays visible/clickable (its Back cell closes us).
+        top: headerOffsetPx,
+        left: 0,
+        right: 0,
+        bottom: 0,
         background: 'rgba(0, 0, 0, 0.72)',
-        // Sit just under the page DashboardHeader (which carries our sticky
-        // Back cell) so the header stays clickable above the modal.
         zIndex: 9998,
         display: 'flex',
-        alignItems: 'flex-end',
+        alignItems: 'stretch',
         justifyContent: 'center',
     };
     const sheetStyle = {
@@ -405,7 +414,7 @@ const PropBuilderModal = ({ match, onClose }) => {
         color: '#1a1a1a',
         width: '100%',
         maxWidth: 720,
-        maxHeight: headerOffsetPx > 0 ? `calc(100vh - ${headerOffsetPx}px)` : '92vh',
+        height: '100%',
         borderRadius: '14px 14px 0 0',
         display: 'flex',
         flexDirection: 'column',
@@ -488,6 +497,9 @@ const PropBuilderModal = ({ match, onClose }) => {
         flex: 1,
         padding: '6px 6px 24px',
         background: '#fff',
+        // Keep scrolling inside the sheet — don't chain to the page behind it.
+        overscrollBehavior: 'contain',
+        WebkitOverflowScrolling: 'touch',
     };
     // Category bars follow the competitor's market-list language: red bar,
     // white label, chevron on the right, thin white gaps between bars.

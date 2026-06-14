@@ -139,9 +139,13 @@ const MatchDetailView = ({ match, onClose }) => {
         window.dispatchEvent(new CustomEvent('match-detail:state', { detail: { open: true } }));
         const handleClose = () => onClose?.();
         window.addEventListener('match-detail:close', handleClose);
+        // Lock the page behind so it can't scroll while the sheet is open.
+        const prevBodyOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
         return () => {
             window.removeEventListener('match-detail:close', handleClose);
             window.dispatchEvent(new CustomEvent('match-detail:state', { detail: { open: false } }));
+            document.body.style.overflow = prevBodyOverflow;
         };
     }, [onClose]);
 
@@ -292,11 +296,17 @@ const MatchDetailView = ({ match, onClose }) => {
 
     const overlayStyle = {
         position: 'fixed',
-        inset: 0,
+        // Start below the top chrome and fill the rest, so the page behind is
+        // fully covered (no gap showing the previous screen). Chrome above
+        // stays visible/clickable (its Back cell closes us).
+        top: headerOffsetPx,
+        left: 0,
+        right: 0,
+        bottom: 0,
         background: 'rgba(0,0,0,0.85)',
         zIndex: 9998,
         display: 'flex',
-        alignItems: 'flex-end',
+        alignItems: 'stretch',
         justifyContent: 'center',
     };
     const sheetStyle = {
@@ -304,7 +314,7 @@ const MatchDetailView = ({ match, onClose }) => {
         color: '#f5f5f5',
         width: '100%',
         maxWidth: 720,
-        maxHeight: headerOffsetPx > 0 ? `calc(100vh - ${headerOffsetPx}px)` : '92vh',
+        height: '100%',
         borderRadius: '14px 14px 0 0',
         display: 'flex',
         flexDirection: 'column',
@@ -330,7 +340,7 @@ const MatchDetailView = ({ match, onClose }) => {
         fontWeight: 700,
         cursor: 'pointer',
     };
-    const bodyStyle = { flex: 1, overflowY: 'auto', padding: '0 0 24px' };
+    const bodyStyle = { flex: 1, overflowY: 'auto', padding: '0 0 24px', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' };
     const sectionHeaderStyle = {
         display: 'flex',
         alignItems: 'center',
