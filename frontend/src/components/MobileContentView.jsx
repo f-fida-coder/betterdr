@@ -292,217 +292,11 @@ const formatMatchDateTime = (startDate) => {
 const STALE_MS = 5 * 60 * 1000;
 const TICK_MS = 30 * 1000;
 
-const FULL_PERIOD = { id: 'full', label: 'Game', suffix: '' };
-
-// Periods available per sport. Suffixes match the upstream market key conventions
-// (e.g. `h2h_h1`, `spreads_q1`, `totals_1st_5_innings`). Entries whose
-// suffix doesn't appear in returned markets are filtered out before render.
-const BASKETBALL_PERIODS = [
-    FULL_PERIOD,
-    { id: '1h', label: '1H', suffix: '_h1' },
-    { id: '2h', label: '2H', suffix: '_h2' },
-    { id: '1q', label: '1Q', suffix: '_q1' },
-    { id: '2q', label: '2Q', suffix: '_q2' },
-    { id: '3q', label: '3Q', suffix: '_q3' },
-    { id: '4q', label: '4Q', suffix: '_q4' },
-];
-const FOOTBALL_PERIODS = [
-    FULL_PERIOD,
-    { id: '1h', label: '1H', suffix: '_h1' },
-    { id: '2h', label: '2H', suffix: '_h2' },
-    { id: '1q', label: '1Q', suffix: '_q1' },
-    { id: '2q', label: '2Q', suffix: '_q2' },
-    { id: '3q', label: '3Q', suffix: '_q3' },
-    { id: '4q', label: '4Q', suffix: '_q4' },
-];
-const BASEBALL_PERIODS = [
-    FULL_PERIOD,
-    { id: 'f1', label: 'F1', suffix: '_1st_1_innings' },
-    { id: 'f3', label: 'F3', suffix: '_1st_3_innings' },
-    { id: 'f5', label: 'F5', suffix: '_1st_5_innings' },
-    { id: 'f7', label: 'F7', suffix: '_1st_7_innings' },
-];
-const HOCKEY_PERIODS = [
-    FULL_PERIOD,
-    { id: 'p1', label: 'P1', suffix: '_p1' },
-    { id: 'p2', label: 'P2', suffix: '_p2' },
-    { id: 'p3', label: 'P3', suffix: '_p3' },
-];
-const SOCCER_PERIODS = [
-    FULL_PERIOD,
-    { id: '1h', label: '1H', suffix: '_h1' },
-];
-
-const PERIOD_CONFIG = {
-    nba: BASKETBALL_PERIODS,
-    'ncaa-basketball': BASKETBALL_PERIODS,
-    nfl: FOOTBALL_PERIODS,
-    'ncaa-football': FOOTBALL_PERIODS,
-    mlb: BASEBALL_PERIODS,
-    nhl: HOCKEY_PERIODS,
-    soccer: SOCCER_PERIODS,
-};
-
-// Map sport slugs (from dynamic `api-*` sidebar items) to the
-// period preset. Without this, selecting "BASEBALL KBO" etc. from the
-// auto-injected sidebar entries would only show the "Game" tab even
-// when F1/F5 markets exist in the data.
-const PERIOD_CONFIG_BY_SLUG_PREFIX = {
-    basketball: BASKETBALL_PERIODS,
-    americanfootball: FOOTBALL_PERIODS,
-    baseball: BASEBALL_PERIODS,
-    icehockey: HOCKEY_PERIODS,
-    soccer: SOCCER_PERIODS,
-};
-
-const getPeriodsForSport = (sportId) => {
-    if (PERIOD_CONFIG[sportId]) return PERIOD_CONFIG[sportId];
-    const normalized = String(sportId || '').toLowerCase();
-    if (normalized.startsWith('api-')) {
-        const category = normalized.slice(4).split('-')[0];
-        if (PERIOD_CONFIG_BY_SLUG_PREFIX[category]) return PERIOD_CONFIG_BY_SLUG_PREFIX[category];
-    }
-    return [FULL_PERIOD];
-};
-
-// Canonical chip order across ALL sports. Used by getPeriodsForSports
-// (multi-sport mode) so the chip strip looks the same no matter what
-// order the user happened to tick the leagues — "NBA + NHL" gives the
-// same chip layout as "NHL + NBA". Keep this list in sync whenever a
-// new period entry is added to one of the *_PERIODS arrays above.
-const PERIOD_CANONICAL_ORDER = [
-    'full',
-    '1h', '2h',
-    '1q', '2q', '3q', '4q',
-    'p1', 'p2', 'p3',
-    'f1', 'f3', 'f5', 'f7',
-];
-
-// Period preset keyed by a match's `sportKey` (e.g. `basketball_nba`,
-// `baseball_mlb`). The single-sport path above keys off sidebar item
-// ids (`nba`, `mlb`, `api-baseball-kbo`); the per-section multi-sport
-// chip strips work off the raw match.sportKey instead, so they need
-// their own resolver. Same conventions as the api-* path: exact
-// match on common headline leagues, prefix match (`basketball_*`,
-// `baseball_*`, etc.) for everything else, [FULL_PERIOD] otherwise.
-const getPeriodsForSportKey = (sportKey) => {
-    const k = String(sportKey || '').toLowerCase();
-    if (!k) return [FULL_PERIOD];
-    if (k === 'basketball_nba' || k === 'basketball_ncaab') return BASKETBALL_PERIODS;
-    if (k === 'americanfootball_nfl' || k === 'americanfootball_ncaaf') return FOOTBALL_PERIODS;
-    if (k === 'baseball_mlb') return BASEBALL_PERIODS;
-    if (k === 'icehockey_nhl') return HOCKEY_PERIODS;
-    const prefix = k.split('_')[0];
-    if (PERIOD_CONFIG_BY_SLUG_PREFIX[prefix]) return PERIOD_CONFIG_BY_SLUG_PREFIX[prefix];
-    return [FULL_PERIOD];
-};
-
-// Scan an odds.markets / odds.extendedMarkets array, adding every
-// period suffix encountered (e.g. `_q1`, `_h1`, `_1st_5_innings`) to
-// `out`. Module-level so the global and per-sport availableSuffixes
-// useMemos share the same parsing rules — drift between them would
-// quietly desync chip visibility from market availability.
-const PERIOD_MARKET_RE = /^(?:h2h|spreads|totals)(_[a-z0-9_]+)$/;
-const scanMarketsForSuffixes = (markets, out) => {
-    if (!Array.isArray(markets)) return;
-    for (const m of markets) {
-        const matched = String(m?.key || '').match(PERIOD_MARKET_RE);
-        if (matched) out.add(matched[1]);
-    }
-};
-
-const periodFromSuffix = (suffix) => {
-    const raw = String(suffix || '').toLowerCase();
-    if (!raw || raw === '') return null;
-
-    const q = raw.match(/^_q(\d+)$/);
-    if (q) {
-        const n = Number(q[1]);
-        return Number.isFinite(n) && n > 0 ? { id: `${n}q`, label: `${n}Q`, suffix: raw } : null;
-    }
-    const h = raw.match(/^_h(\d+)$/);
-    if (h) {
-        const n = Number(h[1]);
-        return Number.isFinite(n) && n > 0 ? { id: `${n}h`, label: `${n}H`, suffix: raw } : null;
-    }
-    const p = raw.match(/^_p(\d+)$/);
-    if (p) {
-        const n = Number(p[1]);
-        return Number.isFinite(n) && n > 0 ? { id: `p${n}`, label: `P${n}`, suffix: raw } : null;
-    }
-    const innings = raw.match(/^_1st_(\d+)_innings$/);
-    if (innings) {
-        const n = Number(innings[1]);
-        return Number.isFinite(n) && n > 0 ? { id: `f${n}`, label: `F${n}`, suffix: raw } : null;
-    }
-    const set = raw.match(/^_set_(\d+)$/);
-    if (set) {
-        const n = Number(set[1]);
-        return Number.isFinite(n) && n > 0 ? { id: `set-${n}`, label: `Set ${n}`, suffix: raw } : null;
-    }
-    return {
-        id: raw.replace(/^_+/, ''),
-        label: raw.replace(/^_+/, '').replace(/_/g, ' ').toUpperCase(),
-        suffix: raw,
-    };
-};
-
-const buildVisiblePeriods = (preset, availableSuffixes) => {
-    const base = Array.isArray(preset) ? preset : [FULL_PERIOD];
-    const suffixes = availableSuffixes instanceof Set ? availableSuffixes : new Set(['']);
-    const visible = base.filter((p) => p.id === 'full' || suffixes.has(p.suffix));
-    const knownSuffixes = new Set(base.filter((p) => p.id !== 'full' && p.suffix).map((p) => p.suffix));
-    const extras = [];
-
-    for (const suffix of suffixes) {
-        if (!suffix || suffix === '' || knownSuffixes.has(suffix)) continue;
-        const p = periodFromSuffix(suffix);
-        if (!p) continue;
-        if (!visible.some((v) => v.id === p.id || v.suffix === p.suffix)) extras.push(p);
-    }
-
-    return visible.concat(extras).sort((a, b) => {
-        const ia = PERIOD_CANONICAL_ORDER.indexOf(a.id);
-        const ib = PERIOD_CANONICAL_ORDER.indexOf(b.id);
-        if (ia === -1 && ib === -1) return String(a.label).localeCompare(String(b.label));
-        if (ia === -1) return 1;
-        if (ib === -1) return -1;
-        return ia - ib;
-    });
-};
-
-// Union the per-sport period presets across every selected league.
-// Before: the period chip strip read only `selectedSports[0]`, so
-// picking NBA + NHL with NHL first would silently drop Q1–Q4 (NHL
-// has no quarters); picking NBA + Tennis would hide the whole strip
-// (tennis preset is `[FULL_PERIOD]`, so `periods.length === 1`).
-// Now we union across all selections so any chip relevant to ANY
-// selected sport is present — the downstream availableSuffixes
-// filter still hides chips whose markets aren't actually in the
-// data, so spurious "Q1" chips never appear when no game has Q1
-// lines. Falls back to the single-sport preset path when nothing
-// real is selected (Live Now / Up Next virtual buckets).
-const getPeriodsForSports = (realSelected, fallbackSportId) => {
-    if (!Array.isArray(realSelected) || realSelected.length === 0) {
-        return getPeriodsForSport(fallbackSportId);
-    }
-    const seen = new Map(); // id → period entry, dedup'd
-    seen.set('full', FULL_PERIOD);
-    realSelected.forEach((sportId) => {
-        getPeriodsForSport(sportId).forEach((p) => {
-            if (!seen.has(p.id)) seen.set(p.id, p);
-        });
-    });
-    return [...seen.values()].sort((a, b) => {
-        // Unknown ids (a future period type someone forgot to add to
-        // PERIOD_CANONICAL_ORDER) sort to the end rather than the front
-        // so the strip degrades gracefully.
-        const ia = PERIOD_CANONICAL_ORDER.indexOf(a.id);
-        const ib = PERIOD_CANONICAL_ORDER.indexOf(b.id);
-        return (ia === -1 ? Number.POSITIVE_INFINITY : ia)
-             - (ib === -1 ? Number.POSITIVE_INFINITY : ib);
-    });
-};
+// Period presets, suffix scanning, and visible-period building all come from
+// ../utils/periods (imported above) — the single canonical source shared with
+// the desktop SportContentView strip. Do NOT redefine them here; mobile/desktop
+// drift (soccer 2H missing, P-before-F ordering, missing tennis sets) was the
+// direct result of an inline copy that fell behind the canonical module.
 
 // Thresholds for when a period tab is "genuinely over" for a live match.
 // Closes when the match's current period number exceeds the threshold.
@@ -675,15 +469,35 @@ const MobileContentView = ({
     // Full-game ('') is always present. Used to detect "this period has zero
     // playable lines right now" so we can show a stable empty-state banner
     // instead of the tab silently disappearing on every extended-sync hiccup.
+    //
+    // CRITICAL: filter rawMatches by the user's sport selection BEFORE scanning,
+    // using the SAME token-boundary keyword filter as perSportMeta. The
+    // /api/matches response carries every league (MLB + NHL + NFL + EPL...), so
+    // an unfiltered scan leaks other sports' suffixes (_p1/_p2/_p3 from NHL,
+    // _h1 from NFL) into the single-sport chip strip — buildVisiblePeriods then
+    // injects spurious "P1/P2/P3" tabs under MLB whose markets don't exist,
+    // producing dead/dashed buttons. This memo only feeds the single-sport view
+    // (the multi-sport view uses perSportMeta's per-bucket suffixes), so the
+    // selection filter is exactly right here.
     const availableSuffixes = React.useMemo(() => {
         const set = new Set(['']);
+        const isVirtualBucket = primarySport === 'commercial-live' || primarySport === 'up-next';
+        const keywords = isVirtualBucket || realSelected.length === 0
+            ? null
+            : [...new Set(realSelected.flatMap((id) => getSportKeywords(id)).map((k) => String(k).toLowerCase()))];
         (rawMatches || []).forEach(match => {
+            if (keywords) {
+                const sport = String(match?.sport || '').toLowerCase();
+                const sportKey = String(match?.sportKey || '').toLowerCase();
+                const haystack = `${sport}|${sportKey}`;
+                if (!keywords.some((k) => matchesSportKeyword(haystack, k))) return;
+            }
             scanMarketsForSuffixes(match?.odds?.markets, set);
             scanMarketsForSuffixes(match?.odds?.extendedMarkets, set);
             scanMarketsForSuffixes(match?.extendedMarkets, set);
         });
         return set;
-    }, [rawMatches]);
+    }, [rawMatches, realSelected, primarySport]);
 
     // Per-sport metadata for the multi-sport view's inline chip strips.
     // The map is keyed by raw match.sportKey so each league section can
@@ -2357,8 +2171,15 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
         awayTeam: match.team1,
         homeTeamFull: match.team2Full,
         awayTeamFull: match.team1Full,
+        // Stable identifiers so the detail/props header resolves logos the
+        // same way the board's TeamAvatar does (league + abbr), not by the
+        // city-only display name.
+        homeTeamShort: match.team2Short,
+        awayTeamShort: match.team1Short,
+        sportKey: match.sportKey,
+        sport: match.sport,
         odds: match.odds,
-    }), [match.id, match.externalId, match.team1, match.team2, match.team1Full, match.team2Full, match.odds]);
+    }), [match.id, match.externalId, match.team1, match.team2, match.team1Full, match.team2Full, match.team1Short, match.team2Short, match.sportKey, match.sport, match.odds]);
     return (
         <div style={matchCardStyle}>
             {/* Broadcast row sits at the very top so the player sees

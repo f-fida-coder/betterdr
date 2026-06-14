@@ -181,26 +181,32 @@ const PropBuilderModal = ({ match, onClose }) => {
     const [expanded, setExpanded] = React.useState({});
 
     const matchId = match?.id || match?.externalId || '';
-    const awayTeam = match?.awayTeam || match?.away_team || 'Away';
-    const homeTeam = match?.homeTeam || match?.home_team || 'Home';
+    const awayTeam = match?.awayTeamFull || match?.awayTeam || match?.away_team || 'Away';
+    const homeTeam = match?.homeTeamFull || match?.homeTeam || match?.home_team || 'Home';
     const matchName = `${awayTeam} @ ${homeTeam}`;
     const sportKey = String(match?.sportKey || match?.sport || '').toLowerCase();
+    const sport = match?.sport || match?.sportTitle || '';
+    // Stable team abbreviations — logo resolution keys on league + abbr (the
+    // identity), never the display name, so a city-only label like "Seattle"
+    // can never collide with a college team via the name search.
+    const awayAbbr = match?.awayTeamShort || match?.away_short || '';
+    const homeAbbr = match?.homeTeamShort || match?.home_short || '';
 
     // Team badges for the VS header strip. Async lookup with the standard
     // generated-initials fallback so a slow/missing badge service never
-    // shows a broken image.
+    // shows a broken image. Mirrors the board's TeamAvatar resolution:
+    // full name → TEAM_LOGO_MAP, with league+abbr as the scoped backstop.
     const [teamLogos, setTeamLogos] = React.useState({ away: null, home: null });
     React.useEffect(() => {
         let cancelled = false;
-        const ctx = { sportKey };
         Promise.all([
-            fetchTeamBadgeUrl(awayTeam, ctx),
-            fetchTeamBadgeUrl(homeTeam, ctx),
+            fetchTeamBadgeUrl(awayTeam, { sportKey, sport, abbr: awayAbbr }),
+            fetchTeamBadgeUrl(homeTeam, { sportKey, sport, abbr: homeAbbr }),
         ]).then(([away, home]) => {
             if (!cancelled) setTeamLogos({ away, home });
         }).catch(() => { /* fallback data-URIs render instead */ });
         return () => { cancelled = true; };
-    }, [awayTeam, homeTeam, sportKey]);
+    }, [awayTeam, homeTeam, sportKey, sport, awayAbbr, homeAbbr]);
 
     // Reuse the same `match-detail:state` / `match-detail:close` events the
     // matchup detail sheet uses, so DashboardHeader swaps its leftmost cell

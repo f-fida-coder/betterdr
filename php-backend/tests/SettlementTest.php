@@ -343,6 +343,93 @@ TestRunner::run('selectionResult — unsupported market families stay pending (m
     TestRunner::assertEquals('pending', SportsbookBetSupport::selectionResult($m, selection_('player_points', 'LeBron Over', 27.5)), 'player prop → pending');
 });
 
+// ── selectionResult — Tennis set markets ──────────────────────────────────────
+
+TestRunner::run('selectionResult — tennis set markets grade by per-set games', function (): void {
+    // Best-of-3, home wins 2-1. Per-set games: home [6,4,6], away [3,6,4].
+    $m = tennis_('Sinner', 'Alcaraz', [6, 4, 6], [3, 6, 4], 2, 1);
+
+    // Set 1: 6-3 home → ML home wins; spread -2.5 covers (6-2.5=3.5>3); total 9 over 8.5.
+    TestRunner::assertEquals('won',  SportsbookBetSupport::selectionResult($m, selection_('h2h_set_1', 'Sinner')), 'set1 ML home wins 6-3');
+    TestRunner::assertEquals('won',  SportsbookBetSupport::selectionResult($m, selection_('spreads_set_1', 'Sinner', -2.5)), 'set1 spread covered (games)');
+    TestRunner::assertEquals('won',  SportsbookBetSupport::selectionResult($m, selection_('totals_set_1', 'Over Sinner Alcaraz', 8.5)), 'set1 total 9 over 8.5');
+    // Set 2: 4-6 → away wins.
+    TestRunner::assertEquals('lost', SportsbookBetSupport::selectionResult($m, selection_('h2h_set_2', 'Sinner')), 'set2 ML home loses 4-6');
+    TestRunner::assertEquals('won',  SportsbookBetSupport::selectionResult($m, selection_('h2h_set_2', 'Alcaraz')), 'set2 ML away wins 6-4');
+    // Set 3: 6-4 → total 10 under 11.5 wins.
+    TestRunner::assertEquals('won',  SportsbookBetSupport::selectionResult($m, selection_('totals_set_3', 'Under Sinner Alcaraz', 11.5)), 'set3 total 10 under 11.5');
+    // Alt set line collapses to base + set.
+    TestRunner::assertEquals('won',  SportsbookBetSupport::selectionResult($m, selection_('alternate_spreads_set_1', 'Sinner', -2.5)), 'alt set1 spread covered');
+});
+
+TestRunner::run('selectionResult — tennis set not played / non-tennis set stays pending', function (): void {
+    // Straight sets 2-0: only two sets of games recorded → a Set 3 bet can't grade.
+    $straightSets = tennis_('Sinner', 'Alcaraz', [6, 6], [3, 4], 2, 0);
+    TestRunner::assertEquals('pending', SportsbookBetSupport::selectionResult($straightSets, selection_('h2h_set_3', 'Sinner')), 'set3 never played → pending');
+    // Set markets are gated to tennis — a basketball match never grades them.
+    $nba = periodMatch_('basketball_nba', 'A', 'B', [10, 12, 11, 9], [9, 8, 10, 11]);
+    TestRunner::assertEquals('pending', SportsbookBetSupport::selectionResult($nba, selection_('h2h_set_1', 'A')), 'set market on non-tennis → pending');
+});
+
+// ── selectionResult — auto-void backstop for un-gradeable finished periods ────
+
+TestRunner::run('selectionResult — un-gradeable period auto-voids only after grace window', function (): void {
+    $oldStart    = gmdate('c', time() - 90000); // ~25h ago (past 24h grace)
+    $recentStart = gmdate('c', time() - 3600);  // 1h ago (within grace)
+
+    // Finished NBA match but the feed never supplied per-period scores.
+    $base = [
+        'homeTeam' => 'Lakers', 'awayTeam' => 'Celtics', 'sportKey' => 'basketball_nba', 'status' => 'finished',
+        'score' => ['score_home' => 105, 'score_away' => 101, 'score_home_by_period' => [], 'score_away_by_period' => []],
+    ];
+
+    // Within grace → stay pending so the feed/operator can still grade it.
+    $recent = array_merge($base, ['startTime' => $recentStart]);
+    TestRunner::assertEquals('pending', SportsbookBetSupport::selectionResult($recent, selection_('h2h_q1', 'Lakers')), 'within grace → pending');
+
+    // Past grace → auto-void (refund via the standard void path).
+    $old = array_merge($base, ['startTime' => $oldStart]);
+    TestRunner::assertEquals('void', SportsbookBetSupport::selectionResult($old, selection_('h2h_q1', 'Lakers')), 'past grace → auto-void');
+
+    // No startTime anchor → never auto-void (money-safe default).
+    TestRunner::assertEquals('pending', SportsbookBetSupport::selectionResult($base, selection_('h2h_q1', 'Lakers')), 'no startTime → pending');
+
+    // The void leg surfaces a distinct refund reason for My Bets.
+    TestRunner::assertEquals('period_unavailable', SportsbookBetSupport::gradeReasonForVoidLeg($old, selection_('h2h_q1', 'Lakers')), 'void reason = period_unavailable');
+
+    // A GRADEABLE period leg is NEVER auto-voided, even long past the grace window.
+    $gradeable = array_merge($base, [
+        'startTime' => $oldStart,
+        'score' => ['score_home' => 105, 'score_away' => 101, 'score_home_by_period' => [28, 25, 30, 22], 'score_away_by_period' => [24, 30, 26, 25]],
+    ]);
+    TestRunner::assertEquals('won', SportsbookBetSupport::selectionResult($gradeable, selection_('h2h_q1', 'Lakers')), 'gradeable period never auto-voids');
+
+    // Full-game legs are untouched by the backstop (they grade off the final).
+    TestRunner::assertEquals('won', SportsbookBetSupport::selectionResult($old, selection_('h2h', 'Lakers')), 'full-game leg grades off final, no auto-void');
+});
+
+// ── settledScorePair — per-leg display score (cosmetic, never grades) ─────────
+
+TestRunner::run('settledScorePair — period legs show the period slice, full-game shows final', function (): void {
+    $m = periodMatch_('basketball_nba', 'Lakers', 'Celtics', [28, 25, 30, 22], [24, 30, 26, 25]); // final 105-105
+    $q1 = SportsbookBetSupport::settledScorePair($m, selection_('h2h_q1', 'Lakers'));
+    TestRunner::assertEqualsFloat(28.0, $q1[0], 'Q1 home slice');
+    TestRunner::assertEqualsFloat(24.0, $q1[1], 'Q1 away slice');
+    $h1 = SportsbookBetSupport::settledScorePair($m, selection_('totals_h1', 'Over')); // Q1+Q2
+    TestRunner::assertEqualsFloat(53.0, $h1[0], 'H1 home slice (28+25)');
+    TestRunner::assertEqualsFloat(54.0, $h1[1], 'H1 away slice (24+30)');
+    $full = SportsbookBetSupport::settledScorePair($m, selection_('h2h', 'Lakers'));
+    TestRunner::assertEqualsFloat(105.0, $full[0], 'full-game home final');
+    // Missing per-period data → fall back to the full-game final for display.
+    $noBy = [
+        'homeTeam' => 'A', 'awayTeam' => 'B', 'sportKey' => 'basketball_nba', 'status' => 'finished',
+        'score' => ['score_home' => 99, 'score_away' => 88, 'score_home_by_period' => [], 'score_away_by_period' => []],
+    ];
+    $fallback = SportsbookBetSupport::settledScorePair($noBy, selection_('h2h_q1', 'A'));
+    TestRunner::assertEqualsFloat(99.0, $fallback[0], 'missing slice falls back to final home');
+    TestRunner::assertEqualsFloat(88.0, $fallback[1], 'missing slice falls back to final away');
+});
+
 // ── selectionResult — Buy Points (graded off the ADJUSTED bought line) ────────
 
 TestRunner::run('selectionResult — buy points spread grades off bought line', function (): void {

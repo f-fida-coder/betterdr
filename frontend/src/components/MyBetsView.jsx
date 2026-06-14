@@ -340,6 +340,9 @@ export const resolveStatusBadge = (input) => {
         if (reason === 'pitcher_changed') {
             return { label: 'VOID', title: 'Listed pitcher changed; stake refunded', theme: 'void' };
         }
+        if (reason === 'period_unavailable') {
+            return { label: 'VOID', title: 'Period result unavailable; stake refunded', theme: 'void' };
+        }
         return { label: 'VOID', title: 'No result; stake refunded', theme: 'void' };
     }
     return null;
@@ -411,6 +414,19 @@ const legSportCtx = (leg) => {
     const snap = leg?.matchSnapshot;
     if (!snap) return null;
     return { sportKey: snap.sportKey || '', sport: snap.sport || snap.sportTitle || '' };
+};
+
+// Stable abbreviation for the team whose logo we're resolving. Logo lookup
+// keys on league + abbr (the identity) rather than the city-only display
+// name, so a name like "Seattle" can't collide with a college team via the
+// name search. Mirrors the board's TeamAvatar ctx (sportKey + abbr).
+const legTeamAbbr = (leg, teamName) => {
+    const snap = leg?.matchSnapshot;
+    const name = String(teamName || '').trim();
+    if (!snap || !name) return '';
+    if (String(snap.homeTeam || '').trim() === name) return String(snap.homeTeamShort || '').trim();
+    if (String(snap.awayTeam || '').trim() === name) return String(snap.awayTeamShort || '').trim();
+    return '';
 };
 
 // Team whose logo represents this ticket on the collapsed row. For
@@ -1145,13 +1161,13 @@ const MyBetsView = () => {
             const firstLeg = selections[0];
             const team = primaryTeamFor(bet);
             if (team && !teamLogos[team] && !teamMap.has(team)) {
-                teamMap.set(team, legSportCtx(firstLeg));
+                teamMap.set(team, { ...(legSportCtx(firstLeg) || {}), abbr: legTeamAbbr(firstLeg, team) });
             }
             if (selections.length > 1) {
                 selections.forEach((leg) => {
                     const legTeam = legTeamForLogo(leg);
                     if (legTeam && !teamLogos[legTeam] && !teamMap.has(legTeam)) {
-                        teamMap.set(legTeam, legSportCtx(leg));
+                        teamMap.set(legTeam, { ...(legSportCtx(leg) || {}), abbr: legTeamAbbr(leg, legTeam) });
                     }
                 });
             }

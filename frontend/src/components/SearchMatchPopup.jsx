@@ -114,9 +114,14 @@ const SearchMatchPopup = ({ match, onClose }) => {
         externalId: match?.externalId,
         homeTeam,
         awayTeam,
+        // Stable identifiers so the props header resolves logos by league +
+        // abbr (the board's pattern), never by the display name alone.
+        homeTeamShort: homeAbbr,
+        awayTeamShort: awayAbbr,
         odds: match?.odds,
         sportKey: match?.sportKey,
-    }), [matchId, match, homeTeam, awayTeam]);
+        sport: match?.sportTitle || match?.sport || '',
+    }), [matchId, match, homeTeam, awayTeam, homeAbbr, awayAbbr]);
 
     return (
         <>

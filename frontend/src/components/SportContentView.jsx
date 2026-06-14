@@ -1207,6 +1207,14 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 awayTeam: match.team1.name,
                                                 homeTeamFull: match.team2.fullName,
                                                 awayTeamFull: match.team1.fullName,
+                                                // Stable identifiers so the props
+                                                // header resolves logos by league +
+                                                // abbr (the board's pattern), never
+                                                // by the city-only display name.
+                                                homeTeamShort: match.team2.abbr,
+                                                awayTeamShort: match.team1.abbr,
+                                                sportKey: match.sportKey,
+                                                sport: match.sport,
                                                 odds: match.rawMatch?.odds,
                                             })}
                                             disabled={match.rawMatch?.isBettable === false}

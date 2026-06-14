@@ -163,14 +163,19 @@ final class BetSettlementService
                                 $row['updatedAt'] = $now;
                                 if ($resolvedStatus !== 'pending') {
                                     $row['settledAt'] = $now;
-                                    // Stash the final scores on the leg so the
-                                    // My Bets per-leg detail panel can show
+                                    // Stash the scores this leg was graded on so
+                                    // the My Bets per-leg detail panel can show
                                     // "Lost (Houston Rockets 99 — Los Angeles
-                                    // Lakers 105)" without a separate fetch.
-                                    // Match.score is the live score doc; once
-                                    // the match is finished it's the final.
-                                    $row['finalHomeScore'] = self::num($match['score']['score_home'] ?? 0);
-                                    $row['finalAwayScore'] = self::num($match['score']['score_away'] ?? 0);
+                                    // Lakers 105)" without a separate fetch. For
+                                    // a PERIOD leg (1H/Q1/F5/Set 1/etc.) this is
+                                    // the per-period slice it was actually graded
+                                    // on — NOT the full-game final — so a
+                                    // first-half bet no longer confusingly shows
+                                    // the whole-game score. Full-game legs are
+                                    // unchanged (slice falls back to the final).
+                                    [$legHomeScore, $legAwayScore] = SportsbookBetSupport::settledScorePair($match, $row);
+                                    $row['finalHomeScore'] = $legHomeScore;
+                                    $row['finalAwayScore'] = $legAwayScore;
                                 }
                                 // Persist a machine-readable grade reason
                                 // for void legs so the UI can distinguish
@@ -182,6 +187,22 @@ final class BetSettlementService
                                     : null;
                                 if ($gradeReason !== null) {
                                     $row['gradeReason'] = $gradeReason;
+                                }
+                                // Operator signal: a period leg auto-voided
+                                // because the feed never supplied a gradeable
+                                // per-period score before the grace window
+                                // closed. Surfaced as a warning (with bet/match
+                                // ids) so operations can spot a feed coverage
+                                // gap and intervene, rather than the refund
+                                // happening silently.
+                                if ($gradeReason === 'period_unavailable') {
+                                    Logger::warning('period leg auto-voided: per-period score never supplied', [
+                                        'betId' => $betId,
+                                        'matchId' => $matchId,
+                                        'selectionId' => (string) ($row['id'] ?? ''),
+                                        'marketType' => (string) ($row['marketType'] ?? ''),
+                                        'sportKey' => (string) ($match['sportKey'] ?? ''),
+                                    ], 'settlement');
                                 }
                                 $db->updateOne('betselections', ['id' => SqlRepository::id((string) ($row['id'] ?? ''))], [
                                     'status' => $resolvedStatus,

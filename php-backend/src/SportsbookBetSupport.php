@@ -643,11 +643,19 @@ final class SportsbookBetSupport
             // returns null (→ 'pending') whenever the league's period
             // structure is unknown OR the by_period data is too short to
             // cover the requested slice, so a wrong slice can never be
-            // graded. Period markets never apply to tennis, so the games-
-            // vs-sets distinction above is irrelevant here.
+            // graded. Tennis set markets (_set_N) also route here: by_period
+            // holds per-set games, so set grading sums games in that set
+            // (correct for h2h/spreads/totals at set level).
             $ps = self::periodScorePair($match, $periodSuffix);
             if ($ps === null) {
-                return 'pending';
+                // The feed never supplied a gradeable per-period score for this
+                // finished match. Keep the leg pending so the feed or an
+                // operator can still grade it — UNTIL the scheduled-start grace
+                // window elapses, after which we treat the period market as
+                // un-gradeable and auto-void it (stake refunded via the standard
+                // void path) rather than tying up player money indefinitely.
+                // effectiveStatus is already 'finished' here (checked above).
+                return self::periodGraceExpired($match) ? 'void' : 'pending';
             }
             [$scoreHome, $scoreAway] = $ps;
         }
@@ -767,6 +775,7 @@ final class SportsbookBetSupport
             'h1', 'h2',
             'p1', 'p2', 'p3',
             '1st_1_innings', '1st_3_innings', '1st_5_innings', '1st_7_innings',
+            'set_1', 'set_2', 'set_3',
         ];
         foreach (['h2h', 'spreads', 'totals'] as $base) {
             $prefix = $base . '_';
@@ -875,7 +884,100 @@ final class SportsbookBetSupport
             }
             return null;
         }
+        // Tennis set markets. For tennis, score_*_by_period holds per-set GAMES
+        // (the same convention spreadTotalScores() relies on), so set N is index
+        // N-1: h2h_set_N grades on more games in that set (a finished set always
+        // has a games winner), spreads/totals_set_N on the games in that set.
+        // Only tennis carries _set_N markets — gate on the sportKey so a stray
+        // colliding suffix from another sport can never grade against the wrong
+        // structure (returns null → stays pending). minPeriods = N proves the
+        // match actually reached that set before we grade it.
+        if (preg_match('/^set_(\d+)$/', $suffix, $m)) {
+            if (!str_starts_with($sportKey, 'tennis')) {
+                return null;
+            }
+            $n = (int) $m[1];
+            if ($n < 1) {
+                return null;
+            }
+            return [[$n - 1], $n];
+        }
         return null;
+    }
+
+    // Generous grace window (seconds past the scheduled start) before an
+    // un-gradeable period leg on a FINISHED match is auto-voided. Anchored on
+    // startTime because it is always present and immutable; 24h is far longer
+    // than any game runs, so the backstop only ever fires well after a real
+    // final — never mid-game.
+    private const PERIOD_UNGRADEABLE_GRACE_SECONDS = 86400;
+
+    /**
+     * Whether the scheduled-start grace window has elapsed for this match.
+     * Money-safe: a missing/unparseable startTime returns false, so the leg
+     * stays pending for manual grading rather than auto-voiding on a guess.
+     *
+     * @param array<string,mixed> $match
+     */
+    private static function periodGraceExpired(array $match): bool
+    {
+        $startTime = (string) ($match['startTime'] ?? '');
+        if ($startTime === '') {
+            return false;
+        }
+        $startTs = strtotime($startTime);
+        if ($startTs === false) {
+            return false;
+        }
+        return (time() - $startTs) >= self::PERIOD_UNGRADEABLE_GRACE_SECONDS;
+    }
+
+    /**
+     * True when this leg is a period market on a FINISHED match whose
+     * per-period score the feed never supplied (periodScorePair → null), so it
+     * cannot be auto-graded. Drives both the auto-void backstop and the
+     * operator-facing signal. Returns false for non-period legs, gradeable
+     * periods, and matches that are not finished.
+     *
+     * @param array<string,mixed> $match
+     * @param array<string,mixed> $selection
+     */
+    public static function isUngradeablePeriodLeg(array $match, array $selection): bool
+    {
+        if (SportsMatchStatus::effectiveStatus($match) !== 'finished') {
+            return false;
+        }
+        $parsed = self::parseGradableMarket(strtolower((string) ($selection['marketType'] ?? '')));
+        if ($parsed === null || $parsed['suffix'] === null) {
+            return false;
+        }
+        return self::periodScorePair($match, $parsed['suffix']) === null;
+    }
+
+    /**
+     * Display (home, away) score for a settled leg. PERIOD legs show the
+     * per-period slice they were graded on (e.g. a 1H bet shows the
+     * first-half score, not the full-game final); everything else shows the
+     * full-game score. Purely cosmetic — NEVER used for grading, so a missing
+     * per-period slice safely falls back to the full-game score for display.
+     *
+     * @param array<string,mixed> $match
+     * @param array<string,mixed> $selection
+     * @return array{0:float,1:float}
+     */
+    public static function settledScorePair(array $match, array $selection): array
+    {
+        $parsed = self::parseGradableMarket(strtolower((string) ($selection['marketType'] ?? '')));
+        if ($parsed !== null && $parsed['suffix'] !== null) {
+            $ps = self::periodScorePair($match, $parsed['suffix']);
+            if ($ps !== null) {
+                return $ps;
+            }
+        }
+        return [
+            self::num($match['score']['score_home'] ?? 0),
+            self::num($match['score']['score_away'] ?? 0),
+        ];
     }
 
     /**
@@ -1336,6 +1438,13 @@ final class SportsbookBetSupport
         }
         if ($effective !== 'finished') {
             return null;
+        }
+        // Period leg that auto-voided because the feed never supplied a
+        // gradeable per-period score within the grace window. Surface a
+        // distinct refund reason so the My Bets chip reads "Refund — period
+        // result unavailable" rather than an empty void tooltip.
+        if (self::isUngradeablePeriodLeg($match, $leg)) {
+            return 'period_unavailable';
         }
         // A listed-pitcher change is the reason this leg voided, regardless of
         // market — surface it before the push-on-tie checks so the My Bets
