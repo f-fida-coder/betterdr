@@ -2,6 +2,7 @@ import React from 'react';
 import { getMatchProps } from '../api';
 import { formatLineValue, formatOdds } from '../utils/odds';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
+import { useDismissableSurface } from '../hooks/useDismissableSurface';
 
 /**
  * Ordered list of non-prop market sections we know how to render.
@@ -154,6 +155,10 @@ const MatchDetailView = ({ match, onClose }) => {
             document.body.style.overflow = prevBodyOverflow;
         };
     }, [onClose]);
+
+    // Shared dismiss behavior: ESC / browser Back / nav-tab tap close this
+    // sheet (the component is only mounted while open, so register with true).
+    useDismissableSurface(true, onClose);
 
     // Cap the sheet height below the top chrome so its header ("Alt Lines &
     // Totals" + Close All) is fully visible instead of sitting behind the page

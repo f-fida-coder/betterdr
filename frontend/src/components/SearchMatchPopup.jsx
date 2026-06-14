@@ -9,6 +9,7 @@ import {
     getMarketOutcomeByKeyword,
 } from '../utils/odds';
 import { logoUrlForTeam, fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
+import { useDismissableSurface } from '../hooks/useDismissableSurface';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import MatchDetailView from './MatchDetailView';
 import PropBuilderModal from './PropBuilderModal';
@@ -108,6 +109,11 @@ const SearchMatchPopup = ({ match, onClose }) => {
 
     const [detailOpen, setDetailOpen] = useState(false);
     const [propsOpen, setPropsOpen] = useState(false);
+
+    // Shared dismiss behavior: ESC / browser Back / nav-tab tap close this
+    // popup (only mounted while open). Nested detail/props sheets register
+    // their own stack entry on top, so Back unwinds them first.
+    useDismissableSurface(true, onClose);
 
     const modalMatch = useMemo(() => ({
         id: matchId,

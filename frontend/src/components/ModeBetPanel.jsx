@@ -10,6 +10,7 @@ import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/t
 import BetConfirmationModal from './BetConfirmationModal';
 import WagerConfirmedScreen from './WagerConfirmedScreen';
 import TeaserTypePicker from './TeaserTypePicker';
+import { useDismissableSurface } from '../hooks/useDismissableSurface';
 
 // Minimal structural fallbacks — NO hardcoded multipliers.
 // Real values always come from rulesByMode (loaded from DB via /api/betting/rules).
@@ -1335,6 +1336,11 @@ const ModeBetPanel = ({
     // one can be open at a time — selecting an option, tapping outside, or
     // removing the selection closes it.
     const [openBuyPointsId, setOpenBuyPointsId] = useState(null);
+    // Shared dismiss behavior for the Buy Points dropdown: ESC / browser Back /
+    // a nav-tab tap close it (it's the topmost transient surface while open).
+    // The betslip itself isn't registered, so when no dropdown is open a tab
+    // tap still switches bet mode as before.
+    useDismissableSurface(openBuyPointsId !== null, () => setOpenBuyPointsId(null));
 
     // Apply a Buy Points alternate to a selection. Mutates this leg's
     // line + odds AND records the audit fields the placement payload

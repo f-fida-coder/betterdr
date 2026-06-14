@@ -3,6 +3,7 @@ import { getMatchProps } from '../api';
 import { formatLineValue, formatOdds } from '../utils/odds';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
+import { useDismissableSurface } from '../hooks/useDismissableSurface';
 
 const MARKET_LABELS = {
     player_points: 'Points',
@@ -226,6 +227,10 @@ const PropBuilderModal = ({ match, onClose }) => {
             document.body.style.overflow = prevBodyOverflow;
         };
     }, [onClose]);
+
+    // Shared dismiss behavior: ESC / browser Back / nav-tab tap close this
+    // sheet (the component is only mounted while open, so register with true).
+    useDismissableSurface(true, onClose);
 
     // Measure the page DashboardHeader so the sheet can cap its max height to
     // (viewport - header). Without this the sheet's top — which carries the

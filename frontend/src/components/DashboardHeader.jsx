@@ -7,6 +7,7 @@ import AccountPanel from './AccountPanel';
 import { setMyBetsInitialFilter } from './myBetsState';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
+import { dismissTopSurface } from '../hooks/useDismissableSurface';
 
 const buildRefreshRequestId = () => {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -69,6 +70,15 @@ const mhBetslipCircleStyle = {
 
 const DashboardHeader = ({ username, userId = null, balance, pendingBalance, availableBalance, freeplayBalance, freeplayExpiresAt = null, creditLimit = 0, creditAvailable = 0, balanceOwed = 0, nonPostedCasino = 0, minBet = null, maxBet = null, userSettings = null, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance, slipCount = 0, realtimeConnectionState = 'idle', lastRealtimeEventAt = null }) => {
     const hasRealSportSelection = selectedSports.some((id) => !META_SPORT_FILTERS.has(id));
+    // The bet-mode tabs sit ABOVE any open surface's backdrop, so a tab tap
+    // would otherwise switch modes instead of dismissing the surface. Give the
+    // topmost transient surface (e.g. an open Buy Points dropdown) first refusal:
+    // if it consumed the tap it closed itself; only then fall through to a mode
+    // switch. The persistent betslip opts out, so its tabs keep switching modes.
+    const handleBetModeTab = (modeId) => {
+        if (dismissTopSurface()) return;
+        if (onBetModeChange) onBetModeChange(modeId);
+    };
     const [showAccountPanel, setShowAccountPanel] = useState(false);
     // Credit-style accounts run their cash balance at $0 and bet against the
     // credit line, so the "Available" / "Available Credit" headline tile
@@ -592,7 +602,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                             <div
                                 key={mode.id}
                                 className={`tab-item ${activeBetMode === mode.id ? 'active' : ''}`}
-                                onClick={() => onBetModeChange && onBetModeChange(mode.id)}
+                                onClick={() => handleBetModeTab(mode.id)}
                             >
                                 <span className="tab-letter">{mode.letter}</span>
                                 <span className="tab-text">{mode.label}</span>
@@ -808,7 +818,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                                 <div
                                     key={mode.id}
                                     className={`bet-type-item ${activeBetMode === mode.id ? 'active' : ''}`}
-                                    onClick={() => onBetModeChange && onBetModeChange(mode.id)}
+                                    onClick={() => handleBetModeTab(mode.id)}
                                 >
                                     <div className="bet-type-letter">{mode.icon}</div>
                                     <div className="bet-type-label">{mode.label}</div>

@@ -2,6 +2,7 @@ import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds } from '../utils/odds';
 import { formatSiteDateTime } from '../utils/timezone';
+import { useDismissableSurface } from '../hooks/useDismissableSurface';
 
 // Confirmation-modal money formatter — always 2dp with thousands
 // separator. The slip card just below the betslip sheet shows the
@@ -54,6 +55,9 @@ const BetConfirmationModal = ({
   isSubmitting = false,
 }) => {
   const { oddsFormat } = useOddsFormat();
+  // Shared dismiss behavior: ESC / browser Back / nav-tab tap close the
+  // confirmation sheet. Called before the early return so hook order is stable.
+  useDismissableSurface(isOpen, onCancel);
   if (!isOpen) return null;
 
   const first = selections[0];
