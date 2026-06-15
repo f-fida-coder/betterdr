@@ -36,10 +36,23 @@ export const hasInPlaySignal = (match) => {
     return false;
 };
 
+// MMA/UFC needs special handling: every fight on a card shares (roughly) the
+// card start time and TheRundown reports CARD-level progress, so the raw
+// event_status (IN_PROGRESS) and the "Fighters Walking" eventStatusDetail leak
+// onto every still-scheduled fight once the broadcast starts. Re-deriving live
+// from those here would paint a red LIVE badge on upcoming fights. The server
+// already maps each fight's own status correctly (STATUS_IN_PROGRESS → 'live',
+// STATUS_SCHEDULED → 'scheduled'), so for MMA we trust that status verbatim.
+const isMmaMatch = (match) => {
+    const key = String(match?.sportKey || match?.sport || '').toLowerCase();
+    return key.includes('mma') || key.includes('ufc') || key.includes('mixed_martial');
+};
+
 // True only when the feed flags the row live AND an in-play signal confirms it.
 export const isLiveLikeMatch = (match) => {
     const status = String(match?.status || '').toLowerCase();
     if (TERMINAL_MATCH_STATUSES.has(status)) return false;
+    if (isMmaMatch(match)) return status === 'live';
     const eventStatus = String(match?.score?.event_status || '').toUpperCase();
     const flaggedLive = status === 'live'
         || eventStatus.includes('IN_PROGRESS')

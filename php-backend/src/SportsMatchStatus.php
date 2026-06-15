@@ -93,8 +93,19 @@ final class SportsMatchStatus
         $startTs = self::parseTime($match['startTime'] ?? null);
         $lastUpdatedTs = self::parseTime(($match['lastUpdated'] ?? null) ?: ($match['updatedAt'] ?? null));
 
+        // MMA/UFC: every fight on a card shares (roughly) the card start time
+        // and TheRundown reports card-level progress, so the start-time
+        // auto-promotion below would flip EVERY still-scheduled fight to
+        // 'live' the moment the broadcast begins (e.g. while a fight shows
+        // "Fighters Walking"). For combat sports we therefore trust ONLY the
+        // per-fight mapped status: STATUS_SCHEDULED → scheduled,
+        // STATUS_IN_PROGRESS → live, STATUS_FINAL → finished. A real in-play
+        // fight still reports source === 'live' and shows the LIVE badge; an
+        // upcoming fight correctly renders as scheduled.
+        $isMma = RundownSportMap::canonicalSportKey((string) ($match['sportKey'] ?? '')) === 'mma_mixed_martial_arts';
+
         if ($source === 'scheduled') {
-            if ($startTs !== null && $startTs <= $now) {
+            if (!$isMma && $startTs !== null && $startTs <= $now) {
                 $expiryGrace = self::envInt('MATCH_SCHEDULED_EXPIRY_GRACE_SECONDS', self::DEFAULT_SCHEDULED_EXPIRY_GRACE_SECONDS);
                 if (($startTs + $expiryGrace) < $now) {
                     return 'expired';
