@@ -488,6 +488,12 @@ export const createFallbackTeamLogoDataUri = (teamName = '') => {
 export const logoUrlForTeam = (teamName = '', ctx = null) => {
     const normalized = normalizeTeamName(teamName);
     const cacheKey = cacheKeyForTeam(teamName, ctx);
+    // Full display name ("Vegas Golden Knights") is the most reliable key —
+    // the curated TEAM_LOGO_MAP is keyed on full names and covers every
+    // major-league team. Board rows feed the SHORT canonical name ("Vegas"),
+    // which misses the map, so try the full name (supplied via ctx) first.
+    const fullNorm = ctx && ctx.fullName ? normalizeTeamName(ctx.fullName) : '';
+    if (fullNorm && TEAM_LOGO_MAP[fullNorm]) return TEAM_LOGO_MAP[fullNorm];
     if (normalized && TEAM_LOGO_MAP[normalized]) return TEAM_LOGO_MAP[normalized];
     // Sport-aware abbreviation path (city-only live rows). Resolved before
     // the warm cache so a previously mis-cached TheSportsDB URL can't win.
@@ -633,7 +639,10 @@ export const prewarmTeamBadges = (items = []) => {
         const cacheKey = cacheKeyForTeam(name, ctx);
         if (!normalized || !cacheKey || seen.has(cacheKey)) continue;
         seen.add(cacheKey);
-        // Skip if already mapped, sport-resolvable, or cached.
+        // Skip if already mapped (by full or short name), sport-resolvable,
+        // or cached.
+        const fullNorm = ctx && ctx.fullName ? normalizeTeamName(ctx.fullName) : '';
+        if (fullNorm && TEAM_LOGO_MAP[fullNorm]) continue;
         if (TEAM_LOGO_MAP[normalized]) continue;
         if (resolveByContext(name, ctx)) continue;
         if (getCachedLogo(cacheKey)) continue;
@@ -661,6 +670,11 @@ export const fetchTeamBadgeUrl = async (teamName = '', ctx = null) => {
     const cacheKey = cacheKeyForTeam(teamName, ctx);
     if (!normalized) return createFallbackTeamLogoDataUri(teamName);
 
+    // Full display name first — see logoUrlForTeam for the rationale. The
+    // curated full-name map covers every major-league team, so this resolves
+    // city-only board rows ("Vegas") to the right crest without a network call.
+    const fullNorm = ctx && ctx.fullName ? normalizeTeamName(ctx.fullName) : '';
+    if (fullNorm && TEAM_LOGO_MAP[fullNorm]) return TEAM_LOGO_MAP[fullNorm];
     if (TEAM_LOGO_MAP[normalized]) return TEAM_LOGO_MAP[normalized];
 
     // Sport-aware abbreviation path. Resolved before any network call so
@@ -698,7 +712,11 @@ export const fetchTeamBadgeUrl = async (teamName = '', ctx = null) => {
             //    The backend picks exact-match-or-first and returns a
             //    minimal `{ found, logoUrl }` payload so all team-name
             //    normalization happens server-side.
-            const variations = buildNameVariations(teamName).slice(0, 5);
+            // Prefer the full display name for the search — "Vegas Golden
+            // Knights" matches TheSportsDB far more reliably than the short
+            // "Vegas". Falls back to the supplied teamName when no full name.
+            const searchBase = (ctx && ctx.fullName) ? String(ctx.fullName) : teamName;
+            const variations = buildNameVariations(searchBase).slice(0, 5);
             for (const variant of variations) {
                 const data = await fetchJson(buildProxyUrl(THE_SPORTS_DB_TEAM_PATH, variant));
                 if (data?.found && typeof data.logoUrl === 'string' && data.logoUrl) {

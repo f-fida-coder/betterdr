@@ -1142,8 +1142,8 @@ const MobileContentView = ({
     React.useEffect(() => {
         const items = [];
         matches.forEach((m) => {
-            if (m.team1) items.push({ name: m.team1, sportKey: m.sportKey, sport: m.sport, abbr: m.team1Short });
-            if (m.team2) items.push({ name: m.team2, sportKey: m.sportKey, sport: m.sport, abbr: m.team2Short });
+            if (m.team1) items.push({ name: m.team1, sportKey: m.sportKey, sport: m.sport, abbr: m.team1Short, fullName: m.team1Full });
+            if (m.team2) items.push({ name: m.team2, sportKey: m.sportKey, sport: m.sport, abbr: m.team2Short, fullName: m.team2Full });
         });
         prewarmTeamBadges(items);
     }, [matches]);
@@ -2341,7 +2341,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 padding: '2px 0 8px',
             }}>
                 <div style={{ ...teamCellStyle, gridColumn: 1, gridRow: 1 }}>
-                    <TeamAvatar team={match.team1} sportKey={match.sportKey} sport={match.sport} abbr={match.team1Short} />
+                    <TeamAvatar team={match.team1} sportKey={match.sportKey} sport={match.sport} abbr={match.team1Short} fullName={match.team1Full} />
                     <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
                         {rotationAway != null && (
                             <span style={{ fontSize: 10, fontWeight: 700, color: '#9aa' }}>{rotationAway}</span>
@@ -2465,7 +2465,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 )}
 
                 <div style={{ ...teamCellStyle, gridColumn: 1, gridRow: 2 }}>
-                    <TeamAvatar team={match.team2} sportKey={match.sportKey} sport={match.sport} abbr={match.team2Short} />
+                    <TeamAvatar team={match.team2} sportKey={match.sportKey} sport={match.sport} abbr={match.team2Short} fullName={match.team2Full} />
                     <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
                         {rotationHome != null && (
                             <span style={{ fontSize: 10, fontWeight: 700, color: '#9aa' }}>{rotationHome}</span>
@@ -2531,7 +2531,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     );
 }, areMatchCardPropsEqual);
 
-const TeamAvatar = ({ team, sportKey, sport, abbr }) => {
+const TeamAvatar = ({ team, sportKey, sport, abbr, fullName }) => {
     // Start with whatever the synchronous map / warm cache knows about this
     // team. If it comes back null, kick off the async TheSportsDB lookup —
     // which covers virtually every pro team/athlete worldwide — and swap
@@ -2541,27 +2541,27 @@ const TeamAvatar = ({ team, sportKey, sport, abbr }) => {
     // ctx carries sport + abbreviation so live "city-only" rows (e.g.
     // "Boston"/"BOS") resolve to the right league's ESPN badge instead of
     // the wrong sport via the name-only search.
-    const ctx = { sportKey, sport, abbr };
+    const ctx = { sportKey, sport, abbr, fullName };
     const [logoUrl, setLogoUrl] = React.useState(() => logoUrlForTeam(team, ctx));
     const [imgFailed, setImgFailed] = React.useState(false);
 
     React.useEffect(() => {
         let cancelled = false;
         setImgFailed(false);
-        const sync = logoUrlForTeam(team, { sportKey, sport, abbr });
+        const sync = logoUrlForTeam(team, { sportKey, sport, abbr, fullName });
         if (sync) {
             setLogoUrl(sync);
             return undefined;
         }
         setLogoUrl(null);
-        fetchTeamBadgeUrl(team, { sportKey, sport, abbr }).then((url) => {
+        fetchTeamBadgeUrl(team, { sportKey, sport, abbr, fullName }).then((url) => {
             if (cancelled) return;
             // TheSportsDB misses fall back to the initials data-URI;
             // leave the colored circle for those to keep load times snappy.
             if (url && !url.startsWith('data:')) setLogoUrl(url);
         }).catch(() => { /* swallow — already falls back below */ });
         return () => { cancelled = true; };
-    }, [team, sportKey, sport, abbr]);
+    }, [team, sportKey, sport, abbr, fullName]);
 
     const showImage = logoUrl && !imgFailed;
     if (showImage) {

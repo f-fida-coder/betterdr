@@ -930,14 +930,14 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     React.useEffect(() => {
         const teams = [];
         (content.matches || []).forEach((match) => {
-            if (match.team1?.name) teams.push({ name: match.team1.name, sportKey: match.sportKey, sport: match.sport, abbr: match.team1.abbr });
-            if (match.team2?.name) teams.push({ name: match.team2.name, sportKey: match.sportKey, sport: match.sport, abbr: match.team2.abbr });
+            if (match.team1?.name) teams.push({ name: match.team1.name, sportKey: match.sportKey, sport: match.sport, abbr: match.team1.abbr, fullName: match.team1.fullName });
+            if (match.team2?.name) teams.push({ name: match.team2.name, sportKey: match.sportKey, sport: match.sport, abbr: match.team2.abbr, fullName: match.team2.fullName });
         });
 
-        teams.forEach(({ name: teamName, sportKey, sport, abbr }) => {
+        teams.forEach(({ name: teamName, sportKey, sport, abbr, fullName }) => {
             if (!teamName || attemptedLogoFetchesRef.current.has(teamName)) return;
             attemptedLogoFetchesRef.current.add(teamName);
-            const ctx = { sportKey, sport, abbr };
+            const ctx = { sportKey, sport, abbr, fullName };
             fetchTeamBadgeUrl(teamName, ctx).then((logoUrl) => {
                 setTeamLogos((prev) => ({
                     ...prev,
