@@ -728,16 +728,27 @@ const MobileContentView = ({
         const spreads = getMatchMarket(match, `spreads${suffix}`);
         const totals = getMatchMarket(match, `totals${suffix}`);
 
+        const spreadHomeOutcome = getMarketOutcomeByName(spreads, homeName);
+        const spreadAwayOutcome = getMarketOutcomeByName(spreads, awayName);
+        const totalOverOutcome = getMarketOutcomeByKeyword(totals, 'over');
+        const totalUnderOutcome = getMarketOutcomeByKeyword(totals, 'under');
         return {
-            spreadHomePoint: getMarketOutcomeByName(spreads, homeName)?.point ?? null,
-            spreadAwayPoint: getMarketOutcomeByName(spreads, awayName)?.point ?? null,
-            spreadHomePrice: parseOddsNumber(getMarketOutcomeByName(spreads, homeName)?.price),
-            spreadAwayPrice: parseOddsNumber(getMarketOutcomeByName(spreads, awayName)?.price),
+            spreadHomePoint: spreadHomeOutcome?.point ?? null,
+            spreadAwayPoint: spreadAwayOutcome?.point ?? null,
+            spreadHomePrice: parseOddsNumber(spreadHomeOutcome?.price),
+            spreadAwayPrice: parseOddsNumber(spreadAwayOutcome?.price),
+            // Server-computed Buy Points ladders (BuyPointsPricing) carried per
+            // outcome so the slip dropdown shows the authoritative ladder; null
+            // falls back to the client ladder. Mirrors SportContentView.
+            spreadHomeAlternateLines: Array.isArray(spreadHomeOutcome?.alternateLines) ? spreadHomeOutcome.alternateLines : null,
+            spreadAwayAlternateLines: Array.isArray(spreadAwayOutcome?.alternateLines) ? spreadAwayOutcome.alternateLines : null,
             moneylineHome: parseOddsNumber(getMarketOutcomeByName(h2h, homeName)?.price),
             moneylineAway: parseOddsNumber(getMarketOutcomeByName(h2h, awayName)?.price),
-            totalPoint: getMarketOutcomeByKeyword(totals, 'over')?.point ?? getMarketOutcomeByKeyword(totals, 'under')?.point ?? null,
-            totalOverPrice: parseOddsNumber(getMarketOutcomeByKeyword(totals, 'over')?.price),
-            totalUnderPrice: parseOddsNumber(getMarketOutcomeByKeyword(totals, 'under')?.price),
+            totalPoint: totalOverOutcome?.point ?? totalUnderOutcome?.point ?? null,
+            totalOverPrice: parseOddsNumber(totalOverOutcome?.price),
+            totalUnderPrice: parseOddsNumber(totalUnderOutcome?.price),
+            totalOverAlternateLines: Array.isArray(totalOverOutcome?.alternateLines) ? totalOverOutcome.alternateLines : null,
+            totalUnderAlternateLines: Array.isArray(totalUnderOutcome?.alternateLines) ? totalUnderOutcome.alternateLines : null,
         };
     }, []);
 
@@ -1335,6 +1346,10 @@ const MobileContentView = ({
                 // Full DISPLAY label for the leg (short `selection` above stays
                 // the match key). Falls back to the short selection.
                 selectionFull: meta?.selectionFull || selection,
+                // Server-computed Buy Points ladder for this side (spreads/
+                // totals only). null for other markets / when the API didn't
+                // supply it — the slip's dropdown then uses its local ladder.
+                alternateLines: Array.isArray(meta?.alternateLines) ? meta.alternateLines : null,
             },
         }));
     }, []);
@@ -2142,25 +2157,27 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const totalsUnderDisplay = isNrfiContext
         ? 'NRFI'
         : (match.odds.totalPoint === null ? '—' : `U ${formatLineValue(teaserPreview.total(match.odds.totalPoint, 'Under'))}`);
-    const addIfAllowed = (...args) => {
+    const addIfAllowed = (matchId, selection, marketType, odds, matchName, marketLabel, line = null, alternateLines = null) => {
         if (blocked) return;
-        // Resolve the leg's full DISPLAY name from the short selection (args[1])
+        // Resolve the leg's full DISPLAY name from the short selection
         // — team markets map to the full "City Mascot"; Over/Under pass through.
         // The short selection itself is unchanged, so the placement match key
         // is untouched.
-        const selArg = args[1];
-        const selectionFull = selArg === match.team1
-            ? (match.team1Full || selArg)
-            : (selArg === match.team2 ? (match.team2Full || selArg) : selArg);
+        const selectionFull = selection === match.team1
+            ? (match.team1Full || selection)
+            : (selection === match.team2 ? (match.team2Full || selection) : selection);
         // Inject isLive + sportKey once per card so every odds-button
         // click on this match carries them through to the slip without
         // changing each onClick's signature. sportKey lets the betslip
         // enforce per-mode sport rules (e.g. teaser only allows football
         // and basketball) without round-tripping the matchId.
-        onAddToSlip(...args, {
+        // alternateLines is the per-outcome server Buy Points ladder
+        // (spreads/totals only); null for ML / when the API didn't supply it.
+        onAddToSlip(matchId, selection, marketType, odds, matchName, marketLabel, line, {
             isLive: !!match.isLive,
             sportKey: String(match?.sportKey || match?.sport || '').toLowerCase(),
             selectionFull,
+            alternateLines: Array.isArray(alternateLines) ? alternateLines : null,
         });
     };
     const [propsOpen, setPropsOpen] = React.useState(false);
@@ -2372,7 +2389,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         title={teaserPoints > 0 && Number.isFinite(Number(match.odds.spreadAwayPoint))
                             ? `Was ${formatSpreadValue(match.odds.spreadAwayPoint)} (teaser +${teaserPoints})`
                             : undefined}
-                        onClick={() => addIfAllowed(match.id, match.team1, 'spreads', match.odds.spreadAwayPrice, matchName, 'Spread', match.odds.spreadAwayPoint)}
+                        onClick={() => addIfAllowed(match.id, match.team1, 'spreads', match.odds.spreadAwayPrice, matchName, 'Spread', match.odds.spreadAwayPoint, match.odds.spreadAwayAlternateLines)}
                     />
                 )}
                 {visibleMarkets.showMoneyline && (
@@ -2393,7 +2410,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         title={teaserPoints > 0 && match.odds.totalPoint !== null
                             ? `Was O ${formatLineValue(match.odds.totalPoint)} (teaser −${teaserPoints})`
                             : undefined}
-                        onClick={() => addIfAllowed(match.id, 'Over', 'totals', match.odds.totalOverPrice, matchName, totalsMarketLabel, match.odds.totalPoint)}
+                        onClick={() => addIfAllowed(match.id, 'Over', 'totals', match.odds.totalOverPrice, matchName, totalsMarketLabel, match.odds.totalPoint, match.odds.totalOverAlternateLines)}
                     />
                 )}
 
@@ -2496,7 +2513,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         title={teaserPoints > 0 && Number.isFinite(Number(match.odds.spreadHomePoint))
                             ? `Was ${formatSpreadValue(match.odds.spreadHomePoint)} (teaser +${teaserPoints})`
                             : undefined}
-                        onClick={() => addIfAllowed(match.id, match.team2, 'spreads', match.odds.spreadHomePrice, matchName, 'Spread', match.odds.spreadHomePoint)}
+                        onClick={() => addIfAllowed(match.id, match.team2, 'spreads', match.odds.spreadHomePrice, matchName, 'Spread', match.odds.spreadHomePoint, match.odds.spreadHomeAlternateLines)}
                     />
                 )}
                 {visibleMarkets.showMoneyline && (
@@ -2517,7 +2534,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         title={teaserPoints > 0 && match.odds.totalPoint !== null
                             ? `Was U ${formatLineValue(match.odds.totalPoint)} (teaser +${teaserPoints})`
                             : undefined}
-                        onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, totalsMarketLabel, match.odds.totalPoint)}
+                        onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, totalsMarketLabel, match.odds.totalPoint, match.odds.totalUnderAlternateLines)}
                     />
                 )}
             </div>
