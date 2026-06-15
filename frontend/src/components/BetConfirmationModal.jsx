@@ -3,6 +3,7 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds } from '../utils/odds';
 import { formatSiteDateTime } from '../utils/timezone';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
+import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
 
 // Confirmation-modal money formatter — always 2dp with thousands
 // separator. The slip card just below the betslip sheet shows the
@@ -28,6 +29,10 @@ const marketShortLabel = (selection = {}) => {
   }
   if (market === 'spreads') return 'SPREAD';
   if (market === 'totals') return 'TOTAL';
+  // Player props: friendly stat label ("Runs Scored"), never the raw key.
+  if (isPlayerPropMarket(selection?.marketType || selection?.type)) {
+    return prettyPlayerMarketLabel(selection?.marketType || selection?.type);
+  }
   return '';
 };
 

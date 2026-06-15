@@ -38,6 +38,12 @@ const teamRecordStyle = {
     fontWeight: 500,
     fontSize: '0.85em',
     marginLeft: 4,
+    // Keep the record as one unbreakable unit. The hyphens in "(53-22-7)"
+    // are valid line-break opportunities, so without this the record splits
+    // mid-value (e.g. "(53-" / "22-7)") when the team-name line wraps. As an
+    // inline-block it wraps to the next line whole instead.
+    display: 'inline-block',
+    whiteSpace: 'nowrap',
 };
 
 // Format the start time in the site timezone (default ET, override via

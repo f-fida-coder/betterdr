@@ -2,6 +2,7 @@ import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, formatLineValue } from '../utils/odds';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
+import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
 
 // 2dp w/ thousands separator. Mirrors the bet-review modal's formatAmount
 // so the post-placement Risk/Win tiles match exactly. Integer rounding
@@ -38,6 +39,12 @@ const lineSuffix = (leg) => {
     const label = formatLineValue(leg?.point ?? leg?.line, { signed, fallback: '' });
     return label ? ` (${label})` : '';
 };
+
+// Friendly stat label appended inline for player-prop legs (DISPLAY only):
+// "Osuna Over 0.5 Runs Scored". Empty for game markets.
+const propMarketSuffix = (leg) => (
+    isPlayerPropMarket(leg?.marketType) ? ` ${prettyPlayerMarketLabel(leg?.marketType)}` : ''
+);
 
 const matchTitle = (leg) => {
     const home = leg?.matchSnapshot?.homeTeamFull || leg?.matchSnapshot?.homeTeam || leg?.match?.homeTeamFull || leg?.match?.homeTeam;
@@ -218,7 +225,7 @@ const WagerConfirmedScreen = ({
                                             <i className="fa-solid fa-circle-check" style={{ color: '#16a34a', marginTop: 3, fontSize: 11 }} />
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ fontWeight: 700, color: '#0f172a', wordBreak: 'break-word' }}>
-                                                    {leg.selection || '-'}{lineSuffix(leg)}
+                                                    {leg.selection || '-'}{propMarketSuffix(leg)}{lineSuffix(leg)}
                                                 </div>
                                                 <div style={{ fontSize: 11, color: '#64748b' }}>
                                                     {matchTitle(leg) || (leg.matchId || '')}

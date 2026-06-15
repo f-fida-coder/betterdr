@@ -70,14 +70,20 @@ const mhBetslipCircleStyle = {
 
 const DashboardHeader = ({ username, userId = null, balance, pendingBalance, availableBalance, freeplayBalance, freeplayExpiresAt = null, creditLimit = 0, creditAvailable = 0, balanceOwed = 0, nonPostedCasino = 0, minBet = null, maxBet = null, userSettings = null, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance, slipCount = 0, realtimeConnectionState = 'idle', lastRealtimeEventAt = null }) => {
     const hasRealSportSelection = selectedSports.some((id) => !META_SPORT_FILTERS.has(id));
-    // The bet-mode tabs sit ABOVE any open surface's backdrop, so a tab tap
-    // would otherwise switch modes instead of dismissing the surface. Give the
-    // topmost transient surface (e.g. an open Buy Points dropdown) first refusal:
-    // if it consumed the tap it closed itself; only then fall through to a mode
-    // switch. The persistent betslip opts out, so its tabs keep switching modes.
+    // A functional nav-tab tap is BOTH a dismiss and a navigation: when a
+    // surface (e.g. the player-props panel) is open, close it AND switch the
+    // bet mode in one action. Switch the mode FIRST and unconditionally, THEN
+    // dismiss the surface — so the mode change is committed before any side
+    // effect of closing the surface (its React unmount + a URL-unchanged
+    // history.back()) can run. An earlier pass dismissed first and the
+    // navigation got swallowed: the panel closed but the mode never changed,
+    // so tapping PARLAY while props were open "exited" instead of switching.
+    // betMode is plain React state (not URL/route-driven), so the surface's
+    // history unwind can't revert it once it's set. A backdrop tap (handled
+    // by the surface's own onClick) still just dismisses with no navigation.
     const handleBetModeTab = (modeId) => {
-        if (dismissTopSurface()) return;
         if (onBetModeChange) onBetModeChange(modeId);
+        dismissTopSurface();
     };
     const [showAccountPanel, setShowAccountPanel] = useState(false);
     // Credit-style accounts run their cash balance at $0 and bet against the

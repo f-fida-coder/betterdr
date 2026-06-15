@@ -6,6 +6,7 @@ import { formatSiteDateTime } from '../utils/timezone';
 import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
 import '../mybets.css';
 import { consumeMyBetsInitialFilter } from './myBetsState';
+import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
 
 const money = (value) => `$${Math.round(Number(value || 0))}`;
 const moneySigned = (value) => {
@@ -182,6 +183,12 @@ const legDescription = (leg, oddsFormat) => {
         const isUnder = selection.toLowerCase().startsWith('u');
         const line = point === null ? '' : formatLineValue(Math.abs(point));
         return [`${isUnder ? 'Under' : 'Over'}`, line, odds].filter(Boolean).join(' ');
+    }
+    // Player props: keep the full selection (player + side + line) and append
+    // the friendly stat label — "Osuna Over 0.5 Runs Scored -110".
+    if (isPlayerPropMarket(leg?.marketType)) {
+        const pick = String(leg?.selectionFull || '').trim() || selection || 'Pick';
+        return [pick, prettyPlayerMarketLabel(leg?.marketType), odds].filter(Boolean).join(' ');
     }
     const team = String(leg?.selectionFull || '').trim() || selection || 'Pick';
     return [team, odds].filter(Boolean).join(' ');

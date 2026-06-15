@@ -283,16 +283,33 @@ export const PLAYER_CATEGORY_ORDER = [
 // odds.bookmakers list (the server orders that list, always source of truth).
 export const FALLBACK_BOOK_PRIORITY = ['pinnacle', 'draftkings', 'fanduel', 'betmgm', 'bovada'];
 
+// True for a player-prop market key (player_/batter_/pitcher_ family). Lets
+// callers decide whether to surface the friendly stat label — game markets
+// (h2h/spreads/totals and their period variants) get their own labels.
+export const isPlayerPropMarket = (marketType) => /^(player|batter|pitcher)_/i.test(String(marketType || ''));
+
+// Friendly DISPLAY label for a prop market key. Case-insensitive so it works
+// on the lowercase keys the props payload uses AND the UPPERCASE wire keys the
+// feed sends for some sports (e.g. BATTER_RUNS_SCORED). The raw key is never
+// mutated — this is render-only. Falls back to a Title-Case humanization with
+// RBI/TD token fixes for any key not in the map.
 export const prettyPlayerMarketLabel = (key) => {
-    const base = String(key || '').replace(/_alternate$/, '');
+    const raw = String(key || '');
+    const base = raw.toLowerCase().replace(/_alternate$/, '');
     if (PLAYER_MARKET_LABELS[base]) {
-        const isAlt = String(key || '').endsWith('_alternate');
+        const isAlt = /_alternate$/i.test(raw);
         return isAlt ? `${PLAYER_MARKET_LABELS[base]} (Alt Lines)` : PLAYER_MARKET_LABELS[base];
     }
-    return String(key || 'Market')
-        .replace(/^player_|^batter_|^pitcher_/, '')
+    const words = base
+        .replace(/^(player|batter|pitcher)_/, '')
         .replace(/_/g, ' ')
-        .replace(/\b\w/g, (c) => c.toUpperCase());
+        .trim();
+    if (!words) return 'Market';
+    return words.replace(/\S+/g, (w) => {
+        if (w === 'rbi' || w === 'rbis') return 'RBIs';
+        if (w === 'td' || w === 'tds') return w.toUpperCase();
+        return w.charAt(0).toUpperCase() + w.slice(1);
+    });
 };
 
 export const isOverUnderName = (name) => /^(over|under)$/i.test(String(name || '').trim());

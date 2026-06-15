@@ -11,6 +11,7 @@ import BetConfirmationModal from './BetConfirmationModal';
 import WagerConfirmedScreen from './WagerConfirmedScreen';
 import TeaserTypePicker from './TeaserTypePicker';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
+import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
 
 // Minimal structural fallbacks — NO hardcoded multipliers.
 // Real values always come from rulesByMode (loaded from DB via /api/betting/rules).
@@ -73,13 +74,6 @@ const getTeaserMultiplier = (rule, legCount, teaserType = null) => {
     const raw = rule?.payoutProfile?.multipliers?.[String(legCount)];
     const parsed = Number(raw);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
-};
-
-const MARKET_LABELS = {
-    h2h: 'Moneyline',
-    spreads: 'Spread',
-    totals: 'Total',
-    straight: 'Straight',
 };
 
 const legLabelFor = (mode, index, total) => {
@@ -220,7 +214,9 @@ const betTypeBaseLabel = (marketType) => {
     if (k === 'h2h') return 'Moneyline';
     if (k === 'spreads') return 'Spread';
     if (k === 'totals') return 'Total';
-    return MARKET_LABELS[k] || k.toUpperCase() || 'Bet';
+    // Player props (and any non-core market) get the friendly stat label —
+    // never the raw uppercase wire key (e.g. BATTER_RUNS_SCORED).
+    return prettyPlayerMarketLabel(marketType) || 'Bet';
 };
 
 // Bet-type + line shown to the left of American odds on the card. Returns
@@ -2479,6 +2475,11 @@ const ModeBetPanel = ({
                     // mode + a type is picked. Falls through to the plain
                     // base label in every other mode.
                     const betTypeText = legPreviewLine(sel);
+                    // Player props show the friendly stat label inline right
+                    // after the selection ("Osuna Over 0.5 Runs Scored") rather
+                    // than as a separate raw-key line below the odds.
+                    const isProp = isPlayerPropMarket(sel.marketType);
+                    const propMarketLabel = isProp ? prettyPlayerMarketLabel(sel.marketType) : '';
                     // Game start time pinned to the site timezone (ET) so a
                     // glance at the bet slip answers "is this tonight?" the
                     // same way for every browser locale.
@@ -2587,7 +2588,7 @@ const ModeBetPanel = ({
                                     flexWrap: 'wrap',
                                     gap: 8,
                                 }}>
-                                    <span>{sel.selectionFull || sel.selection}</span>
+                                    <span>{sel.selectionFull || sel.selection}{propMarketLabel ? ` ${propMarketLabel}` : ''}</span>
                                     {sel.isLive && (
                                         // LIVE BET pill — flagged at add-to-slip
                                         // time from match.isLive, which is true
@@ -2650,7 +2651,7 @@ const ModeBetPanel = ({
                                     gap: 8,
                                 }}>
                                     <span style={{ fontWeight: 700, color: palette.textPrimary, fontVariantNumeric: 'tabular-nums' }}>
-                                        {betTypeText}
+                                        {isProp ? null : betTypeText}
                                     </span>
                                     <span style={{ fontWeight: 800, color: palette.success, fontVariantNumeric: 'tabular-nums' }}>
                                         {formatOddsSign(sel.odds)}
