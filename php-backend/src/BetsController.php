@@ -2694,6 +2694,25 @@ final class BetsController
      *
      * @return array<string, mixed>
      */
+    // MMA/UFC betting is closed at placement time because settlement is not
+    // implemented yet: moneyline would grade by score_home vs score_away
+    // (0/0 for a fight → wrong/tie) and round-totals are ungradeable. A bet
+    // placed now would settle incorrectly and pay (or seize) real money, so
+    // we reject every MMA selection here — server-side — until settlement
+    // ships and is verified. canonicalSportKey collapses any MMA alias to the
+    // one canonical key so the gate can't be sidestepped by a key variant.
+    // The sportKey is always read from our own DB row (never client input),
+    // so a tampered client cannot get an MMA bet past this check.
+    private static function assertMmaBettingClosed(string $sportKey): void
+    {
+        if (RundownSportMap::canonicalSportKey($sportKey) === 'mma_mixed_martial_arts') {
+            throw new ApiException('MMA/UFC betting is currently unavailable.', 400, [
+                'code' => 'MMA_BETTING_UNAVAILABLE',
+                'sportKey' => $sportKey,
+            ]);
+        }
+    }
+
     private function validateOutrightSelection(string $outrightId, string $selection, mixed $odds, string $acceptancePolicy = 'exact', int $acceptanceBandCents = 0): array
     {
         if (preg_match('/^[a-f0-9]{24}$/i', $outrightId) !== 1) {
@@ -2703,6 +2722,7 @@ final class BetsController
         if ($outright === null) {
             throw new ApiException('Outright not found: ' . $outrightId, 404);
         }
+        self::assertMmaBettingClosed((string) ($outright['sportKey'] ?? ''));
         $status = strtolower((string) ($outright['status'] ?? 'open'));
         if ($status !== 'open') {
             throw new ApiException('Outright market is not open for betting', 409, [
@@ -2849,6 +2869,9 @@ final class BetsController
             ? max(2, (int) Env::get('BET_TIME_ODDS_FRESH_SECONDS_LIVE', '5'))
             : max(5, (int) Env::get('BET_TIME_ODDS_FRESH_SECONDS', '30'));
         $sportKey = (string) ($match['sportKey'] ?? '');
+        // Close the MMA/UFC betting hole before doing any pricing work — a
+        // placed MMA bet cannot be graded correctly yet (see helper).
+        self::assertMmaBettingClosed($sportKey);
         $lastOddsAt = (string) ($match['lastOddsSyncAt'] ?? $match['lastUpdated'] ?? '');
         $oddsAge = $lastOddsAt !== '' ? max(0, time() - (int) strtotime($lastOddsAt)) : PHP_INT_MAX;
         // Sharp protection: if odds for this match's sport are stale, do a

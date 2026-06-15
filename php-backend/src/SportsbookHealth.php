@@ -568,6 +568,19 @@ final class SportsbookHealth
             $annotated['bettingBlockedReason'] = $staleState['reason'];
         }
 
+        // MMA/UFC is view-only until settlement is implemented: a placed fight
+        // bet cannot be graded correctly yet (moneyline grades by
+        // score_home/away = 0/0, round-totals are ungradeable), so it must
+        // never be placeable. Force it unbettable here — this annotation feeds
+        // both the board projection (so the UI hides/disables + / P+ / odds
+        // cells while still showing the card) and the placement availability
+        // check. The dedicated gate in BetsController::assertMmaBettingClosed
+        // is the hard server-side stop; this is the matching display state.
+        if (RundownSportMap::canonicalSportKey((string) ($annotated['sportKey'] ?? '')) === 'mma_mixed_martial_arts') {
+            $annotated['isBettable'] = false;
+            $annotated['bettingBlockedReason'] = 'MMA/UFC betting is currently unavailable.';
+        }
+
         return $annotated;
     }
 
