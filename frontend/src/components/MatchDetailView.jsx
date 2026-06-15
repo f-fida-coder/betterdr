@@ -1,6 +1,6 @@
 import React from 'react';
 import { getMatchProps } from '../api';
-import { formatLineValue, formatOdds } from '../utils/odds';
+import { formatLineValue, formatOdds, formatSpreadValue } from '../utils/odds';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
 
@@ -436,8 +436,9 @@ const MatchDetailView = ({ match, onClose }) => {
                     const selection = outcome?.name || '';
                     const selKey = `${section.key}|${selection}`;
                     const selected = selectedKeys.has(selKey);
+                    const isSpread = /spread|handicap/i.test(section.key);
                     const pointLabel = outcome?.point != null
-                        ? formatLineValue(outcome.point, { signed: section.key.startsWith('spreads') })
+                        ? (isSpread ? formatSpreadValue(outcome.point) : formatLineValue(outcome.point))
                         : '';
                     return (
                         <button
@@ -514,7 +515,15 @@ const MatchDetailView = ({ match, onClose }) => {
         return (
             <div style={altRowStyle}>
                 {outcomes.map((outcome, idx) => {
+                    // Wire/selection key MUST stay byte-identical (unsigned point)
+                    // — it drives odds matching and settlement. The displayed
+                    // label gets the explicit sign (spreads/handicaps) for clarity.
                     const selection = [outcome?.name, outcome?.point != null ? formatLineValue(outcome.point) : ''].filter(Boolean).join(' ');
+                    const isSpread = /spread|handicap/i.test(section.key);
+                    const pointLabel = outcome?.point != null
+                        ? (isSpread ? formatSpreadValue(outcome.point) : formatLineValue(outcome.point))
+                        : '';
+                    const displayLabel = [outcome?.name, pointLabel].filter(Boolean).join(' ');
                     const selKey = `${section.key}|${selection}`;
                     const selected = selectedKeys.has(selKey);
                     return (
@@ -523,7 +532,7 @@ const MatchDetailView = ({ match, onClose }) => {
                             style={altBtnStyle(selected)}
                             onClick={() => addSelection(section.key, section.label, outcome, selection)}
                         >
-                            <div>{selection}</div>
+                            <div>{displayLabel}</div>
                             <div style={{ fontSize: 11, marginTop: 4, color: selected ? '#fff' : '#b36a00', fontWeight: 700 }}>{formatOdds(outcome.price, oddsFormat)}</div>
                         </button>
                     );

@@ -3,7 +3,7 @@ import '../props.css';
 import useMatches from '../hooks/useMatches';
 import { getMyBets } from '../api';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
-import { formatLineValue, formatOdds } from '../utils/odds';
+import { formatLineValue, formatOdds, formatSpreadValue } from '../utils/odds';
 import { formatSiteTime } from '../utils/timezone';
 
 const PropsView = () => {
@@ -285,7 +285,7 @@ const PropsView = () => {
                                                 )}
                                                 {market.outcomes.map((outcome, index) => {
                                                     const labelPoint = outcome.point != null
-                                                        ? ` (${formatLineValue(outcome.point, { signed: market.key === 'spreads' })})`
+                                                        ? ` (${market.key === 'spreads' ? formatSpreadValue(outcome.point) : formatLineValue(outcome.point)})`
                                                         : '';
                                                     const label = `${outcome.name || `Selection ${index + 1}`}${labelPoint}`;
                                                     const outcomeKey = `${getMatchId(selectedMatch)}-${market.key}-${outcome.name || index}`;

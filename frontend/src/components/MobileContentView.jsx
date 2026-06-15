@@ -8,6 +8,7 @@ import { getSportKeywords, findSportItemById, sportLabelForKey, matchesSportKeyw
 import {
     formatLineValue,
     formatOdds,
+    formatSpreadValue,
     getMatchMarket,
     getMarketOutcomeByKeyword,
     getMarketOutcomeByName,
@@ -2366,10 +2367,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <OddsCell
                         disabled={blocked || match.odds.spreadAwayPrice === null}
                         selected={isSelected('spreads', match.team1) && !blocked}
-                        main={formatLineValue(teaserPreview.spread(match.odds.spreadAwayPoint), { signed: true })}
+                        main={formatSpreadValue(teaserPreview.spread(match.odds.spreadAwayPoint))}
                         juice={formatOdds(match.odds.spreadAwayPrice, oddsFormat)}
                         title={teaserPoints > 0 && Number.isFinite(Number(match.odds.spreadAwayPoint))
-                            ? `Was ${formatLineValue(match.odds.spreadAwayPoint, { signed: true })} (teaser +${teaserPoints})`
+                            ? `Was ${formatSpreadValue(match.odds.spreadAwayPoint)} (teaser +${teaserPoints})`
                             : undefined}
                         onClick={() => addIfAllowed(match.id, match.team1, 'spreads', match.odds.spreadAwayPrice, matchName, 'Spread', match.odds.spreadAwayPoint)}
                     />
@@ -2490,10 +2491,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <OddsCell
                         disabled={blocked || match.odds.spreadHomePrice === null}
                         selected={isSelected('spreads', match.team2) && !blocked}
-                        main={formatLineValue(teaserPreview.spread(match.odds.spreadHomePoint), { signed: true })}
+                        main={formatSpreadValue(teaserPreview.spread(match.odds.spreadHomePoint))}
                         juice={formatOdds(match.odds.spreadHomePrice, oddsFormat)}
                         title={teaserPoints > 0 && Number.isFinite(Number(match.odds.spreadHomePoint))
-                            ? `Was ${formatLineValue(match.odds.spreadHomePoint, { signed: true })} (teaser +${teaserPoints})`
+                            ? `Was ${formatSpreadValue(match.odds.spreadHomePoint)} (teaser +${teaserPoints})`
                             : undefined}
                         onClick={() => addIfAllowed(match.id, match.team2, 'spreads', match.odds.spreadHomePrice, matchName, 'Spread', match.odds.spreadHomePoint)}
                     />
@@ -2600,7 +2601,7 @@ const TeamRow = ({ team, rotation, spreadLine, spreadPrice, moneyline, totalLabe
             <OddsCell
                 disabled={forceDisabled || spreadPrice === null}
                 selected={spreadSelected && !forceDisabled}
-                main={formatLineValue(spreadLine, { signed: true })}
+                main={formatSpreadValue(spreadLine)}
                 juice={formatOdds(spreadPrice, oddsFormat)}
                 onClick={onSpreadClick}
             />

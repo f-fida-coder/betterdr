@@ -1,7 +1,7 @@
 import React from 'react';
 import useMatches from '../hooks/useMatches';
 import { getMatchProps } from '../api';
-import { formatLineValue, formatOdds } from '../utils/odds';
+import { formatLineValue, formatOdds, formatSpreadValue } from '../utils/odds';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { isLiveLikeMatch } from '../utils/liveStatus';
 import { formatSiteDateTime } from '../utils/timezone';
@@ -425,7 +425,7 @@ const PropBuilderView = () => {
         const selection = opts.selection != null ? opts.selection : name;
         const selected = isSelected(marketKey, selection);
         const pointLabel = outcome?.point != null
-            ? formatLineValue(outcome.point, { signed: !!opts.signed })
+            ? (opts.signed ? formatSpreadValue(outcome.point) : formatLineValue(outcome.point))
             : '';
         return (
             <button

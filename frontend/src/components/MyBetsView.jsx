@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getMyBets, getUserFigures, getUserTransactions, getRoundRobinChildren, regradeStuckBets } from '../api';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
-import { formatLineValue, formatOdds } from '../utils/odds';
+import { formatLineValue, formatOdds, formatSpreadValue } from '../utils/odds';
 import { formatSiteDateTime } from '../utils/timezone';
 import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
 import '../mybets.css';
@@ -54,7 +54,7 @@ const legPickLabel = (leg) => {
     const bpSuffix = isBuyPoints ? ' (BP)' : '';
 
     if (market === 'spreads') {
-        const line = point === null ? '' : formatLineValue(point, { signed: true });
+        const line = point === null ? '' : formatSpreadValue(point);
         return { label: 'Spread', pick: selection, line: line ? `${line}${bpSuffix}` : bpSuffix.trim() };
     }
     if (market === 'totals') {
@@ -151,7 +151,7 @@ const ticketSummary = (bet) => {
     const point = Number.isFinite(Number(leg?.point)) ? Number(leg.point) : null;
     const selection = String(leg?.selection || '').trim();
     if (market === 'spreads') {
-        const line = point === null ? '' : formatLineValue(point, { signed: true });
+        const line = point === null ? '' : formatSpreadValue(point);
         const team = String(leg?.selectionFull || '').trim() || selection;
         return line ? `${team} ${line}` : team || 'Spread';
     }
@@ -176,7 +176,7 @@ const legDescription = (leg, oddsFormat) => {
     const odds = formatOdds(leg?.odds, oddsFormat);
     if (market === 'spreads') {
         const team = String(leg?.selectionFull || '').trim() || selection;
-        const line = point === null ? '' : formatLineValue(point, { signed: true });
+        const line = point === null ? '' : formatSpreadValue(point);
         return [team, line, odds].filter(Boolean).join(' ');
     }
     if (market === 'totals') {

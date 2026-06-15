@@ -108,9 +108,23 @@ export const formatLineValue = (value, { signed = false, fallback = '-' } = {}) 
     return `${prefix}${rendered}`;
 };
 
+// Display-only signed spread/handicap label. Always carries an explicit sign
+// ('+2.5' / '-2.5'); a 0 line renders as 'PK' (pick'em). NEVER use the return
+// value as a wire/odds-matching key — it is purely for rendering.
+export const formatSpreadValue = (value, { fallback = '-' } = {}) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+        return fallback;
+    }
+    if (Object.is(parsed, -0) || parsed === 0) {
+        return 'PK';
+    }
+    return formatLineValue(parsed, { signed: true, fallback });
+};
+
 export const formatSpreadDisplay = (point, price, oddsFormat) => {
     const priceLabel = formatOdds(price, oddsFormat);
-    const pointLabel = formatLineValue(point, { signed: true });
+    const pointLabel = formatSpreadValue(point);
     if (priceLabel === '-' || pointLabel === '-') {
         return '-';
     }

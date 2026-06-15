@@ -3,6 +3,7 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import {
     formatOdds,
     formatLineValue,
+    formatSpreadValue,
     parseOddsNumber,
     getMatchMarket,
     getMarketOutcomeByName,
@@ -247,7 +248,7 @@ const renderTeamRow = ({
 
         <OddsCell
             disabled={spreadPrice === null}
-            main={point != null ? formatLineValue(point, { signed: true }) : '—'}
+            main={point != null ? formatSpreadValue(point) : '—'}
             juice={spreadPrice != null ? formatOdds(spreadPrice, oddsFormat) : ''}
             onClick={onSpread}
         />

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
-import { formatOdds, formatLineValue } from '../utils/odds';
+import { formatOdds, formatLineValue, formatSpreadValue } from '../utils/odds';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
 
@@ -35,8 +35,9 @@ const fmtTimestamp = (value) => {
 
 const lineSuffix = (leg) => {
     const market = String(leg?.marketType || '').toLowerCase();
-    const signed = market === 'spreads';
-    const label = formatLineValue(leg?.point ?? leg?.line, { signed, fallback: '' });
+    const label = market === 'spreads'
+        ? formatSpreadValue(leg?.point ?? leg?.line, { fallback: '' })
+        : formatLineValue(leg?.point ?? leg?.line, { fallback: '' });
     return label ? ` (${label})` : '';
 };
 
