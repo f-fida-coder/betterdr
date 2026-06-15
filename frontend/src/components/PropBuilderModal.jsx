@@ -228,9 +228,14 @@ const PropBuilderModal = ({ match, onClose }) => {
         };
     }, [onClose]);
 
-    // Shared dismiss behavior: ESC / browser Back / nav-tab tap close this
-    // sheet (the component is only mounted while open, so register with true).
-    useDismissableSurface(true, onClose);
+    // Shared dismiss behavior: ESC / browser Back close this sheet (the
+    // component is only mounted while open, so register with true). It opts
+    // OUT of nav-tab dismissal (dismissOnNavTab: false) so tapping a bet-mode
+    // tab (STRAIGHT/PARLAY/TEASER/…) above only switches the mode underneath
+    // and leaves the prop sheet OPEN — the player can flip to Parlay and keep
+    // adding props without the sheet "exiting". Backdrop tap / Back / ESC / the
+    // sheet's own close button still dismiss it.
+    useDismissableSurface(true, onClose, { dismissOnNavTab: false });
 
     // Measure the page DashboardHeader so the sheet can cap its max height to
     // (viewport - header). Without this the sheet's top — which carries the
