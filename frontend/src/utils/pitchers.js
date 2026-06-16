@@ -37,7 +37,7 @@ export function hasListedPitchers(pitchers) {
 //   - listed-pitcher void   → SportsbookBetSupport::listedPitcherVoid
 //   - 8½/9 official game     → SportsbookBetSupport::baseballOfficialGameStatus
 export const MLB_LISTED_PITCHER_POLICY =
-    'Listed pitcher: this wager voids and is refunded if a listed starting pitcher is scratched, unless you select Action on that pitcher.';
+    'Wager voids if a listed starting pitcher is changed unless you select Action on that pitcher.';
 
 export const MLB_OFFICIAL_GAME_POLICY =
     'Official game: moneyline, run line and total wagers have action once the game is official \u2014 9 innings, or 8\u00BD with the home team ahead. A game called before becoming official is void and refunded.';

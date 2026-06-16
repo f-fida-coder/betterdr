@@ -5,7 +5,7 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal } from '../utils/odds';
 import { computeMidQuickStakes } from '../utils/money';
 import { formatSiteDateTime } from '../utils/timezone';
-import { isMlbSportKey, formatPitcherLabel, MLB_LISTED_PITCHER_POLICY, MLB_OFFICIAL_GAME_POLICY } from '../utils/pitchers';
+import { isMlbSportKey, formatPitcherLabel } from '../utils/pitchers';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
 import BetConfirmationModal from './BetConfirmationModal';
 import WagerConfirmedScreen from './WagerConfirmedScreen';
@@ -2419,32 +2419,6 @@ const ModeBetPanel = ({
                     }}>
                         <i className="fa-solid fa-circle-info" />
                         {(MODE_TABS.find(t => t.id === normalizedMode)?.label) || 'This mode'} requires at least 2 selections.
-                    </div>
-                )}
-
-                {/* Global MLB house-rule banner — shown once whenever the slip
-                    holds any baseball leg. States BOTH money rules exactly as
-                    they settle (listed-pitcher void + 8½/9 official game), so
-                    the disclosure can never drift from the code that enforces
-                    it. Copy lives in utils/pitchers.js alongside the backend
-                    references. */}
-                {selections.some((s) => isMlbSportKey(s?.sportKey)) && (
-                    <div style={{
-                        margin: '0 0 10px',
-                        padding: '8px 10px',
-                        borderRadius: 6,
-                        border: `1px solid ${palette.cardBorder}`,
-                        background: palette.cardBg,
-                        fontSize: 10.5,
-                        lineHeight: 1.4,
-                        color: palette.textMuted,
-                    }}>
-                        <div style={{ fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', color: palette.textPrimary, marginBottom: 3 }}>
-                            <i className="fa-solid fa-baseball" style={{ marginRight: 6, opacity: 0.6 }} />
-                            MLB house rules
-                        </div>
-                        <div>{MLB_LISTED_PITCHER_POLICY}</div>
-                        <div style={{ marginTop: 2 }}>{MLB_OFFICIAL_GAME_POLICY}</div>
                     </div>
                 )}
 
