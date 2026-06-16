@@ -831,7 +831,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     // comes from ESPN's scoreboard side-channel via the
                     // matches projection.
                     broadcast: resolveBroadcast(match.broadcast),
-                    eventName: typeof match.eventName === 'string' ? match.eventName.trim() : '',
+                    // Strip any trailing ISO timestamp the feed appends to
+                    // event_name so the raw date never leaks into the row.
+                    eventName: (typeof match.eventName === 'string' ? match.eventName.trim() : '')
+                        .replace(/\s*[-–—]\s*\d{4}-\d{2}-\d{2}T[0-9:.]+Z?\s*$/, ''),
                     broadcastTime: formatBroadcastTimeET(match.startTime),
                     // shortName + record are populated server-side by
                     // TeamNormalizer (ESPN scoreboard for records, both

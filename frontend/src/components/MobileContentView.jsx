@@ -944,7 +944,11 @@ const MobileContentView = ({
                 team1Record: match.awayTeamRecord || '',
                 team2Record: match.homeTeamRecord || '',
                 broadcast: resolveBroadcast(match.broadcast),
-                eventName: typeof match.eventName === 'string' ? match.eventName.trim() : '',
+                // Strip any trailing ISO timestamp the feed appends to event_name
+                // (e.g. "Miami at Philadelphia - 2026-06-16T22:40:00Z") so the raw
+                // date never leaks into the broadcast row.
+                eventName: (typeof match.eventName === 'string' ? match.eventName.trim() : '')
+                    .replace(/\s*[-–—]\s*\d{4}-\d{2}-\d{2}T[0-9:.]+Z?\s*$/, ''),
                 broadcastTime: formatBroadcastTimeET(match.startTime),
                 // Multi-sport: each league's matches see its OWN selected
                 // period's suffix (so NBA-Q1 + MLB-Full can coexist on
@@ -2238,7 +2242,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 resolved brand so unknown RSN strings never render as a
                 styled placeholder; in that case the row degrades to
                 just "[TIME] EST - [EVENT NAME]". */}
-            {(match.broadcast || match.eventName) ? (
+            {match.broadcast ? (
                 <div style={broadcastRowStyle}>
                     <span style={broadcastTextStyle}>
                         {match.broadcastTime}
