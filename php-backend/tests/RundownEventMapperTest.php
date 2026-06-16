@@ -326,3 +326,99 @@ TestRunner::run('pre-match spreads survive when no live variant is present', fun
     TestRunner::assertEquals(1, count($byTeam['New York Yankees'] ?? []), 'NYY should have exactly one spread outcome');
     TestRunner::assertEqualsFloat(1.0, (float) $byTeam['New York Yankees'][0]['point'], 'pre-match NYY spread preserved');
 });
+
+// ── Team totals — structured fields, teamSide anchor, alt routing ────────
+// Rundown packs direction+line into line.value ("Over 4.5") and makes the
+// TEAM the participant. The mapper must emit structured {team,teamSide,
+// side,point} (name is display-only), anchor each team to home/away by
+// team_id, route MAIN lines to the 'team_totals' board, and STORE non-main
+// rungs under alternate_team_totals (not surfaced on the board yet).
+
+function rmtTeamTotalEvent(): array
+{
+    return [
+        'event_id' => 'synthetic-tt',
+        'sport_id' => 3,
+        'teams' => [
+            ['name' => 'Detroit', 'team_id' => 53, 'is_home' => true],
+            ['name' => 'Los Angeles', 'team_id' => 57, 'is_away' => true],
+        ],
+        'score' => ['event_status' => 'STATUS_SCHEDULED'],
+        'schedule' => ['event_name' => 'Los Angeles at Detroit'],
+        'markets' => [[
+            'market_id' => 94,
+            'period_id' => 0,
+            'participants' => [
+                ['name' => 'Detroit Tigers', 'type' => 'TYPE_TEAM', 'id' => 53, 'lines' => [
+                    ['value' => 'Over 4.5',  'prices' => ['3' => ['price' => -110, 'is_main_line' => true,  'id' => 7001, 'updated_at' => '2026-05-30T02:00:00Z']]],
+                    ['value' => 'Under 4.5', 'prices' => ['3' => ['price' => -110, 'is_main_line' => true,  'id' => 7002, 'updated_at' => '2026-05-30T02:00:00Z']]],
+                    ['value' => 'Over 3.5',  'prices' => ['3' => ['price' => -200, 'is_main_line' => false, 'id' => 7003, 'updated_at' => '2026-05-30T02:00:00Z']]],
+                ]],
+                ['name' => 'Los Angeles Angels', 'type' => 'TYPE_TEAM', 'id' => 57, 'lines' => [
+                    ['value' => 'Over 4.5',  'prices' => ['3' => ['price' => 105, 'is_main_line' => true,  'id' => 7011, 'updated_at' => '2026-05-30T02:00:00Z']]],
+                ]],
+            ],
+        ]],
+    ];
+}
+
+// Collect the 'team_totals' board outcomes off the first bookmaker.
+function rmtTeamTotalsBoard(array $doc): array
+{
+    foreach (($doc['odds']['bookmakers'][0]['markets'] ?? []) as $m) {
+        if (($m['key'] ?? '') === 'team_totals') return $m['outcomes'] ?? [];
+    }
+    return [];
+}
+
+TestRunner::run('team totals: parsed into structured side/point with home/away anchor', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtTeamTotalEvent(), 'baseball_mlb');
+    TestRunner::assertNotNull($doc, 'event mapped');
+    $board = rmtTeamTotalsBoard($doc);
+    // Three MAIN lines reach the board: Detroit Over, Detroit Under, LA Over.
+    TestRunner::assertEquals(3, count($board), 'three main team-total outcomes on the board');
+
+    $byKey = [];
+    foreach ($board as $o) {
+        $byKey[$o['teamSide'] . ':' . $o['side']] = $o;
+        // point must be a real number, never null (the game-totals parser
+        // would have produced null for the "Over 4.5" string).
+        TestRunner::assertTrue(isset($o['point']) && is_numeric($o['point']), 'team-total outcome carries numeric point');
+    }
+
+    TestRunner::assertTrue(isset($byKey['home:over']),  'Detroit (home) Over present');
+    TestRunner::assertTrue(isset($byKey['home:under']), 'Detroit (home) Under present');
+    TestRunner::assertTrue(isset($byKey['away:over']),  'Los Angeles (away) Over present');
+
+    TestRunner::assertEqualsFloat(4.5, (float) $byKey['home:over']['point'], 'home over point = 4.5');
+    TestRunner::assertEquals('Detroit', $byKey['home:over']['team'], 'team carries canonical short name');
+    TestRunner::assertEquals('over', $byKey['home:over']['side'], 'side parsed');
+    TestRunner::assertEquals('home', $byKey['home:over']['teamSide'], 'teamSide anchored by team_id');
+});
+
+TestRunner::run('team totals: away Under is NOT synthesized when the feed omits it', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtTeamTotalEvent(), 'baseball_mlb');
+    $board = rmtTeamTotalsBoard($doc);
+    $awayUnder = false;
+    foreach ($board as $o) {
+        if ($o['teamSide'] === 'away' && $o['side'] === 'under') $awayUnder = true;
+    }
+    TestRunner::assertFalse($awayUnder, 'no fabricated away Under — only sides present in the feed');
+});
+
+TestRunner::run('team totals: non-main rung stored under alternate_team_totals, not on the board', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtTeamTotalEvent(), 'baseball_mlb');
+    // The 3.5 alternate must NOT leak onto the main board.
+    foreach (rmtTeamTotalsBoard($doc) as $o) {
+        TestRunner::assertEqualsFloat(4.5, (float) $o['point'], 'only the 4.5 main line is on the board');
+    }
+    // It is captured in alternate_team_totals for later use.
+    $alt = [];
+    foreach (($doc['extendedMarkets'] ?? []) as $m) {
+        if (($m['key'] ?? '') === 'alternate_team_totals') $alt = $m['outcomes'] ?? [];
+    }
+    TestRunner::assertEquals(1, count($alt), 'one alternate team-total rung stored');
+    TestRunner::assertEqualsFloat(3.5, (float) $alt[0]['point'], 'alternate rung is the 3.5 line');
+    TestRunner::assertEquals('over', $alt[0]['side'], 'alternate rung keeps structured side');
+    TestRunner::assertEquals('home', $alt[0]['teamSide'], 'alternate rung keeps teamSide');
+});

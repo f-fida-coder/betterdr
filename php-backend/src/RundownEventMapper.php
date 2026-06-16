@@ -111,10 +111,26 @@ final class RundownEventMapper
             }
         }
 
+        // team_id → 'home'|'away'. Team totals carry the team as the
+        // participant; settlement grades each side against score_home /
+        // score_away, so the ingest stamps the side here (by stable team_id,
+        // never by name) and the rest of the pipeline never has to string-
+        // match a team name to figure out which score to grade against.
+        $teamSideById = [];
+        $homeTeamId = (string) ($home['team_id'] ?? '');
+        $awayTeamId = (string) ($away['team_id'] ?? '');
+        if ($homeTeamId !== '') {
+            $teamSideById[$homeTeamId] = 'home';
+        }
+        if ($awayTeamId !== '') {
+            $teamSideById[$awayTeamId] = 'away';
+        }
+
         $partitioned = self::partitionMarkets(
             is_array($event['markets'] ?? null) ? $event['markets'] : [],
             $resolvedSportKey,
-            $teamNamesById
+            $teamNamesById,
+            $teamSideById
         );
         $now = SqlRepository::nowUtc();
 
@@ -252,7 +268,7 @@ final class RundownEventMapper
      *     playerProps: list<array<string,mixed>>
      * }
      */
-    private static function partitionMarkets(array $markets, string $sportKey, array $teamNamesById = []): array
+    private static function partitionMarkets(array $markets, string $sportKey, array $teamNamesById = [], array $teamSideById = []): array
     {
         /** @var array<int, array{key:string,name:string,lastUpdate:string,markets:array<string, array{prematch?:list<array<string,mixed>>,live?:list<array<string,mixed>>}>}> $bookmakersById */
         $bookmakersById = [];
@@ -316,6 +332,68 @@ final class RundownEventMapper
                         $isMain = (bool) ($price['is_main_line'] ?? false);
                         $priceDecimal = self::priceToDecimal($priceFloat);
                         $updatedAt = (string) ($price['updated_at'] ?? '');
+
+                        // ── Route 0: team totals ────────────────────
+                        // Rundown encodes team totals UNLIKE game totals: the
+                        // participant IS the team (TYPE_TEAM), and the over/under
+                        // direction + the line are packed into line.value as a
+                        // string ("Over 4.5" / "Under 4.5") — there is no numeric
+                        // point and no "Over"/"Under" participant. Parse the
+                        // direction/point out, anchor the team to home/away by
+                        // stable team_id, and emit STRUCTURED fields so neither
+                        // the frontend nor settlement ever parse a display name.
+                        // Only IDs 94 (prematch) / 96 (live) reach here — period
+                        // team-total IDs aren't core, so they fall through to the
+                        // extended route unchanged (period TT is out of scope).
+                        if ($isCore && RundownMarketMap::oddsApiKey($marketId) === 'team_totals') {
+                            $tt = self::parseTeamTotalLine($lineValueRaw);
+                            if ($tt === null) continue;                 // unparseable direction/point → drop
+                            $teamSide = $teamSideById[$participantTeamKey] ?? null;
+                            if ($teamSide === null) continue;           // no home/away anchor → cannot grade → drop
+                            [$ttSide, $ttPoint] = $tt;
+                            $ttOutcome = [
+                                // name is DISPLAY ONLY — never parsed downstream.
+                                'name'     => trim($canonicalTeamName . ' ' . ($ttSide === 'over' ? 'Over' : 'Under')),
+                                'team'     => $canonicalTeamName,
+                                'teamSide' => $teamSide,
+                                'side'     => $ttSide,
+                                'point'    => $ttPoint,
+                                // team_totals is NOT a flat-juice market — passes
+                                // through at the feed price (see boardPriceDecimal).
+                                'price'    => self::boardPriceDecimal('team_totals', $priceFloat, $sportKey),
+                            ];
+                            $ttPid = $participant['id'] ?? null;
+                            if ($ttPid !== null && $ttPid !== '') {
+                                $ttOutcome['pid'] = is_numeric($ttPid) ? (int) $ttPid : (string) $ttPid;
+                            }
+                            $ttPriceId = $price['id'] ?? null;
+                            if ($ttPriceId !== null && $ttPriceId !== '') {
+                                $ttOutcome['priceId'] = is_numeric($ttPriceId) ? (int) $ttPriceId : (string) $ttPriceId;
+                            }
+                            // Main line → core board (same prematch/live source
+                            // bucketing as the other cores). Non-main rungs →
+                            // alternate_team_totals: STORED so the data is captured,
+                            // but not surfaced in the listing UI yet (per scope).
+                            if ($isMain && ($periodId === 0 || $isLiveCore)) {
+                                if (!isset($bookmakersById[$affiliateId])) {
+                                    $bookmakersById[$affiliateId] = [
+                                        'key'        => $book['key'],
+                                        'name'       => $book['name'],
+                                        'lastUpdate' => $updatedAt,
+                                        'markets'    => [],
+                                    ];
+                                } elseif ($updatedAt !== '' && $updatedAt > $bookmakersById[$affiliateId]['lastUpdate']) {
+                                    $bookmakersById[$affiliateId]['lastUpdate'] = $updatedAt;
+                                }
+                                $marketSource = $isLiveCore ? 'live' : 'prematch';
+                                $bookmakersById[$affiliateId]['markets']['team_totals'][$marketSource] ??= [];
+                                $bookmakersById[$affiliateId]['markets']['team_totals'][$marketSource][] = $ttOutcome;
+                            } else {
+                                $ttOutcome['book'] = $book['key'];
+                                $extendedByKey['alternate_team_totals'][] = $ttOutcome;
+                            }
+                            continue;
+                        }
 
                         // ── Route 1: player prop ────────────────────
                         if ($isProp || $participantType === 'TYPE_PLAYER') {
@@ -782,6 +860,25 @@ final class RundownEventMapper
      * sportKey is supplied we only flatten for the configured spread sports.
      * Passing $sportKey = null preserves the legacy "flatten regardless" path.
      */
+    /**
+     * Parse a Rundown team-total line value into [side, point].
+     *
+     * Team totals pack the direction and the line into one string:
+     * "Over 4.5", "Under 3.5" (case / whitespace tolerant). Returns
+     * ['over'|'under', float] or null when the value is not a recognizable
+     * team-total line (e.g. a plain numeric game-total value, or off-shape
+     * data) — the caller drops null rather than guess a side.
+     *
+     * @return array{0:string,1:float}|null
+     */
+    private static function parseTeamTotalLine(string $value): ?array
+    {
+        if (!preg_match('/^\s*(over|under)\s+(-?\d+(?:\.\d+)?)\s*$/i', $value, $m)) {
+            return null;
+        }
+        return [strtolower($m[1]), (float) $m[2]];
+    }
+
     private static function flatJuiceAmerican(string $marketKey, ?string $sportKey = null): ?int
     {
         if (!in_array($marketKey, self::FLAT_JUICE_MARKETS, true)) {
