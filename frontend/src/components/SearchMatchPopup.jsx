@@ -111,10 +111,13 @@ const SearchMatchPopup = ({ match, onClose }) => {
     const [detailOpen, setDetailOpen] = useState(false);
     const [propsOpen, setPropsOpen] = useState(false);
 
-    // Shared dismiss behavior: ESC / browser Back / nav-tab tap close this
-    // popup (only mounted while open). Nested detail/props sheets register
-    // their own stack entry on top, so Back unwinds them first.
-    useDismissableSurface(true, onClose);
+    // Shared dismiss behavior: ESC / browser Back close this popup (only
+    // mounted while open). Nested detail/props sheets register their own stack
+    // entry on top, so Back unwinds them first. Opts OUT of nav-tab dismissal
+    // (dismissOnNavTab: false) — same as the P+ and alt-lines sheets — so
+    // tapping a bet-mode tab above only switches the mode underneath and leaves
+    // this search popup OPEN. Backdrop tap / Back / ESC / close still dismiss it.
+    useDismissableSurface(true, onClose, { dismissOnNavTab: false });
 
     const modalMatch = useMemo(() => ({
         id: matchId,
