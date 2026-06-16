@@ -229,6 +229,54 @@ TestRunner::run('selectionResult — alternate_spreads / alternate_totals grade 
     TestRunner::assertEquals('lost', SportsbookBetSupport::selectionResult($m, selection_('alternate_totals', 'Under Chiefs Eagles', 44.5)), 'alt total under misses');
 });
 
+// ── selectionResult — team totals (full game) ─────────────────────────────────
+
+/** Build a team_totals selection. Grades off teamSide+side, never the name. */
+function ttSelection_(string $teamSide, string $side, float $point, ?string $name = null): array
+{
+    return [
+        'marketType' => 'team_totals',
+        // name is DISPLAY ONLY — settlement must ignore it. We deliberately
+        // pass a misleading/blank name to prove grading never reads it.
+        'selection'  => $name ?? '',
+        'teamSide'   => $teamSide,
+        'side'       => $side,
+        'point'      => $point,
+        'status'     => 'pending',
+    ];
+}
+
+TestRunner::run('selectionResult — team totals over/under/push grade off structured fields', function (): void {
+    // MLB: home (Tigers) 6 runs, away (Guardians) 3 runs.
+    $m = match_('Tigers', 'Guardians', 6, 3);
+
+    // Home OVER 4.5 → 6 > 4.5 → won. Away UNDER 4.5 → 3 < 4.5 → won.
+    TestRunner::assertEquals('won',  SportsbookBetSupport::selectionResult($m, ttSelection_('home', 'over', 4.5)), 'home team over hits');
+    TestRunner::assertEquals('lost', SportsbookBetSupport::selectionResult($m, ttSelection_('home', 'under', 4.5)), 'home team under misses');
+    TestRunner::assertEquals('won',  SportsbookBetSupport::selectionResult($m, ttSelection_('away', 'under', 4.5)), 'away team under hits');
+    TestRunner::assertEquals('lost', SportsbookBetSupport::selectionResult($m, ttSelection_('away', 'over', 4.5)), 'away team over misses');
+
+    // Push: integer line equal to the team's score → void (refund).
+    TestRunner::assertEquals('void', SportsbookBetSupport::selectionResult($m, ttSelection_('home', 'over', 6.0)), 'home over push → void');
+    TestRunner::assertEquals('void', SportsbookBetSupport::selectionResult($m, ttSelection_('home', 'under', 6.0)), 'home under push → void');
+    TestRunner::assertEquals('void', SportsbookBetSupport::selectionResult($m, ttSelection_('away', 'over', 3.0)), 'away over push → void');
+
+    // Display name is never parsed: a misleading name does not change grading.
+    TestRunner::assertEquals('won', SportsbookBetSupport::selectionResult($m, ttSelection_('home', 'over', 4.5, 'Guardians Under')), 'grades off teamSide/side, ignores name');
+});
+
+TestRunner::run('selectionResult — team totals missing/invalid structured fields stay pending', function (): void {
+    $m = match_('Tigers', 'Guardians', 6, 3);
+    // No teamSide → cannot anchor → pending (never a guessed grade).
+    TestRunner::assertEquals('pending', SportsbookBetSupport::selectionResult($m, ['marketType' => 'team_totals', 'selection' => 'Tigers Over', 'side' => 'over', 'point' => 4.5, 'status' => 'pending']), 'no teamSide → pending');
+    // No side → pending.
+    TestRunner::assertEquals('pending', SportsbookBetSupport::selectionResult($m, ['marketType' => 'team_totals', 'selection' => 'Tigers Over', 'teamSide' => 'home', 'point' => 4.5, 'status' => 'pending']), 'no side → pending');
+    // No point → pending.
+    TestRunner::assertEquals('pending', SportsbookBetSupport::selectionResult($m, ['marketType' => 'team_totals', 'selection' => 'Tigers Over', 'teamSide' => 'home', 'side' => 'over', 'status' => 'pending']), 'no point → pending');
+    // Period team totals are NOT auto-graded → pending.
+    TestRunner::assertEquals('pending', SportsbookBetSupport::selectionResult($m, ['marketType' => 'team_totals_q1', 'selection' => 'Tigers Over', 'teamSide' => 'home', 'side' => 'over', 'point' => 4.5, 'status' => 'pending']), 'period team total → pending');
+});
+
 // ── selectionResult — period / half / quarter / inning markets ────────────────
 
 /** Build a finished match carrying per-period scores. */

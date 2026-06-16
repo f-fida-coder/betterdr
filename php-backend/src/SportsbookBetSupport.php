@@ -678,6 +678,11 @@ final class SportsbookBetSupport
         $point = array_key_exists('point', $selection) && is_numeric($selection['point']) ? (float) $selection['point'] : null;
         $homeTeam = (string) ($match['homeTeam'] ?? '');
         $awayTeam = (string) ($match['awayTeam'] ?? '');
+        // Team totals grade off these STRUCTURED fields, never the display
+        // name. Null/garbage on a team-total leg → gradeAgainstScore returns
+        // 'pending' (never a guessed grade). Ignored by every other market.
+        $teamSide = isset($selection['teamSide']) ? strtolower((string) $selection['teamSide']) : null;
+        $side = isset($selection['side']) ? strtolower((string) $selection['side']) : null;
 
         // Resolve the stored marketType (e.g. 'spreads', 'alternate_totals',
         // 'h2h_q1', 'totals_1st_5_innings') into a gradeable base market and
@@ -749,7 +754,7 @@ final class SportsbookBetSupport
             [$scoreHome, $scoreAway] = $ps;
         }
 
-        return self::gradeAgainstScore($baseMarket, $selectionName, $point, $scoreHome, $scoreAway, $homeTeam, $awayTeam);
+        return self::gradeAgainstScore($baseMarket, $selectionName, $point, $scoreHome, $scoreAway, $homeTeam, $awayTeam, $teamSide, $side);
     }
 
     /**
@@ -765,8 +770,31 @@ final class SportsbookBetSupport
         float $scoreHome,
         float $scoreAway,
         string $homeTeam,
-        string $awayTeam
+        string $awayTeam,
+        ?string $teamSide = null,
+        ?string $side = null
     ): string {
+        // Full-game team totals: grade the PICKED team's score against the
+        // line. We use the structured teamSide ('home'|'away') and side
+        // ('over'|'under') stored on the leg — never the display name. Any
+        // missing/invalid structured field → 'pending' (an operator settles
+        // it) rather than a guessed grade. Push (team score == line) → 'void'
+        // → stake refunded via the standard total void/refund path.
+        if ($baseMarket === 'team_totals') {
+            if ($point === null) return 'pending';
+            if ($teamSide !== 'home' && $teamSide !== 'away') return 'pending';
+            if ($side !== 'over' && $side !== 'under') return 'pending';
+            $teamScore = $teamSide === 'home' ? $scoreHome : $scoreAway;
+            if ($side === 'over') {
+                if ($teamScore > $point) return 'won';
+                if ($teamScore === $point) return 'void';
+                return 'lost';
+            }
+            if ($teamScore < $point) return 'won';
+            if ($teamScore === $point) return 'void';
+            return 'lost';
+        }
+
         if ($baseMarket === 'h2h') {
             $side = self::resolveSelectionSide($selectionName, $homeTeam, $awayTeam);
             if ($scoreHome > $scoreAway) {
@@ -824,13 +852,15 @@ final class SportsbookBetSupport
      *
      * Supported (auto-graded): h2h / spreads / totals, their `alternate_`
      * forms, and their period variants (_q1.._q4, _h1/_h2, _p1.._p3,
-     * _1st_{1,3,5,7}_innings).
+     * _1st_{1,3,5,7}_innings); plus FULL-GAME team_totals (graded on the
+     * picked team's score via the leg's stored teamSide+side, not the name).
      *
      * NOT auto-graded (→ null → stays pending for an operator): 3-way ML
-     * (h2h_3_way*), team totals, BTTS, draw-no-bet, double-chance, corners/
-     * cards, and every player prop. These either need a result dimension
-     * the score doc doesn't carry (props, corners) or have house-rule
-     * nuances (3-way regulation/OT) we will not guess at.
+     * (h2h_3_way*), PERIOD team totals (team_totals_q1, etc.), BTTS,
+     * draw-no-bet, double-chance, corners/cards, and every player prop.
+     * These either need a result dimension the score doc doesn't carry
+     * (props, corners, period TT — no per-period team split graded yet) or
+     * have house-rule nuances (3-way regulation/OT) we will not guess at.
      *
      * @return array{base:string, suffix:?string}|null
      */
@@ -854,6 +884,13 @@ final class SportsbookBetSupport
         }
         if ($mt === 'totals') {
             return ['base' => 'totals', 'suffix' => null];
+        }
+        // Full-game team totals only. Period TT (team_totals_q1, ...) is NOT
+        // matched here — it has no 'team_totals' exact form and won't match the
+        // h2h/spreads/totals period loop below, so it falls through to null and
+        // stays pending (no per-period team split is graded yet).
+        if ($mt === 'team_totals') {
+            return ['base' => 'team_totals', 'suffix' => null];
         }
         // Period variants: base_<suffix>, base ∈ {h2h,spreads,totals} and the
         // suffix is one we know how to map to by_period indices. Anything
@@ -1542,7 +1579,7 @@ final class SportsbookBetSupport
             return 'pitcher_changed';
         }
         $marketType = strtolower((string) ($leg['marketType'] ?? ''));
-        if ($marketType !== 'spreads' && $marketType !== 'totals') {
+        if ($marketType !== 'spreads' && $marketType !== 'totals' && $marketType !== 'team_totals') {
             return null;
         }
         $point = isset($leg['point']) && is_numeric($leg['point']) ? (float) $leg['point'] : null;
@@ -1555,6 +1592,16 @@ final class SportsbookBetSupport
             return null;
         }
         [$scoreHome, $scoreAway] = $st;
+        if ($marketType === 'team_totals') {
+            // Push iff the picked team's score equals the line. Read the same
+            // structured teamSide selectionResult grades on — never the name.
+            $teamSide = strtolower((string) ($leg['teamSide'] ?? ''));
+            if ($teamSide !== 'home' && $teamSide !== 'away') {
+                return null;
+            }
+            $teamScore = $teamSide === 'home' ? $scoreHome : $scoreAway;
+            return $teamScore === $point ? 'push_tie' : null;
+        }
         if ($marketType === 'spreads') {
             $side = self::resolveSelectionSide(
                 (string) ($leg['selection'] ?? ''),

@@ -3197,6 +3197,13 @@ final class BetsController
             // stable team_id. Nothing matches on them.
             'selectionFull' => $this->fullSelectionLabel($match, $outcome, $selection),
             'selectionPid' => $outcome['pid'] ?? null,
+            // Team totals canonical fields (null on every other market). The
+            // outcome carries these structured from the mapper; settlement
+            // grades the picked team's score on teamSide + side and NEVER
+            // parses the display `name`/`selection`. Stored on the leg so
+            // grading has them without re-reading the live doc.
+            'teamSide' => $outcome['teamSide'] ?? null,
+            'side' => $outcome['side'] ?? null,
             'odds' => $effectiveDecimal,
             'oddsAmerican' => $effectiveAmerican,
             'marketType' => $marketKey,
@@ -3249,6 +3256,11 @@ final class BetsController
             'odds' => (float) $selection['odds'],
             'oddsAmerican' => isset($selection['oddsAmerican']) ? (int) $selection['oddsAmerican'] : null,
             'marketType' => $selection['marketType'] ?? '',
+            // Team totals canonical grading fields. Null on every non-team-total
+            // leg; settlement reads these (NOT the display name) to grade the
+            // picked team's score against `point`.
+            'teamSide' => $selection['teamSide'] ?? null,
+            'side' => $selection['side'] ?? null,
             'point' => $selection['point'] ?? null,
             // basePoint preserves the pregame line BEFORE teaser shift OR
             // buy-points shift. originalPoint mirrors basePoint for buy
