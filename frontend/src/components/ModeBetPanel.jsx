@@ -2734,30 +2734,20 @@ const ModeBetPanel = ({
                                             </span>
                                         </button>
                                         {buyPointsOpen && (
-                                            <>
-                                                {/* Click-away catcher — closes the popup
-                                                    when the user taps anywhere outside. */}
-                                                <div
-                                                    onClick={() => setOpenBuyPointsId(null)}
-                                                    style={{
-                                                        position: 'fixed',
-                                                        inset: 0,
-                                                        zIndex: 1300,
-                                                    }}
-                                                />
-                                                <div style={{
-                                                    position: 'absolute',
-                                                    top: 'calc(100% + 4px)',
-                                                    left: 0,
-                                                    right: 0,
-                                                    background: '#fff',
-                                                    border: `1px solid ${palette.cardBorder}`,
-                                                    borderRadius: 10,
-                                                    boxShadow: '0 12px 28px -10px rgba(15,23,42,0.35)',
-                                                    overflow: 'hidden',
-                                                    zIndex: 1301,
-                                                }}>
-                                                    {buyPointsOptions.map((opt, optIdx) => {
+                                            // Inline (in-flow) list so EVERY buy-points rung is
+                                            // visible. An absolutely-positioned overlay was clipped
+                                            // by the selection card's overflow:hidden, so only the
+                                            // first rung showed. Rendering in flow grows the card and
+                                            // the slip scrolls if needed — all rungs are reachable.
+                                            <div style={{
+                                                marginTop: 4,
+                                                background: '#fff',
+                                                border: `1px solid ${palette.cardBorder}`,
+                                                borderRadius: 10,
+                                                boxShadow: '0 12px 28px -10px rgba(15,23,42,0.35)',
+                                                overflow: 'hidden',
+                                            }}>
+                                                {buyPointsOptions.map((opt, optIdx) => {
                                                         const isCurrent = Math.abs(Number(sel.line) - opt.line) < 1e-6
                                                             && Math.abs(Number(sel.odds) - opt.decimalOdds) < 1e-3;
                                                         return (
@@ -2799,7 +2789,6 @@ const ModeBetPanel = ({
                                                         );
                                                     })}
                                                 </div>
-                                            </>
                                         )}
                                     </div>
                                 )}
