@@ -396,7 +396,22 @@ final class RundownEventMapper
                         }
 
                         // ── Route 1: player prop ────────────────────
+                        // ONE main line per player per prop. The full-coverage
+                        // pull omits main_line=true (it MUST, to keep the core
+                        // alt-line/period ladders Buy Points reads from the same
+                        // shared request), so Rundown returns the whole prop
+                        // ladder here. Rundown's main_line is request-wide, not
+                        // per-market, so we can't filter props at the fetch
+                        // without dropping those core alt lines. Instead gate on
+                        // the per-price is_main_line flag at ingestion: this
+                        // yields exactly one rung (its O/U sides) per player per
+                        // prop, at zero extra data-point cost. Non-main prop
+                        // rungs are never stored, so they're never offered — a
+                        // deliberate risk control on prop ladders. Existing
+                        // pending bets are unaffected (settlement grades the line
+                        // stored on the bet leg, not the live doc).
                         if ($isProp || $participantType === 'TYPE_PLAYER') {
+                            if (!$isMain) continue;
                             $propKey = RundownMarketMap::propKey($marketId) ?? 'player_unknown';
                             $propOutcome = self::buildPropOutcome($rawParticipantName, $lineValueRaw, $point, $priceDecimal);
                             if ($propOutcome !== null) {
