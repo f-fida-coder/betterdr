@@ -733,6 +733,24 @@ const MobileContentView = ({
         const spreadAwayOutcome = getMarketOutcomeByName(spreads, awayName);
         const totalOverOutcome = getMarketOutcomeByKeyword(totals, 'over');
         const totalUnderOutcome = getMarketOutcomeByKeyword(totals, 'under');
+
+        // Team totals (MLB full-game only). Structured outcomes carry
+        // {team, teamSide, side, point, price}; `name` ("Detroit Over") is
+        // display-only and sent verbatim as the selection. Missing sides stay
+        // null — never synthesize the absent Over/Under.
+        const teamTotalsMarket = getMatchMarket(match, 'team_totals');
+        const ttOutcomes = Array.isArray(teamTotalsMarket?.outcomes) ? teamTotalsMarket.outcomes : [];
+        const teamTotalLeg = (teamSide, side) => {
+            const o = ttOutcomes.find((c) => c?.teamSide === teamSide && c?.side === side);
+            return o ? {
+                name: String(o.name || ''),
+                team: o.team ?? null,
+                teamSide: o.teamSide ?? null,
+                side: o.side ?? null,
+                point: o.point ?? null,
+                price: parseOddsNumber(o.price),
+            } : null;
+        };
         return {
             spreadHomePoint: spreadHomeOutcome?.point ?? null,
             spreadAwayPoint: spreadAwayOutcome?.point ?? null,
@@ -750,6 +768,10 @@ const MobileContentView = ({
             totalUnderPrice: parseOddsNumber(totalUnderOutcome?.price),
             totalOverAlternateLines: Array.isArray(totalOverOutcome?.alternateLines) ? totalOverOutcome.alternateLines : null,
             totalUnderAlternateLines: Array.isArray(totalUnderOutcome?.alternateLines) ? totalUnderOutcome.alternateLines : null,
+            teamTotals: {
+                away: { over: teamTotalLeg('away', 'over'), under: teamTotalLeg('away', 'under') },
+                home: { over: teamTotalLeg('home', 'over'), under: teamTotalLeg('home', 'under') },
+            },
         };
     }, []);
 
@@ -2083,6 +2105,12 @@ const matchCardSignature = (match) => {
         odds?.spreadHomePrice,
         odds?.moneylineHome,
         odds?.totalUnderPrice,
+        // Team-total fingerprint so a TT price/line move re-renders the card
+        // even when the game total is unchanged.
+        odds?.teamTotals?.away?.over?.price, odds?.teamTotals?.away?.over?.point,
+        odds?.teamTotals?.away?.under?.price, odds?.teamTotals?.away?.under?.point,
+        odds?.teamTotals?.home?.over?.price, odds?.teamTotals?.home?.over?.point,
+        odds?.teamTotals?.home?.under?.price, odds?.teamTotals?.home?.under?.point,
         match?.rotation?.away,
         match?.rotation?.home,
     ].join('|');
@@ -2091,6 +2119,13 @@ const matchCardSignature = (match) => {
 const matchCardSelectionSnapshot = (match, selectedKeys) => {
     if (!match?.id || !selectedKeys) return '';
     const key = (marketType, selection) => `${match.id}|${marketType}|${selection}`;
+    const tt = match.odds?.teamTotals || {};
+    const ttKeys = ['away', 'home'].flatMap((teamSide) =>
+        ['over', 'under']
+            .map((side) => tt[teamSide]?.[side]?.name)
+            .filter(Boolean)
+            .map((name) => selectedKeys.has(key('team_totals', name)))
+    );
     return [
         selectedKeys.has(key('spreads', match.team1)),
         selectedKeys.has(key('spreads', match.team2)),
@@ -2098,6 +2133,7 @@ const matchCardSelectionSnapshot = (match, selectedKeys) => {
         selectedKeys.has(key('h2h', match.team2)),
         selectedKeys.has(key('totals', 'Over')),
         selectedKeys.has(key('totals', 'Under')),
+        ...ttKeys,
     ].join('|');
 };
 
@@ -2168,6 +2204,16 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const showPitchers = isMlbSportKey(match?.sportKey || match?.sport) && (match.pitchers?.away || match.pitchers?.home);
     const [pitcherAction, setPitcherAction] = React.useState({ home: false, away: false });
     const togglePitcherSide = (side) => setPitcherAction((prev) => ({ ...prev, [side]: !prev[side] }));
+    // Total ⇄ Team Totals toggle (MLB full-game only). The away row's Total
+    // column then renders the away team's TT, the home row the home team's —
+    // mirroring the away/home column split. Gated on the feed actually
+    // shipping team totals for this game.
+    const teamTotals = match.odds?.teamTotals || {};
+    const ttSideAvail = (leg) => !!leg && leg.point !== null && leg.price !== null;
+    const teamHasTT = (teamSide) => ttSideAvail(teamTotals[teamSide]?.over) || ttSideAvail(teamTotals[teamSide]?.under);
+    const hasTeamTotals = isMlbSportKey(match?.sportKey || match?.sport) && (teamHasTT('away') || teamHasTT('home'));
+    const [ttOn, setTtOn] = React.useState(false);
+    const teamTotalsActive = hasTeamTotals && ttOn;
     // 1st-inning totals at 0.5 IS the NRFI/YRFI market — relabel chips so bettors
     // recognise it. Selection name stays "Over"/"Under" for settlement (totals
     // resolution in SportsbookBetSupport::selectionResult matches on substring
@@ -2207,6 +2253,42 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
             pitchers: showPitchers ? match.pitchers : null,
             pitcherAction: showPitchers ? { home: !!pitcherAction.home, away: !!pitcherAction.away } : undefined,
         });
+    };
+    // Team-total add. selection = the outcome's display name ("Detroit Over");
+    // the backend matches it verbatim then grades off the leg's structured
+    // teamSide/side/point. The {team, teamSide, side} meta is display/audit only.
+    const addTeamTotal = (leg, teamLabel) => {
+        if (blocked || !leg) return;
+        onAddToSlip(match.id, leg.name, 'team_totals', leg.price, matchName, `${teamLabel} Team Total`, leg.point, {
+            isLive: !!match.isLive,
+            sportKey: String(match?.sportKey || match?.sport || '').toLowerCase(),
+            selectionFull: leg.name,
+            teamTotal: { team: leg.team, teamSide: leg.teamSide, side: leg.side },
+        });
+    };
+    // One Total-column cell for a team's TT: stacks the existing side(s).
+    // Renders only sides the feed shipped (commonly just Over) — never
+    // synthesizes the missing one.
+    const renderTeamTotalCell = (teamSide, teamLabel) => {
+        const bucket = teamTotals[teamSide] || {};
+        const legs = ['over', 'under'].map((s) => bucket[s]).filter(ttSideAvail);
+        if (legs.length === 0) {
+            return <OddsCell disabled selected={false} main="—" juice="" onClick={() => {}} />;
+        }
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {legs.map((leg) => (
+                    <OddsCell
+                        key={leg.side}
+                        disabled={blocked}
+                        selected={isSelected('team_totals', leg.name) && !blocked}
+                        main={`${leg.side === 'over' ? 'O' : 'U'} ${formatLineValue(leg.point)}`}
+                        juice={formatOdds(leg.price, oddsFormat)}
+                        onClick={() => addTeamTotal(leg, teamLabel)}
+                    />
+                ))}
+            </div>
+        );
     };
     const [propsOpen, setPropsOpen] = React.useState(false);
     const [detailOpen, setDetailOpen] = React.useState(false);
@@ -2364,7 +2446,20 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 </span>
                 {visibleMarkets.showSpread && <span style={columnLabelStyle}>Spread</span>}
                 {visibleMarkets.showMoneyline && <span style={columnLabelStyle}>ML</span>}
-                {visibleMarkets.showTotals && <span style={columnLabelStyle}>Total</span>}
+                {visibleMarkets.showTotals && (
+                    hasTeamTotals ? (
+                        <button
+                            type="button"
+                            onClick={() => setTtOn((v) => !v)}
+                            style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: teamTotalsActive ? '#d0451b' : undefined, fontWeight: 700 }}
+                            title={teamTotalsActive ? 'Showing team totals — tap for game total' : 'Showing game total — tap for team totals'}
+                        >
+                            {teamTotalsActive ? 'TT' : 'Total'}
+                        </button>
+                    ) : (
+                        <span style={columnLabelStyle}>Total</span>
+                    )
+                )}
                 {!isTeaserMode && <span />}
             </div>
             {propsOpen && (
@@ -2434,6 +2529,9 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     />
                 )}
                 {visibleMarkets.showTotals && (
+                    teamTotalsActive ? (
+                        renderTeamTotalCell('away', match.team1Short || match.team1)
+                    ) : (
                     <OddsCell
                         disabled={blocked || match.odds.totalOverPrice === null}
                         selected={isSelected('totals', 'Over') && !blocked}
@@ -2444,6 +2542,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             : undefined}
                         onClick={() => addIfAllowed(match.id, 'Over', 'totals', match.odds.totalOverPrice, matchName, totalsMarketLabel, match.odds.totalPoint, match.odds.totalOverAlternateLines)}
                     />
+                    )
                 )}
 
                 {/* Right-column action stack — spans both team rows so
@@ -2558,6 +2657,9 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     />
                 )}
                 {visibleMarkets.showTotals && (
+                    teamTotalsActive ? (
+                        renderTeamTotalCell('home', match.team2Short || match.team2)
+                    ) : (
                     <OddsCell
                         disabled={blocked || match.odds.totalUnderPrice === null}
                         selected={isSelected('totals', 'Under') && !blocked}
@@ -2568,6 +2670,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             : undefined}
                         onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, totalsMarketLabel, match.odds.totalPoint, match.odds.totalUnderAlternateLines)}
                     />
+                    )
                 )}
             </div>
 
@@ -2582,7 +2685,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', minWidth: 0, maxWidth: '48%' }}
                             title="Action — check to keep this bet live even if this listed pitcher is scratched"
                         >
-                            {isAway && <i className="fa-solid fa-baseball" style={{ opacity: 0.45, flexShrink: 0 }} />}
+                            <i className="fa-solid fa-baseball" style={{ opacity: 0.45, flexShrink: 0 }} />
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{label}</span>
                             <input
                                 type="checkbox"

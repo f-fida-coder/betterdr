@@ -182,6 +182,11 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     // state is read at add-to-slip time and travels with the selection into the
     // bet slip + backend. Default (absent) = listed pitcher (voids on change).
     const [pitcherActionByMatch, setPitcherActionByMatch] = useState({});
+    // Per-match Total ⇄ Team Totals toggle. When a match id is present and
+    // truthy, the Total cell renders the away/home team-total columns
+    // instead of the game over/under. MLB-only and only when the feed
+    // actually shipped team totals (gated at render).
+    const [ttModeByMatch, setTtModeByMatch] = useState({});
     const [detailOpenMatch, setDetailOpenMatch] = useState(null);
     const attemptedLogoFetchesRef = React.useRef(new Set());
 
@@ -775,6 +780,25 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 const totalOver = getMarketOutcomeByKeyword(totals, 'over');
                 const totalUnder = getMarketOutcomeByKeyword(totals, 'under');
 
+                // Team totals are full-game only (MAIN board). Outcomes carry
+                // canonical structured fields {team, teamSide, side, point,
+                // price}; `name` ("Detroit Over") is display-only. We bucket by
+                // teamSide+side and keep the raw outcome so the slip can send
+                // the exact outcome name as the selection key. Missing sides
+                // stay null — never synthesize the absent Over/Under.
+                const teamTotalsMarket = getMatchMarket(match, 'team_totals');
+                const ttOutcomes = Array.isArray(teamTotalsMarket?.outcomes) ? teamTotalsMarket.outcomes : [];
+                const pickTeamTotal = (teamSide, side) =>
+                    ttOutcomes.find((o) => o?.teamSide === teamSide && o?.side === side) || null;
+                const teamTotalLeg = (outcome) => (outcome ? {
+                    name: String(outcome.name || ''),
+                    team: outcome.team ?? null,
+                    teamSide: outcome.teamSide ?? null,
+                    side: outcome.side ?? null,
+                    point: outcome.point ?? null,
+                    price: parseOddsNumber(outcome.price),
+                } : null);
+
                 return {
                     spread: {
                         homePoint: spreadHome?.point ?? null,
@@ -798,6 +822,16 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                         overAlternateLines: Array.isArray(totalOver?.alternateLines) ? totalOver.alternateLines : null,
                         underOdds: parseOddsNumber(totalUnder?.price),
                         underAlternateLines: Array.isArray(totalUnder?.alternateLines) ? totalUnder.alternateLines : null,
+                    },
+                    teamTotals: {
+                        away: {
+                            over: teamTotalLeg(pickTeamTotal('away', 'over')),
+                            under: teamTotalLeg(pickTeamTotal('away', 'under')),
+                        },
+                        home: {
+                            over: teamTotalLeg(pickTeamTotal('home', 'over')),
+                            under: teamTotalLeg(pickTeamTotal('home', 'under')),
+                        },
                     },
                 };
             };
@@ -992,6 +1026,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 // render the per-pitcher "Action" toggles. Null for non-MLB.
                 pitchers: meta?.pitchers || null,
                 sportKey: meta?.sportKey || '',
+                // Team-total descriptor {team, teamSide, side} for DISPLAY/audit
+                // only. The backend re-derives these from the matched outcome in
+                // the match doc at placement, so this is never trusted as the
+                // pricing/grading source — it just lets the slip/MyBets render a
+                // readable "Detroit Team Total Over" label.
+                teamTotal: meta?.teamTotal || null,
                 // Action choice set on the board's pitcher checkboxes — carried
                 // through so the slip + backend honor what the player picked
                 // before clicking the odds.
@@ -1322,7 +1362,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', minWidth: 0, maxWidth: '48%' }}
                                                 title="Action — check to keep this bet live even if this listed pitcher is scratched"
                                             >
-                                                {isAway && <i className="fa-solid fa-baseball" style={{ opacity: 0.45, flexShrink: 0 }} />}
+                                                <i className="fa-solid fa-baseball" style={{ opacity: 0.45, flexShrink: 0 }} />
                                                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{label}</span>
                                                 <input
                                                     type="checkbox"
@@ -1428,25 +1468,99 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     : formatTotalDisplay('U', match.odds.total.point, match.odds.total.underOdds, oddsFormat);
                                                 const overAvail  = match.odds.total.point !== null && hasValidOdds(match.odds.total.overOdds);
                                                 const underAvail = match.odds.total.point !== null && hasValidOdds(match.odds.total.underOdds);
+                                                const matchName = `${match.team1.name} vs ${match.team2.name}`;
+                                                const blockReason = match.rawMatch?.bettingBlockedReason || 'Betting unavailable';
+
+                                                // Team totals (MLB full-game only). Render the Total ⇄ TT toggle
+                                                // only when the feed actually shipped team totals for this game.
+                                                const tt = match.odds.teamTotals || {};
+                                                const sideAvail = (leg) => !!leg && leg.point !== null && hasValidOdds(leg.price);
+                                                const teamHasTT = (teamSide) => sideAvail(tt[teamSide]?.over) || sideAvail(tt[teamSide]?.under);
+                                                const hasTeamTotals = isMlbSportKey(match.sportKey) && (teamHasTT('away') || teamHasTT('home'));
+                                                const ttOn = hasTeamTotals && !!ttModeByMatch[match.id];
+
+                                                const modeToggle = hasTeamTotals ? (
+                                                    <span style={{ display: 'inline-flex', marginLeft: 6, borderRadius: 4, overflow: 'hidden', border: '1px solid #d0451b', verticalAlign: 'middle' }}>
+                                                        {[['total', 'Total'], ['tt', 'TT']].map(([mode, lbl]) => {
+                                                            const active = (mode === 'tt') === ttOn;
+                                                            return (
+                                                                <button
+                                                                    key={mode}
+                                                                    type="button"
+                                                                    onClick={() => setTtModeByMatch((prev) => ({ ...prev, [match.id]: mode === 'tt' }))}
+                                                                    style={{ border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 700, lineHeight: 1.4, padding: '1px 6px', background: active ? '#d0451b' : '#fff', color: active ? '#fff' : '#d0451b' }}
+                                                                >
+                                                                    {lbl}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </span>
+                                                ) : null;
+
+                                                if (ttOn) {
+                                                    const toggleSide = teamHasTT('away') ? 'away' : 'home';
+                                                    const renderTeamCell = (teamSide, teamLabel, withToggle) => {
+                                                        const bucket = tt[teamSide] || {};
+                                                        const overOk = sideAvail(bucket.over);
+                                                        const underOk = sideAvail(bucket.under);
+                                                        if (!overOk && !underOk) return null;
+                                                        // selection = the outcome's display name ("Detroit Over"); the
+                                                        // backend matches it verbatim then grades off the leg's
+                                                        // structured teamSide/side/point. `name` is never parsed.
+                                                        const addTT = (leg) => handleAddToSlip(
+                                                            match.id, leg.name, 'team_totals', leg.price, matchName,
+                                                            `${teamLabel} Team Total`, leg.point,
+                                                            { isLive: match.status === 'LIVE', sportKey: match.sportKey, teamTotal: { team: leg.team, teamSide: leg.teamSide, side: leg.side } }
+                                                        );
+                                                        return (
+                                                            <div className="odds-cell" key={teamSide}>
+                                                                <span className="odds-label">{teamLabel} TT{withToggle ? <> {modeToggle}</> : null}</span>
+                                                                <div className="odds-values-group">
+                                                                    {overOk ? renderOddsButton({
+                                                                        label: formatTotalDisplay('O', bucket.over.point, bucket.over.price, oddsFormat),
+                                                                        onClick: () => addTT(bucket.over),
+                                                                        available: true,
+                                                                        disabled: match.rawMatch?.isBettable === false,
+                                                                        reason: blockReason,
+                                                                    }) : <div className="odds-unavailable">—</div>}
+                                                                    {underOk ? renderOddsButton({
+                                                                        label: formatTotalDisplay('U', bucket.under.point, bucket.under.price, oddsFormat),
+                                                                        onClick: () => addTT(bucket.under),
+                                                                        available: true,
+                                                                        disabled: match.rawMatch?.isBettable === false,
+                                                                        reason: blockReason,
+                                                                    }) : <div className="odds-unavailable">—</div>}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    };
+                                                    return (
+                                                        <>
+                                                            {renderTeamCell('away', match.team1.shortName || match.team1.name, toggleSide === 'away')}
+                                                            {renderTeamCell('home', match.team2.shortName || match.team2.name, toggleSide === 'home')}
+                                                        </>
+                                                    );
+                                                }
+
                                                 return (
                                                 <div className="odds-cell">
-                                                    <span className="odds-label">{totalLabel}</span>
+                                                    <span className="odds-label">{totalLabel}{modeToggle ? <> {modeToggle}</> : null}</span>
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: overLabel,
-                                                            onClick: () => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, `${match.team1.name} vs ${match.team2.name}`, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.total.overAlternateLines }),
+                                                            onClick: () => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, matchName, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.total.overAlternateLines }),
                                                             available: overAvail,
                                                             peerAvailable: underAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
-                                                            reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
+                                                            reason: blockReason,
                                                         })}
                                                         {renderOddsButton({
                                                             label: underLabel,
-                                                            onClick: () => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, `${match.team1.name} vs ${match.team2.name}`, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.total.underAlternateLines }),
+                                                            onClick: () => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, matchName, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.total.underAlternateLines }),
                                                             available: underAvail,
                                                             peerAvailable: overAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
-                                                            reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
+                                                            reason: blockReason,
                                                         })}
                                                     </div>
                                                 </div>
