@@ -156,9 +156,15 @@ const MatchDetailView = ({ match, onClose }) => {
         };
     }, [onClose]);
 
-    // Shared dismiss behavior: ESC / browser Back / nav-tab tap close this
-    // sheet (the component is only mounted while open, so register with true).
-    useDismissableSurface(true, onClose);
+    // Shared dismiss behavior: ESC / browser Back close this sheet (the
+    // component is only mounted while open, so register with true). It opts
+    // OUT of nav-tab dismissal (dismissOnNavTab: false) — same as the P+ prop
+    // sheet — so tapping a bet-mode tab (STRAIGHT/PARLAY/TEASER/…) above only
+    // switches the mode underneath and leaves this "+ adjusted/alt lines" sheet
+    // OPEN. The player can flip to Parlay and keep adding alt-line legs without
+    // it "exiting". Backdrop tap / Back / ESC / the sheet's close button still
+    // dismiss it.
+    useDismissableSurface(true, onClose, { dismissOnNavTab: false });
 
     // Cap the sheet height below the top chrome so its header ("Alt Lines &
     // Totals" + Close All) is fully visible instead of sitting behind the page
