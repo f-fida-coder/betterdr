@@ -1937,6 +1937,7 @@ const MobileContentView = ({
                             onToggleFavorite={toggleFavorite}
                             teaserPoints={teaserPointsForMatch(entry.match)}
                             isTeaserMode={normalizedBetMode === 'teaser'}
+                            betMode={normalizedBetMode}
                         />
                     );
                 })}
@@ -2095,6 +2096,9 @@ const areMatchCardPropsEqual = (prevProps, nextProps) => {
     // every spread/total label needs to recompute.
     if ((prevProps.teaserPoints || 0) !== (nextProps.teaserPoints || 0)) return false;
     if (Boolean(prevProps.isTeaserMode) !== Boolean(nextProps.isTeaserMode)) return false;
+    // Eligibility-gating in the open modal keys off the active mode string;
+    // a switch that changes which markets are addable must re-render.
+    if ((prevProps.betMode || 'straight') !== (nextProps.betMode || 'straight')) return false;
     if (
         prevProps.visibleMarkets?.showSpread !== nextProps.visibleMarkets?.showSpread ||
         prevProps.visibleMarkets?.showMoneyline !== nextProps.visibleMarkets?.showMoneyline ||
@@ -2109,7 +2113,7 @@ const areMatchCardPropsEqual = (prevProps, nextProps) => {
     return matchCardSignature(prevProps.match) === matchCardSignature(nextProps.match);
 };
 
-const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarkets, marketCount, onToggleFavorite, teaserPoints = 0, isTeaserMode = false }) => {
+const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarkets, marketCount, onToggleFavorite, teaserPoints = 0, isTeaserMode = false, betMode = 'straight' }) => {
     // Per-match teaser preview helper. Returns the line number to
     // display — adjusted when teaserPoints > 0 and the market is
     // teaser-eligible, otherwise the original. Memoized through the
@@ -2337,12 +2341,13 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 {!isTeaserMode && <span />}
             </div>
             {propsOpen && (
-                <PropBuilderModal match={modalMatch} onClose={() => setPropsOpen(false)} />
+                <PropBuilderModal match={modalMatch} onClose={() => setPropsOpen(false)} betMode={betMode} />
             )}
             {detailOpen && (
                 <MatchDetailView
                     match={modalMatch}
                     onClose={() => setDetailOpen(false)}
+                    betMode={betMode}
                 />
             )}
 

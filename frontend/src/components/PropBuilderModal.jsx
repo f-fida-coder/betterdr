@@ -4,6 +4,7 @@ import { formatLineValue, formatOdds } from '../utils/odds';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
+import { isMarketEligibleForMode } from '../utils/teaserAdjustment';
 
 const MARKET_LABELS = {
     player_points: 'Points',
@@ -164,7 +165,7 @@ const dedupeByPreferredBook = (outcomes, bookRank) => {
     return Array.from(best.values()).map((v) => v.outcome);
 };
 
-const PropBuilderModal = ({ match, onClose }) => {
+const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
     const { oddsFormat } = useOddsFormat();
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState('');
@@ -192,6 +193,14 @@ const PropBuilderModal = ({ match, onClose }) => {
     // can never collide with a college team via the name search.
     const awayAbbr = match?.awayTeamShort || match?.away_short || '';
     const homeAbbr = match?.homeTeamShort || match?.home_short || '';
+
+    // Active-mode eligibility gate. Player props are never spreads/totals, so
+    // any restrictive mode (teaser today) makes every market in this sheet
+    // ineligible. We gate per market key so the rule generalises to any
+    // future mode that restricts markets, rather than hardcoding "teaser".
+    const isEligible = (marketKey) => isMarketEligibleForMode(betMode, marketKey, sportKey);
+    const normalizedMode = String(betMode || 'straight').toLowerCase().replace(/-/g, '_');
+    const modeLabel = normalizedMode === 'teaser' ? 'teasers' : normalizedMode;
 
     // Team badges for the VS header strip. Async lookup with the standard
     // generated-initials fallback so a slow/missing badge service never
@@ -379,6 +388,11 @@ const PropBuilderModal = ({ match, onClose }) => {
     const addSelection = (marketKey, playerName, outcome) => {
         const price = Number(outcome?.price);
         if (!matchId || !Number.isFinite(price)) return;
+        // Active mode may forbid this market (e.g. teaser allows only
+        // main spreads/totals). Buttons are already disabled for these,
+        // but guard the dispatch too so a stale handler can't slip a leg
+        // the server would reject at placement.
+        if (!isEligible(marketKey)) return;
         const sideLabel = outcome?.name ? `${outcome.name}` : '';
         const pointLabel = outcome?.point != null ? ` ${formatLineValue(outcome.point)}` : '';
         const selection = `${playerName} ${sideLabel}${pointLabel}`.trim();
@@ -565,6 +579,24 @@ const PropBuilderModal = ({ match, onClose }) => {
         background: '#c7c7c7',
         borderBottom: '1px solid #999',
     };
+    // Visual lock for buttons whose market the active mode forbids.
+    // Mirrors the existing view-only / lock treatment (greyed, no pointer).
+    const disabledBtnStyle = {
+        opacity: 0.4,
+        cursor: 'not-allowed',
+        filter: 'grayscale(1)',
+    };
+    const modeBannerStyle = {
+        margin: '10px 12px',
+        padding: '10px 12px',
+        background: '#fff4e5',
+        border: '1px solid #f0b27a',
+        borderRadius: 8,
+        color: '#9c4221',
+        fontSize: 12,
+        fontWeight: 700,
+        textAlign: 'center',
+    };
     const pairBtnStyle = (selected, isFirst) => ({
         background: selected ? '#d0451b' : 'transparent',
         color: selected ? '#fff' : '#111',
@@ -609,6 +641,7 @@ const PropBuilderModal = ({ match, onClose }) => {
      * grid.
      */
     const renderPlayerOutcomes = (catKey, playerName, outcomes) => {
+        const eligible = isEligible(catKey);
         const linesByPoint = new Map();
         const rest = [];
         outcomes.forEach((outcome) => {
@@ -629,7 +662,8 @@ const PropBuilderModal = ({ match, onClose }) => {
             const selected = selectedKeys.has(selKey);
             return (
                 <button
-                    style={pairBtnStyle(selected, isFirst)}
+                    style={{ ...pairBtnStyle(selected, isFirst), ...(eligible ? null : disabledBtnStyle) }}
+                    disabled={!eligible}
                     onClick={() => addSelection(catKey, playerName, outcome)}
                 >
                     <div style={{ fontSize: 13, fontWeight: 700 }}>
@@ -660,7 +694,8 @@ const PropBuilderModal = ({ match, onClose }) => {
                             return (
                                 <button
                                     key={`${catKey}-${playerName}-rest-${idx}`}
-                                    style={altBtnStyle(selected)}
+                                    style={{ ...altBtnStyle(selected), ...(eligible ? null : disabledBtnStyle) }}
+                                    disabled={!eligible}
                                     onClick={() => addSelection(catKey, playerName, outcome)}
                                 >
                                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text || 'Pick'}</div>
@@ -766,6 +801,11 @@ const PropBuilderModal = ({ match, onClose }) => {
                             {categories.length === 0
                                 ? 'No player props available for this match right now.'
                                 : `No props for ${playerFilter}.`}
+                        </div>
+                    )}
+                    {!loading && !error && visibleCategories.some((cat) => !isEligible(cat.key)) && (
+                        <div style={modeBannerStyle}>
+                            Player props are not available in {modeLabel}. Switch back to Straight or Parlay to add these.
                         </div>
                     )}
                     {!loading && !error && visibleCategories.map(renderCategory)}

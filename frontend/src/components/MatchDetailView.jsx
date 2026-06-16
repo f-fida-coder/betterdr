@@ -3,6 +3,7 @@ import { getMatchProps } from '../api';
 import { formatLineValue, formatOdds, formatSpreadValue } from '../utils/odds';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
+import { isMarketEligibleForMode } from '../utils/teaserAdjustment';
 
 /**
  * Ordered list of non-prop market sections we know how to render.
@@ -115,7 +116,7 @@ const SECTION_DEFS = [
     { key: 'alternate_totals_cards', label: 'Cards — Alt Total', kind: 'alt-lines' },
 ];
 
-const MatchDetailView = ({ match, onClose }) => {
+const MatchDetailView = ({ match, onClose, betMode = 'straight' }) => {
     const { oddsFormat } = useOddsFormat();
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState('');
@@ -137,6 +138,18 @@ const MatchDetailView = ({ match, onClose }) => {
     const homeTeam = match?.homeTeamFull || match?.homeTeam || match?.home_team || 'Home';
     const awayTeam = match?.awayTeamFull || match?.awayTeam || match?.away_team || 'Away';
     const matchName = `${awayTeam} @ ${homeTeam}`;
+    const sportKeyLower = String(match?.sportKey || match?.sport || '').toLowerCase();
+
+    // Active-mode eligibility gate. Every section in this "+" sheet is an
+    // alternate / extra market (alternate_*, team_totals, h2h_3_way, btts…) —
+    // none is the MAIN 'spreads'/'totals' line, so a restrictive mode (teaser
+    // today) makes them all ineligible. Gating per market key keeps this
+    // general for any future mode that restricts markets, rather than
+    // hardcoding a teaser check. Display/UX only — the server stays
+    // authoritative at placement.
+    const isEligible = (marketKey) => isMarketEligibleForMode(betMode, marketKey, sportKeyLower);
+    const normalizedMode = String(betMode || 'straight').toLowerCase().replace(/-/g, '_');
+    const modeLabel = normalizedMode === 'teaser' ? 'teasers' : normalizedMode;
 
     // Tell the page chrome (DashboardHeader) the matchup sheet is open so it
     // can swap its leftmost cell into a sticky Back button. Also accept
@@ -288,6 +301,10 @@ const MatchDetailView = ({ match, onClose }) => {
     const addSelection = (marketKey, marketLabel, outcome, selectionText) => {
         const price = Number(outcome?.price);
         if (!matchId || !Number.isFinite(price)) return;
+        // Active mode may forbid this market (teaser allows only main
+        // spreads/totals). Buttons are disabled for these, but guard the
+        // dispatch too so a stale handler can't add a leg the server rejects.
+        if (!isEligible(marketKey)) return;
         const selection = selectionText || outcome?.name || 'Selection';
         const key = `${marketKey}|${selection}`;
         // The App-level betslip:add handler already toggles — sending the
@@ -391,6 +408,24 @@ const MatchDetailView = ({ match, onClose }) => {
         background: '#c7c7c7',
         borderBottom: '1px solid #999',
     };
+    // Visual lock for buttons whose market the active mode forbids.
+    // Greyed + no pointer, mirroring the existing view-only / lock treatment.
+    const disabledBtnStyle = {
+        opacity: 0.4,
+        cursor: 'not-allowed',
+        filter: 'grayscale(1)',
+    };
+    const modeBannerStyle = {
+        margin: '10px 12px',
+        padding: '10px 12px',
+        background: '#fff4e5',
+        border: '1px solid #f0b27a',
+        borderRadius: 8,
+        color: '#9c4221',
+        fontSize: 12,
+        fontWeight: 700,
+        textAlign: 'center',
+    };
     const oddsBtnStyle = (selected) => ({
         background: selected ? '#d0451b' : 'transparent',
         color: selected ? '#fff' : '#111',
@@ -436,6 +471,7 @@ const MatchDetailView = ({ match, onClose }) => {
         // [home, away]; we show them side-by-side as-is.
         const outcomes = Array.isArray(market.outcomes) ? market.outcomes : [];
         if (outcomes.length === 0) return null;
+        const eligible = isEligible(section.key);
         return (
             <div style={oddsPairStyle}>
                 {outcomes.slice(0, 2).map((outcome, idx) => {
@@ -449,7 +485,8 @@ const MatchDetailView = ({ match, onClose }) => {
                     return (
                         <button
                             key={`${section.key}-${idx}`}
-                            style={{ ...oddsBtnStyle(selected), borderRight: idx === 0 ? '1px solid #999' : 'none' }}
+                            style={{ ...oddsBtnStyle(selected), borderRight: idx === 0 ? '1px solid #999' : 'none', ...(eligible ? null : disabledBtnStyle) }}
+                            disabled={!eligible}
                             onClick={() => addSelection(section.key, section.label, outcome, selection)}
                         >
                             <div style={{ fontSize: 13, fontWeight: 700 }}>{outcome.name}</div>
@@ -467,6 +504,7 @@ const MatchDetailView = ({ match, onClose }) => {
         const over = outcomes.find((o) => /over/i.test(o?.name || ''));
         const under = outcomes.find((o) => /under/i.test(o?.name || ''));
         if (!over && !under) return null;
+        const eligible = isEligible(section.key);
         const renderSide = (outcome, idx) => {
             if (!outcome) return <div key={idx} style={{ padding: 16, color: '#888' }}>—</div>;
             const selection = outcome?.name || '';
@@ -475,7 +513,8 @@ const MatchDetailView = ({ match, onClose }) => {
             return (
                 <button
                     key={`${section.key}-${idx}`}
-                    style={{ ...oddsBtnStyle(selected), borderRight: idx === 0 ? '1px solid #999' : 'none' }}
+                    style={{ ...oddsBtnStyle(selected), borderRight: idx === 0 ? '1px solid #999' : 'none', ...(eligible ? null : disabledBtnStyle) }}
+                    disabled={!eligible}
                     onClick={() => addSelection(section.key, section.label, outcome, selection)}
                 >
                     <div style={{ fontSize: 13, fontWeight: 700 }}>{outcome.name}</div>
@@ -518,6 +557,7 @@ const MatchDetailView = ({ match, onClose }) => {
     const renderAltLinesSection = (section, market) => {
         const outcomes = Array.isArray(market.outcomes) ? market.outcomes : [];
         if (outcomes.length === 0) return null;
+        const eligible = isEligible(section.key);
         return (
             <div style={altRowStyle}>
                 {outcomes.map((outcome, idx) => {
@@ -535,7 +575,8 @@ const MatchDetailView = ({ match, onClose }) => {
                     return (
                         <button
                             key={`${section.key}-${idx}`}
-                            style={altBtnStyle(selected)}
+                            style={{ ...altBtnStyle(selected), ...(eligible ? null : disabledBtnStyle) }}
+                            disabled={!eligible}
                             onClick={() => addSelection(section.key, section.label, outcome, selection)}
                         >
                             <div>{displayLabel}</div>
@@ -585,6 +626,11 @@ const MatchDetailView = ({ match, onClose }) => {
                     {!loading && !error && availableSections.length === 0 && (
                         <div style={{ padding: 30, textAlign: 'center', color: '#999' }}>
                             No additional markets available for this match right now.
+                        </div>
+                    )}
+                    {!loading && !error && availableSections.some((section) => !isEligible(section.key)) && (
+                        <div style={modeBannerStyle}>
+                            These markets are not available in {modeLabel}. Switch back to Straight or Parlay to add them.
                         </div>
                     )}
                     {!loading && !error && availableSections.map((section) => {

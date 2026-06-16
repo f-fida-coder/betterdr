@@ -100,3 +100,30 @@ export const teaserSportGroup = (sportKeyOrId) => {
     if (key.startsWith('basketball_') || key === 'basketball') return 'basketball';
     return null;
 };
+
+/**
+ * Whether a given market can be added to a ticket of the active bet mode.
+ * Mirrors the server's placement gate so the UI never offers a leg the
+ * backend will reject (e.g. SportsbookBetSupport rejects any teaser leg
+ * whose marketType isn't exactly 'spreads'/'totals'). Display/UX only —
+ * the backend stays authoritative on placement.
+ *
+ * Teaser: only the MAIN spread/total line on football/basketball is
+ * eligible. Alternate lines (alternate_*), team totals, player props and
+ * moneyline are NOT teaser-eligible. All other modes place no per-market
+ * restriction today, so they return true.
+ *
+ * @param {string} mode        active bet mode ('straight'|'parlay'|'teaser'|…)
+ * @param {string} marketType  the leg's market key (e.g. 'spreads', 'alternate_spreads', 'player_points')
+ * @param {string} sportKey    the match sport key
+ * @returns {boolean}
+ */
+export const isMarketEligibleForMode = (mode, marketType, sportKey) => {
+    const normalizedMode = String(mode || '').toLowerCase().replace(/-/g, '_');
+    if (normalizedMode === 'teaser') {
+        const base = String(marketType || '').toLowerCase();
+        if (base !== 'spreads' && base !== 'totals') return false;
+        return teaserSportGroup(sportKey) !== null;
+    }
+    return true;
+};

@@ -61,7 +61,9 @@
       "Bash(curl -s -m 60 -o /tmp/up.json -w \"upcoming: HTTP %{http_code} time=%{time_total}s size=%{size_download}\\\\n\" \"https://www.bettorplays247.com/api/matches?status=upcoming&payload=core&limit=5\")",
       "Bash(curl -s -m 8 -o /dev/null -w \"google: %{http_code} t=%{time_total}\\\\n\" \"https://www.google.com\")",
       "Bash(curl -s -m 8 -o /dev/null -w \"cloudflare: %{http_code} t=%{time_total}\\\\n\" \"https://1.1.1.1\")",
-      "Bash(curl -s -m 12 -o /dev/null -w \"site again: %{http_code} t=%{time_total}\\\\n\" \"https://www.bettorplays247.com/\")"
+      "Bash(curl -s -m 12 -o /dev/null -w \"site again: %{http_code} t=%{time_total}\\\\n\" \"https://www.bettorplays247.com/\")",
+      "Bash(git --no-pager diff --stat -- ':!dist')",
+      "Bash(git --no-pager diff -- frontend/src/utils/teaserAdjustment.js .claude/settings.json)"
     ],
     "additionalDirectories": [
       "/Users/mac/Desktop/betterdr/php-backend/cache"

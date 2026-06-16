@@ -1462,10 +1462,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             )}
 
             {propsOpenMatch && (
-                <PropBuilderModal match={propsOpenMatch} onClose={() => setPropsOpenMatch(null)} />
+                <PropBuilderModal match={propsOpenMatch} onClose={() => setPropsOpenMatch(null)} betMode={normalizedMode} />
             )}
             {detailOpenMatch && (
-                <MatchDetailView match={detailOpenMatch} onClose={() => setDetailOpenMatch(null)} />
+                <MatchDetailView match={detailOpenMatch} onClose={() => setDetailOpenMatch(null)} betMode={normalizedMode} />
             )}
         </div>
     );
