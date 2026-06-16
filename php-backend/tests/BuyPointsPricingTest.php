@@ -3,8 +3,12 @@
 declare(strict_types=1);
 
 /**
- * Unit tests for BuyPointsPricing — server-authoritative buy-points pricing.
- * No database, no HTTP. Pricing math + direction math + invalid-input rejection.
+ * Unit tests for BuyPointsPricing — server-authoritative, FEED-ANCHORED
+ * buy-points pricing. No database, no HTTP. Every rung is priced from the
+ * feed's alternate-line ladder; there is no synthetic fallback. Tests cover
+ * direction math, the per-sport gate, D1 (omit no-feed rungs), D2 (omit
+ * no-tie win-zone rungs), D3 (no soccer), the spread ML floor, and the
+ * placement lookup (priceBoughtPointFromFeed).
  */
 
 if (!class_exists('ApiException')) {
@@ -42,6 +46,8 @@ if (!class_exists('Env')) {
 
 require_once __DIR__ . '/../src/BuyPointsPricing.php';
 require_once __DIR__ . '/../src/SportsbookBetSupport.php';
+
+// ── input validation / direction math (engine-independent) ──────────────────
 
 TestRunner::run('isAllowedMarket — spreads & totals only', function (): void {
     TestRunner::assertTrue(BuyPointsPricing::isAllowedMarket('spreads'), 'spreads allowed');
@@ -90,46 +96,7 @@ TestRunner::run('halfStepsFromBoughtPoints — floating drift tolerated', functi
     TestRunner::assertEquals(1, BuyPointsPricing::halfStepsFromBoughtPoints($drift), '0.5 + drift → 1 step');
 });
 
-TestRunner::run('expectedAmericanOdds — flat -10c ladder', function (): void {
-    // -110 → -120 → -130 → -140 → -150 → -160 for 1..5 half-point steps
-    TestRunner::assertEquals(-110, BuyPointsPricing::expectedAmericanOdds('americanfootball_nfl', 'spreads', -110, 0), 'no buy = no change');
-    TestRunner::assertEquals(-120, BuyPointsPricing::expectedAmericanOdds('americanfootball_nfl', 'spreads', -110, 1), '1 half-pt = -120');
-    TestRunner::assertEquals(-130, BuyPointsPricing::expectedAmericanOdds('americanfootball_nfl', 'spreads', -110, 2), '2 half-pts = -130');
-    TestRunner::assertEquals(-160, BuyPointsPricing::expectedAmericanOdds('americanfootball_nfl', 'spreads', -110, 5), '5 half-pts = -160');
-});
-
-TestRunner::run('expectedAmericanOdds — totals math identical to spreads', function (): void {
-    // Direction is applied to the LINE, not the price. So a -110 total
-    // bought by 1 half-point lands at -120 regardless of over/under.
-    TestRunner::assertEquals(-120, BuyPointsPricing::expectedAmericanOdds('basketball_nba', 'totals', -110, 1), 'totals -110 → -120');
-});
-
-TestRunner::run('expectedAmericanOdds — crosses -110/+110 interior, snaps to -110', function (): void {
-    // Base +105, buy 1 half-pt → +95 lands in the no-go zone, snap to -110.
-    TestRunner::assertEquals(-110, BuyPointsPricing::expectedAmericanOdds('americanfootball_nfl', 'spreads', 105, 1), '+105 → -110 (interior snap)');
-    // Base +120 → +110: NOT in interior, returned as-is.
-    TestRunner::assertEquals(110, BuyPointsPricing::expectedAmericanOdds('americanfootball_nfl', 'spreads', 120, 1), '+120 → +110');
-});
-
-TestRunner::run('expectedAmericanOdds — rejects invalid base odds', function (): void {
-    TestRunner::assertThrows(
-        fn() => BuyPointsPricing::expectedAmericanOdds('nfl', 'spreads', 0, 1),
-        ApiException::class,
-        'zero base american rejected'
-    );
-});
-
-TestRunner::run('expectedAmericanOdds — rejects non-allowed markets', function (): void {
-    TestRunner::assertThrows(
-        fn() => BuyPointsPricing::expectedAmericanOdds('nfl', 'h2h', -110, 1),
-        ApiException::class,
-        'h2h rejected'
-    );
-});
-
 TestRunner::run('signedPointDelta — spreads always add (bettor wins more cushion)', function (): void {
-    // Spread -3.5 + 0.5 = -3 (better for favorite bettor)
-    // Spread +3.5 + 0.5 = +4 (better for underdog bettor)
     TestRunner::assertEquals(0.5, BuyPointsPricing::signedPointDelta('spreads', 'Chiefs', 0.5), 'spreads: +delta');
     TestRunner::assertEquals(1.5, BuyPointsPricing::signedPointDelta('spreads', 'Eagles', 1.5), 'spreads: +delta');
 });
@@ -149,127 +116,296 @@ TestRunner::run('signedPointDelta — rejects non-allowed markets', function ():
     );
 });
 
-TestRunner::run('end-to-end pricing: NFL -3.5 @ -110 buy half-pt → -3 @ -120', function (): void {
-    $baseAmerican = -110;
-    $boughtPoints = 0.5;
-    $halfSteps = BuyPointsPricing::halfStepsFromBoughtPoints($boughtPoints);
-    $expected = BuyPointsPricing::expectedAmericanOdds('americanfootball_nfl', 'spreads', $baseAmerican, $halfSteps);
-    $delta = BuyPointsPricing::signedPointDelta('spreads', 'Chiefs', $boughtPoints);
-    $adjustedLine = -3.5 + $delta;
-    TestRunner::assertEquals(-120, $expected, 'price → -120');
-    TestRunner::assertEqualsFloat(-3.0, $adjustedLine, 'line → -3', 0.001);
-});
-
-TestRunner::run('end-to-end pricing: NBA total 47.5 Over @ -110, buy 1 pt → 46.5 @ -130', function (): void {
-    $baseAmerican = -110;
-    $boughtPoints = 1.0;
-    $halfSteps = BuyPointsPricing::halfStepsFromBoughtPoints($boughtPoints);
-    $expected = BuyPointsPricing::expectedAmericanOdds('basketball_nba', 'totals', $baseAmerican, $halfSteps);
-    $delta = BuyPointsPricing::signedPointDelta('totals', 'Over', $boughtPoints);
-    $adjustedLine = 47.5 + $delta;
-    TestRunner::assertEquals(-130, $expected, 'price → -130');
-    TestRunner::assertEqualsFloat(46.5, $adjustedLine, 'over: line → 46.5', 0.001);
-});
-
-TestRunner::run('end-to-end pricing: NBA total 47.5 Under @ -110, buy 1 pt → 48.5 @ -130', function (): void {
-    $delta = BuyPointsPricing::signedPointDelta('totals', 'Under', 1.0);
-    TestRunner::assertEqualsFloat(48.5, 47.5 + $delta, 'under: line → 48.5', 0.001);
-});
-
 TestRunner::run('maxBoughtPoints constant', function (): void {
     TestRunner::assertEqualsFloat(2.5, BuyPointsPricing::maxBoughtPoints(), 'max = 2.5', 0.001);
 });
 
-// ── buildLadder — display ladder for one selection ───────────────────────────
+// ── per-sport enable gate (BUY_POINTS_ENABLED_SPORTS env) ───────────────────
 
-TestRunner::run('buildLadder — NFL spread -3.5 @ -110 (favorite)', function (): void {
-    // 5 rungs, +0.5 line per step, -10c price per step.
-    $ladder = BuyPointsPricing::buildLadder('americanfootball_nfl', 'spreads', 'Chiefs', -110, -3.5);
-    TestRunner::assertEquals(5, count($ladder), '5 rungs');
-    // Rung 1: 0.5 pt → line -3.0 @ -120
-    TestRunner::assertEqualsFloat(0.5, $ladder[0]['points'], 'rung1 points', 0.001);
-    TestRunner::assertEqualsFloat(-3.0, $ladder[0]['line'], 'rung1 line', 0.001);
-    TestRunner::assertEquals(-120, $ladder[0]['american'], 'rung1 american');
-    // Rung 5: 2.5 pt → line -1.0 @ -160
-    TestRunner::assertEqualsFloat(2.5, $ladder[4]['points'], 'rung5 points', 0.001);
-    TestRunner::assertEqualsFloat(-1.0, $ladder[4]['line'], 'rung5 line', 0.001);
-    TestRunner::assertEquals(-160, $ladder[4]['american'], 'rung5 american');
+TestRunner::run('isSportEnabled — env-driven allowlist; soccer always off (D3)', function (): void {
+    $prev = $_ENV['BUY_POINTS_ENABLED_SPORTS'] ?? null;
+
+    unset($_ENV['BUY_POINTS_ENABLED_SPORTS']);
+    TestRunner::assertFalse(BuyPointsPricing::isSportEnabled('americanfootball_nfl'), 'empty env → all locked');
+
+    $_ENV['BUY_POINTS_ENABLED_SPORTS'] = 'americanfootball_nfl, soccer_epl';
+    TestRunner::assertTrue(BuyPointsPricing::isSportEnabled('americanfootball_nfl'), 'nfl enabled');
+    TestRunner::assertTrue(BuyPointsPricing::isSportEnabled('AMERICANFOOTBALL_NFL'), 'case-insensitive');
+    TestRunner::assertFalse(BuyPointsPricing::isSportEnabled('basketball_nba'), 'nba not in list');
+    TestRunner::assertFalse(BuyPointsPricing::isSportEnabled('soccer_epl'), 'soccer never enabled (D3) even if listed');
+
+    if ($prev === null) {
+        unset($_ENV['BUY_POINTS_ENABLED_SPORTS']);
+    } else {
+        $_ENV['BUY_POINTS_ENABLED_SPORTS'] = $prev;
+    }
 });
 
-TestRunner::run('buildLadder — NBA total Over 47.5 @ -110 (line shrinks)', function (): void {
-    // Over wants a SMALLER total — line moves down by the bought points.
-    $ladder = BuyPointsPricing::buildLadder('basketball_nba', 'totals', 'Over', -110, 47.5);
-    TestRunner::assertEquals(5, count($ladder), '5 rungs');
-    TestRunner::assertEqualsFloat(47.0, $ladder[0]['line'], 'over rung1 line shrinks', 0.001);
-    TestRunner::assertEqualsFloat(45.0, $ladder[4]['line'], 'over rung5 line shrinks', 0.001);
-    TestRunner::assertEquals(-160, $ladder[4]['american'], 'over rung5 american');
+// ── feed-anchored ladder helpers ─────────────────────────────────────────────
+
+/** Build a market pool from named sub-markets. */
+$mkPool = static function (array $parts): array {
+    $pool = [];
+    foreach ($parts as $key => $outcomes) {
+        $pool[] = ['key' => $key, 'outcomes' => $outcomes];
+    }
+    return $pool;
+};
+
+/** Expected American int for a feed decimal, via the SAME conversion the engine uses. */
+$amer = static function (float $decimal): int {
+    return SportsbookBetSupport::decimalToAmericanInt(SportsbookBetSupport::snapDecimalOdds($decimal));
+};
+
+// Enable the sports under test for the feed-anchored block. Restored at the end.
+$prevEnabled = $_ENV['BUY_POINTS_ENABLED_SPORTS'] ?? null;
+$_ENV['BUY_POINTS_ENABLED_SPORTS'] = 'americanfootball_nfl,baseball_mlb,basketball_nba,icehockey_nhl,soccer_epl';
+
+TestRunner::run('ladderFromFeed — NFL favorite priced from feed; gap omits one rung, keeps higher', function () use ($mkPool, $amer): void {
+    // Chiefs -3.5 favorite. Feed prices -3.0/-2.5/-2.0 and -1.0, but NOT -1.5.
+    // All rungs stay below pick'em (line < 0) so the ML floor never binds.
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Chiefs', 'point' => -3.5, 'price' => 1.91]],
+        'h2h'               => [['name' => 'Chiefs', 'price' => 1.50]],
+        'alternate_spreads' => [
+            ['name' => 'Chiefs', 'point' => -3.0, 'price' => 1.83, 'book' => 'pinnacle'],
+            ['name' => 'Chiefs', 'point' => -2.5, 'price' => 1.74, 'book' => 'pinnacle'],
+            ['name' => 'Chiefs', 'point' => -2.0, 'price' => 1.66, 'book' => 'pinnacle'],
+            // -1.5 deliberately absent → D1 omit (must NOT truncate -1.0).
+            ['name' => 'Chiefs', 'point' => -1.0, 'price' => 1.55, 'book' => 'pinnacle'],
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Chiefs', -3.5, $pool);
+
+    TestRunner::assertEquals(4, count($ladder), '4 priced rungs (-1.5 gap omitted)');
+    TestRunner::assertEqualsFloat(0.5, $ladder[0]['points'], 'rung1 points', 1e-9);
+    TestRunner::assertEqualsFloat(-3.0, $ladder[0]['line'], 'rung1 line', 1e-9);
+    TestRunner::assertEquals($amer(1.83), $ladder[0]['american'], 'rung1 american from feed');
+    TestRunner::assertEqualsFloat(2.5, $ladder[3]['points'], 'last rung is the 2.5-pt buy');
+    TestRunner::assertEqualsFloat(-1.0, $ladder[3]['line'], 'last rung line -1.0 (gap did not truncate)', 1e-9);
+    TestRunner::assertEquals($amer(1.55), $ladder[3]['american'], 'last rung american from feed');
 });
 
-TestRunner::run('buildLadder — Under grows the total', function (): void {
-    $ladder = BuyPointsPricing::buildLadder('basketball_nba', 'totals', 'Under', -110, 47.5);
-    TestRunner::assertEqualsFloat(48.0, $ladder[0]['line'], 'under rung1 line grows', 0.001);
-    TestRunner::assertEqualsFloat(50.0, $ladder[4]['line'], 'under rung5 line grows', 0.001);
+TestRunner::run('ladderFromFeed — MLB run line OMITS the ±0.5 / 0 no-tie win zone (D2)', function () use ($mkPool): void {
+    // Yankees -1.5. Feed prices EVERY rung incl. -0.5/0/+0.5, but baseball
+    // can't tie, so those collapse to the moneyline and are omitted. Only
+    // -1.0 and +1.0 survive.
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Yankees', 'point' => -1.5, 'price' => 1.80]],
+        'h2h'               => [['name' => 'Yankees', 'price' => 1.77]],
+        'alternate_spreads' => [
+            ['name' => 'Yankees', 'point' => -1.0, 'price' => 1.50],
+            ['name' => 'Yankees', 'point' => -0.5, 'price' => 1.30],
+            ['name' => 'Yankees', 'point' =>  0.0, 'price' => 1.25],
+            ['name' => 'Yankees', 'point' =>  0.5, 'price' => 1.20],
+            ['name' => 'Yankees', 'point' =>  1.0, 'price' => 1.15],
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('baseball_mlb', 'spreads', 'Yankees', -1.5, $pool);
+
+    $lines = array_map(static fn ($r) => $r['line'], $ladder);
+    TestRunner::assertEquals(2, count($ladder), 'only -1.0 and +1.0 survive (win zone omitted)');
+    TestRunner::assertTrue(in_array(-1.0, $lines, true), '-1.0 kept');
+    TestRunner::assertTrue(in_array(1.0, $lines, true), '+1.0 kept');
+    TestRunner::assertFalse(in_array(-0.5, $lines, true), '-0.5 omitted (no-tie)');
+    TestRunner::assertFalse(in_array(0.0, $lines, true), '0 omitted (no-tie)');
+    TestRunner::assertFalse(in_array(0.5, $lines, true), '+0.5 omitted (no-tie)');
 });
 
-TestRunner::run('buildLadder — ineligible market / unusable base → empty', function (): void {
-    TestRunner::assertEquals(0, count(BuyPointsPricing::buildLadder('nfl', 'h2h', 'Chiefs', -110, 0.0)), 'h2h → []');
-    TestRunner::assertEquals(0, count(BuyPointsPricing::buildLadder('nfl', 'spreads', 'Chiefs', 0, -3.5)), 'base american 0 → []');
+TestRunner::run('ladderFromFeed — NHL puck line shares the no-tie win-zone omission', function () use ($mkPool): void {
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Bruins', 'point' => -1.5, 'price' => 1.95]],
+        'h2h'               => [['name' => 'Bruins', 'price' => 1.70]],
+        'alternate_spreads' => [
+            ['name' => 'Bruins', 'point' => -1.0, 'price' => 1.55],
+            ['name' => 'Bruins', 'point' => -0.5, 'price' => 1.35],
+            ['name' => 'Bruins', 'point' =>  0.5, 'price' => 1.22],
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('icehockey_nhl', 'spreads', 'Bruins', -1.5, $pool);
+    $lines = array_map(static fn ($r) => $r['line'], $ladder);
+    TestRunner::assertEquals([-1.0], $lines, 'only -1.0 kept; -0.5/+0.5 in win zone omitted');
 });
 
-// ── Placement: server recompute is authoritative; tampered odds rejected ─────
-// These compose the exact pieces the placement path runs in
-// BetsController::validateSelection: reprice via BuyPointsPricing, then gate
-// the client's submitted American odds through SportsbookBetSupport::
-// oddsAcceptable against the SERVER's repriced value (not the base price).
-
-TestRunner::run('placement — server reprices off CURRENT base, ignores client odds', function (): void {
-    // NFL spread -3.5 @ -110, buy 0.5 pt. Server-authoritative price is -120.
-    $halfSteps = BuyPointsPricing::halfStepsFromBoughtPoints(0.5);
-    $repriced = BuyPointsPricing::expectedAmericanOdds('americanfootball_nfl', 'spreads', -110, $halfSteps);
-    TestRunner::assertEquals(-120, $repriced, 'server repriced value = -120');
-
-    // Honest client submits the matching -120 → auto-places (no prompt).
-    TestRunner::assertTrue(
-        SportsbookBetSupport::oddsAcceptable(-120, $repriced, 'band', 10),
-        'honest -120 vs repriced -120 → place'
-    );
+TestRunner::run('ladderFromFeed — NBA spread matches feed exactly (no ML floor below pick\'em)', function () use ($mkPool, $amer): void {
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Celtics', 'point' => -5.5, 'price' => 1.91]],
+        'h2h'               => [['name' => 'Celtics', 'price' => 1.40]],
+        'alternate_spreads' => [
+            ['name' => 'Celtics', 'point' => -5.0, 'price' => 1.83],
+            ['name' => 'Celtics', 'point' => -4.5, 'price' => 1.76],
+            ['name' => 'Celtics', 'point' => -4.0, 'price' => 1.69],
+            ['name' => 'Celtics', 'point' => -3.5, 'price' => 1.62],
+            ['name' => 'Celtics', 'point' => -3.0, 'price' => 1.55],
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('basketball_nba', 'spreads', 'Celtics', -5.5, $pool);
+    TestRunner::assertEquals(5, count($ladder), '5 rungs, all feed-priced');
+    TestRunner::assertEquals($amer(1.83), $ladder[0]['american'], 'rung1 from feed');
+    TestRunner::assertEquals($amer(1.55), $ladder[4]['american'], 'rung5 from feed');
+    TestRunner::assertEqualsFloat(-3.0, $ladder[4]['line'], 'rung5 line -3.0', 1e-9);
 });
 
-TestRunner::run('placement — tampered client odds (-100 on a -120 buy) are rejected', function (): void {
-    // Attacker tries to bank a -100 price on a bought line the server prices
-    // at -120. The gate compares client(-100) vs official(-120): a 20c adverse
-    // move → NOT acceptable → ODDS_CHANGED. The user can never place at -100.
-    $repriced = BuyPointsPricing::expectedAmericanOdds('americanfootball_nfl', 'spreads', -110, 1);
-    TestRunner::assertEquals(-120, $repriced, 'repriced -120');
-    TestRunner::assertFalse(
-        SportsbookBetSupport::oddsAcceptable(-100, $repriced, 'band', 10),
-        'tampered -100 vs -120 → reject (prompt with server price)'
-    );
+TestRunner::run('ladderFromFeed — totals Over priced from feed; line shrinks', function () use ($mkPool, $amer): void {
+    $pool = $mkPool([
+        'totals'           => [['name' => 'Over', 'point' => 220.5, 'price' => 1.91]],
+        'alternate_totals' => [
+            ['name' => 'Over', 'point' => 220.0, 'price' => 1.85],
+            ['name' => 'Over', 'point' => 219.5, 'price' => 1.78],
+            ['name' => 'Over', 'point' => 219.0, 'price' => 1.71],
+            ['name' => 'Over', 'point' => 218.5, 'price' => 1.64],
+            ['name' => 'Over', 'point' => 218.0, 'price' => 1.57],
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('basketball_nba', 'totals', 'Over', 220.5, $pool);
+    TestRunner::assertEquals(5, count($ladder), '5 total rungs');
+    TestRunner::assertEqualsFloat(220.0, $ladder[0]['line'], 'over rung1 shrinks to 220.0', 1e-9);
+    TestRunner::assertEqualsFloat(218.0, $ladder[4]['line'], 'over rung5 shrinks to 218.0', 1e-9);
+    TestRunner::assertEquals($amer(1.85), $ladder[0]['american'], 'over rung1 from feed');
 });
 
-TestRunner::run('placement — base line move triggers ODDS_CHANGED then settles in ONE retry (no loop)', function (): void {
-    // First placement: client carries the old repriced -120 (base was -110).
-    $oldRepriced = BuyPointsPricing::expectedAmericanOdds('americanfootball_nfl', 'spreads', -110, 1);
-    TestRunner::assertEquals(-120, $oldRepriced, 'old repriced -120');
-
-    // Base drifted -110 → -130 before the bet landed. Server reprices off the
-    // NEW base: -130 → -140 for the same half-point buy.
-    $newRepriced = BuyPointsPricing::expectedAmericanOdds('americanfootball_nfl', 'spreads', -130, 1);
-    TestRunner::assertEquals(-140, $newRepriced, 'new repriced off moved base = -140');
-
-    // Client's stale -120 vs the new official -140 = 20c adverse → prompt.
-    TestRunner::assertFalse(
-        SportsbookBetSupport::oddsAcceptable($oldRepriced, $newRepriced, 'band', 10),
-        'stale -120 vs new -140 → ODDS_CHANGED'
-    );
-
-    // Client patches its leg to -140 and taps PLACE again. Base is now stable
-    // at -130, so the server reprices to -140 once more and the patched odds
-    // match → auto-place. Second tap settles; the confirm loop cannot recur.
-    $retryRepriced = BuyPointsPricing::expectedAmericanOdds('americanfootball_nfl', 'spreads', -130, 1);
-    TestRunner::assertEquals($newRepriced, $retryRepriced, 'retry reprice is stable at -140');
-    TestRunner::assertTrue(
-        SportsbookBetSupport::oddsAcceptable($newRepriced, $retryRepriced, 'band', 10),
-        'patched -140 vs stable -140 → place (no loop)'
-    );
+TestRunner::run('ladderFromFeed — totals Under priced from feed; line grows', function () use ($mkPool): void {
+    $pool = $mkPool([
+        'totals'           => [['name' => 'Under', 'point' => 47.5, 'price' => 1.91]],
+        'alternate_totals' => [
+            ['name' => 'Under', 'point' => 48.0, 'price' => 1.85],
+            ['name' => 'Under', 'point' => 48.5, 'price' => 1.78],
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'totals', 'Under', 47.5, $pool);
+    TestRunner::assertEquals(2, count($ladder), '2 under rungs priced by feed');
+    TestRunner::assertEqualsFloat(48.0, $ladder[0]['line'], 'under rung1 grows to 48.0', 1e-9);
+    TestRunner::assertEqualsFloat(48.5, $ladder[1]['line'], 'under rung2 grows to 48.5', 1e-9);
 });
+
+TestRunner::run('ladderFromFeed — ML floor omits a bettor-favorable rung priced better than the moneyline', function () use ($mkPool): void {
+    // Jets +2.5 underdog (ML +150 = 2.5 decimal). Buying points only adds
+    // cushion (line >= 0), so each rung must not pay MORE than the ML.
+    //   +3.0 @ 2.20 (≤ 2.5)  → kept
+    //   +3.5 @ 2.60 (> 2.5)  → OMITTED (better than ML)
+    //   +4.0 @ 2.10 (≤ 2.5)  → kept
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Jets', 'point' => 2.5, 'price' => 1.91]],
+        'h2h'               => [['name' => 'Jets', 'price' => 2.50]],
+        'alternate_spreads' => [
+            ['name' => 'Jets', 'point' => 3.0, 'price' => 2.20],
+            ['name' => 'Jets', 'point' => 3.5, 'price' => 2.60],
+            ['name' => 'Jets', 'point' => 4.0, 'price' => 2.10],
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Jets', 2.5, $pool);
+    $lines = array_map(static fn ($r) => $r['line'], $ladder);
+    TestRunner::assertEquals([3.0, 4.0], $lines, '+3.5 omitted (> ML); +3.0 and +4.0 kept');
+});
+
+TestRunner::run('ladderFromFeed — missing moneyline fails safe for bettor-favorable rungs', function () use ($mkPool): void {
+    // No h2h in the pool → the ML floor cannot be verified, so line >= 0
+    // rungs are omitted rather than risk paying better than the ML.
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Jets', 'point' => 2.5, 'price' => 1.91]],
+        'alternate_spreads' => [
+            ['name' => 'Jets', 'point' => 3.0, 'price' => 2.20],
+            ['name' => 'Jets', 'point' => 4.0, 'price' => 2.10],
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Jets', 2.5, $pool);
+    TestRunner::assertEquals(0, count($ladder), 'no ML → all line>=0 rungs omitted (fail safe)');
+});
+
+TestRunner::run('ladderFromFeed — duplicate feed rows keep the LOWEST payout (house-safe)', function () use ($mkPool, $amer): void {
+    // A pre-dedupe doc has the same (side, point) twice at different prices.
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Chiefs', 'point' => -3.5, 'price' => 1.91]],
+        'h2h'               => [['name' => 'Chiefs', 'price' => 1.50]],
+        'alternate_spreads' => [
+            ['name' => 'Chiefs', 'point' => -3.0, 'price' => 1.95, 'book' => 'generousbook'],
+            ['name' => 'Chiefs', 'point' => -3.0, 'price' => 1.83, 'book' => 'pinnacle'],
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Chiefs', -3.5, $pool);
+    TestRunner::assertEquals(1, count($ladder), 'one rung');
+    TestRunner::assertEquals($amer(1.83), $ladder[0]['american'], 'kept the lower-payout 1.83, not 1.95');
+});
+
+TestRunner::run('ladderFromFeed — no alt market → empty (no synthesis)', function () use ($mkPool): void {
+    $pool = $mkPool([
+        'spreads' => [['name' => 'Chiefs', 'point' => -3.5, 'price' => 1.91]],
+        'h2h'     => [['name' => 'Chiefs', 'price' => 1.50]],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Chiefs', -3.5, $pool);
+    TestRunner::assertEquals(0, count($ladder), 'no alternate_spreads → []');
+});
+
+TestRunner::run('ladderFromFeed — soccer is gated off entirely (D3)', function () use ($mkPool): void {
+    // soccer_epl is in the enabled env for this block, but three-way sports
+    // are NEVER eligible — handicaps stay in Alt Lines, not buy-points.
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Arsenal', 'point' => -0.5, 'price' => 2.10]],
+        'h2h'               => [['name' => 'Arsenal', 'price' => 2.41]],
+        'alternate_spreads' => [
+            ['name' => 'Arsenal', 'point' => 0.5, 'price' => 1.40],
+            ['name' => 'Arsenal', 'point' => 1.5, 'price' => 1.12],
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('soccer_epl', 'spreads', 'Arsenal', -0.5, $pool);
+    TestRunner::assertEquals(0, count($ladder), 'soccer → no buy-points ladder (D3)');
+});
+
+TestRunner::run('ladderFromFeed — disabled sport (not in env) → empty', function () use ($mkPool): void {
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Team', 'point' => -3.5, 'price' => 1.91]],
+        'h2h'               => [['name' => 'Team', 'price' => 1.50]],
+        'alternate_spreads' => [['name' => 'Team', 'point' => -3.0, 'price' => 1.83]],
+    ]);
+    // tennis is not in the enabled list.
+    $ladder = BuyPointsPricing::ladderFromFeed('tennis_atp', 'spreads', 'Team', -3.5, $pool);
+    TestRunner::assertEquals(0, count($ladder), 'sport not enabled → []');
+});
+
+// ── placement: priceBoughtPointFromFeed (single rung or null) ────────────────
+
+TestRunner::run('priceBoughtPointFromFeed — returns the feed rung for a priced buy', function () use ($mkPool, $amer): void {
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Chiefs', 'point' => -3.5, 'price' => 1.91]],
+        'h2h'               => [['name' => 'Chiefs', 'price' => 1.50]],
+        'alternate_spreads' => [['name' => 'Chiefs', 'point' => -3.0, 'price' => 1.83]],
+    ]);
+    $rung = BuyPointsPricing::priceBoughtPointFromFeed('americanfootball_nfl', 'spreads', 'Chiefs', -3.5, 0.5, $pool);
+    TestRunner::assertTrue($rung !== null, 'rung found for 0.5-pt buy');
+    TestRunner::assertEqualsFloat(-3.0, $rung['line'], 'rung line -3.0', 1e-9);
+    TestRunner::assertEquals($amer(1.83), $rung['american'], 'rung american from feed');
+});
+
+TestRunner::run('priceBoughtPointFromFeed — null when the feed never priced the rung (→ BUY_POINTS_NO_FEED_PRICE)', function () use ($mkPool): void {
+    // Feed has -3.0 but not -1.5 (the 2.0-pt buy target).
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Chiefs', 'point' => -3.5, 'price' => 1.91]],
+        'h2h'               => [['name' => 'Chiefs', 'price' => 1.50]],
+        'alternate_spreads' => [['name' => 'Chiefs', 'point' => -3.0, 'price' => 1.83]],
+    ]);
+    $rung = BuyPointsPricing::priceBoughtPointFromFeed('americanfootball_nfl', 'spreads', 'Chiefs', -3.5, 2.0, $pool);
+    TestRunner::assertTrue($rung === null, 'no feed price → null (placement rejects)');
+});
+
+TestRunner::run('priceBoughtPointFromFeed — null for an ML-floor-omitted (over-good) rung', function () use ($mkPool): void {
+    // +3.5 @ 2.60 is better than the +150 ML → omitted → placement rejects.
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Jets', 'point' => 2.5, 'price' => 1.91]],
+        'h2h'               => [['name' => 'Jets', 'price' => 2.50]],
+        'alternate_spreads' => [
+            ['name' => 'Jets', 'point' => 3.0, 'price' => 2.20],
+            ['name' => 'Jets', 'point' => 3.5, 'price' => 2.60],
+        ],
+    ]);
+    $kept = BuyPointsPricing::priceBoughtPointFromFeed('americanfootball_nfl', 'spreads', 'Jets', 2.5, 0.5, $pool);
+    $omitted = BuyPointsPricing::priceBoughtPointFromFeed('americanfootball_nfl', 'spreads', 'Jets', 2.5, 1.0, $pool);
+    TestRunner::assertTrue($kept !== null, '+3.0 (≤ ML) priced');
+    TestRunner::assertTrue($omitted === null, '+3.5 (> ML) rejected at placement');
+});
+
+// Restore the prior env so later suites in the shared process are unaffected.
+if ($prevEnabled === null) {
+    unset($_ENV['BUY_POINTS_ENABLED_SPORTS']);
+} else {
+    $_ENV['BUY_POINTS_ENABLED_SPORTS'] = $prevEnabled;
+}

@@ -4,6 +4,7 @@ import { formatLineValue, formatOdds, formatSpreadValue } from '../utils/odds';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
 import { isMarketEligibleForMode } from '../utils/teaserAdjustment';
+import { isMlbSportKey, formatPitcherLabel, MLB_LISTED_PITCHER_POLICY, MLB_OFFICIAL_GAME_POLICY } from '../utils/pitchers';
 
 /**
  * Ordered list of non-prop market sections we know how to render.
@@ -139,6 +140,13 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight' }) => {
     const awayTeam = match?.awayTeamFull || match?.awayTeam || match?.away_team || 'Away';
     const matchName = `${awayTeam} @ ${homeTeam}`;
     const sportKeyLower = String(match?.sportKey || match?.sport || '').toLowerCase();
+
+    // Listed starting pitchers (MLB) — display-only here; the Action toggle that
+    // waives the listed-pitcher void lives on the board row and the bet slip.
+    const isMlb = isMlbSportKey(sportKeyLower);
+    const awayPitcher = match?.awayPitcher || null;
+    const homePitcher = match?.homePitcher || null;
+    const showPitchers = isMlb && (awayPitcher || homePitcher);
 
     // Active-mode eligibility gate. Every section in this "+" sheet is an
     // alternate / extra market (alternate_*, team_totals, h2h_3_way, btts…) —
@@ -614,6 +622,22 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight' }) => {
                 </div>
 
                 <div style={bodyStyle}>
+                    {showPitchers && (
+                        <div style={{ padding: '10px 14px', borderBottom: '1px solid #eef0f2', background: '#fafbfc' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: '#334155' }}>
+                                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    <i className="fa-solid fa-baseball" style={{ opacity: 0.45, marginRight: 6 }} />
+                                    {formatPitcherLabel(awayPitcher) || 'TBD'}
+                                </span>
+                                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {formatPitcherLabel(homePitcher) || 'TBD'}
+                                </span>
+                            </div>
+                            <div style={{ marginTop: 6, fontSize: 11, lineHeight: 1.4, color: '#64748b' }}>
+                                {MLB_LISTED_PITCHER_POLICY} {MLB_OFFICIAL_GAME_POLICY}
+                            </div>
+                        </div>
+                    )}
                     {loading && (
                         <div style={{ padding: 30, textAlign: 'center', color: '#aaa' }}>
                             <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 8 }} />

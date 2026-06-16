@@ -76,13 +76,18 @@ TestRunner::run('listedPitcherVoid branch table', function () {
     unset($_ENV['MLB_LISTED_PITCHER_VOID_ENABLED'], $_SERVER['MLB_LISTED_PITCHER_VOID_ENABLED']);
     putenv('MLB_LISTED_PITCHER_VOID_ENABLED');
 
+    // startTime = first pitch; pitchersSyncedAt AFTER it means the settlement
+    // doc's starters were confirmed post-first-pitch (the void-hardening gate).
+    $gameStart = '2026-06-13T22:40:00+00:00';
+    $freshSync = '2026-06-13T23:30:00+00:00'; // > start → confirmed actual starter
     $snap = [
         'sportKey'     => 'baseball_mlb',
+        'startTime'    => $gameStart,
         'homePitcher'  => ['id' => 777, 'name' => 'B Ashcraft', 'hand' => 'R'],
         'awayPitcher'  => ['id' => 555, 'name' => 'S Alcantara', 'hand' => 'R'],
     ];
-    $matchSame = $snap; // pitchers unchanged at settlement
-    $matchAwayChanged = array_merge($snap, ['awayPitcher' => ['id' => 999, 'name' => 'Sub', 'hand' => 'L']]);
+    $matchSame = array_merge($snap, ['pitchersSyncedAt' => $freshSync]); // pitchers unchanged at settlement
+    $matchAwayChanged = array_merge($snap, ['pitchersSyncedAt' => $freshSync, 'awayPitcher' => ['id' => 999, 'name' => 'Sub', 'hand' => 'L']]);
 
     $baseSel = ['marketType' => 'h2h', 'matchSnapshot' => $snap, 'pitcherAction' => ['home' => false, 'away' => false]];
 
@@ -127,6 +132,21 @@ TestRunner::run('listedPitcherVoid branch table', function () {
         'non-baseball → no void'
     );
 
+    // Void hardening: a pitcher id synced BEFORE first pitch is a pre-game
+    // probable, not the confirmed starter — never void off it.
+    $matchStale = array_merge($matchAwayChanged, ['pitchersSyncedAt' => '2026-06-13T20:00:00+00:00']);
+    TestRunner::assertFalse(
+        SportsbookBetSupport::listedPitcherVoid($matchStale, $baseSel),
+        'pitchers synced pre-first-pitch → no void (stale probable)'
+    );
+
+    // No pitcher-sync stamp at all → cannot confirm the actual starter → no void.
+    $matchNoStamp = array_merge($matchAwayChanged, ['pitchersSyncedAt' => '']);
+    TestRunner::assertFalse(
+        SportsbookBetSupport::listedPitcherVoid($matchNoStamp, $baseSel),
+        'missing pitchersSyncedAt → no void'
+    );
+
     // Kill switch disables everything.
     $_ENV['MLB_LISTED_PITCHER_VOID_ENABLED'] = '0';
     TestRunner::assertFalse(
@@ -135,4 +155,112 @@ TestRunner::run('listedPitcherVoid branch table', function () {
     );
     unset($_ENV['MLB_LISTED_PITCHER_VOID_ENABLED'], $_SERVER['MLB_LISTED_PITCHER_VOID_ENABLED']);
     putenv('MLB_LISTED_PITCHER_VOID_ENABLED');
+});
+
+TestRunner::run('baseballOfficialGameStatus 8½/9 rule', function () {
+    unset($_ENV['MLB_OFFICIAL_GAME_RULE_ENABLED'], $_SERVER['MLB_OFFICIAL_GAME_RULE_ENABLED']);
+    putenv('MLB_OFFICIAL_GAME_RULE_ENABLED');
+
+    $mlb = static fn(array $score): array => ['sportKey' => 'baseball_mlb', 'score' => $score];
+
+    // Full 9 innings via game_period → official.
+    TestRunner::assertEquals('official',
+        SportsbookBetSupport::baseballOfficialGameStatus($mlb(['game_period' => 9])),
+        '9 innings (game_period) → official');
+
+    // 9 innings via the per-inning line score length → official.
+    TestRunner::assertEquals('official',
+        SportsbookBetSupport::baseballOfficialGameStatus($mlb([
+            'score_home_by_period' => [0,1,0,0,2,0,0,1,0],
+            'score_away_by_period' => [0,0,0,1,0,0,0,0,0],
+        ])),
+        '9-inning line score → official');
+
+    // 8½: home ahead, bottom 9th not batted (home 8 entries, away 9, period 9).
+    TestRunner::assertEquals('official',
+        SportsbookBetSupport::baseballOfficialGameStatus($mlb([
+            'game_period' => 9,
+            'score_home_by_period' => [1,0,0,0,1,0,0,1],
+            'score_away_by_period' => [0,0,0,0,0,1,0,0,0],
+        ])),
+        '8½ with home ahead → official');
+
+    // Extra innings → always official.
+    TestRunner::assertEquals('official',
+        SportsbookBetSupport::baseballOfficialGameStatus($mlb(['game_period' => 11])),
+        'extra innings → official');
+
+    // Rain-shortened to 7 → positively short → void.
+    TestRunner::assertEquals('short',
+        SportsbookBetSupport::baseballOfficialGameStatus($mlb([
+            'game_period' => 7,
+            'score_home_by_period' => [0,1,0,0,0,2,0],
+            'score_away_by_period' => [0,0,1,0,0,0,0],
+        ])),
+        '7 innings → short (no action)');
+
+    // No inning signal at all → unknown (manual review, never auto-void).
+    TestRunner::assertEquals('unknown',
+        SportsbookBetSupport::baseballOfficialGameStatus($mlb(['score_home' => 4, 'score_away' => 2])),
+        'no inning data → unknown');
+
+    // Non-baseball → rule N/A.
+    TestRunner::assertEquals('official',
+        SportsbookBetSupport::baseballOfficialGameStatus(['sportKey' => 'basketball_nba', 'score' => ['game_period' => 4]]),
+        'non-baseball → official (N/A)');
+
+    // Kill switch → grade as before regardless of innings.
+    $_ENV['MLB_OFFICIAL_GAME_RULE_ENABLED'] = '0';
+    TestRunner::assertEquals('official',
+        SportsbookBetSupport::baseballOfficialGameStatus($mlb(['game_period' => 5])),
+        'kill switch off → official');
+    unset($_ENV['MLB_OFFICIAL_GAME_RULE_ENABLED'], $_SERVER['MLB_OFFICIAL_GAME_RULE_ENABLED']);
+    putenv('MLB_OFFICIAL_GAME_RULE_ENABLED');
+});
+
+TestRunner::run('selectionResult MLB official-game integration', function () {
+    unset($_ENV['MLB_OFFICIAL_GAME_RULE_ENABLED'], $_SERVER['MLB_OFFICIAL_GAME_RULE_ENABLED']);
+    putenv('MLB_OFFICIAL_GAME_RULE_ENABLED');
+
+    $base = [
+        'sportKey' => 'baseball_mlb',
+        'status'   => 'finished', // SportsMatchStatus stub returns this verbatim
+        'homeTeam' => 'Pirates',
+        'awayTeam' => 'Marlins',
+    ];
+
+    // Full 9, home wins ML → graded won (rule does not interfere).
+    $full = array_merge($base, [
+        'score' => [
+            'score_home' => 5, 'score_away' => 3, 'game_period' => 9,
+            'score_home_by_period' => [0,1,0,2,0,0,1,1,0],
+            'score_away_by_period' => [0,0,1,0,0,1,0,1,0],
+        ],
+    ]);
+    TestRunner::assertEquals('won',
+        SportsbookBetSupport::selectionResult($full, ['marketType' => 'h2h', 'selection' => 'Pirates']),
+        'official 9-inning game grades normally');
+
+    // Called after 7 → totals leg voids (no action).
+    $short = array_merge($base, [
+        'score' => [
+            'score_home' => 2, 'score_away' => 1, 'game_period' => 7,
+            'score_home_by_period' => [0,1,0,0,0,1,0],
+            'score_away_by_period' => [0,0,1,0,0,0,0],
+        ],
+    ]);
+    TestRunner::assertEquals('void',
+        SportsbookBetSupport::selectionResult($short, ['marketType' => 'totals', 'selection' => 'Over', 'point' => 8.5]),
+        'shortened <9 innings → void');
+
+    // Finished but no inning signal → pending for manual review (no auto-void).
+    $ambiguous = array_merge($base, [
+        'score' => ['score_home' => 4, 'score_away' => 2],
+    ]);
+    TestRunner::assertEquals('pending',
+        SportsbookBetSupport::selectionResult($ambiguous, ['marketType' => 'h2h', 'selection' => 'Pirates']),
+        'finished, no innings → pending (manual review)');
+
+    unset($_ENV['MLB_OFFICIAL_GAME_RULE_ENABLED'], $_SERVER['MLB_OFFICIAL_GAME_RULE_ENABLED']);
+    putenv('MLB_OFFICIAL_GAME_RULE_ENABLED');
 });

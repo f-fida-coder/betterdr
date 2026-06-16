@@ -957,27 +957,40 @@ final class MatchesController
             $byKey[$key] = $market;
         }
 
-        $odds['markets'] = self::attachBuyPointsLadders(array_values($byKey), (string) ($match['sportKey'] ?? ''));
+        $odds['markets'] = self::attachBuyPointsLadders(
+            array_values($byKey),
+            (string) ($match['sportKey'] ?? ''),
+            is_array($odds['extendedMarkets'] ?? null) ? $odds['extendedMarkets'] : []
+        );
         $match['odds'] = $odds;
         return $match;
     }
 
     /**
      * Server-authoritative Buy Points display ladder. For every spread/total
-     * outcome that carries a numeric line + valid price, attach an
-     * `alternateLines` list ([{points, line, odds}]) computed via the
-     * existing BuyPointsPricing engine. The frontend dropdown consumes this
-     * directly; if it's absent it falls back to its local ladder. This is
-     * DISPLAY ONLY — placement (validateSelection) recomputes the price from
-     * the live line via the same engine, so a stale or tampered alternate
-     * can never be accepted. Cheap integer math (≤5 steps per outcome) and
-     * runs inside the already-cached public-matches payload.
+     * outcome that carries a numeric line, attach an `alternateLines` list
+     * ([{points, line, odds, americanOdds}]) sourced ENTIRELY from the live
+     * feed's alt-line prices via BuyPointsPricing::ladderFromFeed — the same
+     * single price source placement (validateSelection) reprices against, so a
+     * stale or tampered alternate can never be accepted and display == placed.
+     * Rungs the feed never priced are omitted (no synthetic ladder).
      *
-     * @param list<array<string,mixed>> $markets
+     * @param list<array<string,mixed>> $markets         core markets (h2h/spreads/totals)
+     * @param list<array<string,mixed>> $extendedMarkets feed alt-line ladders
      * @return list<array<string,mixed>>
      */
-    private static function attachBuyPointsLadders(array $markets, string $sportKey): array
+    private static function attachBuyPointsLadders(array $markets, string $sportKey, array $extendedMarkets = []): array
     {
+        // INTERIM SAFETY LOCK (2026-06-16): don't surface a buy-points ladder
+        // for sports not yet verified/enabled. Placement rejects them anyway
+        // (BUY_POINTS_DISABLED), so emitting them would only mislead.
+        if (!BuyPointsPricing::isSportEnabled($sportKey)) {
+            return $markets;
+        }
+        // Single price source: core markets (base line + h2h ML floor) plus
+        // the feed's alt-line ladders. ladderFromFeed reads alt prices from
+        // this pool; placement reads from the same stored extendedMarkets.
+        $pool = array_merge($markets, $extendedMarkets);
         foreach ($markets as $mi => $market) {
             if (!is_array($market)) {
                 continue;
@@ -992,21 +1005,15 @@ final class MatchesController
                     continue;
                 }
                 $pointRaw = $outcome['point'] ?? null;
-                $priceRaw = $outcome['price'] ?? null;
-                if (!is_numeric($pointRaw) || !is_numeric($priceRaw)) {
+                if (!is_numeric($pointRaw)) {
                     continue;
                 }
-                $snapped = SportsbookBetSupport::snapDecimalOdds($priceRaw);
-                $baseAmerican = SportsbookBetSupport::decimalToAmericanInt($snapped);
-                if ($baseAmerican === 0) {
-                    continue;
-                }
-                $ladder = BuyPointsPricing::buildLadder(
+                $ladder = BuyPointsPricing::ladderFromFeed(
                     $sportKey,
                     $marketKey,
                     (string) ($outcome['name'] ?? ''),
-                    $baseAmerican,
-                    (float) $pointRaw
+                    (float) $pointRaw,
+                    $pool
                 );
                 if ($ladder === []) {
                     continue;
@@ -1016,8 +1023,8 @@ final class MatchesController
                     $alternates[] = [
                         'points' => $rung['points'],
                         'line' => $rung['line'],
-                        'odds' => SportsbookBetSupport::americanToDecimalExact((int) $rung['american']),
-                        'americanOdds' => (int) $rung['american'],
+                        'odds' => $rung['decimal'],
+                        'americanOdds' => $rung['american'],
                     ];
                 }
                 $outcomes[$oi]['alternateLines'] = $alternates;

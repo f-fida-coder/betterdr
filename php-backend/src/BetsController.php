@@ -3095,6 +3095,14 @@ final class BetsController
         $appliedBoughtPoints = 0.0;
         $signedPointDelta = 0.0;
         if ($boughtPoints > 0) {
+            // Buy-points is gated per sport (interim lock 2026-06-16: default
+            // OFF until each sport's feed-anchored pricing is verified).
+            // Base lines (boughtPoints == 0) are unaffected.
+            if (!BuyPointsPricing::isSportEnabled((string) ($match['sportKey'] ?? ''))) {
+                throw new ApiException('Buy Points is temporarily unavailable. Please place the base line instead.', 400, [
+                    'code' => 'BUY_POINTS_DISABLED',
+                ]);
+            }
             if (!BuyPointsPricing::isAllowedMarket($marketKey)) {
                 throw new ApiException('Buy Points is only available on spread and total markets.', 400, [
                     'code' => 'BUY_POINTS_MARKET_INVALID',
@@ -3109,21 +3117,35 @@ final class BetsController
                     'code' => 'BUY_POINTS_NO_BASE_LINE',
                 ]);
             }
-            $halfSteps = BuyPointsPricing::halfStepsFromBoughtPoints($boughtPoints);
-            $expectedAmerican = BuyPointsPricing::expectedAmericanOdds(
+            // Validate the half-point grid + range (throws on bad input).
+            BuyPointsPricing::halfStepsFromBoughtPoints($boughtPoints);
+            // Price the rung from the SAME feed alt-line source the display
+            // ladder uses ($markets includes the feed's extendedMarkets). No
+            // feed price for this exact rung → reject (no synthetic fallback).
+            $rung = BuyPointsPricing::priceBoughtPointFromFeed(
                 (string) ($match['sportKey'] ?? ''),
                 $marketKey,
-                $officialAmericanInt,
-                $halfSteps
+                (string) ($outcome['name'] ?? $selection),
+                $originalPoint,
+                $boughtPoints,
+                $markets
             );
+            if ($rung === null) {
+                throw new ApiException('Buy Points is unavailable for this line right now. Please place the base line instead.', 409, [
+                    'code' => 'BUY_POINTS_NO_FEED_PRICE',
+                ]);
+            }
             $signedPointDelta = BuyPointsPricing::signedPointDelta(
                 $marketKey,
                 (string) ($outcome['name'] ?? $selection),
                 $boughtPoints
             );
-            $adjustedPoint = round($originalPoint + $signedPointDelta, 2);
-            $effectiveAmerican = $expectedAmerican;
-            $effectiveDecimal = SportsbookBetSupport::americanToDecimalExact($expectedAmerican);
+            // The feed-matched rung line equals originalPoint + signedPointDelta;
+            // use the rung's own (already rounded) line so it can never diverge
+            // from the priced point.
+            $adjustedPoint = round((float) $rung['line'], 2);
+            $effectiveAmerican = (int) $rung['american'];
+            $effectiveDecimal = (float) $rung['decimal'];
             if (!is_finite($effectiveDecimal) || $effectiveDecimal <= 1.0) {
                 throw new ApiException('Invalid adjusted odds for Buy Points.', 409, [
                     'code' => 'INVALID_ODDS',

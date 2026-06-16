@@ -6,7 +6,7 @@ import { useToast } from '../contexts/ToastContext';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import { teaserSportGroup } from '../utils/teaserAdjustment';
 import { resolveBroadcast } from '../utils/broadcast';
-import { isMlbSportKey, formatPitcherLabel, hasListedPitchers } from '../utils/pitchers';
+import { isMlbSportKey, formatPitcherLabel, hasListedPitchers, MLB_LISTED_PITCHER_POLICY } from '../utils/pitchers';
 import { TERMINAL_MATCH_STATUSES, isLiveLikeMatch } from '../utils/liveStatus';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
@@ -1332,17 +1332,23 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                     };
                                     return (
                                         <div className="match-pitchers" style={{
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
-                                            gap: 8,
                                             padding: '6px 12px',
                                             borderTop: '1px solid #eef0f2',
-                                            fontSize: '0.78em',
-                                            color: '#475569',
                                         }}>
-                                            {renderSide('away', match.pitchers.away, true)}
-                                            {renderSide('home', match.pitchers.home, false)}
+                                            <div style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                gap: 8,
+                                                fontSize: '0.78em',
+                                                color: '#475569',
+                                            }}>
+                                                {renderSide('away', match.pitchers.away, true)}
+                                                {renderSide('home', match.pitchers.home, false)}
+                                            </div>
+                                            <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.35, color: '#94a3b8' }}>
+                                                {MLB_LISTED_PITCHER_POLICY}
+                                            </div>
                                         </div>
                                     );
                                 })()}

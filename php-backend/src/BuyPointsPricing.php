@@ -5,15 +5,16 @@ declare(strict_types=1);
 /**
  * Server-authoritative pricing for Buy Points (spread/total only).
  *
- * The frontend can SHOW a ladder, but every accepted price must come from
- * here so a tampered client can't grant itself -100 on a -3 → -10 bought
- * line. validateSelection compares the client's submitted American odds
- * to expectedAmericanOdds() and rejects with ODDS_CHANGED on mismatch.
+ * SINGLE PRICE SOURCE: every bought-point rung is priced from the live feed's
+ * own alternate-line ladder (alternate_spreads / alternate_totals) — the exact
+ * same prices surfaced by "Alt Lines & Totals". There is NO synthetic ladder:
+ * if the feed never published a price for a rung, that rung does not exist
+ * (display omits it; placement rejects it with BUY_POINTS_NO_FEED_PRICE).
  *
- * Ladder (v1): flat -10 cents of juice per half-point, capped at 5 steps
- * (2.5 points). Matches the industry default for non-key-number buys.
- * Per-sport key-number premiums (NFL 3, 7; NCAAF 3, 7, 10) can layer on
- * top later via expectedAmericanOdds; signature stays stable.
+ * Both display (MatchesController::attachBuyPointsLadders) and placement
+ * (BetsController::validateSelection) call ladderFromFeed()/
+ * priceBoughtPointFromFeed() so the price a player SEES is provably the price
+ * they GET and the price that SETTLES.
  *
  * Range conventions (kept aligned with SportsbookBetSupport::applyTeaserAdjustment):
  *   - `boughtPoints` is always POSITIVE — it's the magnitude of the buy.
@@ -25,18 +26,75 @@ final class BuyPointsPricing
 {
     private const HALF_POINT = 0.5;
     private const MAX_HALF_STEPS = 5;
-    private const JUICE_PER_STEP_AMERICAN = 10;
-    // US books don't quote inside (-110, +110) — that's the standard
-    // "no-go zone" around even money. Landing there during a step snaps
-    // to -110 (the canonical entry juice). Matches the frontend ladder
-    // in ModeBetPanel.nextAmericanOddsStep so client + server stay
-    // in lockstep on every rung.
-    private const NO_GO_INTERIOR = 110;
 
     public static function isAllowedMarket(string $marketType): bool
     {
         $m = strtolower(trim($marketType));
         return $m === 'spreads' || $m === 'totals';
+    }
+
+    // Half-point window matching the no-tie "effectively win" zone: a spread
+    // whose magnitude is below this is equivalent (or near-equivalent) to the
+    // moneyline on a sport that can't tie. We omit these rungs (D2) — a
+    // bettor who only wants "just win" takes the moneyline.
+    private const NO_TIE_WIN_ZONE = 1.0;
+
+    // Sports that can't end level in the bet's scope, so a near-zero
+    // spread/run-line/puck-line collapses to the moneyline. Buying down into
+    // the win zone is omitted for these (book-standard: -1 → +1, skip ±0.5/0).
+    private const NO_TIE_SPORT_PREFIXES = ['baseball_', 'icehockey_'];
+
+    /**
+     * Three-way moneyline sports (a draw is a distinct outcome). The 2-way
+     * "never below the ML" floor is undefined here, so buy-points is not
+     * offered at all (D3); the alt-line ladder still surfaces handicap
+     * variations. Currently soccer.
+     */
+    private static function isThreeWaySport(string $sportKey): bool
+    {
+        return str_starts_with(strtolower(trim($sportKey)), 'soccer_')
+            || strtolower(trim($sportKey)) === 'soccer';
+    }
+
+    private static function isNoTieSport(string $sportKey): bool
+    {
+        $k = strtolower(trim($sportKey));
+        foreach (self::NO_TIE_SPORT_PREFIXES as $prefix) {
+            if (str_starts_with($k, $prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether buy-points is currently enabled for the given sport. Server-
+     * authoritative gate consulted at placement; display also suppresses the
+     * ladder for disabled sports so display == placed == settled.
+     *
+     * Driven by the BUY_POINTS_ENABLED_SPORTS env allowlist (csv of lowercase
+     * sportKeys). DEFAULT EMPTY = buy-points globally locked (interim safety
+     * lock 2026-06-16): the data path is feed-anchored, but each sport must be
+     * verified before its money flow is re-opened. Re-enable sport-by-sport by
+     * adding its key to the env — no redeploy needed. Three-way sports (soccer)
+     * are never eligible regardless of the env (D3).
+     */
+    public static function isSportEnabled(string $sportKey): bool
+    {
+        $k = strtolower(trim($sportKey));
+        if ($k === '' || self::isThreeWaySport($k)) {
+            return false;
+        }
+        $csv = (string) Env::get('BUY_POINTS_ENABLED_SPORTS', '');
+        if ($csv === '') {
+            return false;
+        }
+        foreach (explode(',', $csv) as $entry) {
+            if (strtolower(trim($entry)) === $k) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -74,52 +132,6 @@ final class BuyPointsPricing
     }
 
     /**
-     * Adjusted American odds for `halfSteps` half-points of buy. The result
-     * is always *worse* than baseAmerican (juicier in the book's favor).
-     *
-     * @param string $sportKey unused in v1, kept for future key-number premiums
-     * @param string $marketType 'spreads' or 'totals'
-     * @param int    $baseAmerican rounded American int for the official line
-     * @param int    $halfSteps 0..MAX_HALF_STEPS
-     */
-    public static function expectedAmericanOdds(string $sportKey, string $marketType, int $baseAmerican, int $halfSteps): int
-    {
-        if (!self::isAllowedMarket($marketType)) {
-            throw new ApiException('Buy Points is only available on spreads and totals.', 400, [
-                'code' => 'BUY_POINTS_MARKET_INVALID',
-            ]);
-        }
-        if ($halfSteps === 0) {
-            return $baseAmerican;
-        }
-        if ($baseAmerican === 0) {
-            throw new ApiException('Invalid base odds for Buy Points calculation.', 400, [
-                'code' => 'INVALID_ODDS',
-            ]);
-        }
-        $current = $baseAmerican;
-        for ($i = 0; $i < $halfSteps; $i++) {
-            $current = self::stepWorse($current);
-        }
-        return $current;
-    }
-
-    /**
-     * One -10c step on the American-odds ladder. Landing inside the
-     * (-110, +110) no-go zone snaps to -110 (entry juice). Mirrors
-     * ModeBetPanel.nextAmericanOddsStep on the client so frontend and
-     * backend ladders never disagree about a price.
-     */
-    private static function stepWorse(int $american): int
-    {
-        $next = $american - self::JUICE_PER_STEP_AMERICAN;
-        if ($next < self::NO_GO_INTERIOR && $next > -self::NO_GO_INTERIOR) {
-            return -110;
-        }
-        return $next;
-    }
-
-    /**
      * Direction-aware signed delta to apply to the stored `point`. Mirrors
      * the spread/total convention used by applyTeaserAdjustment so the two
      * features stay aligned: spreads move +boughtPoints; totals depend on
@@ -146,36 +158,218 @@ final class BuyPointsPricing
     }
 
     /**
-     * Build the full buyable-points ladder for one spread/total selection,
-     * composing the existing primitives (expectedAmericanOdds +
-     * signedPointDelta) — no new pricing math. Returns up to
-     * MAX_HALF_STEPS options, one per half-point step, each:
-     *   ['points' => float, 'line' => float, 'american' => int]
-     * The base (0-point) line is intentionally NOT included — the caller
-     * already has it and prepends the original row.
+     * Build the buyable-points ladder for one spread/total selection ENTIRELY
+     * from the live feed's alternate-line prices. This is the single price
+     * source for both display and placement.
      *
-     * Returns [] for ineligible markets or unusable base odds so the caller
-     * can simply omit `alternateLines` (the frontend then falls back to its
-     * local ladder, and placement stays server-authoritative regardless).
+     * Rules:
+     *  - Walk half-point steps 1..MAX_HALF_STEPS in the buy direction
+     *    (signedPointDelta). Target line = basePoint + delta.
+     *  - D1: a rung exists ONLY if the feed published an alt price at that
+     *    exact (side, point). No feed price → OMIT (no synthesis ever). A gap
+     *    at one rung does not truncate higher rungs — each is independent.
+     *  - D2: on no-tie sports (baseball run line / hockey puck line), OMIT any
+     *    spread rung inside the no-tie win zone (|line| < 1.0) — book-standard
+     *    -1 → +1 skip; the bettor takes the moneyline.
+     *  - House-safe on duplicate (side, point) feed rows: keep the LOWEST
+     *    decimal (worst payout) so a pre-dedupe doc can't leak a generous price.
+     *  - ML FLOOR (spreads only): once a bought spread crosses onto the
+     *    bettor-favorable side (line >= 0 — a cushion that's easier than an
+     *    outright win), it may never pay MORE than that side's moneyline. If
+     *    the feed rung's decimal exceeds the side ML decimal (or the ML is
+     *    missing), OMIT it. A favorite still laying points (line < 0) is HARDER
+     *    than the ML and legitimately pays more, so the floor does not bind.
+     *    Totals have no ML equivalent, so no floor applies.
      *
-     * @return list<array{points: float, line: float, american: int}>
+     * @param list<array<string,mixed>> $pool combined market pool (core +
+     *        extendedMarkets): must contain 'alternate_spreads'/'alternate_totals'
+     *        for rungs and 'h2h' for the spread ML floor.
+     * @return list<array{points: float, line: float, decimal: float, american: int}>
      */
-    public static function buildLadder(string $sportKey, string $marketType, string $selection, int $baseAmerican, float $basePoint): array
+    public static function ladderFromFeed(string $sportKey, string $marketType, string $selection, float $basePoint, array $pool): array
     {
-        if (!self::isAllowedMarket($marketType) || $baseAmerican === 0) {
+        if (!self::isAllowedMarket($marketType) || !self::isSportEnabled($sportKey)) {
             return [];
         }
+        $m = strtolower(trim($marketType));
+        $altOutcomes = self::outcomesForKey($pool, 'alternate_' . $m);
+        if ($altOutcomes === []) {
+            return [];
+        }
+        $priceByPoint = self::feedPriceByPoint($altOutcomes, $m, $selection);
+        if ($priceByPoint === []) {
+            return [];
+        }
+
+        $isSpread = $m === 'spreads';
+        $noTie = self::isNoTieSport($sportKey);
+        // Side ML decimal (spreads only) — the floor a bettor-favorable bought
+        // line may not beat. Null when absent → such rungs fail safe (omitted).
+        $mlDecimal = $isSpread ? self::sideMoneylineDecimal($pool, $selection) : null;
+
         $ladder = [];
         for ($steps = 1; $steps <= self::MAX_HALF_STEPS; $steps++) {
             $points = $steps * self::HALF_POINT;
-            $american = self::expectedAmericanOdds($sportKey, $marketType, $baseAmerican, $steps);
-            $delta = self::signedPointDelta($marketType, $selection, $points);
+            $delta = self::signedPointDelta($m, $selection, $points);
+            $line = round($basePoint + $delta, 2);
+
+            // D2: no-tie win-zone spreads are omitted (book-standard skip).
+            if ($isSpread && $noTie && abs($line) < self::NO_TIE_WIN_ZONE) {
+                continue;
+            }
+
+            $key = self::pointKey($line);
+            if (!array_key_exists($key, $priceByPoint)) {
+                continue; // D1: no feed price → no rung.
+            }
+            $decimal = SportsbookBetSupport::snapDecimalOdds($priceByPoint[$key]);
+            $american = SportsbookBetSupport::decimalToAmericanInt($decimal);
+            if ($american === 0) {
+                continue;
+            }
+            $exactDecimal = SportsbookBetSupport::americanToDecimalExact($american);
+            if (!is_finite($exactDecimal) || $exactDecimal <= 1.0) {
+                continue;
+            }
+
+            // ML floor: a bettor-favorable bought spread (line >= 0) can't pay
+            // more than the side moneyline. Missing ML → fail safe, omit.
+            if ($isSpread && $line >= -1e-9) {
+                if ($mlDecimal === null || $exactDecimal > $mlDecimal + 1e-9) {
+                    continue;
+                }
+            }
+
             $ladder[] = [
                 'points' => $points,
-                'line' => round($basePoint + $delta, 2),
+                'line' => $line,
+                'decimal' => $exactDecimal,
                 'american' => $american,
             ];
         }
         return $ladder;
+    }
+
+    /**
+     * The single feed-priced rung for a specific boughtPoints buy, or null if
+     * the feed has no price for it (caller throws BUY_POINTS_NO_FEED_PRICE).
+     *
+     * @param list<array<string,mixed>> $pool combined market pool
+     * @return array{points: float, line: float, decimal: float, american: int}|null
+     */
+    public static function priceBoughtPointFromFeed(string $sportKey, string $marketType, string $selection, float $basePoint, float $boughtPoints, array $pool): ?array
+    {
+        $ladder = self::ladderFromFeed($sportKey, $marketType, $selection, $basePoint, $pool);
+        foreach ($ladder as $rung) {
+            if (abs($rung['points'] - $boughtPoints) < 1e-6) {
+                return $rung;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Outcomes of the first market in the pool whose key matches (lowercased).
+     *
+     * @param list<array<string,mixed>> $pool
+     * @return list<array<string,mixed>>
+     */
+    private static function outcomesForKey(array $pool, string $key): array
+    {
+        $key = strtolower(trim($key));
+        foreach ($pool as $market) {
+            if (!is_array($market)) {
+                continue;
+            }
+            if (strtolower(trim((string) ($market['key'] ?? ''))) === $key) {
+                return is_array($market['outcomes'] ?? null) ? array_values($market['outcomes']) : [];
+            }
+        }
+        return [];
+    }
+
+    /**
+     * Lowest-payout (house-safe) feed decimal per matching (side, point).
+     *
+     * @param list<array<string,mixed>> $altOutcomes
+     * @return array<string, float> point-key => decimal
+     */
+    private static function feedPriceByPoint(array $altOutcomes, string $marketType, string $selection): array
+    {
+        $byPoint = [];
+        foreach ($altOutcomes as $o) {
+            if (!is_array($o) || !self::sideMatches($marketType, $selection, (string) ($o['name'] ?? ''))) {
+                continue;
+            }
+            $pointRaw = $o['point'] ?? null;
+            $priceRaw = $o['price'] ?? null;
+            if (!is_numeric($pointRaw) || !is_numeric($priceRaw)) {
+                continue;
+            }
+            $price = (float) $priceRaw;
+            if ($price <= 1.0) {
+                continue;
+            }
+            $key = self::pointKey((float) $pointRaw);
+            if (!array_key_exists($key, $byPoint) || $price < $byPoint[$key]) {
+                $byPoint[$key] = $price;
+            }
+        }
+        return $byPoint;
+    }
+
+    /**
+     * Whether a feed alt outcome is on the same betting side as the selection.
+     * Spreads match by canonical name (both come from the same name source);
+     * totals match Over↔Over / Under↔Under.
+     */
+    private static function sideMatches(string $marketType, string $selection, string $outcomeName): bool
+    {
+        if ($marketType === 'spreads') {
+            return strcasecmp(trim($selection), trim($outcomeName)) === 0;
+        }
+        $sel = strtolower($selection);
+        $out = strtolower($outcomeName);
+        if (str_contains($sel, 'over') && str_contains($out, 'over')) {
+            return true;
+        }
+        return str_contains($sel, 'under') && str_contains($out, 'under');
+    }
+
+    /**
+     * Stable half-point key so float drift can't miss a rung lookup.
+     */
+    private static function pointKey(float $line): string
+    {
+        return number_format(round($line * 2) / 2, 1, '.', '');
+    }
+
+    /**
+     * Exact moneyline decimal for the selection's side, or null if absent.
+     *
+     * @param list<array<string,mixed>> $pool
+     */
+    private static function sideMoneylineDecimal(array $pool, string $selection): ?float
+    {
+        foreach (self::outcomesForKey($pool, 'h2h') as $o) {
+            if (!is_array($o)) {
+                continue;
+            }
+            if (strcasecmp(trim((string) ($o['name'] ?? '')), trim($selection)) !== 0) {
+                continue;
+            }
+            $price = $o['price'] ?? null;
+            if (!is_numeric($price) || (float) $price <= 1.0) {
+                return null;
+            }
+            $snapped = SportsbookBetSupport::snapDecimalOdds((float) $price);
+            $american = SportsbookBetSupport::decimalToAmericanInt($snapped);
+            if ($american === 0) {
+                return null;
+            }
+            $exact = SportsbookBetSupport::americanToDecimalExact($american);
+            return (is_finite($exact) && $exact > 1.0) ? $exact : null;
+        }
+        return null;
     }
 }

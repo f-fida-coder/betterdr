@@ -180,6 +180,13 @@ final class RundownEventMapper
             'lastUpdated'       => $now,
             'lastOddsSyncAt'    => $now,
             'lastScoreSyncAt'   => $now,
+            // When homePitcher/awayPitcher were last written from a FULL event
+            // sync. The live score tick (scoreUpdate) refreshes the score and
+            // bumps lastUpdated WITHOUT touching pitchers, so lastUpdated cannot
+            // prove pitcher freshness. The listed-pitcher void uses this stamp
+            // to require that the actual starter was captured at/after first
+            // pitch before it ever refunds a bet (see listedPitcherVoid).
+            'pitchersSyncedAt'  => $now,
             'updatedAt'         => $now,
             'createdAt'         => $now,
         ];

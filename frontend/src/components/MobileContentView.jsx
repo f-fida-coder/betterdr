@@ -19,6 +19,7 @@ import { resolveBroadcast } from '../utils/broadcast';
 import { isLiveLikeMatch } from '../utils/liveStatus';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
+import { isMlbSportKey, formatPitcherLabel, MLB_LISTED_PITCHER_POLICY } from '../utils/pitchers';
 import {
     FULL_PERIOD,
     getPeriodsForSportKey,
@@ -976,6 +977,14 @@ const MobileContentView = ({
                 // card's away-then-home convention).
                 team1Score: awayScore,
                 team2Score: homeScore,
+                // Listed starting pitchers (MLB). away→team1, home→team2 to
+                // match the card convention. Carried so the row can show the
+                // listed-pitcher labels + Action toggles and the slip captures
+                // who was listed at bet time (the listed-pitcher void key).
+                pitchers: {
+                    away: match.awayPitcher || null,
+                    home: match.homePitcher || null,
+                },
                 // Preserve backend flag: MatchCard reads this to disable
                 // bet buttons when the book has stale or suspended lines.
                 isBettable: match.isBettable !== false,
@@ -2148,6 +2157,13 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
         ? (match.bettingBlockedReason || 'Betting is temporarily unavailable for this event.')
         : null;
     const isSelected = (marketType, selection) => selectedKeys.has(`${match.id}|${marketType}|${selection}`);
+    // MLB listed-pitcher Action toggles. Default {false,false} = listed pitcher
+    // (the protected default — the bet voids if a listed starter is scratched).
+    // Checking a side takes Action: the bet stands regardless of that pitcher.
+    // Carried into the slip so ModeBetPanel + placement see the player's choice.
+    const showPitchers = isMlbSportKey(match?.sportKey || match?.sport) && (match.pitchers?.away || match.pitchers?.home);
+    const [pitcherAction, setPitcherAction] = React.useState({ home: false, away: false });
+    const togglePitcherSide = (side) => setPitcherAction((prev) => ({ ...prev, [side]: !prev[side] }));
     // 1st-inning totals at 0.5 IS the NRFI/YRFI market — relabel chips so bettors
     // recognise it. Selection name stays "Over"/"Under" for settlement (totals
     // resolution in SportsbookBetSupport::selectionResult matches on substring
@@ -2182,6 +2198,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
             sportKey: String(match?.sportKey || match?.sport || '').toLowerCase(),
             selectionFull,
             alternateLines: Array.isArray(alternateLines) ? alternateLines : null,
+            // Listed pitchers + the player's current Action choice, so the slip
+            // shows the toggles and placement captures who was listed at bet time.
+            pitchers: showPitchers ? match.pitchers : null,
+            pitcherAction: showPitchers ? { home: !!pitcherAction.home, away: !!pitcherAction.away } : undefined,
         });
     };
     const [propsOpen, setPropsOpen] = React.useState(false);
@@ -2200,8 +2220,11 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
         awayTeamShort: match.team1Short,
         sportKey: match.sportKey,
         sport: match.sport,
+        // Listed pitchers for the detail sheet (it reads homePitcher/awayPitcher).
+        homePitcher: match.pitchers?.home || null,
+        awayPitcher: match.pitchers?.away || null,
         odds: match.odds,
-    }), [match.id, match.externalId, match.team1, match.team2, match.team1Full, match.team2Full, match.team1Short, match.team2Short, match.sportKey, match.sport, match.odds]);
+    }), [match.id, match.externalId, match.team1, match.team2, match.team1Full, match.team2Full, match.team1Short, match.team2Short, match.sportKey, match.sport, match.pitchers, match.odds]);
     return (
         <div style={matchCardStyle}>
             {/* Broadcast row sits at the very top so the player sees
@@ -2543,6 +2566,41 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     />
                 )}
             </div>
+
+            {showPitchers && (() => {
+                const renderSide = (side, pitcher, isAway) => {
+                    const label = formatPitcherLabel(pitcher);
+                    if (!label) {
+                        return <span style={{ color: '#94a3b8', fontWeight: 600 }}>TBD</span>;
+                    }
+                    return (
+                        <label
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', minWidth: 0, maxWidth: '48%' }}
+                            title="Action — check to keep this bet live even if this listed pitcher is scratched"
+                        >
+                            {isAway && <i className="fa-solid fa-baseball" style={{ opacity: 0.45, flexShrink: 0 }} />}
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{label}</span>
+                            <input
+                                type="checkbox"
+                                checked={!!pitcherAction[side]}
+                                onChange={() => togglePitcherSide(side)}
+                                style={{ width: 14, height: 14, flexShrink: 0, accentColor: '#e0584a', cursor: 'pointer' }}
+                            />
+                        </label>
+                    );
+                };
+                return (
+                    <div style={{ padding: '6px 12px', borderTop: '1px solid #eef0f2' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: '0.78em', color: '#475569' }}>
+                            {renderSide('away', match.pitchers.away, true)}
+                            {renderSide('home', match.pitchers.home, false)}
+                        </div>
+                        <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.35, color: '#94a3b8' }}>
+                            {MLB_LISTED_PITCHER_POLICY}
+                        </div>
+                    </div>
+                );
+            })()}
 
             {blocked && (
                 <div style={blockedBannerStyle}>

@@ -551,6 +551,24 @@ final class SportsbookBetSupport
             }
         }
 
+        // Void hardening: only act on a CONFIRMED actual starter, never a
+        // pre-game probable. The settlement match doc's homePitcher/awayPitcher
+        // are rewritten only by a FULL event sync (RundownEventMapper::toMatchDoc,
+        // which stamps pitchersSyncedAt); the live score tick refreshes the
+        // score and bumps lastUpdated WITHOUT touching pitchers. So a pitcher id
+        // here can still be the probable listed days out. Require that the
+        // pitcher data was synced at/after first pitch before we ever void —
+        // otherwise we would refund off a stale guess. A clean final that the
+        // live sweep flipped to 'finished' carries pre-game pitchersSyncedAt and
+        // is intentionally NOT voidable here (the settlement final-refetch path
+        // re-syncs the full event, stamping a post-start pitchersSyncedAt, when
+        // a stuck game is healed). Missing/earlier stamp → never void.
+        $pitchersSyncedAt = strtotime((string) ($match['pitchersSyncedAt'] ?? ''));
+        $gameStart        = strtotime((string) ($match['startTime'] ?? ($snapshot['startTime'] ?? '')));
+        if ($pitchersSyncedAt === false || $gameStart === false || $pitchersSyncedAt < $gameStart) {
+            return false;
+        }
+
         $action = is_array($selection['pitcherAction'] ?? null) ? $selection['pitcherAction'] : [];
         foreach (['home' => 'homePitcher', 'away' => 'awayPitcher'] as $side => $field) {
             if (!empty($action[$side])) {
@@ -563,6 +581,60 @@ final class SportsbookBetSupport
             }
         }
         return false;
+    }
+
+    /**
+     * MLB "official game" status for full-game (ML / run line / total) grading.
+     *
+     * Books require a baseball game to reach official length before full-game
+     * wagers have action: a full 9 innings, OR 8½ innings when the home team is
+     * ahead after the top of the 9th (the home half is not played). Extra-inning
+     * games (>9) are always official. A game called or suspended before that is
+     * "no action" → the wager voids and the stake is refunded. This matches the
+     * policy banner shown to players, which MUST stay in lockstep with this
+     * code — a banner/behavior mismatch is a dispute.
+     *
+     * Returns:
+     *   'official' — confirmed ≥ 9 innings, or rule N/A (non-baseball / disabled)
+     *   'short'    — feed POSITIVELY reports < 9 innings → caller voids
+     *   'unknown'  — no inning signal at all → caller keeps the leg pending for
+     *                manual review (never auto-voids, never grades on a guess)
+     *
+     * Money-safe: 'short' fires only on a positive sub-9 inning count; when the
+     * feed carries no inning signal we return 'unknown' so we neither refund
+     * (leak) nor grade a possibly-shortened game (wrong grade).
+     *
+     * @param array<string,mixed> $match
+     */
+    public static function baseballOfficialGameStatus(array $match): string
+    {
+        $sportKey = strtolower((string) ($match['sportKey'] ?? ''));
+        if (!str_starts_with($sportKey, 'baseball')) {
+            return 'official'; // rule applies to baseball only
+        }
+        $flag = strtolower(trim((string) Env::get('MLB_OFFICIAL_GAME_RULE_ENABLED', '1')));
+        if ($flag === '0' || $flag === 'false' || $flag === 'off') {
+            return 'official'; // kill switch → grade exactly as before
+        }
+
+        $score  = is_array($match['score'] ?? null) ? $match['score'] : [];
+        $homeBy = is_array($score['score_home_by_period'] ?? null) ? $score['score_home_by_period'] : [];
+        $awayBy = is_array($score['score_away_by_period'] ?? null) ? $score['score_away_by_period'] : [];
+        $gamePeriod = (int) ($score['game_period'] ?? 0);
+
+        // Innings on record = the longest signal available. by_period is the
+        // per-inning line score; game_period is the final inning number. The
+        // 8½ case (home ahead, bottom 9th not batted) still reports game_period
+        // 9 and an away line score of 9 innings, so max(...) lands on 9.
+        $innings = max($gamePeriod, count($homeBy), count($awayBy));
+
+        if ($innings <= 0) {
+            return 'unknown'; // no inning signal → manual review, never auto-void
+        }
+        if ($innings >= 9) {
+            return 'official'; // 9, 8½-with-home-lead, or extra innings
+        }
+        return 'short'; // positively fewer than 9 innings → no action
     }
 
     public static function selectionResult(array $match, array $selection, ?string $manualWinner = null): string
@@ -623,6 +695,23 @@ final class SportsbookBetSupport
         $periodSuffix = $parsed['suffix']; // null (full game) or 'q1','h1','p2','1st_5_innings', ...
 
         if ($periodSuffix === null) {
+            // MLB official-game rule (full-game ML / run line / total only):
+            // a baseball game must reach official length (9 innings, or 8½ with
+            // the home team ahead) for the wager to have action. A game called
+            // short is no action → void; if the feed carries no inning signal we
+            // keep the leg pending for manual review rather than refund on a
+            // guess or grade a possibly-shortened game. No-op for every other
+            // sport (returns 'official') and when the kill switch is off. Period
+            // markets (1st-5-innings, etc.) are graded below and carry their own
+            // sufficiency check via periodScorePair.
+            $officialGame = self::baseballOfficialGameStatus($match);
+            if ($officialGame === 'short') {
+                return 'void';
+            }
+            if ($officialGame === 'unknown') {
+                return 'pending';
+            }
+
             // Full-game grading. Moneyline uses score_home/score_away as-is
             // (for tennis that is SETS — more sets wins, correct). Spreads/
             // totals use spreadTotalScores() (games for tennis, raw score

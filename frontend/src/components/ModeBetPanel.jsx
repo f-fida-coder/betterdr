@@ -5,7 +5,7 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal } from '../utils/odds';
 import { computeMidQuickStakes } from '../utils/money';
 import { formatSiteDateTime } from '../utils/timezone';
-import { isMlbSportKey, formatPitcherLabel } from '../utils/pitchers';
+import { isMlbSportKey, formatPitcherLabel, MLB_LISTED_PITCHER_POLICY, MLB_OFFICIAL_GAME_POLICY } from '../utils/pitchers';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
 import BetConfirmationModal from './BetConfirmationModal';
 import WagerConfirmedScreen from './WagerConfirmedScreen';
@@ -267,18 +267,21 @@ const formatBuyPointsLabel = (option, marketType) => {
 // makes the line easier but pays less). Skips the (-110, +110) interior
 // where standard juice doesn't sit, which keeps the fallback ladder
 // realistic enough for a sportsbook UI.
-const nextAmericanOddsStep = (current) => {
-    const candidate = current - 10;
-    if (candidate < 110 && candidate > -110) return -110;
-    return candidate;
-};
+// Build the alternate-line options for a Spread/Total selection STRICTLY from
+// `sel.alternateLines` — the server's feed-anchored ladder (the same prices
+// placement reprices against). There is NO local fallback: if the server did
+// not emit alts (sport not enabled, or the feed has no alt price), the only
+// option is the base line and no buy-points dropdown is shown. Returns
+// [original, ...alts] with the original flagged so the dropdown can render its
+// checkmark.
+//
+// The SERVER is the sole buy-points gate now (BuyPointsPricing::isSportEnabled,
+// driven by the BUY_POINTS_ENABLED_SPORTS env). While a sport is locked the
+// server emits no `alternateLines` AND rejects any bought-point placement
+// (BUY_POINTS_DISABLED), so this stays display == placed with no frontend
+// redeploy needed to re-enable a verified sport.
+const BUY_POINTS_ENABLED = true;
 
-// Build up to 5 alternate-line options for a Spread/Total selection.
-// Prefers `sel.alternateLines` (upstream-supplied { line, odds } pairs)
-// when available; otherwise falls back to a local generator
-// stepping ±0.5 in the favorable direction with ~10 cents of juice per
-// step. Returns [original, ...alts] with the original flagged so the
-// dropdown can render its checkmark.
 const buildBuyPointsOptions = (sel) => {
     const market = String(sel?.marketType || '').toLowerCase();
     if (market !== 'spreads' && market !== 'totals') return [];
@@ -333,22 +336,8 @@ const buildBuyPointsOptions = (sel) => {
         return options.slice(0, 5);
     }
 
-    const options = [original];
-    let prevAmerican = baseAmerican;
-    for (let i = 1; i <= 4; i += 1) {
-        const newLine = baseLine + (lineStep * i);
-        const newAmerican = nextAmericanOddsStep(prevAmerican);
-        const newDec = americanToDecimal(newAmerican);
-        if (!Number.isFinite(newDec) || newDec <= 1) break;
-        options.push({
-            line: newLine,
-            decimalOdds: newDec,
-            americanOdds: newAmerican,
-            isOriginal: false,
-        });
-        prevAmerican = newAmerican;
-    }
-    return options;
+    // No server alternateLines → no buy-points (base line only, no dropdown).
+    return [original];
 };
 
 const ModeBetPanel = ({
@@ -2433,6 +2422,32 @@ const ModeBetPanel = ({
                     </div>
                 )}
 
+                {/* Global MLB house-rule banner — shown once whenever the slip
+                    holds any baseball leg. States BOTH money rules exactly as
+                    they settle (listed-pitcher void + 8½/9 official game), so
+                    the disclosure can never drift from the code that enforces
+                    it. Copy lives in utils/pitchers.js alongside the backend
+                    references. */}
+                {selections.some((s) => isMlbSportKey(s?.sportKey)) && (
+                    <div style={{
+                        margin: '0 0 10px',
+                        padding: '8px 10px',
+                        borderRadius: 6,
+                        border: `1px solid ${palette.cardBorder}`,
+                        background: palette.cardBg,
+                        fontSize: 10.5,
+                        lineHeight: 1.4,
+                        color: palette.textMuted,
+                    }}>
+                        <div style={{ fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', color: palette.textPrimary, marginBottom: 3 }}>
+                            <i className="fa-solid fa-baseball" style={{ marginRight: 6, opacity: 0.6 }} />
+                            MLB house rules
+                        </div>
+                        <div>{MLB_LISTED_PITCHER_POLICY}</div>
+                        <div style={{ marginTop: 2 }}>{MLB_OFFICIAL_GAME_POLICY}</div>
+                    </div>
+                )}
+
                 {/* Selection cards — read-only display. Black header bar
                     with the full matchup + ⊗ remove icon; below it the
                     Game-* bet type tag, the picked team in bold, the
@@ -2493,7 +2508,7 @@ const ModeBetPanel = ({
                     // (real books burn BP entering a teaser). Hiding
                     // the selector keeps the slip honest with what the
                     // backend will price.
-                    const supportsBuyPoints = (market === 'spreads' || market === 'totals') && normalizedMode !== 'teaser';
+                    const supportsBuyPoints = BUY_POINTS_ENABLED && (market === 'spreads' || market === 'totals') && normalizedMode !== 'teaser';
                     const buyPointsOptions = supportsBuyPoints ? buildBuyPointsOptions(sel) : [];
                     const buyPointsOpen = openBuyPointsId === sel.id;
                     // Flags this leg if its *risk* (stake) trips the
