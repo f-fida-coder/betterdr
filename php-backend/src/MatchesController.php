@@ -897,6 +897,13 @@ final class MatchesController
             // so the builder never shows the same handicap at multiple juices.
             $extended = RundownEventMapper::dedupeExtendedMarkets($extended);
 
+            // House risk cap: trim each alt ladder to the N rungs nearest the
+            // main line, per side (platformsettings.alternateLinesPerSide, env
+            // fallback, default 1). Applied to the SHEET response only — Buy
+            // Points reads the doc's full ladder in a separate path, so its
+            // +/-2.5 range is unaffected. Placement re-derives the same cap.
+            $extended = $this->capAlternateLadders($extended, $baseMarkets);
+
             $payload = [
                 'matchId' => $id,
                 'cached'  => true,
@@ -910,6 +917,64 @@ final class MatchesController
             Logger::exception($e, 'getMatchProps failed', ['matchId' => $id]);
             Response::json(['message' => 'Server Error fetching props'], 500);
         }
+    }
+
+    /**
+     * Trim every alternate-ladder market in `$extended` to the N rungs nearest
+     * the main line, per side. The main reference comes from the matching core
+     * market (alternate_spreads → spreads) in `$baseMarkets`, or a non-alt
+     * period market in `$extended`; absent that, AltLineCap falls back to the
+     * group median. Now-empty alt markets are dropped. UNLIMITED is a no-op.
+     *
+     * Display-side only — placement re-derives the same cap from the stored
+     * doc (BetsController::validateSelection), so hiding a rung here and
+     * rejecting it there stay in lockstep via AltLineCap.
+     *
+     * @param array<int,array<string,mixed>> $extended
+     * @param array<int,array<string,mixed>> $baseMarkets
+     * @return array<int,array<string,mixed>>
+     */
+    private function capAlternateLadders(array $extended, array $baseMarkets): array
+    {
+        $settings = null;
+        try {
+            $settings = $this->db->findOne('platformsettings', []);
+        } catch (Throwable $capErr) {
+            $settings = null;
+        }
+        $perSide = AltLineCap::perSideLimit(is_array($settings) ? $settings : null);
+        if ($perSide === AltLineCap::UNLIMITED) {
+            return $extended;
+        }
+
+        // coreKey → outcomes from non-alt markets (core board + period mains)
+        // so each alt ladder can locate its main line.
+        $coreByKey = [];
+        foreach (array_merge($baseMarkets, $extended) as $m) {
+            if (!is_array($m)) {
+                continue;
+            }
+            $k = strtolower((string) ($m['key'] ?? ''));
+            if ($k === '' || AltLineCap::isAltKey($k) || isset($coreByKey[$k])) {
+                continue;
+            }
+            $coreByKey[$k] = is_array($m['outcomes'] ?? null) ? $m['outcomes'] : [];
+        }
+
+        $out = [];
+        foreach ($extended as $m) {
+            if (!is_array($m) || !AltLineCap::isAltKey((string) ($m['key'] ?? ''))) {
+                $out[] = $m;
+                continue;
+            }
+            $coreOutcomes = $coreByKey[AltLineCap::coreKeyFor((string) ($m['key'] ?? ''))] ?? [];
+            $altOutcomes = is_array($m['outcomes'] ?? null) ? $m['outcomes'] : [];
+            $m['outcomes'] = AltLineCap::capOutcomes($altOutcomes, $coreOutcomes, $perSide);
+            if ($m['outcomes'] !== []) {
+                $out[] = $m;   // drop alt markets emptied by the cap
+            }
+        }
+        return $out;
     }
 
     /**

@@ -3018,6 +3018,30 @@ final class BetsController
                 ]);
             }
             $outcome = $rungMatch;
+
+            // House risk cap — reject rungs beyond the configured
+            // nearest-to-main limit, by exact point, using the SAME AltLineCap
+            // logic that filters the display. Enforced here (not just hidden in
+            // the UI) so a capped rung can't be placed via a direct API call.
+            // The limit is read from platformsettings live (no restart).
+            $altKey = strtolower((string) ($market['key'] ?? ''));
+            if (AltLineCap::isAltKey($altKey)) {
+                $capSettings = null;
+                try {
+                    $capSettings = $this->db->findOne('platformsettings', []);
+                } catch (Throwable $capSettingsErr) {
+                    $capSettings = null;
+                }
+                $perSide = AltLineCap::perSideLimit(is_array($capSettings) ? $capSettings : null);
+                $coreMarket = $this->findMarket($markets, AltLineCap::coreKeyFor($altKey));
+                $coreOutcomes = is_array($coreMarket['outcomes'] ?? null) ? $coreMarket['outcomes'] : [];
+                $altOutcomes = is_array($market['outcomes'] ?? null) ? $market['outcomes'] : [];
+                if (!AltLineCap::isPointAllowed((string) ($rungMatch['name'] ?? ''), $submittedPoint, $altOutcomes, $coreOutcomes, $perSide)) {
+                    throw new ApiException('That alternate line is not currently available.', 400, [
+                        'code' => 'ALT_LINE_CAPPED',
+                    ]);
+                }
+            }
         }
 
         // If point-authentication already resolved the exact rung, iterate an
