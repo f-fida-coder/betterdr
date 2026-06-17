@@ -1140,6 +1140,7 @@ const ModeBetPanel = ({
             selection: String(sel?.selection || ''),
             marketType: String(sel?.marketType || ''),
             odds: Number.isFinite(Number(sel?.odds)) ? Number(Number(sel.odds).toFixed(4)) : null,
+            ...(Number.isFinite(Number(sel?.point)) ? { point: Number(sel.point) } : {}),
         })),
     }), [normalizedMode, selections, teaserPointValue, effectiveCombinedRisk]);
 
@@ -1610,6 +1611,9 @@ const ModeBetPanel = ({
                             odds: Number(sel.odds),
                             type: sel.marketType || 'h2h',
                             marketType: sel.marketType || 'h2h',
+                            // Exact alt rung point (signed) so the server pins
+                            // the rung by (name + point), not name alone.
+                            ...(Number.isFinite(Number(sel.point)) ? { point: Number(sel.point) } : {}),
                             // Buy Points (spread/total only). Omitted when 0
                             // so legacy backends don't see an unexpected
                             // field; backend default is 0.0 either way.
@@ -1725,6 +1729,9 @@ const ModeBetPanel = ({
                     selection: sel.selection,
                     odds: Number(sel.odds),
                     type: sel.marketType || 'straight',
+                    // Exact alt rung point (signed) so the server pins the rung
+                    // by (name + point), not name alone.
+                    ...(Number.isFinite(Number(sel.point)) ? { point: Number(sel.point) } : {}),
                     ...(Number(sel.boughtPoints) > 0 ? { boughtPoints: Number(sel.boughtPoints) } : {}),
                     // MLB listed-pitcher Action waiver, per side.
                     ...(isMlbSportKey(sel.sportKey) ? { pitcherAction: { home: !!sel.pitcherAction?.home, away: !!sel.pitcherAction?.away } } : {}),

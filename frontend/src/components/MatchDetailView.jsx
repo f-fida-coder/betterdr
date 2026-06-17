@@ -333,6 +333,11 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight' }) => {
                 selection,
                 marketType: marketKey,
                 odds: price,
+                // Exact rung point (signed). The server authenticates the alt
+                // spread/total rung by (outcome name + this point), so a bet
+                // can never be priced or settled off a different line than the
+                // one clicked. Omitted for outcomes with no point.
+                ...(outcome?.point != null && Number.isFinite(Number(outcome.point)) ? { point: Number(outcome.point) } : {}),
                 matchName,
                 marketLabel,
                 // sportKey lets the betslip enforce per-mode sport rules

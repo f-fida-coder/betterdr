@@ -263,7 +263,8 @@ final class BetsController
                             $selType,
                             $boughtPoints,
                             $acceptance['policy'],
-                            $acceptance['bandCents']
+                            $acceptance['bandCents'],
+                            (isset($sel['point']) && is_numeric($sel['point'])) ? (float) $sel['point'] : null
                         );
                         // MLB listed-pitcher "Action" choice (per side). When a
                         // side is NOT marked Action, the bet voids if that
@@ -979,7 +980,8 @@ final class BetsController
                         $selType,
                         $boughtPoints,
                         $acceptance['policy'],
-                        $acceptance['bandCents']
+                        $acceptance['bandCents'],
+                        (isset($sel['point']) && is_numeric($sel['point'])) ? (float) $sel['point'] : null
                     );
                 } catch (ApiException $e) {
                     $details = $e->payload();
@@ -1326,7 +1328,8 @@ final class BetsController
                     $selType,
                     $boughtPoints,
                     $acceptance['policy'],
-                    $acceptance['bandCents']
+                    $acceptance['bandCents'],
+                    (isset($leg['point']) && is_numeric($leg['point'])) ? (float) $leg['point'] : null
                 );
             } catch (ApiException $e) {
                 $details = $e->payload();
@@ -2841,7 +2844,7 @@ final class BetsController
         ];
     }
 
-    private function validateSelection(string $matchId, string $selection, mixed $odds, string $type, float $boughtPoints = 0.0, string $acceptancePolicy = 'exact', int $acceptanceBandCents = 0): array
+    private function validateSelection(string $matchId, string $selection, mixed $odds, string $type, float $boughtPoints = 0.0, string $acceptancePolicy = 'exact', int $acceptanceBandCents = 0, ?float $submittedPoint = null): array
     {
         if (preg_match('/^[a-f0-9]{24}$/i', $matchId) !== 1) {
             throw new ApiException('Match not found: ' . $matchId, 404);
@@ -2973,7 +2976,53 @@ final class BetsController
 
         $outcome = null;
         $isPropMarket = $this->isPlayerPropKey($normalizedType);
-        foreach (($market['outcomes'] ?? []) as $candidate) {
+
+        // ── Alt-line point authentication ─────────────────────────────────
+        // When the client submits an explicit `point` (an alt spread/total
+        // rung from the alt-lines sheet), the ladder holds many same-name
+        // outcomes at different points — so matching by name alone can resolve
+        // the WRONG rung, or be ambiguous. Pin the exact rung by (outcome-name
+        // prefix + exact point) and reject if that point is not currently
+        // offered, so a bet can never be priced or settled off a line other
+        // than the one the user actually clicked. Core/main-line and Buy Points
+        // selections send no `point`, so they keep their existing match path.
+        if ($submittedPoint !== null && !$isPropMarket) {
+            $rungSel = trim($selection);
+            $rungMatch = null;
+            $rungAmbiguous = false;
+            foreach (($market['outcomes'] ?? []) as $candidate) {
+                if (!is_array($candidate) || !isset($candidate['point']) || !is_numeric($candidate['point'])) {
+                    continue;
+                }
+                if (abs((float) $candidate['point'] - $submittedPoint) > 1e-6) {
+                    continue;
+                }
+                $rungName = (string) ($candidate['name'] ?? '');
+                if ($rungName === '' || stripos($rungSel, $rungName) !== 0) {
+                    continue;
+                }
+                if (is_array($rungMatch)) {
+                    $rungAmbiguous = true;
+                    break;
+                }
+                $rungMatch = $candidate;
+            }
+            if ($rungAmbiguous) {
+                throw new ApiException('Selection ' . $selection . ' is ambiguous at this line', 409, [
+                    'code' => 'SELECTION_AMBIGUOUS',
+                ]);
+            }
+            if (!is_array($rungMatch)) {
+                throw new ApiException('Line ' . $selection . ' is no longer offered', 409, [
+                    'code' => 'LINE_NOT_OFFERED',
+                ]);
+            }
+            $outcome = $rungMatch;
+        }
+
+        // If point-authentication already resolved the exact rung, iterate an
+        // empty set so the name-based loop below can't overwrite it.
+        foreach ((is_array($outcome) ? [] : ($market['outcomes'] ?? [])) as $candidate) {
             $name = (string) ($candidate['name'] ?? '');
             if ($name === $selection) {
                 $outcome = $candidate;
