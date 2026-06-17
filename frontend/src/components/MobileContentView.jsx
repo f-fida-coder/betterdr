@@ -2465,13 +2465,6 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
             {propsOpen && (
                 <PropBuilderModal match={modalMatch} onClose={() => setPropsOpen(false)} betMode={betMode} />
             )}
-            {detailOpen && (
-                <MatchDetailView
-                    match={modalMatch}
-                    onClose={() => setDetailOpen(false)}
-                    betMode={betMode}
-                />
-            )}
 
             {/* Body: team info | odds | [+ / P+] compact action
                 column. Action column is narrow (30px) so the three odds
@@ -2569,7 +2562,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 }}>
                     <button
                         type="button"
-                        onClick={() => setDetailOpen(true)}
+                        onClick={() => setDetailOpen((v) => !v)}
                         disabled={blocked}
                         aria-label="Open all markets"
                         title="All game markets"
@@ -2714,6 +2707,17 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 6, color: '#c2410c' }} />
                     {blockedReason}
                 </div>
+            )}
+
+            {/* Inline "More Bets" panel — expands under the card (replaces the
+                old fullscreen modal). One per card; the "+" toggles it. */}
+            {detailOpen && (
+                <MatchDetailView
+                    embedded
+                    match={modalMatch}
+                    onClose={() => setDetailOpen(false)}
+                    betMode={betMode}
+                />
             )}
         </div>
     );

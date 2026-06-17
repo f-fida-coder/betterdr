@@ -1220,7 +1220,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                         <button
                                             type="button"
                                             className="main-bets-btn"
-                                            onClick={() => setDetailOpenMatch({
+                                            onClick={() => setDetailOpenMatch((prev) => (prev?.id === match.id ? null : {
                                                 id: match.id,
                                                 externalId: match.rawMatch?.externalId,
                                                 homeTeam: match.team2.name,
@@ -1228,7 +1228,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 homeTeamFull: match.team2.fullName,
                                                 awayTeamFull: match.team1.fullName,
                                                 odds: match.rawMatch?.odds,
-                                            })}
+                                            }))}
                                             disabled={match.rawMatch?.isBettable === false}
                                             style={{
                                                 background: '#d0451b',
@@ -1577,6 +1577,14 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                             : 'Click any odds to place your bet'}
                                     </span>
                                 </div>
+                                {detailOpenMatch?.id === match.id && (
+                                    <MatchDetailView
+                                        embedded
+                                        match={detailOpenMatch}
+                                        onClose={() => setDetailOpenMatch(null)}
+                                        betMode={normalizedMode}
+                                    />
+                                )}
                             </div>
                             </React.Fragment>
                         ))
@@ -1586,9 +1594,6 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
 
             {propsOpenMatch && (
                 <PropBuilderModal match={propsOpenMatch} onClose={() => setPropsOpenMatch(null)} betMode={normalizedMode} />
-            )}
-            {detailOpenMatch && (
-                <MatchDetailView match={detailOpenMatch} onClose={() => setDetailOpenMatch(null)} betMode={normalizedMode} />
             )}
         </div>
     );

@@ -117,7 +117,7 @@ const SECTION_DEFS = [
     { key: 'alternate_totals_cards', label: 'Cards — Alt Total', kind: 'alt-lines' },
 ];
 
-const MatchDetailView = ({ match, onClose, betMode = 'straight' }) => {
+const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = false }) => {
     const { oddsFormat } = useOddsFormat();
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState('');
@@ -185,7 +185,10 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight' }) => {
     // OPEN. The player can flip to Parlay and keep adding alt-line legs without
     // it "exiting". Backdrop tap / Back / ESC / the sheet's close button still
     // dismiss it.
-    useDismissableSurface(true, onClose, { dismissOnNavTab: false });
+    // Modal mode registers a back/escape dismiss handler. Embedded (inline
+    // under a board row) must NOT — the row's "+" toggles it, and hijacking
+    // the back button from an inline panel would feel broken.
+    useDismissableSurface(!embedded, onClose, { dismissOnNavTab: false });
 
     // Cap the sheet height below the top chrome so its header ("Alt Lines &
     // Totals" + Close All) is fully visible instead of sitting behind the page
@@ -613,21 +616,28 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight' }) => {
         }
     };
 
-    return (
-        <div style={overlayStyle} onClick={onClose}>
-            <div style={sheetStyle} onClick={(e) => e.stopPropagation()}>
-                <div style={headerStyle}>
-                    <div style={{ ...titleStyle, flex: 1, textAlign: 'left' }}>
-                        <strong style={{ fontSize: 14 }}>{matchName}</strong>
-                        <span style={{ fontSize: 11, color: '#9aa' }}>Alt Lines & Totals</span>
-                    </div>
-                    <button style={toggleAllBtnStyle} onClick={allOpen ? closeAll : openAll}>
-                        {allOpen ? 'Close All' : 'Open All'}
-                    </button>
-                </div>
+    // Inline (embedded) wrapper styles — used when the panel renders directly
+    // under a board row instead of as a fullscreen modal. Light, non-scrolling
+    // (the page scrolls), with a red bottom rule so it reads as one unit with
+    // the row above it.
+    const inlinePanelStyle = {
+        background: '#fff',
+        color: '#111',
+        borderTop: '1px solid #e2e8f0',
+        borderBottom: '3px solid #d0451b',
+    };
+    const inlineBarStyle = {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '8px 14px',
+        background: '#f8fafc',
+        borderBottom: '1px solid #e2e8f0',
+    };
 
-                <div style={bodyStyle}>
-                    {showPitchers && (
+    const sectionsBody = (
+        <>
+            {showPitchers && (
                         <div style={{ padding: '10px 14px', borderBottom: '1px solid #eef0f2', background: '#fafbfc' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: '#334155' }}>
                                 <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -667,7 +677,7 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight' }) => {
                         return (
                             <div key={section.key} style={{ scrollMarginTop: SECTION_HEADER_HEIGHT }}>
                                 <div
-                                    style={sectionHeaderStyle}
+                                    style={embedded ? { ...sectionHeaderStyle, position: 'static' } : sectionHeaderStyle}
                                     onClick={() => setExpanded((prev) => ({ ...prev, [section.key]: !prev[section.key] }))}
                                 >
                                     <span>{section.label}</span>
@@ -677,6 +687,39 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight' }) => {
                             </div>
                         );
                     })}
+        </>
+    );
+
+    // Embedded: render the sections inline (under a board row), no overlay.
+    if (embedded) {
+        return (
+            <div style={inlinePanelStyle}>
+                <div style={inlineBarStyle}>
+                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: '#64748b', textTransform: 'uppercase' }}>More Bets</span>
+                    <button style={toggleAllBtnStyle} onClick={allOpen ? closeAll : openAll}>
+                        {allOpen ? 'Close All' : 'Open All'}
+                    </button>
+                </div>
+                {sectionsBody}
+            </div>
+        );
+    }
+
+    // Modal: fullscreen overlay + sheet.
+    return (
+        <div style={overlayStyle} onClick={onClose}>
+            <div style={sheetStyle} onClick={(e) => e.stopPropagation()}>
+                <div style={headerStyle}>
+                    <div style={{ ...titleStyle, flex: 1, textAlign: 'left' }}>
+                        <strong style={{ fontSize: 14 }}>{matchName}</strong>
+                        <span style={{ fontSize: 11, color: '#9aa' }}>Alt Lines & Totals</span>
+                    </div>
+                    <button style={toggleAllBtnStyle} onClick={allOpen ? closeAll : openAll}>
+                        {allOpen ? 'Close All' : 'Open All'}
+                    </button>
+                </div>
+                <div style={bodyStyle}>
+                    {sectionsBody}
                 </div>
             </div>
         </div>
