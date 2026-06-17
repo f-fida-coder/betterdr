@@ -247,8 +247,14 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
     const marketsByKey = React.useMemo(() => {
         const idx = {};
         const extended = Array.isArray(payload?.extendedMarkets) ? payload.extendedMarkets : [];
+        // payload.markets = the props endpoint's canonicalized CORE markets,
+        // which include team_totals synthesized from bookmakers. The raw
+        // match.odds.markets the board passes often lacks that synthesized
+        // team_totals, so without this the "Team Totals" section never shows
+        // (only Alt Team Totals, which lives in extendedMarkets).
+        const fetchedBase = Array.isArray(payload?.markets) ? payload.markets : [];
         const base = Array.isArray(match?.odds?.markets) ? match.odds.markets : [];
-        [...base, ...extended].forEach((m) => {
+        [...base, ...fetchedBase, ...extended].forEach((m) => {
             if (!m || !m.key) return;
             idx[String(m.key).toLowerCase()] = m;
         });
