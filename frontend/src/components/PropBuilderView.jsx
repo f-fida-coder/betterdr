@@ -398,13 +398,17 @@ const PropBuilderView = () => {
     const categoryHeaderStyle = { ...groupHeaderStyle, background: '#e0584a', textTransform: 'none', fontWeight: 600, fontSize: 13, letterSpacing: 0 };
     const chevronStyle = (open) => ({ fontSize: 16, fontWeight: 700, lineHeight: 1, flexShrink: 0, transition: 'transform 0.12s ease', display: 'inline-block', transform: open ? 'rotate(90deg)' : 'none' });
     const groupBodyStyle = { marginBottom: 6, borderRadius: 4, overflow: 'hidden', border: '1px solid #d9d9d9' };
-    const rowLabelStyle = { padding: '9px 14px', background: '#efefef', borderBottom: '1px solid #ddd', fontSize: 12, fontWeight: 800, color: '#222' };
+    const rowLabelStyle = { padding: '6px 12px', background: '#efefef', borderBottom: '1px solid #ddd', fontSize: 12, fontWeight: 800, color: '#222' };
     const subLabelStyle = { ...rowLabelStyle, background: '#f6f6f6', textTransform: 'uppercase', letterSpacing: 0.4 };
-    const oddsPairStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr', background: '#c7c7c7', borderBottom: '1px solid #999' };
+    const oddsPairStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr', background: '#e8e8e8', borderBottom: '1px solid #ccc' };
+    // Compact single-row player layout (name left, Over/Under right) — replaces
+    // the old name-banner-above-odds stack so each player is one short row.
+    const playerRowStyle = { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 78px 78px', alignItems: 'stretch', background: '#fff', borderBottom: '1px solid #e2e2e2' };
+    const playerNameCellStyle = { display: 'flex', alignItems: 'center', padding: '0 10px', fontSize: 12, fontWeight: 700, color: '#222', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
     const pairBtnStyle = (selected, isFirst) => ({
         background: selected ? '#d0451b' : 'transparent', color: selected ? '#fff' : '#111',
-        border: 'none', borderRight: isFirst ? '1px solid #999' : 'none', padding: '13px 10px',
-        fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'center', minHeight: 54,
+        border: 'none', borderRight: isFirst ? '1px solid #ccc' : 'none', padding: '7px 9px',
+        fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'center', minHeight: 38,
     });
     const altRowStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(118px, 1fr))', gap: 4, padding: '8px', background: '#c7c7c7', borderBottom: '1px solid #999' };
     const altBtnStyle = (selected) => ({
@@ -412,7 +416,7 @@ const PropBuilderView = () => {
         border: '1px solid #aaa', borderRadius: 4, padding: '10px 6px', fontSize: 12,
         fontWeight: 600, cursor: 'pointer', minHeight: 44,
     });
-    const priceStyle = (selected) => ({ fontSize: 11, marginTop: 4, color: selected ? '#fff' : '#b36a00', fontWeight: 700 });
+    const priceStyle = (selected) => ({ fontSize: 11, marginTop: 2, color: selected ? '#fff' : '#b36a00', fontWeight: 700 });
 
     const isCollapsed = (id) => !!collapsed[id];
     const toggleCollapsed = (id) => setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -456,7 +460,7 @@ const PropBuilderView = () => {
         if (!over && !under) return null;
         const side = (o, i) => (o
             ? renderPairButton(sectionKey, marketLabel, o, i === 0)
-            : <div key={`${sectionKey}-empty-${i}`} style={{ padding: 16, color: '#888', textAlign: 'center' }}>—</div>);
+            : <div key={`${sectionKey}-empty-${i}`} style={{ padding: 8, color: '#888', textAlign: 'center' }}>—</div>);
         return <div style={oddsPairStyle}>{side(over, 0)}{side(under, 1)}</div>;
     };
 
@@ -563,13 +567,13 @@ const PropBuilderView = () => {
             return `${playerName} ${o?.name || ''}${pointLabel}`.trim();
         };
         const side = (o, isFirst) => {
-            if (!o) return <div key={`${isFirst ? 'a' : 'b'}`} style={{ padding: 14, color: '#888', textAlign: 'center' }}>—</div>;
+            if (!o) return <div key={`${isFirst ? 'a' : 'b'}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', borderLeft: '1px solid #e2e2e2' }}>—</div>;
             const selection = buildSelection(o);
             const selected = isSelected(catKey, selection);
             return (
                 <button
                     key={selection}
-                    style={pairBtnStyle(selected, isFirst)}
+                    style={{ ...pairBtnStyle(selected, isFirst), borderRight: 'none', borderLeft: '1px solid #e2e2e2' }}
                     onClick={() => addSelection(catKey, catLabel, selection, o?.price)}
                 >
                     <div style={{ fontSize: 13, fontWeight: 700 }}>{o.name}{o?.point != null ? ` ${formatLineValue(o.point)}` : ''}</div>
@@ -580,14 +584,16 @@ const PropBuilderView = () => {
 
         return (
             <React.Fragment key={`${catKey}-${playerName}`}>
-                <div style={rowLabelStyle}>{playerName}</div>
                 {lines.map(([pk, pair]) => (
-                    <div key={`${catKey}-${playerName}-${pk}`} style={oddsPairStyle}>
+                    <div key={`${catKey}-${playerName}-${pk}`} style={playerRowStyle}>
+                        <div style={playerNameCellStyle} title={playerName}>{playerName}</div>
                         {side(pair.over, true)}
                         {side(pair.under, false)}
                     </div>
                 ))}
                 {rest.length > 0 && (
+                    <>
+                    <div style={rowLabelStyle}>{playerName}</div>
                     <div style={altRowStyle}>
                         {rest.map((o, idx) => {
                             const selection = buildSelection(o);
@@ -605,6 +611,7 @@ const PropBuilderView = () => {
                             );
                         })}
                     </div>
+                    </>
                 )}
             </React.Fragment>
         );

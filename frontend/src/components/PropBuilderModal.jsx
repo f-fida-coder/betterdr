@@ -564,7 +564,7 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
         border: '1px solid #d9d9d9',
     };
     const playerHeaderStyle = {
-        padding: '8px 14px',
+        padding: '6px 12px',
         background: '#efefef',
         borderBottom: '1px solid #ddd',
         fontSize: 12,
@@ -576,8 +576,30 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
     const oddsPairStyle = {
         display: 'grid',
         gridTemplateColumns: '1fr 1fr',
-        background: '#c7c7c7',
-        borderBottom: '1px solid #999',
+        background: '#e8e8e8',
+        borderBottom: '1px solid #ccc',
+    };
+    // Compact single-row player layout: name on the left, Over/Under on the
+    // right. Replaces the old name-banner-above-odds stack, so each player is
+    // one short row instead of two tall ones.
+    const playerRowStyle = {
+        display: 'grid',
+        gridTemplateColumns: 'minmax(0, 1fr) 78px 78px',
+        alignItems: 'stretch',
+        background: '#fff',
+        borderBottom: '1px solid #e2e2e2',
+    };
+    const playerNameCellStyle = {
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 10px',
+        fontSize: 12,
+        fontWeight: 700,
+        color: '#222',
+        minWidth: 0,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
     };
     // Visual lock for buttons whose market the active mode forbids.
     // Mirrors the existing view-only / lock treatment (greyed, no pointer).
@@ -601,13 +623,13 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
         background: selected ? '#d0451b' : 'transparent',
         color: selected ? '#fff' : '#111',
         border: 'none',
-        borderRight: isFirst ? '1px solid #999' : 'none',
-        padding: '12px 10px',
+        borderRight: isFirst ? '1px solid #ccc' : 'none',
+        padding: '7px 9px',
         fontSize: 13,
         fontWeight: 600,
         cursor: 'pointer',
         textAlign: 'center',
-        minHeight: 52,
+        minHeight: 38,
     });
     const altRowStyle = {
         display: 'grid',
@@ -657,19 +679,19 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
             .sort(([a], [b]) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
 
         const renderSide = (outcome, isFirst) => {
-            if (!outcome) return <div style={{ padding: 14, color: '#888', textAlign: 'center' }}>—</div>;
+            if (!outcome) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', borderLeft: '1px solid #e2e2e2' }}>—</div>;
             const selKey = selectionKeyFor(catKey, playerName, outcome);
             const selected = selectedKeys.has(selKey);
             return (
                 <button
-                    style={{ ...pairBtnStyle(selected, isFirst), ...(eligible ? null : disabledBtnStyle) }}
+                    style={{ ...pairBtnStyle(selected, isFirst), borderRight: 'none', borderLeft: '1px solid #e2e2e2', ...(eligible ? null : disabledBtnStyle) }}
                     disabled={!eligible}
                     onClick={() => addSelection(catKey, playerName, outcome)}
                 >
                     <div style={{ fontSize: 13, fontWeight: 700 }}>
                         {outcome.name}{outcome?.point != null ? ` ${formatLineValue(outcome.point)}` : ''}
                     </div>
-                    <div style={{ fontSize: 11, marginTop: 4, color: selected ? '#fff' : '#b36a00', fontWeight: 700 }}>
+                    <div style={{ fontSize: 11, marginTop: 2, color: selected ? '#fff' : '#b36a00', fontWeight: 700 }}>
                         {formatOdds(outcome.price, oddsFormat)}
                     </div>
                 </button>
@@ -678,14 +700,16 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
 
         return (
             <React.Fragment key={`${catKey}-${playerName}`}>
-                <div style={playerHeaderStyle}>{playerName}</div>
                 {lines.map(([pointKey, pair]) => (
-                    <div key={`${catKey}-${playerName}-${pointKey}`} style={oddsPairStyle}>
+                    <div key={`${catKey}-${playerName}-${pointKey}`} style={playerRowStyle}>
+                        <div style={playerNameCellStyle} title={playerName}>{playerName}</div>
                         {renderSide(pair.over, true)}
                         {renderSide(pair.under, false)}
                     </div>
                 ))}
                 {rest.length > 0 && (
+                    <>
+                    <div style={playerHeaderStyle}>{playerName}</div>
                     <div style={altRowStyle}>
                         {rest.map((outcome, idx) => {
                             const selKey = selectionKeyFor(catKey, playerName, outcome);
@@ -706,6 +730,7 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
                             );
                         })}
                     </div>
+                    </>
                 )}
             </React.Fragment>
         );
