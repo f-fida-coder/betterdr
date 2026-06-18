@@ -902,7 +902,7 @@ final class MatchesController
             // fallback, default 1). Applied to the SHEET response only — Buy
             // Points reads the doc's full ladder in a separate path, so its
             // +/-2.5 range is unaffected. Placement re-derives the same cap.
-            $extended = $this->capAlternateLadders($extended, $baseMarkets);
+            $extended = $this->capAlternateLadders($extended, $baseMarkets, $sportKey);
 
             $payload = [
                 'matchId' => $id,
@@ -934,7 +934,7 @@ final class MatchesController
      * @param array<int,array<string,mixed>> $baseMarkets
      * @return array<int,array<string,mixed>>
      */
-    private function capAlternateLadders(array $extended, array $baseMarkets): array
+    private function capAlternateLadders(array $extended, array $baseMarkets, string $sportKey = ''): array
     {
         $settings = null;
         try {
@@ -967,9 +967,16 @@ final class MatchesController
                 $out[] = $m;
                 continue;
             }
-            $coreOutcomes = $coreByKey[AltLineCap::coreKeyFor((string) ($m['key'] ?? ''))] ?? [];
+            $altMarketKey = (string) ($m['key'] ?? '');
+            $coreOutcomes = $coreByKey[AltLineCap::coreKeyFor($altMarketKey)] ?? [];
             $altOutcomes = is_array($m['outcomes'] ?? null) ? $m['outcomes'] : [];
-            $m['outcomes'] = AltLineCap::capOutcomes($altOutcomes, $coreOutcomes, $perSide);
+            $m['outcomes'] = AltLineCap::capOutcomes(
+                $altOutcomes,
+                $coreOutcomes,
+                $perSide,
+                $sportKey,
+                AltLineCap::coreKeyFor($altMarketKey)
+            );
             if ($m['outcomes'] !== []) {
                 $out[] = $m;   // drop alt markets emptied by the cap
             }

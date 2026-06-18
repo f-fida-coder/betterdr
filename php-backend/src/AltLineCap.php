@@ -73,17 +73,29 @@ final class AltLineCap
     }
 
     /**
-     * Keep only the `perSide` rungs nearest the main line, per side (grouped
-     * by outcome name). `coreOutcomes` supplies the main reference point per
-     * name; when a name has no core main, the group's median point is used.
-     * UNLIMITED returns the outcomes unchanged; 0 returns none. Rungs without
-     * a numeric point are dropped (they can't be ranked by distance-to-main).
+     * Select which alternate rungs to surface. Selection is deterministic and
+     * feed-anchored (it only PICKS points; prices are whatever the feed stored
+     * at those points — nothing is synthesized):
+     *
+     *   - Full-game run line / puck line (baseball, hockey): exclude the main
+     *     point, then surface exactly the REVERSE rung (sign-flipped main) and
+     *     the BUY-UP rung (one run further from zero), each looked up at its
+     *     exact target point. Missing target → that rung is omitted. Mirrors
+     *     competitor baseball style.
+     *   - Variable-line spreads (NFL/NBA/…) and ALL totals: exclude the main
+     *     point, then keep the nearest `perSide` genuine feed rungs on EACH
+     *     side of the main (one above + one below at perSide=1).
+     *
+     * `coreOutcomes` supplies the main reference point per name; when a name
+     * has no core main, the group's median point is used. UNLIMITED returns the
+     * outcomes unchanged; 0 returns none. Rungs without a numeric point are
+     * dropped (they can't be ranked by distance-to-main).
      *
      * @param array<int,array<string,mixed>> $altOutcomes
      * @param array<int,array<string,mixed>> $coreOutcomes
      * @return array<int,array<string,mixed>>
      */
-    public static function capOutcomes(array $altOutcomes, array $coreOutcomes, int $perSide): array
+    public static function capOutcomes(array $altOutcomes, array $coreOutcomes, int $perSide, string $sportKey = '', string $marketType = ''): array
     {
         if ($perSide === self::UNLIMITED) {
             return $altOutcomes;
@@ -92,6 +104,76 @@ final class AltLineCap
             return [];
         }
 
+        // Full-game run line / puck line: deterministic reverse + buy-up rungs
+        // derived from the main line, NOT "nearest feed point" (which is often
+        // the main line re-priced). Period spreads and all totals fall through.
+        if (strtolower(trim($marketType)) === 'spreads' && self::isRunLineSport($sportKey)) {
+            return self::selectRunLineSpread($altOutcomes, $coreOutcomes);
+        }
+
+        return self::selectNearestPerDirection($altOutcomes, $coreOutcomes, $perSide);
+    }
+
+    /**
+     * Run-line / puck-line sports have a fixed 1.5 main handicap, so genuine
+     * alternates are the sign-flip reverse and the +1-run buy-up rather than
+     * the "nearest feed point" (which is usually the main line re-priced).
+     */
+    private static function isRunLineSport(string $sportKey): bool
+    {
+        $k = strtolower(trim($sportKey));
+        return str_starts_with($k, 'baseball_') || str_starts_with($k, 'icehockey_');
+    }
+
+    /**
+     * Per side: REVERSE (flip the main sign, e.g. -1.5 → +1.5) and BUY-UP (one
+     * run further from zero, e.g. -1.5 → -2.5). Each target point is looked up
+     * in the stored ladder and kept at its feed price; a target the feed never
+     * published is omitted. The main point is never a target, so it can't leak.
+     *
+     * @param array<int,array<string,mixed>> $altOutcomes
+     * @param array<int,array<string,mixed>> $coreOutcomes
+     * @return array<int,array<string,mixed>>
+     */
+    private static function selectRunLineSpread(array $altOutcomes, array $coreOutcomes): array
+    {
+        $mainByName = self::mainPointByName($coreOutcomes);
+        if ($mainByName === []) {
+            return [];
+        }
+
+        $keep = [];
+        foreach ($altOutcomes as $i => $o) {
+            if (!is_array($o) || !isset($o['point']) || !is_numeric($o['point'])) {
+                continue;
+            }
+            $name = strtolower(trim((string) ($o['name'] ?? '')));
+            if ($name === '' || !isset($mainByName[$name])) {
+                continue;
+            }
+            $main = $mainByName[$name];
+            $reverse = -$main;
+            $buyUp = $main + ($main < 0 ? -1.0 : 1.0);
+            $point = (float) $o['point'];
+            if (abs($point - $reverse) <= self::EPS || abs($point - $buyUp) <= self::EPS) {
+                $keep[$i] = true;
+            }
+        }
+
+        return self::keepInOrder($altOutcomes, $keep);
+    }
+
+    /**
+     * Exclude the main-point rung, then keep the nearest `perSide` genuine feed
+     * rungs ABOVE the main and the nearest `perSide` BELOW, per outcome name.
+     * When a name has no core main, the group median is the reference.
+     *
+     * @param array<int,array<string,mixed>> $altOutcomes
+     * @param array<int,array<string,mixed>> $coreOutcomes
+     * @return array<int,array<string,mixed>>
+     */
+    private static function selectNearestPerDirection(array $altOutcomes, array $coreOutcomes, int $perSide): array
+    {
         $mainByName = self::mainPointByName($coreOutcomes);
 
         // Group original indices by lowercased outcome name.
@@ -113,25 +195,66 @@ final class AltLineCap
                 static fn ($i) => (float) $altOutcomes[$i]['point'],
                 $idxs
             ));
-            usort($idxs, static function ($a, $b) use ($altOutcomes, $ref) {
-                $pa = (float) $altOutcomes[$a]['point'];
-                $pb = (float) $altOutcomes[$b]['point'];
-                $da = abs($pa - $ref);
-                $db = abs($pb - $ref);
-                if (abs($da - $db) > 1e-9) {
-                    return $da <=> $db;            // nearest to the main line
+
+            $above = [];
+            $below = [];
+            foreach ($idxs as $i) {
+                $p = (float) $altOutcomes[$i]['point'];
+                if (abs($p - $ref) <= self::EPS) {
+                    continue; // drop the main-point rung (no re-priced echo)
                 }
-                if (abs(abs($pa) - abs($pb)) > 1e-9) {
-                    return abs($pa) <=> abs($pb);  // tie → toward pick'em
+                if ($p > $ref) {
+                    $above[] = $i;
+                } else {
+                    $below[] = $i;
                 }
-                return $pa <=> $pb;                // final deterministic tie-break
-            });
-            foreach (array_slice($idxs, 0, $perSide) as $i) {
+            }
+            self::sortByDistance($above, $altOutcomes, $ref);
+            self::sortByDistance($below, $altOutcomes, $ref);
+            foreach (array_slice($above, 0, $perSide) as $i) {
+                $keep[$i] = true;
+            }
+            foreach (array_slice($below, 0, $perSide) as $i) {
                 $keep[$i] = true;
             }
         }
 
-        // Preserve original ladder order for the kept rungs.
+        return self::keepInOrder($altOutcomes, $keep);
+    }
+
+    /**
+     * Sort indices in place by ascending distance from $ref, tie-broken toward
+     * pick'em, then by signed point (deterministic).
+     *
+     * @param array<int,int> $idxs
+     * @param array<int,array<string,mixed>> $altOutcomes
+     */
+    private static function sortByDistance(array &$idxs, array $altOutcomes, float $ref): void
+    {
+        usort($idxs, static function ($a, $b) use ($altOutcomes, $ref) {
+            $pa = (float) $altOutcomes[$a]['point'];
+            $pb = (float) $altOutcomes[$b]['point'];
+            $da = abs($pa - $ref);
+            $db = abs($pb - $ref);
+            if (abs($da - $db) > 1e-9) {
+                return $da <=> $db;            // nearest to the main line
+            }
+            if (abs(abs($pa) - abs($pb)) > 1e-9) {
+                return abs($pa) <=> abs($pb);  // tie → toward pick'em
+            }
+            return $pa <=> $pb;                // final deterministic tie-break
+        });
+    }
+
+    /**
+     * Return the kept outcomes in their original ladder order.
+     *
+     * @param array<int,array<string,mixed>> $altOutcomes
+     * @param array<int,bool> $keep
+     * @return array<int,array<string,mixed>>
+     */
+    private static function keepInOrder(array $altOutcomes, array $keep): array
+    {
         $out = [];
         foreach ($altOutcomes as $i => $o) {
             if (isset($keep[$i])) {
@@ -148,7 +271,7 @@ final class AltLineCap
      * @param array<int,array<string,mixed>> $altOutcomes  full stored ladder
      * @param array<int,array<string,mixed>> $coreOutcomes
      */
-    public static function isPointAllowed(string $name, float $point, array $altOutcomes, array $coreOutcomes, int $perSide): bool
+    public static function isPointAllowed(string $name, float $point, array $altOutcomes, array $coreOutcomes, int $perSide, string $sportKey = '', string $marketType = ''): bool
     {
         if ($perSide === self::UNLIMITED) {
             return true;
@@ -156,7 +279,7 @@ final class AltLineCap
         if ($perSide <= 0) {
             return false;
         }
-        $kept = self::capOutcomes($altOutcomes, $coreOutcomes, $perSide);
+        $kept = self::capOutcomes($altOutcomes, $coreOutcomes, $perSide, $sportKey, $marketType);
         $nl = strtolower(trim($name));
         foreach ($kept as $o) {
             if (strtolower(trim((string) ($o['name'] ?? ''))) !== $nl) {

@@ -54,70 +54,83 @@ function keptPoints(array $outcomes, string $name): array
     return $pts;
 }
 
-// ── perSide=1 keeps the single rung nearest each side's main line ────────────
-TestRunner::run('AltLineCap — keeps 1 rung nearest main per side', function (): void {
+// ── RUN-LINE spread: reverse + buy-up, main echo excluded ───────────────────
+// Toronto @ Boston (main Boston -1.5 / Toronto +1.5). Expected surfaced rungs:
+//   Boston +1.5 (reverse), Boston -2.5 (buy-up); Toronto -1.5 (reverse),
+//   Toronto +2.5 (buy-up). NEVER the main echo (Boston -1.5 / Toronto +1.5).
+TestRunner::run('AltLineCap — run line surfaces reverse + buy-up only', function (): void {
     $alt = [
-        alt('St. Louis', 1.0), alt('St. Louis', 2.5), alt('St. Louis', 3.5), alt('St. Louis', -0.5),
-        alt('San Diego', -1.0), alt('San Diego', -2.5), alt('San Diego', -3.5), alt('San Diego', 0.5),
+        alt('Boston', -1.5), alt('Boston', 1.5), alt('Boston', -2.5), alt('Boston', -3.5),
+        alt('Toronto', 1.5), alt('Toronto', -1.5), alt('Toronto', 2.5), alt('Toronto', 3.5),
     ];
-    $coreM = [core('St. Louis', 1.5), core('San Diego', -1.5)];
-    $out = AltLineCap::capOutcomes($alt, $coreM, 1);
-    TestRunner::assertEquals(2, count($out), 'one rung per team');
-    TestRunner::assertEquals([1.0], keptPoints($out, 'St. Louis'), 'St. Louis nearest +1.5 is +1.0');
-    TestRunner::assertEquals([-1.0], keptPoints($out, 'San Diego'), 'San Diego nearest -1.5 is -1.0');
+    $coreM = [core('Boston', -1.5), core('Toronto', 1.5)];
+    $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'spreads');
+    TestRunner::assertEquals([-2.5, 1.5], keptPoints($out, 'Boston'), 'Boston reverse +1.5 & buy-up -2.5; no -1.5 echo');
+    TestRunner::assertEquals([-1.5, 2.5], keptPoints($out, 'Toronto'), 'Toronto reverse -1.5 & buy-up +2.5; no +1.5 echo');
+    TestRunner::assertEquals(4, count($out), 'exactly two rungs per side');
 });
 
-// ── perSide=2 keeps the two nearest per side ─────────────────────────────────
-TestRunner::run('AltLineCap — perSide=2 keeps two nearest', function (): void {
-    $alt = [alt('St. Louis', 1.0), alt('St. Louis', 2.5), alt('St. Louis', 3.5), alt('St. Louis', -0.5)];
-    $coreM = [core('St. Louis', 1.5)];
-    $out = AltLineCap::capOutcomes($alt, $coreM, 2);
-    TestRunner::assertEquals([1.0, 2.5], keptPoints($out, 'St. Louis'), 'two nearest +1.5 → +1.0, +2.5');
+// ── RUN-LINE: a target the feed never priced is omitted (no synthesis) ───────
+TestRunner::run('AltLineCap — run line omits an unpriced target', function (): void {
+    // Feed has Boston +1.5 (reverse) but NOT Boston -2.5 (buy-up) → only +1.5.
+    $alt = [alt('Boston', -1.5), alt('Boston', 1.5)];
+    $out = AltLineCap::capOutcomes($alt, [core('Boston', -1.5)], 1, 'baseball_mlb', 'spreads');
+    TestRunner::assertEquals([1.5], keptPoints($out, 'Boston'), 'only the priced reverse survives');
 });
 
-// ── tie nearest-distance breaks toward pick'em (smaller |point|) ─────────────
-TestRunner::run('AltLineCap — distance tie breaks toward pick\'em', function (): void {
-    // main +1.5; +0.5 and +2.5 are both 1.0 away → keep +0.5 (smaller |point|)
-    $alt = [alt('St. Louis', 0.5), alt('St. Louis', 2.5)];
-    $out = AltLineCap::capOutcomes($alt, [core('St. Louis', 1.5)], 1);
-    TestRunner::assertEquals([0.5], keptPoints($out, 'St. Louis'), 'tie → +0.5');
+// ── VARIABLE spread (NFL): nearest genuine rung above & below, main excluded ─
+TestRunner::run('AltLineCap — variable spread keeps one above + one below', function (): void {
+    // main Dallas -3; alt -3 echo, -2.5, -1.5, -3.5, -4.5.
+    $alt = [alt('Dallas', -3.0), alt('Dallas', -2.5), alt('Dallas', -1.5), alt('Dallas', -3.5), alt('Dallas', -4.5)];
+    $out = AltLineCap::capOutcomes($alt, [core('Dallas', -3.0)], 1, 'americanfootball_nfl', 'spreads');
+    TestRunner::assertEquals([-3.5, -2.5], keptPoints($out, 'Dallas'), 'nearest below -3.5 & above -2.5; no -3 echo');
 });
 
-// ── totals cap per Over/Under side ───────────────────────────────────────────
-TestRunner::run('AltLineCap — totals keep nearest per O/U side', function (): void {
+// ── TOTALS (all sports): one rung above & below main, main excluded ──────────
+TestRunner::run('AltLineCap — totals keep one above + one below, no main echo', function (): void {
     $alt = [
-        alt('Over', 8.5), alt('Over', 7.5), alt('Over', 10.5),
-        alt('Under', 9.5), alt('Under', 10.5), alt('Under', 7.5),
+        alt('Over', 9.0), alt('Over', 8.5), alt('Over', 9.5), alt('Over', 7.5), alt('Over', 10.5),
+        alt('Under', 9.0), alt('Under', 8.5), alt('Under', 9.5), alt('Under', 10.5), alt('Under', 7.5),
     ];
     $coreM = [core('Over', 9.0), core('Under', 9.0)];
-    $out = AltLineCap::capOutcomes($alt, $coreM, 1);
-    TestRunner::assertEquals([8.5], keptPoints($out, 'Over'), 'Over nearest 9.0 is 8.5');
-    TestRunner::assertEquals([9.5], keptPoints($out, 'Under'), 'Under nearest 9.0 is 9.5');
+    $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals');
+    TestRunner::assertEquals([8.5, 9.5], keptPoints($out, 'Over'), 'Over → 8.5 & 9.5, no 9.0');
+    TestRunner::assertEquals([8.5, 9.5], keptPoints($out, 'Under'), 'Under → 8.5 & 9.5, no 9.0');
 });
 
-// ── no core main → median fallback still caps the count ──────────────────────
+// ── perSide=2 (variable) keeps two nearest per direction ─────────────────────
+TestRunner::run('AltLineCap — perSide=2 keeps two per direction', function (): void {
+    $alt = [alt('Dallas', -1.5), alt('Dallas', -2.5), alt('Dallas', -3.5), alt('Dallas', -4.5)];
+    // main -3; below: -3.5,-4.5 ; above: -2.5,-1.5 → all four with perSide=2.
+    $out = AltLineCap::capOutcomes($alt, [core('Dallas', -3.0)], 2, 'americanfootball_nfl', 'spreads');
+    TestRunner::assertEquals([-4.5, -3.5, -2.5, -1.5], keptPoints($out, 'Dallas'), 'two below + two above');
+});
+
+// ── no core main → median fallback still excludes the median rung ────────────
 TestRunner::run('AltLineCap — median fallback when no core main', function (): void {
     $alt = [alt('Over', 5.5), alt('Over', 6.5), alt('Over', 7.5), alt('Over', 8.5), alt('Over', 9.5)];
-    $out = AltLineCap::capOutcomes($alt, [], 1);  // median = 7.5
-    TestRunner::assertEquals([7.5], keptPoints($out, 'Over'), 'median 7.5 kept');
+    $out = AltLineCap::capOutcomes($alt, [], 1, 'baseball_mlb', 'totals');  // median = 7.5 (excluded)
+    TestRunner::assertEquals([6.5, 8.5], keptPoints($out, 'Over'), 'nearest below 6.5 & above 8.5 around median 7.5');
 });
 
 // ── perSide=0 → none; UNLIMITED → unchanged ──────────────────────────────────
 TestRunner::run('AltLineCap — 0 drops all, UNLIMITED keeps all', function (): void {
     $alt = [alt('St. Louis', 1.0), alt('St. Louis', 2.5), alt('St. Louis', 3.5)];
-    TestRunner::assertEquals(0, count(AltLineCap::capOutcomes($alt, [], 0)), 'perSide=0 → empty');
-    TestRunner::assertEquals(3, count(AltLineCap::capOutcomes($alt, [], AltLineCap::UNLIMITED)), 'UNLIMITED → all');
+    TestRunner::assertEquals(0, count(AltLineCap::capOutcomes($alt, [], 0, 'baseball_mlb', 'spreads')), 'perSide=0 → empty');
+    TestRunner::assertEquals(3, count(AltLineCap::capOutcomes($alt, [], AltLineCap::UNLIMITED, 'baseball_mlb', 'spreads')), 'UNLIMITED → all');
 });
 
-// ── isPointAllowed mirrors the display cap exactly ───────────────────────────
+// ── isPointAllowed mirrors the run-line selection exactly ────────────────────
 TestRunner::run('AltLineCap — isPointAllowed matches the kept set', function (): void {
-    $alt = [alt('St. Louis', 1.0), alt('St. Louis', 2.5), alt('St. Louis', 3.5)];
-    $coreM = [core('St. Louis', 1.5)];
-    TestRunner::assertTrue(AltLineCap::isPointAllowed('St. Louis', 1.0, $alt, $coreM, 1), 'kept rung allowed');
-    TestRunner::assertFalse(AltLineCap::isPointAllowed('St. Louis', 3.5, $alt, $coreM, 1), 'capped rung rejected');
-    TestRunner::assertTrue(AltLineCap::isPointAllowed('St. Louis', 3.5, $alt, $coreM, AltLineCap::UNLIMITED), 'unlimited allows any offered rung');
-    TestRunner::assertFalse(AltLineCap::isPointAllowed('St. Louis', 1.0, $alt, $coreM, 0), 'perSide=0 allows none');
-    TestRunner::assertFalse(AltLineCap::isPointAllowed('St. Louis', 9.5, $alt, $coreM, 1), 'point not on the ladder at all → rejected');
+    $alt = [alt('Boston', -1.5), alt('Boston', 1.5), alt('Boston', -2.5), alt('Boston', -3.5)];
+    $coreM = [core('Boston', -1.5)];
+    TestRunner::assertTrue(AltLineCap::isPointAllowed('Boston', 1.5, $alt, $coreM, 1, 'baseball_mlb', 'spreads'), 'reverse allowed');
+    TestRunner::assertTrue(AltLineCap::isPointAllowed('Boston', -2.5, $alt, $coreM, 1, 'baseball_mlb', 'spreads'), 'buy-up allowed');
+    TestRunner::assertFalse(AltLineCap::isPointAllowed('Boston', -1.5, $alt, $coreM, 1, 'baseball_mlb', 'spreads'), 'main echo rejected');
+    TestRunner::assertFalse(AltLineCap::isPointAllowed('Boston', -3.5, $alt, $coreM, 1, 'baseball_mlb', 'spreads'), 'far rung rejected');
+    TestRunner::assertTrue(AltLineCap::isPointAllowed('Boston', -3.5, $alt, $coreM, AltLineCap::UNLIMITED, 'baseball_mlb', 'spreads'), 'unlimited allows any offered rung');
+    TestRunner::assertFalse(AltLineCap::isPointAllowed('Boston', -1.5, $alt, $coreM, 0, 'baseball_mlb', 'spreads'), 'perSide=0 allows none');
+    TestRunner::assertFalse(AltLineCap::isPointAllowed('Boston', 9.5, $alt, $coreM, 1, 'baseball_mlb', 'spreads'), 'point not on the ladder at all → rejected');
 });
 
 // ── perSideLimit: settings > env > default; negative → UNLIMITED ─────────────

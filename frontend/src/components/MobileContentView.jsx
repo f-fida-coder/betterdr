@@ -3312,7 +3312,11 @@ const oddsCellDisabledStyle = {
 const oddsCellSelectedStyle = {
     ...oddsCellStyle,
     background: '#ff5051',
-    borderColor: '#ff5051',
+    // Use the SAME `border` shorthand as oddsCellStyle (not the borderColor
+    // longhand) — mixing shorthand + longhand across selected/unselected made
+    // React drop the outline on deselect, so the box lost its border after a
+    // select→deselect tap.
+    border: '1px solid #ff5051',
 };
 const oddsCellMainStyle = { fontSize: '13px', fontWeight: 600, color: '#111827', whiteSpace: 'nowrap' };
 const oddsCellJuiceStyle = { fontSize: '11px', fontWeight: 500, color: '#666', whiteSpace: 'nowrap' };

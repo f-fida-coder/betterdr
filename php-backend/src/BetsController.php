@@ -3036,7 +3036,7 @@ final class BetsController
                 $coreMarket = $this->findMarket($markets, AltLineCap::coreKeyFor($altKey));
                 $coreOutcomes = is_array($coreMarket['outcomes'] ?? null) ? $coreMarket['outcomes'] : [];
                 $altOutcomes = is_array($market['outcomes'] ?? null) ? $market['outcomes'] : [];
-                if (!AltLineCap::isPointAllowed((string) ($rungMatch['name'] ?? ''), $submittedPoint, $altOutcomes, $coreOutcomes, $perSide)) {
+                if (!AltLineCap::isPointAllowed((string) ($rungMatch['name'] ?? ''), $submittedPoint, $altOutcomes, $coreOutcomes, $perSide, $sportKey, AltLineCap::coreKeyFor($altKey))) {
                     throw new ApiException('That alternate line is not currently available.', 400, [
                         'code' => 'ALT_LINE_CAPPED',
                     ]);
