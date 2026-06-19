@@ -118,6 +118,37 @@ const TOTAL_REGULATION_PERIODS = {
     aussierules: 4,
 };
 
+// Alternate-spread ladder: cap how many rungs the board renders per team.
+// The full ladder (every rung, both directions) stays in the "+" sheet.
+const MAX_ALT_SPREAD_RUNGS = 6;
+
+// Build a per-team alt-spread ladder from the `alternate_spreads` extended
+// market: dedupe by point, keep the rungs nearest pick'em (the most-bet
+// band), then read high→low like a sportsbook alt-spread column. Mirrors
+// SportContentView's buildLadder so the desktop and mobile boards show the
+// same rungs from the same already-deduped, house-safe feed.
+const buildAltSpreadLadder = (outcomes, sideName) => {
+    const norm = (s) => String(s || '').trim().toLowerCase();
+    const target = norm(sideName);
+    const rows = (Array.isArray(outcomes) ? outcomes : [])
+        .filter((o) => norm(o?.name) === target)
+        .map((o) => ({ name: String(o?.name || ''), point: Number(o?.point), price: parseOddsNumber(o?.price) }))
+        .filter((o) => Number.isFinite(o.point) && o.price !== null);
+    // Defensive de-dupe by point (the feed already collapses to one
+    // house-safe rung per side+point; guard against stragglers).
+    const seen = new Set();
+    const unique = [];
+    for (const r of rows) {
+        if (seen.has(r.point)) continue;
+        seen.add(r.point);
+        unique.push(r);
+    }
+    return unique
+        .sort((a, b) => Math.abs(a.point) - Math.abs(b.point))
+        .slice(0, MAX_ALT_SPREAD_RUNGS)
+        .sort((a, b) => b.point - a.point);
+};
+
 const totalPeriodsFor = (sportKey) => {
     const key = String(sportKey || '').toLowerCase();
     if (!key) return 4;
@@ -751,7 +782,20 @@ const MobileContentView = ({
                 price: parseOddsNumber(o.price),
             } : null;
         };
+        // Alternate-spread ladders (full game only). Same `alternate_spreads`
+        // extended market the "+" sheet and the desktop board read; baked in
+        // here so MatchCard can render a Spread⇄Alt toggle without reaching
+        // back into the raw markets (the transformed card object below no
+        // longer carries them). Gated on the full-game view — a period suffix
+        // means the user is on e.g. 1st-half lines, where the full-game alt
+        // ladder doesn't apply.
+        const altSpreadMarket = !suffix ? getMatchMarket(match, 'alternate_spreads') : null;
+        const altSpreadOutcomes = Array.isArray(altSpreadMarket?.outcomes) ? altSpreadMarket.outcomes : [];
         return {
+            altSpreads: {
+                away: buildAltSpreadLadder(altSpreadOutcomes, awayName),
+                home: buildAltSpreadLadder(altSpreadOutcomes, homeName),
+            },
             spreadHomePoint: spreadHomeOutcome?.point ?? null,
             spreadAwayPoint: spreadAwayOutcome?.point ?? null,
             spreadHomePrice: parseOddsNumber(spreadHomeOutcome?.price),
@@ -2111,6 +2155,9 @@ const matchCardSignature = (match) => {
         odds?.teamTotals?.away?.under?.price, odds?.teamTotals?.away?.under?.point,
         odds?.teamTotals?.home?.over?.price, odds?.teamTotals?.home?.over?.point,
         odds?.teamTotals?.home?.under?.price, odds?.teamTotals?.home?.under?.point,
+        // Alt-spread fingerprint so a rung's price/line move repaints the card.
+        (odds?.altSpreads?.away || []).map((r) => `${r.point}:${r.price}`).join(','),
+        (odds?.altSpreads?.home || []).map((r) => `${r.point}:${r.price}`).join(','),
         match?.rotation?.away,
         match?.rotation?.home,
     ].join('|');
@@ -2214,6 +2261,17 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const hasTeamTotals = isMlbSportKey(match?.sportKey || match?.sport) && (teamHasTT('away') || teamHasTT('home'));
     const [ttOn, setTtOn] = React.useState(false);
     const teamTotalsActive = hasTeamTotals && ttOn;
+    // Spread ⇄ Alt toggle. The away row's Spread column then renders the away
+    // team's alt-spread ladder, the home row the home team's — mirroring the
+    // Total ⇄ TT split. Ladders are pre-built in extractOdds. Suppressed in
+    // teaser mode (teaser legs must price off the MAIN spread, same as the
+    // "+" sheet) and on period views (full-game ladder only).
+    const altSpreads = match.odds?.altSpreads || {};
+    const awayAltLadder = Array.isArray(altSpreads.away) ? altSpreads.away : [];
+    const homeAltLadder = Array.isArray(altSpreads.home) ? altSpreads.home : [];
+    const hasAltSpreads = !isTeaserMode && (awayAltLadder.length > 0 || homeAltLadder.length > 0);
+    const [altOn, setAltOn] = React.useState(false);
+    const altSpreadsActive = hasAltSpreads && altOn;
     // 1st-inning totals at 0.5 IS the NRFI/YRFI market — relabel chips so bettors
     // recognise it. Selection name stays "Over"/"Under" for settlement (totals
     // resolution in SportsbookBetSupport::selectionResult matches on substring
@@ -2287,6 +2345,49 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         onClick={() => addTeamTotal(leg, teamLabel)}
                     />
                 ))}
+            </div>
+        );
+    };
+    // Alt-spread add. selection is built byte-identical to the "+" sheet and
+    // the desktop board ("Chicago -2.5") so the backend pins pricing+grading
+    // by (outcome name + point), never name alone. price is the feed's
+    // house-safe decimal for that exact rung.
+    const addAltSpread = (rung) => {
+        if (blocked || !rung) return;
+        const point = Number(rung.point);
+        const price = parseOddsNumber(rung.price);
+        if (!Number.isFinite(point) || price === null) return;
+        const selection = [rung.name, formatLineValue(point)].filter(Boolean).join(' ');
+        onAddToSlip(match.id, selection, 'alternate_spreads', price, matchName, 'Alt Game Spread', point, {
+            isLive: !!match.isLive,
+            sportKey: String(match?.sportKey || match?.sport || '').toLowerCase(),
+            selectionFull: selection,
+            pitchers: showPitchers ? match.pitchers : null,
+            pitcherAction: showPitchers ? { home: !!pitcherAction.home, away: !!pitcherAction.away } : undefined,
+        });
+    };
+    // One Spread-column cell for a team's alt-spread ladder: stacks the rungs
+    // high→low (same order the desktop column reads). Empty when the feed
+    // shipped no alt rungs for this side — never synthesizes one.
+    const renderAltSpreadCell = (ladder) => {
+        if (!Array.isArray(ladder) || ladder.length === 0) {
+            return <OddsCell disabled selected={false} main="—" juice="" onClick={() => {}} />;
+        }
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {ladder.map((rung) => {
+                    const sel = [rung.name, formatLineValue(rung.point)].filter(Boolean).join(' ');
+                    return (
+                        <OddsCell
+                            key={rung.point}
+                            disabled={blocked}
+                            selected={isSelected('alternate_spreads', sel) && !blocked}
+                            main={formatSpreadValue(rung.point)}
+                            juice={formatOdds(rung.price, oddsFormat)}
+                            onClick={() => addAltSpread(rung)}
+                        />
+                    );
+                })}
             </div>
         );
     };
@@ -2444,7 +2545,20 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     )}
                     <OddsAge timestamp={match.lastOddsSyncAt} live={(match.status || '').toString().toLowerCase() === 'live'} />
                 </span>
-                {visibleMarkets.showSpread && <span style={columnLabelStyle}>Spread</span>}
+                {visibleMarkets.showSpread && (
+                    hasAltSpreads ? (
+                        <button
+                            type="button"
+                            onClick={() => setAltOn((v) => !v)}
+                            style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: altSpreadsActive ? '#d0451b' : undefined, fontWeight: 700 }}
+                            title={altSpreadsActive ? 'Showing alternate spreads — tap for main spread' : 'Showing main spread — tap for alternate spreads'}
+                        >
+                            {altSpreadsActive ? 'Alt' : 'Spread'}
+                        </button>
+                    ) : (
+                        <span style={columnLabelStyle}>Spread</span>
+                    )
+                )}
                 {visibleMarkets.showMoneyline && <span style={columnLabelStyle}>ML</span>}
                 {visibleMarkets.showTotals && (
                     hasTeamTotals ? (
@@ -2501,6 +2615,9 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 </div>
 
                 {visibleMarkets.showSpread && (
+                    altSpreadsActive ? (
+                        renderAltSpreadCell(awayAltLadder)
+                    ) : (
                     <OddsCell
                         disabled={blocked || match.odds.spreadAwayPrice === null}
                         selected={isSelected('spreads', match.team1) && !blocked}
@@ -2511,6 +2628,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             : undefined}
                         onClick={() => addIfAllowed(match.id, match.team1, 'spreads', match.odds.spreadAwayPrice, matchName, 'Spread', match.odds.spreadAwayPoint, match.odds.spreadAwayAlternateLines)}
                     />
+                    )
                 )}
                 {visibleMarkets.showMoneyline && (
                     <OddsCell
@@ -2629,6 +2747,9 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 </div>
 
                 {visibleMarkets.showSpread && (
+                    altSpreadsActive ? (
+                        renderAltSpreadCell(homeAltLadder)
+                    ) : (
                     <OddsCell
                         disabled={blocked || match.odds.spreadHomePrice === null}
                         selected={isSelected('spreads', match.team2) && !blocked}
@@ -2639,6 +2760,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             : undefined}
                         onClick={() => addIfAllowed(match.id, match.team2, 'spreads', match.odds.spreadHomePrice, matchName, 'Spread', match.odds.spreadHomePoint, match.odds.spreadHomeAlternateLines)}
                     />
+                    )
                 )}
                 {visibleMarkets.showMoneyline && (
                     <OddsCell
