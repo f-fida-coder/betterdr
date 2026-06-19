@@ -25,6 +25,13 @@ final class RundownClient
     private const DEFAULT_TIMEOUT_SECONDS = 10;
     private const QUOTA_CACHE_NS = 'rundown-quota';
     private const QUOTA_CACHE_KEY = 'latest';
+    // Set when the API returns a 403 budget/spend-cap block ("Hard budget
+    // limit reached"), cleared the moment a data call consumes datapoints
+    // again. Lets the board show "odds unavailable" instead of stale prices.
+    private const LIMIT_CACHE_KEY = 'limit_hit';
+    // Safety expiry — if the clear-on-success path is somehow missed, the
+    // limit state self-heals after this window so a healthy feed isn't gated.
+    private const LIMIT_REACHED_WINDOW_SECONDS = 900;
     /** Rundown caps market_ids at 12 per request (enforced 2026-05). */
     private const MAX_MARKET_IDS_PER_REQUEST = 12;
 
@@ -280,6 +287,43 @@ final class RundownClient
         return (int) ($snap['datapointsRemain'] ?? 0) <= 0;
     }
 
+    /**
+     * True when the feed cannot return fresh odds RIGHT NOW — either the plan
+     * datapoints are exhausted (quotaExhausted) OR the account hit a hard
+     * budget / spend-cap block (the API returns 403 "Hard budget limit
+     * reached" even while datapoints remain). This is the authoritative
+     * "show odds unavailable, do not serve stale prices" signal.
+     */
+    public static function feedLimitReached(): bool
+    {
+        $hit = SharedFileCache::peek(self::QUOTA_CACHE_NS, self::LIMIT_CACHE_KEY);
+        if (is_array($hit)) {
+            $at = (int) ($hit['at'] ?? 0);
+            if ($at > 0 && (time() - $at) <= self::LIMIT_REACHED_WINDOW_SECONDS) {
+                return true;
+            }
+        }
+        return self::quotaExhausted();
+    }
+
+    /** Record a hard-budget/spend-cap 403 so the board can degrade gracefully. */
+    private static function recordLimitHit(): void
+    {
+        SharedFileCache::forget(self::QUOTA_CACHE_NS, self::LIMIT_CACHE_KEY);
+        SharedFileCache::remember(
+            self::QUOTA_CACHE_NS,
+            self::LIMIT_CACHE_KEY,
+            86400,
+            static fn (): array => ['at' => time()]
+        );
+    }
+
+    /** Clear the limit flag — called when a data call consumes datapoints again. */
+    private static function clearLimitHit(): void
+    {
+        SharedFileCache::forget(self::QUOTA_CACHE_NS, self::LIMIT_CACHE_KEY);
+    }
+
     // ── internals ─────────────────────────────────────────────────────
 
     /** @param array<string,string|int> $query @return array<string,mixed>|null */
@@ -421,6 +465,17 @@ final class RundownClient
         if ($status === 404) {
             throw new RuntimeException('Rundown: 404 not found');
         }
+        if ($status === 403) {
+            $msg = is_string($body) ? trim(substr($body, 0, 200)) : '';
+            // "Hard budget limit reached" (spend-cap) or any budget/quota/limit
+            // 403 → flag it so the board shows "odds unavailable" instead of
+            // serving stale prices. The flag clears automatically once a data
+            // call consumes datapoints again (see recordQuotaHeaders).
+            if (stripos($msg, 'budget') !== false || stripos($msg, 'limit') !== false || stripos($msg, 'quota') !== false) {
+                self::recordLimitHit();
+            }
+            throw new RuntimeException('Rundown: 403 forbidden' . ($msg !== '' ? ' — ' . $msg : ''));
+        }
         if ($status >= 500) {
             throw new RuntimeException('Rundown: ' . $status . ' server error');
         }
@@ -473,6 +528,15 @@ final class RundownClient
                 : (bool) ($prev['websocketAccess'] ?? false),
             'recordedAt'         => gmdate(DATE_ATOM),
         ];
+        // A successful, budget-CONSUMING call (datapointsUsed climbed) means
+        // the feed is flowing again — clear any prior hard-budget limit flag so
+        // the board recovers instantly instead of waiting out the safety window.
+        // Free endpoints (/sports, /affiliates) don't move datapointsUsed, so a
+        // 403'd account that can still reach them won't falsely clear the flag.
+        $prevUsed = (int) ($prev['datapointsUsed'] ?? 0);
+        if ($prevUsed > 0 && (int) $snap['datapointsUsed'] > $prevUsed) {
+            self::clearLimitHit();
+        }
         SharedFileCache::forget(self::QUOTA_CACHE_NS, self::QUOTA_CACHE_KEY);
         SharedFileCache::remember(self::QUOTA_CACHE_NS, self::QUOTA_CACHE_KEY, 3600, static fn (): array => $snap);
     }

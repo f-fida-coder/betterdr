@@ -495,7 +495,12 @@ final class SportsbookHealth
         // quotaExhausted() is true only when the API reported a real limit at
         // zero remaining (see RundownClient::quotaExhausted).
         $quotaExhausted = class_exists('RundownClient') && RundownClient::quotaExhausted();
-        if ($quotaExhausted) {
+        // feedLimitReached is broader than quotaExhausted: it also trips on a
+        // hard-budget / spend-cap 403 (where datapoints remain but the API
+        // blocks data calls). When set, the feed cannot return fresh odds, so
+        // we suspend betting AND strip stale prices (see applyBettingAvailability).
+        $feedLimitReached = class_exists('RundownClient') && RundownClient::feedLimitReached();
+        if ($quotaExhausted || $feedLimitReached) {
             $oddsFeedStale = true;
         }
         $lastResult = is_array($sync['lastResult'] ?? null) ? $sync['lastResult'] : [];
@@ -527,6 +532,7 @@ final class SportsbookHealth
                 'isStale' => $oddsFeedStale,
                 'bettingSuspended' => $oddsFeedStale,
                 'quotaExhausted' => $quotaExhausted,
+                'feedLimitReached' => $feedLimitReached,
                 'circuitBreaker' => $circuit,
             ],
             'settlement' => [
@@ -550,6 +556,7 @@ final class SportsbookHealth
      */
     public static function applyBettingAvailability(SqlRepository $db, array $match, ?array $snapshot = null): array
     {
+        $snapshot = $snapshot ?? self::sportsbookSnapshot($db);
         $annotated = SportsMatchStatus::annotate($match);
         $statusReason = SportsMatchStatus::placementBlockReason($annotated);
         $staleState = self::bettingAvailability($db, $annotated, $snapshot);
@@ -566,6 +573,22 @@ final class SportsbookHealth
             $annotated['isBettable'] = false;
             $annotated['isStale'] = true;
             $annotated['bettingBlockedReason'] = $staleState['reason'];
+        }
+
+        // Hard feed limit (datapoint quota exhausted OR account hard-budget /
+        // spend-cap 403): the feed cannot return fresh odds, so we must NOT
+        // serve the last-known (stale) prices. Strip the odds entirely — the
+        // board then renders "Unavailable" cells (off the board) with a clear
+        // message and betting suspended, instead of showing old prices. The
+        // game stays listed; only its prices are withheld. Display-only:
+        // settlement reads the stored DB doc, not this projection.
+        if (($snapshot['oddsSync']['feedLimitReached'] ?? false) === true) {
+            $annotated['odds'] = [];
+            $annotated['bookmakers'] = [];
+            $annotated['isBettable'] = false;
+            $annotated['isStale'] = true;
+            $annotated['oddsUnavailable'] = true;
+            $annotated['bettingBlockedReason'] = 'Live odds are temporarily unavailable. Please check back shortly.';
         }
 
         // MMA/UFC is view-only until settlement is implemented: a placed fight
