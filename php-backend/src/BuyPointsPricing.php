@@ -39,10 +39,26 @@ final class BuyPointsPricing
     // bettor who only wants "just win" takes the moneyline.
     private const NO_TIE_WIN_ZONE = 1.0;
 
-    // Sports that can't end level in the bet's scope, so a near-zero
-    // spread/run-line/puck-line collapses to the moneyline. Buying down into
-    // the win zone is omitted for these (book-standard: -1 → +1, skip ±0.5/0).
-    private const NO_TIE_SPORT_PREFIXES = ['baseball_', 'icehockey_'];
+    // Sports that can't end level within the bet's scope, so a near-zero
+    // spread/run-line/puck-line/point-spread collapses to the moneyline ("just
+    // win the game"): the win zone is priced at the ML and the ±1 push rung is
+    // feed-or-interpolated. For tie-possible sports the win zone stays omitted.
+    //
+    // Prefix-matched no-tie families (extra innings / OT / shootout always
+    // produce a winner):
+    //   baseball_*   — MLB et al (no ties)
+    //   icehockey_*  — NHL et al (OT + shootout)
+    //   basketball_* — NBA, WNBA, NCAAB men's & women's, etc (OT)
+    // College football (americanfootball_ncaaf*) is no-tie too (OT rules
+    // guarantee a winner) and is matched explicitly in isNoTieSport().
+    //
+    // DELIBERATELY EXCLUDED — a real draw/tie makes -0.5/0/+0.5 distinct
+    // lose/push/win outcomes AND pushes the moneyline, so the zone cannot
+    // collapse to one ML price:
+    //   - soccer_* / any 3-way sport — a draw is its own outcome (also D3).
+    //   - americanfootball_nfl — a regulation+OT tie is rare but possible.
+    //   - everything else defaults to tie-possible (fail safe).
+    private const NO_TIE_SPORT_PREFIXES = ['baseball_', 'icehockey_', 'basketball_'];
 
     /**
      * Three-way moneyline sports (a draw is a distinct outcome). The 2-way
@@ -59,6 +75,12 @@ final class BuyPointsPricing
     private static function isNoTieSport(string $sportKey): bool
     {
         $k = strtolower(trim($sportKey));
+        // College football: OT always produces a winner. Matched explicitly so
+        // pro football (americanfootball_nfl) — which can still tie — does NOT
+        // qualify and keeps its win zone omitted.
+        if (str_starts_with($k, 'americanfootball_ncaaf')) {
+            return true;
+        }
         foreach (self::NO_TIE_SPORT_PREFIXES as $prefix) {
             if (str_starts_with($k, $prefix)) {
                 return true;
@@ -247,7 +269,170 @@ final class BuyPointsPricing
                 'american' => $american,
             ];
         }
+
+        // No-tie spreads: the feed ladder above OMITS the win zone (|line| < 1)
+        // and may lack the ±1 push-adjusted rungs. Fill them from the side
+        // moneyline so a bettor can always buy down to "just win the game".
+        // (Totals have no ML anchor; 3-way/real-tie sports keep real ±0 lines.)
+        if ($isSpread && $noTie) {
+            $ladder = self::fillNoTieWinZone($ladder, $basePoint, $priceByPoint, $mlDecimal);
+        }
+
         return $ladder;
+    }
+
+    /**
+     * No-tie sports only: fill the near-pick'em rungs the feed-anchored ladder
+     * can't, anchored on the side MONEYLINE (the "win the game" price).
+     *
+     *  - {-0.5, 0, +0.5} all equal "win the game" = the side ML. Surface ONE
+     *    half-point rung at the ML (not three identical lines).
+     *  - ±1 = win-the-game adjusted for the 1-run push. Prefer the feed price
+     *    (kept by the main loop already); otherwise SYNTHESIZE by interpolating
+     *    in implied-probability space at the midpoint between the ML rung (the
+     *    win-the-game half-point) and the nearest feed half-point rung (±1.5).
+     *
+     * Then enforce, house-safe (payouts only ever clamped DOWN):
+     *  - strict monotonicity — a more bettor-favorable line never pays MORE
+     *    than a less favorable one (seeded by the base feed price so no buy
+     *    beats the un-bought line); and
+     *  - the ML floor — no line >= 0 (a cushion easier than the outright win)
+     *    pays more than the ML.
+     *
+     * Without the ML anchor the win zone can't be priced → the feed ladder is
+     * returned untouched (fail safe, no guessed prices). Because this runs
+     * inside ladderFromFeed, both display (attachBuyPointsLadders) and
+     * placement (priceBoughtPointFromFeed) get the identical filled ladder.
+     *
+     * @param list<array{points:float,line:float,decimal:float,american:int}> $ladder
+     * @param array<string,float> $priceByPoint house-safe feed decimals for THIS side
+     * @return list<array{points:float,line:float,decimal:float,american:int}>
+     */
+    private static function fillNoTieWinZone(array $ladder, float $basePoint, array $priceByPoint, ?float $mlDecimal): array
+    {
+        if ($mlDecimal === null) {
+            return $ladder; // no anchor → can't price the win zone; leave as-is.
+        }
+        $mlAmerican = SportsbookBetSupport::decimalToAmericanInt($mlDecimal);
+        if ($mlAmerican === 0) {
+            return $ladder;
+        }
+
+        // Index existing (feed) rungs by line — feed price always wins.
+        $byLine = [];
+        foreach ($ladder as $rung) {
+            $byLine[self::pointKey($rung['line'])] = $rung;
+        }
+
+        // boughtPoints for a target line in the spread buy direction
+        // (line = base + boughtPoints). Null if it isn't a forward buy in range.
+        $pointsFor = static function (float $line) use ($basePoint): ?float {
+            $pts = round($line - $basePoint, 2);
+            $steps = (int) round($pts / self::HALF_POINT);
+            if ($steps < 1 || $steps > self::MAX_HALF_STEPS
+                || abs($pts - $steps * self::HALF_POINT) > 1e-6) {
+                return null;
+            }
+            return $steps * self::HALF_POINT;
+        };
+
+        // 1) Win-the-game: the FIRST non-zero half-point inside the win zone,
+        //    priced at the ML. Collapses the -0.5/0/+0.5 triple to one rung.
+        for ($steps = 1; $steps <= self::MAX_HALF_STEPS; $steps++) {
+            $line = round($basePoint + $steps * self::HALF_POINT, 2);
+            if (abs($line) >= self::NO_TIE_WIN_ZONE) {
+                continue;
+            }
+            if (abs($line) < 1e-9) {
+                continue; // skip the 0 line (push ambiguity); prefer ±0.5.
+            }
+            if (!array_key_exists(self::pointKey($line), $byLine)) {
+                $byLine[self::pointKey($line)] = [
+                    'points' => $steps * self::HALF_POINT,
+                    'line' => $line,
+                    'decimal' => $mlDecimal,
+                    'american' => $mlAmerican,
+                ];
+            }
+            break;
+        }
+
+        // 2) ±1 push-adjusted rungs (only when the feed didn't price them).
+        foreach ([-1.0, 1.0] as $line) {
+            $pts = $pointsFor($line);
+            if ($pts === null || array_key_exists(self::pointKey($line), $byLine)) {
+                continue; // out of range, or feed already priced it.
+            }
+            $anchorKey = self::pointKey($line < 0 ? -1.5 : 1.5);
+            if (!array_key_exists($anchorKey, $priceByPoint)) {
+                continue; // no ±1.5 feed anchor → can't synthesize, omit.
+            }
+            $anchorDecimal = SportsbookBetSupport::snapDecimalOdds($priceByPoint[$anchorKey]);
+            if (!is_finite($anchorDecimal) || $anchorDecimal <= 1.0) {
+                continue;
+            }
+            // Midpoint in implied-prob space between the ML (the win-the-game
+            // half-point) and the ±1.5 feed rung — ±1 sits exactly halfway.
+            $p = (1.0 / $mlDecimal + 1.0 / $anchorDecimal) / 2.0;
+            if ($p <= 0.0 || $p >= 1.0) {
+                continue;
+            }
+            $american = SportsbookBetSupport::decimalToAmericanInt(
+                SportsbookBetSupport::snapDecimalOdds(1.0 / $p)
+            );
+            if ($american === 0) {
+                continue;
+            }
+            $exact = SportsbookBetSupport::americanToDecimalExact($american);
+            if (!is_finite($exact) || $exact <= 1.0) {
+                continue;
+            }
+            $byLine[self::pointKey($line)] = [
+                'points' => $pts,
+                'line' => $line,
+                'decimal' => $exact,
+                'american' => $american,
+            ];
+        }
+
+        // Order by line ascending (= buy direction) for the monotonic pass.
+        $rungs = array_values($byLine);
+        usort($rungs, static fn(array $a, array $b): int => $a['line'] <=> $b['line']);
+
+        // Seed the payout ceiling with the base feed price so no buy ever pays
+        // more than the un-bought line. Then clamp each successive (more
+        // favorable) rung to <= the previous payout, and apply the ML floor.
+        $baseKey = self::pointKey($basePoint);
+        $ceil = array_key_exists($baseKey, $priceByPoint)
+            ? SportsbookBetSupport::snapDecimalOdds($priceByPoint[$baseKey])
+            : INF;
+
+        $out = [];
+        foreach ($rungs as $rung) {
+            $dec = $rung['decimal'];
+            if ($dec > $ceil + 1e-9) {
+                $dec = $ceil; // monotonicity: never beat a less-favorable rung.
+            }
+            if ($rung['line'] >= -1e-9 && $dec > $mlDecimal + 1e-9) {
+                $dec = $mlDecimal; // ML floor on bettor-favorable cushions.
+            }
+            $american = SportsbookBetSupport::decimalToAmericanInt($dec);
+            if ($american === 0) {
+                continue;
+            }
+            $exact = SportsbookBetSupport::americanToDecimalExact($american);
+            if (!is_finite($exact) || $exact <= 1.0) {
+                continue;
+            }
+            $rung['decimal'] = $exact;
+            $rung['american'] = $american;
+            $out[] = $rung;
+            $ceil = min($ceil, $exact); // tighten the ceiling for the next rung.
+        }
+
+        // Hand back in boughtPoints order (smallest buy first) for the consumer.
+        usort($out, static fn(array $a, array $b): int => $a['points'] <=> $b['points']);
+        return $out;
     }
 
     /**

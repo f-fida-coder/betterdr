@@ -13,6 +13,7 @@ import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import { getSportKeywords, findSportItemById, matchesSportKeyword } from '../data/sportsData';
 import {
     formatOdds,
+    formatLineValue,
     formatSpreadDisplay,
     formatTotalDisplay,
     getMatchMarket,
@@ -29,6 +30,12 @@ import {
 import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
 import OddsAge from './OddsAge';
+
+// How many alternate-spread rungs to show per team in the inline board
+// ladder. The feed ships ~20+ rungs per side; the board shows the ones
+// nearest the main line and leaves the full ladder to the "+" sheet so the
+// card stays compact on mobile.
+const MAX_ALT_SPREAD_RUNGS = 6;
 
 // Faded grey, slightly smaller than the team name — same treatment used
 // across every odds board card so the record always reads as supplemental
@@ -187,6 +194,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     // instead of the game over/under. MLB-only and only when the feed
     // actually shipped team totals (gated at render).
     const [ttModeByMatch, setTtModeByMatch] = useState({});
+    // Per-match toggle for the Spread column. false (default) → mainline run
+    // line / spread; true → the alternate-spread ladder (the
+    // `alternate_spreads` extended market). Mirrors ttModeByMatch.
+    const [altSpreadByMatch, setAltSpreadByMatch] = useState({});
     const [detailOpenMatch, setDetailOpenMatch] = useState(null);
     const attemptedLogoFetchesRef = React.useRef(new Set());
 
@@ -1040,6 +1051,32 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         }));
     };
 
+    // Add an alternate-spread rung to the slip. Dispatches the SAME
+    // betslip:add contract the "+" sheet (MatchDetailView.addSelection) uses
+    // for alt lines: marketType 'alternate_spreads', the signed rung point,
+    // and a selection string built byte-identically ("Chicago -2.5") so the
+    // backend pins pricing/grading by (outcome name + point), never name
+    // alone. `price` is the feed's house-safe decimal for that exact rung.
+    const addAltSpread = (match, rung) => {
+        const price = parseOddsNumber(rung?.price);
+        const point = Number(rung?.point);
+        if (!match?.id || price === null || !Number.isFinite(point)) return;
+        const selection = [rung.name, formatLineValue(point)].filter(Boolean).join(' ');
+        window.dispatchEvent(new CustomEvent('betslip:add', {
+            detail: {
+                matchId: match.id,
+                selection,
+                marketType: 'alternate_spreads',
+                odds: price,
+                point,
+                matchName: `${match.team1.name} vs ${match.team2.name}`,
+                marketLabel: 'Alt Game Spread',
+                isLive: match.status === 'LIVE',
+                sportKey: String(match.sportKey || '').toLowerCase(),
+            },
+        }));
+    };
+
     const normalizedMode = String(activeBetMode || 'straight').toLowerCase().replace(/-/g, '_');
     const showSpread = ['straight', 'parlay', 'teaser', 'if_bet', 'reverse', 'round_robin'].includes(normalizedMode);
     const showMoneyline = ['straight', 'parlay', 'if_bet', 'reverse', 'round_robin'].includes(normalizedMode);
@@ -1402,25 +1439,118 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                             {showSpread && (() => {
                                                 const awayAvail = match.odds.spread.awayPoint !== null && hasValidOdds(match.odds.spread.awayOdds);
                                                 const homeAvail = match.odds.spread.homePoint !== null && hasValidOdds(match.odds.spread.homeOdds);
+                                                const matchName = `${match.team1.name} vs ${match.team2.name}`;
+                                                const blockReason = match.rawMatch?.bettingBlockedReason || 'Betting unavailable';
+
+                                                // Alternate-spread ladder (the `alternate_spreads` extended
+                                                // market). Teaser legs must price off the MAIN spread, so the
+                                                // alt toggle is suppressed in teaser mode — the "+" sheet gates
+                                                // the same market the same way. Build a per-team ladder from the
+                                                // feed's already-deduped, house-safe rungs.
+                                                // Read the raw match: the mapped `match.odds` is the flat
+                                                // extractOdds shape (no markets list); extendedMarkets only
+                                                // lives on rawMatch (top-level or under rawMatch.odds).
+                                                const altMarket = normalizedMode !== 'teaser' ? getMatchMarket(match.rawMatch, 'alternate_spreads') : null;
+                                                const norm = (s) => String(s || '').trim().toLowerCase();
+                                                const awayName = norm(match.team1.name);
+                                                const homeName = norm(match.team2.name);
+                                                const buildLadder = (sideName) => {
+                                                    const rows = (Array.isArray(altMarket?.outcomes) ? altMarket.outcomes : [])
+                                                        .filter((o) => norm(o?.name) === sideName)
+                                                        .map((o) => ({ name: o.name, point: Number(o.point), price: parseOddsNumber(o.price) }))
+                                                        .filter((o) => Number.isFinite(o.point) && o.price !== null);
+                                                    // Defensive de-dupe by point (the feed already collapses to one
+                                                    // house-safe rung per side+point; guard against stragglers).
+                                                    const seen = new Set();
+                                                    const unique = [];
+                                                    for (const r of rows) {
+                                                        if (seen.has(r.point)) continue;
+                                                        seen.add(r.point);
+                                                        unique.push(r);
+                                                    }
+                                                    // Keep the rungs nearest pick'em (the most-bet ±1 to ±2 band,
+                                                    // straddling both "getting" and "giving" points), then read
+                                                    // high→low like a sportsbook alt-spread column. The full ladder
+                                                    // (every rung, both directions) stays in the "+" sheet.
+                                                    return unique
+                                                        .sort((a, b) => Math.abs(a.point) - Math.abs(b.point))
+                                                        .slice(0, MAX_ALT_SPREAD_RUNGS)
+                                                        .sort((a, b) => b.point - a.point);
+                                                };
+                                                const awayLadder = buildLadder(awayName);
+                                                const homeLadder = buildLadder(homeName);
+                                                const hasAltSpreads = awayLadder.length > 0 || homeLadder.length > 0;
+                                                const altOn = hasAltSpreads && !!altSpreadByMatch[match.id];
+
+                                                const modeToggle = hasAltSpreads ? (
+                                                    <span style={{ display: 'inline-flex', marginLeft: 6, borderRadius: 4, overflow: 'hidden', border: '1px solid #d0451b', verticalAlign: 'middle' }}>
+                                                        {[['main', 'Spread'], ['alt', 'Alt']].map(([mode, lbl]) => {
+                                                            const active = (mode === 'alt') === altOn;
+                                                            return (
+                                                                <button
+                                                                    key={mode}
+                                                                    type="button"
+                                                                    onClick={() => setAltSpreadByMatch((prev) => ({ ...prev, [match.id]: mode === 'alt' }))}
+                                                                    style={{ border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 700, lineHeight: 1.4, padding: '1px 6px', background: active ? '#d0451b' : '#fff', color: active ? '#fff' : '#d0451b' }}
+                                                                >
+                                                                    {lbl}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </span>
+                                                ) : null;
+
+                                                if (altOn) {
+                                                    const renderLadderCell = (ladder, teamLabel, withToggle) => {
+                                                        if (ladder.length === 0) return null;
+                                                        return (
+                                                            <div className="odds-cell" key={teamLabel}>
+                                                                <span className="odds-label">{teamLabel} Alt{withToggle ? <> {modeToggle}</> : null}</span>
+                                                                <div className="odds-values-group">
+                                                                    {ladder.map((rung) => (
+                                                                        <React.Fragment key={rung.point}>
+                                                                            {renderOddsButton({
+                                                                                label: formatSpreadDisplay(rung.point, rung.price, oddsFormat),
+                                                                                onClick: () => addAltSpread(match, rung),
+                                                                                available: true,
+                                                                                disabled: match.rawMatch?.isBettable === false,
+                                                                                reason: blockReason,
+                                                                            })}
+                                                                        </React.Fragment>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    };
+                                                    // Anchor the Spread⇄Alt toggle to whichever ladder renders first.
+                                                    const toggleOnAway = awayLadder.length > 0;
+                                                    return (
+                                                        <>
+                                                            {renderLadderCell(awayLadder, match.team1.shortName || match.team1.name, toggleOnAway)}
+                                                            {renderLadderCell(homeLadder, match.team2.shortName || match.team2.name, !toggleOnAway && homeLadder.length > 0)}
+                                                        </>
+                                                    );
+                                                }
+
                                                 return (
                                                 <div className="odds-cell">
-                                                    <span className="odds-label">Spread</span>
+                                                    <span className="odds-label">Spread{modeToggle ? <> {modeToggle}</> : null}</span>
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: formatSpreadDisplay(match.odds.spread.awayPoint, match.odds.spread.awayOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'spreads', match.odds.spread.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread', match.odds.spread.awayPoint, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.spread.awayAlternateLines }),
+                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'spreads', match.odds.spread.awayOdds, matchName, 'Spread', match.odds.spread.awayPoint, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.spread.awayAlternateLines }),
                                                             available: awayAvail,
                                                             peerAvailable: homeAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
-                                                            reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
+                                                            reason: blockReason,
                                                         })}
                                                         {renderOddsButton({
                                                             label: formatSpreadDisplay(match.odds.spread.homePoint, match.odds.spread.homeOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'spreads', match.odds.spread.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread', match.odds.spread.homePoint, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.spread.homeAlternateLines }),
+                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'spreads', match.odds.spread.homeOdds, matchName, 'Spread', match.odds.spread.homePoint, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.spread.homeAlternateLines }),
                                                             available: homeAvail,
                                                             peerAvailable: awayAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
-                                                            reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
+                                                            reason: blockReason,
                                                         })}
                                                     </div>
                                                 </div>
