@@ -665,6 +665,32 @@ final class MatchesController
             return self::canonicalizeOddsMarkets($match);
         }, $annotated);
 
+        // House risk cap on the board's alternate ladders. Trim every
+        // alternate_* market to the N rungs nearest the main line via the
+        // SAME AltLineCap selection the MORE BETS sheet (getMatchProps) and
+        // the placement guard (BetsController::validateSelection) use — so
+        // the board can never display a rung that placement would reject
+        // (default perSide=1: run-line reverse + buy-up; variable-line the
+        // nearest one each direction). Buy Points is unaffected: its ladder
+        // was already attached per-outcome from the FULL feed inside
+        // canonicalizeOddsMarkets above, so trimming this display copy here
+        // leaves the granular +/-2.5 dropdown intact. Skipped for 'light'
+        // mode (it ships no odds) and when the cap is UNLIMITED.
+        if ($payloadMode !== 'light') {
+            $altCapSettings = null;
+            try {
+                $altCapSettings = $this->db->findOne('platformsettings', []);
+            } catch (Throwable $altCapErr) {
+                $altCapSettings = null;
+            }
+            $altPerSide = AltLineCap::perSideLimit(is_array($altCapSettings) ? $altCapSettings : null);
+            if ($altPerSide !== AltLineCap::UNLIMITED) {
+                $annotated = array_map(function (array $match) use ($altPerSide): array {
+                    return $this->capMatchAlternateLadders($match, $altPerSide);
+                }, $annotated);
+            }
+        }
+
         if ($payloadMode === 'core') {
             $annotated = array_map(fn(array $match): array => $this->coreMatchPayload($match), $annotated);
         } elseif ($payloadMode === 'light') {
@@ -920,6 +946,41 @@ final class MatchesController
     }
 
     /**
+     * Apply the alt-ladder cap to a board match's display copy of its
+     * alternate ladders, in BOTH locations a client may read (odds.extendedMarkets
+     * preferred, top-level extendedMarkets fallback — see frontend getMatchMarkets).
+     * The main-line reference is the canonical odds.markets built moments earlier
+     * by canonicalizeOddsMarkets. perSide is resolved once by the caller (hot
+     * list path), so this does no per-match settings read.
+     *
+     * @param array<string,mixed> $match
+     * @return array<string,mixed>
+     */
+    private function capMatchAlternateLadders(array $match, int $perSide): array
+    {
+        $sportKey    = (string) ($match['sportKey'] ?? '');
+        $baseMarkets = is_array($match['odds']['markets'] ?? null) ? $match['odds']['markets'] : [];
+
+        if (is_array($match['odds']['extendedMarkets'] ?? null)) {
+            $match['odds']['extendedMarkets'] = $this->capAlternateLadders(
+                $match['odds']['extendedMarkets'],
+                $baseMarkets,
+                $sportKey,
+                $perSide
+            );
+        }
+        if (is_array($match['extendedMarkets'] ?? null)) {
+            $match['extendedMarkets'] = $this->capAlternateLadders(
+                $match['extendedMarkets'],
+                $baseMarkets,
+                $sportKey,
+                $perSide
+            );
+        }
+        return $match;
+    }
+
+    /**
      * Trim every alternate-ladder market in `$extended` to the N rungs nearest
      * the main line, per side. The main reference comes from the matching core
      * market (alternate_spreads → spreads) in `$baseMarkets`, or a non-alt
@@ -934,15 +995,20 @@ final class MatchesController
      * @param array<int,array<string,mixed>> $baseMarkets
      * @return array<int,array<string,mixed>>
      */
-    private function capAlternateLadders(array $extended, array $baseMarkets, string $sportKey = ''): array
+    private function capAlternateLadders(array $extended, array $baseMarkets, string $sportKey = '', ?int $perSide = null): array
     {
-        $settings = null;
-        try {
-            $settings = $this->db->findOne('platformsettings', []);
-        } catch (Throwable $capErr) {
+        // perSide is resolved per-call by default (MORE BETS sheet path); the
+        // board list passes a value resolved ONCE for the whole response so a
+        // 50-game pull doesn't read platformsettings 50 times.
+        if ($perSide === null) {
             $settings = null;
+            try {
+                $settings = $this->db->findOne('platformsettings', []);
+            } catch (Throwable $capErr) {
+                $settings = null;
+            }
+            $perSide = AltLineCap::perSideLimit(is_array($settings) ? $settings : null);
         }
-        $perSide = AltLineCap::perSideLimit(is_array($settings) ? $settings : null);
         if ($perSide === AltLineCap::UNLIMITED) {
             return $extended;
         }
