@@ -230,10 +230,7 @@ final class MatchesController
         $limit = $rawLimit > 0 ? min(1500, $rawLimit) : 0;
         $sharedCacheTtl = $this->envInt('SPORTSBOOK_MATCHES_CACHE_TTL_SECONDS', self::DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS);
         $cacheNamespace = SportsbookCache::publicMatchesNamespace();
-        $sportCacheSegment = ($sportFilter !== '' || $sportKeyFilter !== '')
-            ? '|sport:' . strtolower($sportFilter) . '|sportKey:' . strtolower($sportKeyFilter)
-            : '';
-        $cacheKey = SportsbookCache::publicMatchesKey($status . '|payload:' . $payloadMode . $sportCacheSegment, $active);
+        $cacheKey = $this->publicBoardCacheKey($status, $active, $payloadMode, $sportFilter, $sportKeyFilter);
         $staleNamespace = SportsbookCache::publicMatchesStaleNamespace();
         // Read stale data NOW before any TTL-enforcing get() may delete the expired file.
         // Two sources, in priority order:
@@ -313,6 +310,70 @@ final class MatchesController
             }
             Response::json(['message' => 'Server Error fetching matches'], 500);
         }
+    }
+
+    /**
+     * Canonical shared-cache key for a public board request. Used by both the
+     * request path (getMatches) and the worker warmer (warmPublicBoardCache)
+     * so the warm copy lands under the exact key the request reads back.
+     */
+    private function publicBoardCacheKey(string $status, string $active, string $payloadMode, string $sportFilter, string $sportKeyFilter): string
+    {
+        $sportCacheSegment = ($sportFilter !== '' || $sportKeyFilter !== '')
+            ? '|sport:' . strtolower($sportFilter) . '|sportKey:' . strtolower($sportKeyFilter)
+            : '';
+        return SportsbookCache::publicMatchesKey($status . '|payload:' . $payloadMode . $sportCacheSegment, $active);
+    }
+
+    /**
+     * Pre-compute the canonical public board payloads and refresh BOTH the
+     * live shared cache and the stale-fallback copy. Invoked from the
+     * odds-worker tick so the board is always served from a warm cache and a
+     * transient DB statement-timeout (MySQL 3024) degrades to slightly-stale
+     * odds instead of an empty board. Keeping the cache warm out-of-band also
+     * removes the per-request DB compute under load that triggers those
+     * timeouts in the first place.
+     *
+     * Only the sport-agnostic landing keys are warmed (the views that were
+     * going blank); sport-scoped requests keep their cheaper per-request
+     * compute and still seed their own stale copy on first success.
+     *
+     * @return array<string,int> payloadMode => row count, for worker logging
+     */
+    public function warmPublicBoardCache(): array
+    {
+        $sharedCacheTtl = $this->envInt('SPORTSBOOK_MATCHES_CACHE_TTL_SECONDS', self::DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS);
+        $cacheNamespace = SportsbookCache::publicMatchesNamespace();
+        $staleNamespace = SportsbookCache::publicMatchesStaleNamespace();
+
+        // (status, active, payloadMode). '' status + '' active == the default
+        // public landing board; 'core' is the frontend default, 'full' covers
+        // the detail-weight callers.
+        $variants = [
+            ['', '', 'core'],
+            ['', '', 'full'],
+        ];
+
+        $summary = [];
+        foreach ($variants as [$status, $active, $payloadMode]) {
+            try {
+                $annotated = $this->computeMatches($status, $active, $payloadMode, '', '');
+            } catch (Throwable $e) {
+                // Leave the previous warm copy in place — peek() ignores age,
+                // so the board keeps serving the last good payload. Don't log
+                // per-failure here: a DB-contention burst would otherwise spam
+                // the log every tick; the request path already records the
+                // user-facing failure.
+                continue;
+            }
+            $cacheKey = $this->publicBoardCacheKey($status, $active, $payloadMode, '', '');
+            if ($sharedCacheTtl > 0) {
+                SharedFileCache::put($cacheNamespace, $cacheKey, $annotated);
+            }
+            SharedFileCache::put($staleNamespace, $cacheKey, $annotated);
+            $summary[$payloadMode] = count($annotated);
+        }
+        return $summary;
     }
 
     private function computeMatches(string $status, string $active, string $payloadMode = 'full', string $sportFilter = '', string $sportKeyFilter = ''): array

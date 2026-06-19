@@ -691,38 +691,20 @@ KEY `idx_updated_at` (`updated_at`)
 
     private function compileSqlProjectedDoc(string $collection, mixed $projectionRaw): string
     {
-        if (!is_array($projectionRaw) || $projectionRaw === [] || $collection !== 'matches') {
-            return '`doc`';
-        }
-
-        $fields = [];
-        foreach ($projectionRaw as $field => $enabled) {
-            if ((int) $enabled !== 1) {
-                continue;
-            }
-            $name = (string) $field;
-            if ($name === 'id') {
-                continue;
-            }
-
-            // Keep SQL projection strict and predictable: top-level safe keys only.
-            if (!preg_match('/^[A-Za-z0-9_]+$/', $name)) {
-                return '`doc`';
-            }
-            $fields[] = $name;
-        }
-
-        if ($fields === []) {
-            return '`doc`';
-        }
-
-        $pairs = [];
-        foreach ($fields as $fieldName) {
-            $pairs[] = "'" . $fieldName . "'";
-            $pairs[] = "JSON_EXTRACT(`doc`, '$." . $fieldName . "')";
-        }
-
-        return 'JSON_OBJECT(' . implode(', ', $pairs) . ')';
+        // Always read the raw `doc` column. We previously rebuilt a trimmed
+        // doc in SQL via JSON_OBJECT('field', JSON_EXTRACT(doc,'$.field'), ...)
+        // for the matches board's core/light projection — but that runs ~28
+        // JSON_EXTRACT calls per row and benchmarked **191x slower** than a
+        // plain `doc` read (1691ms vs 8.8ms over 408 live rows locally). That
+        // 1.7s board query was what tripped the 5s MySQL statement timeout
+        // (error 3024) under load and blanked the board.
+        //
+        // The trimming is redundant anyway: findManyViaSql() applies the same
+        // projection in PHP via applyProjection() AFTER decoding (see caller),
+        // so the response payload stays byte-identical — only the slow SQL
+        // path is gone. $projectionRaw / $collection are intentionally unused
+        // now; the PHP-side projection owns payload trimming.
+        return '`doc`';
     }
 
     private function countDocumentsViaSql(string $collection, array $filter): ?int

@@ -51,6 +51,7 @@ require_once $phpBackendDir . '/src/RundownMarketMap.php';
 require_once $phpBackendDir . '/src/RundownEventMapper.php';
 require_once $phpBackendDir . '/src/RundownDeltaCursor.php';
 require_once $phpBackendDir . '/src/RundownSyncService.php';
+require_once $phpBackendDir . '/src/MatchesController.php';
 
 Env::load($projectRoot, $phpBackendDir);
 Logger::init($phpBackendDir . '/logs');
@@ -87,7 +88,14 @@ $fullCoverageEnabled      = strtolower((string) Env::get('RUNDOWN_FULL_COVERAGE_
 $fullCoverageEveryTicks   = max(1,   (int) Env::get('RUNDOWN_FULL_COVERAGE_EVERY_N_TICKS', '60'));    // ~5 min @ 5s
 $fullCoverageBatch        = max(1,   (int) Env::get('RUNDOWN_FULL_COVERAGE_SPORTS_PER_TICK', '1'));
 $fullCoverageDaysAhead    = max(1,   (int) Env::get('RUNDOWN_FULL_DAYS_AHEAD', '2'));
+// Public board cache warmer — keeps the landing-board shared cache + its
+// stale-fallback copy warm out-of-band, so a transient DB statement-timeout
+// can never blank the board (it degrades to the last good payload instead).
+$boardWarmEnabled         = strtolower((string) Env::get('BOARD_CACHE_WARMER_ENABLED', 'true')) !== 'false';
+$boardWarmEveryTicks      = max(1,   (int) Env::get('BOARD_CACHE_WARM_EVERY_N_TICKS', '1'));            // ~5s @ 5s tick
 // ─────────────────────────────────────────────────────────────────────
+
+$matchesController = new MatchesController($repo, (string) Env::get('JWT_SECRET', ''));
 
 // Signal handling — gracefully drop out between ticks.
 $shutdown = false;
@@ -397,6 +405,20 @@ while (!$shutdown) {
                 }
             } catch (Throwable $e) {
                 Logger::warning('stale-live janitor failed', ['error' => $e->getMessage()], 'sportsbook');
+            }
+        }
+
+        // ── 3b. Warm the public board cache ─────────────────────────
+        // Runs after this tick's odds writes so the warm copy reflects the
+        // freshest prices. Isolated try/catch: a warm failure (e.g. a DB
+        // statement-timeout during a contention burst) must never abort the
+        // worker tick — the previous warm copy stays in place and the board
+        // keeps serving it.
+        if ($boardWarmEnabled && ($tick % $boardWarmEveryTicks === 0)) {
+            try {
+                $matchesController->warmPublicBoardCache();
+            } catch (Throwable $e) {
+                Logger::warning('board cache warm failed', ['error' => $e->getMessage()], 'sportsbook');
             }
         }
 
