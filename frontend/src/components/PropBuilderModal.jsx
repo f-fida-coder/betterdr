@@ -675,8 +675,19 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
                 rest.push(outcome);
             }
         });
-        const lines = Array.from(linesByPoint.entries())
+        const allLines = Array.from(linesByPoint.entries())
             .sort(([a], [b]) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
+        // ONE row per player: the player's MAIN two-sided Over/Under line — the
+        // line that has BOTH an Over and an Under price (the feed doesn't ship
+        // an is_main_line flag on the outcome, so "both sides priced" is the
+        // signal). Drops the standalone single-sided rungs (e.g. the extra
+        // "Over 0.5" with no Under) that cluttered the list. If a player has NO
+        // two-sided line at all (e.g. Over-only markets like singles/walks —
+        // ~47% of MLB prop players), fall back to their single line(s) so the
+        // player is never dropped. Prefer the lowest-point two-sided line when
+        // a player somehow has more than one.
+        const twoSided = allLines.filter(([, pair]) => pair.over && pair.under);
+        const lines = twoSided.length > 0 ? [twoSided[0]] : allLines;
 
         const renderSide = (outcome, isFirst) => {
             if (!outcome) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', borderLeft: '1px solid #e2e2e2' }}>—</div>;
