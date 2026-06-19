@@ -56,7 +56,7 @@ final class SportsbookBetSupport
         return self::num($selection['odds'] ?? 0);
     }
 
-    public static function calculatePotentialPayout(string $betType, float $unitStake, array $validatedSelections, array $rule): float
+    public static function calculatePotentialPayout(string $betType, float $unitStake, array $validatedSelections, array $rule, float $sgpHaircutPct = 0.0, float $sgpPropHaircutPct = 0.0): float
     {
         if ($unitStake <= 0 || $validatedSelections === []) {
             return 0.0;
@@ -71,6 +71,13 @@ final class SportsbookBetSupport
             foreach ($validatedSelections as $selection) {
                 $combined *= self::exactDecimalForSelection($selection);
             }
+            // SGP correlation haircut (profit-only). Returns the input unchanged
+            // for cross-game tickets (fraction 0), so non-SGP parlays are
+            // untouched. IDENTICAL helper runs in evaluateTicket at settlement.
+            $combined = self::applyProfitHaircut(
+                $combined,
+                self::sameGameHaircutFraction($validatedSelections, $sgpHaircutPct, $sgpPropHaircutPct)
+            );
             return round($unitStake * $combined);
         }
 
@@ -228,27 +235,325 @@ final class SportsbookBetSupport
         return ['policy' => $policy, 'bandCents' => $bandCents];
     }
 
+    // ── Same-Game Parlay (SGP) — correlation rules + haircut ────────────────
+    // Defaults used when platformsettings doesn't override. sgpEnabled DEFAULTS
+    // OFF so the fail-safe is the full historical hard block (any shared event
+    // in a multi-leg ticket is rejected). The prop rate is larger than the base
+    // rate because player props inside a game are the most correlated of all.
+    public const SGP_DEFAULT_HAIRCUT_PCT = 0.20;
+    public const SGP_DEFAULT_PROP_HAIRCUT_PCT = 0.35;
+    public const SGP_DEFAULT_MAX_LEGS = 6;
+    public const SGP_DEFAULT_MAX_PAYOUT_MULTIPLIER = 3.0;
+    // v1 mitigation for nested PLAYER props (same player+stat+side, different
+    // point) — which can't be rule-detected because the player lives only in
+    // the selection string. Cap player props to 1 per same-game cluster so two
+    // can't nest. Default 1; an operator can raise it once a structured
+    // player id lands on the leg (then a precise nested-prop rule replaces it).
+    public const SGP_DEFAULT_MAX_PLAYER_PROPS_PER_GAME = 1;
+
+    /**
+     * Resolve the live SGP config from the platformsettings doc, clamped so
+     * callers can trust it. Single source for placement gating, caps, and the
+     * haircut %s snapshotted onto the bet. Absent/garbage → safe defaults
+     * (sgpEnabled=false ⇒ the full hard same-game block stays in force).
+     *
+     * @param array<string,mixed>|null $platformSettings the `platformsettings` doc
+     * @return array{enabled:bool,haircutPct:float,propHaircutPct:float,maxLegs:int,maxPayoutMultiplier:float}
+     */
+    public static function sgpConfig(?array $platformSettings): array
+    {
+        $ps = is_array($platformSettings) ? $platformSettings : [];
+        $clampPct = static fn (mixed $v, float $def): float =>
+            is_numeric($v) ? max(0.0, min(0.95, (float) $v)) : $def;
+
+        return [
+            'enabled' => (bool) ($ps['sgpEnabled'] ?? false),
+            'haircutPct' => $clampPct($ps['sgpHaircutPct'] ?? null, self::SGP_DEFAULT_HAIRCUT_PCT),
+            'propHaircutPct' => $clampPct($ps['sgpPlayerPropHaircutPct'] ?? null, self::SGP_DEFAULT_PROP_HAIRCUT_PCT),
+            'maxLegs' => isset($ps['sgpMaxLegs']) && is_numeric($ps['sgpMaxLegs'])
+                ? max(2, min(12, (int) $ps['sgpMaxLegs']))
+                : self::SGP_DEFAULT_MAX_LEGS,
+            'maxPayoutMultiplier' => isset($ps['sgpMaxPayoutMultiplier']) && is_numeric($ps['sgpMaxPayoutMultiplier'])
+                ? max(0.1, min(100.0, (float) $ps['sgpMaxPayoutMultiplier']))
+                : self::SGP_DEFAULT_MAX_PAYOUT_MULTIPLIER,
+            'maxPlayerPropsPerGame' => isset($ps['sgpMaxPlayerPropsPerGame']) && is_numeric($ps['sgpMaxPlayerPropsPerGame'])
+                ? max(1, min(12, (int) $ps['sgpMaxPlayerPropsPerGame']))
+                : self::SGP_DEFAULT_MAX_PLAYER_PROPS_PER_GAME,
+        ];
+    }
+
+    /**
+     * Whether a set of legs forms a same-game ticket: ≥2 legs share a matchId.
+     * Deterministic from the legs alone, so placement and settlement agree.
+     *
+     * @param array<int,array<string,mixed>> $legs
+     */
+    public static function isSameGameTicket(array $legs): bool
+    {
+        $counts = [];
+        foreach ($legs as $leg) {
+            $mid = (string) ($leg['matchId'] ?? '');
+            if ($mid === '') {
+                continue;
+            }
+            $counts[$mid] = ($counts[$mid] ?? 0) + 1;
+            if ($counts[$mid] >= 2) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Normalized market key for SGP rule matching: strips the `alternate_`
+     * prefix (so `alternate_totals` ≡ `totals`) but KEEPS any period suffix, so
+     * a full-game total and a `totals_1st_5_innings` stay distinct and never
+     * collide in the nested-market check.
+     */
+    private static function sgpBaseFamily(string $marketType): string
+    {
+        $m = strtolower(trim($marketType));
+        if (str_starts_with($m, 'alternate_')) {
+            $m = substr($m, strlen('alternate_'));
+        }
+        return $m;
+    }
+
+    /** Line-market family of a normalized market key (for the nested check): totals | team_totals | spreads | ''. */
+    private static function sgpLineFamily(string $normKey): string
+    {
+        if (str_starts_with($normKey, 'team_totals')) {
+            return 'team_totals';
+        }
+        if (str_starts_with($normKey, 'totals')) {
+            return 'totals';
+        }
+        if (str_starts_with($normKey, 'spreads')) {
+            return 'spreads';
+        }
+        return '';
+    }
+
+    /** Over/Under side for a leg — explicit `side` first, else parsed from the selection text. '' when neither. */
+    private static function sgpSide(array $leg): string
+    {
+        $side = strtolower(trim((string) ($leg['side'] ?? '')));
+        if ($side === 'over' || $side === 'under') {
+            return $side;
+        }
+        $sel = strtolower((string) ($leg['selection'] ?? ''));
+        if (str_contains($sel, 'over')) {
+            return 'over';
+        }
+        if (str_contains($sel, 'under')) {
+            return 'under';
+        }
+        return '';
+    }
+
+    /**
+     * TIER-1 same-game conflict between two legs ON THE SAME MATCH. Returns a
+     * machine code when the pair is mutually exclusive / redundant /
+     * deterministically correlated (must be rejected even with SGP on), else
+     * null. Only meaningful for two legs that already share a matchId.
+     *
+     * @param array<string,mixed> $a
+     * @param array<string,mixed> $b
+     */
+    public static function sameGameConflict(array $a, array $b): ?string
+    {
+        $fa = self::sgpBaseFamily((string) ($a['marketType'] ?? ''));
+        $fb = self::sgpBaseFamily((string) ($b['marketType'] ?? ''));
+        $pidA = isset($a['selectionPid']) && $a['selectionPid'] !== null ? (string) $a['selectionPid'] : null;
+        $pidB = isset($b['selectionPid']) && $b['selectionPid'] !== null ? (string) $b['selectionPid'] : null;
+        $sideA = self::sgpSide($a);
+        $sideB = self::sgpSide($b);
+        $tsA = strtolower((string) ($a['teamSide'] ?? ''));
+        $tsB = strtolower((string) ($b['teamSide'] ?? ''));
+        $pA = isset($a['point']) && is_numeric($a['point']) ? (float) $a['point'] : null;
+        $pB = isset($b['point']) && is_numeric($b['point']) ? (float) $b['point'] : null;
+        $fam = [$fa, $fb];
+        sort($fam);
+
+        // (0) NESTED same-market — one outcome ⊂ the other, priced as a product
+        //     but really a single (near-deterministic) outcome. SAME normalized
+        //     market key (so a period market never collides with full-game) +
+        //     SAME direction + SAME team, at DIFFERENT points. The haircut does
+        //     NOT cover this, so it is a TIER-1 hard block. Examples: Over 8.5 +
+        //     Over 9.5; Boston -1.5 + Boston -2.5; Boston TT Over 4.5 + Over 5.5.
+        //     OPPOSITE sides at different points (Over 8.5 + Under 9.5) are a
+        //     legitimate, house-favorable MIDDLE — explicitly NOT blocked.
+        if ($fa === $fb && $fa !== '' && $pA !== null && $pB !== null && abs($pA - $pB) > 1e-9) {
+            switch (self::sgpLineFamily($fa)) {
+                case 'totals': // game total — no team dimension
+                    if ($sideA !== '' && $sideA === $sideB) {
+                        return 'NESTED_SAME_MARKET';
+                    }
+                    break;
+                case 'team_totals': // same team's total, same direction
+                    $sameTeam = ($tsA !== '' && $tsA === $tsB)
+                        || ($pidA !== null && $pidB !== null && $pidA === $pidB);
+                    if ($sideA !== '' && $sideA === $sideB && $sameTeam) {
+                        return 'NESTED_SAME_MARKET';
+                    }
+                    break;
+                case 'spreads': // same team's spread (side is implicit in the team)
+                    if ($pidA !== null && $pidB !== null && $pidA === $pidB) {
+                        return 'NESTED_SAME_MARKET';
+                    }
+                    break;
+            }
+        }
+
+        // (1a) Mutually exclusive — Over + Under on the SAME total line (game
+        //      total, or the same team's team total). Can't both happen.
+        if (($fa === 'totals' && $fb === 'totals') || ($fa === 'team_totals' && $fb === 'team_totals')) {
+            $samePoint = $pA !== null && $pB !== null && abs($pA - $pB) < 1e-9;
+            $oppSide = $sideA !== '' && $sideB !== '' && $sideA !== $sideB;
+            $sameScope = $fa === 'totals' ? true : ($tsA !== '' && $tsA === $tsB);
+            if ($samePoint && $oppSide && $sameScope) {
+                return 'MUTUALLY_EXCLUSIVE_TOTAL';
+            }
+        }
+
+        // (1b) Mutually exclusive — two moneylines on the same game (each side,
+        //      or a degenerate duplicate of one side). One must lose.
+        if ($fa === 'h2h' && $fb === 'h2h') {
+            return 'BOTH_MONEYLINES';
+        }
+
+        // (1c) Mutually exclusive — both sides of the spread (different team, or
+        //      complementary points like -1.5 / +1.5).
+        if ($fa === 'spreads' && $fb === 'spreads') {
+            $diffPid = $pidA !== null && $pidB !== null && $pidA !== $pidB;
+            $complementary = $pA !== null && $pB !== null && abs($pA + $pB) < 1e-9 && abs($pA) > 1e-9;
+            if ($diffPid || $complementary) {
+                return 'BOTH_SPREAD_SIDES';
+            }
+        }
+
+        // (2) Redundant — a team's moneyline + that same team's spread (same
+        //     participant): heavily positively correlated, near-duplicate.
+        if ($fam === ['h2h', 'spreads'] && $pidA !== null && $pidB !== null && $pidA === $pidB) {
+            return 'REDUNDANT_ML_SPREAD';
+        }
+
+        // (3) Deterministic component — the game total + a team total in the
+        //     SAME direction (both Over or both Under): the team's runs are a
+        //     component of the game total, so they move together.
+        if ($fam === ['team_totals', 'totals'] && $sideA !== '' && $sideA === $sideB) {
+            return 'DETERMINISTIC_TOTAL_TT';
+        }
+
+        return null;
+    }
+
+    /**
+     * Correlation haircut FRACTION for a set of legs (0.0 when not same-game).
+     * Same-game ⇔ ≥2 legs share a matchId; the larger player-prop rate applies
+     * when ANY leg is a player-prop market. Pure + deterministic from the legs
+     * and the two rates, so placement (live rates) and settlement (the rates
+     * snapshotted onto the bet) compute the IDENTICAL fraction for the same
+     * legs — the core money-safety guarantee for SGP.
+     *
+     * @param array<int,array<string,mixed>> $legs
+     */
+    public static function sameGameHaircutFraction(array $legs, float $haircutPct, float $propHaircutPct): float
+    {
+        if (!self::isSameGameTicket($legs)) {
+            return 0.0;
+        }
+        $hasProp = false;
+        foreach ($legs as $leg) {
+            if (OddsMarketCatalog::isPropMarket(strtolower((string) ($leg['marketType'] ?? '')))) {
+                $hasProp = true;
+                break;
+            }
+        }
+        $pct = $hasProp ? $propHaircutPct : $haircutPct;
+        return max(0.0, min(0.95, $pct));
+    }
+
+    /**
+     * Apply a PROFIT-ONLY haircut to a combined decimal: the stake is never
+     * touched, only the winnings shrink. new = 1 + (combined − 1)·(1 − f).
+     */
+    public static function applyProfitHaircut(float $combinedDecimal, float $haircutFraction): float
+    {
+        if ($haircutFraction <= 0.0 || $combinedDecimal <= 1.0) {
+            return $combinedDecimal;
+        }
+        return 1.0 + ($combinedDecimal - 1.0) * (1.0 - $haircutFraction);
+    }
+
     /**
      * @param array<int, array<string, mixed>> $validatedSelections
+     * @param array{enabled?:bool}|array<string,mixed> $sgpConfig live SGP config; empty/disabled ⇒ full hard block
      */
-    public static function validateTicketComposition(string $betType, array $validatedSelections): void
+    public static function validateTicketComposition(string $betType, array $validatedSelections, array $sgpConfig = []): void
     {
         if ($betType === 'straight') {
             return;
         }
 
-        $matchIds = [];
+        // SGP only relaxes pure PARLAY tickets and only when explicitly enabled.
+        // Every other combined type (teaser/if_bet/reverse/round_robin) — and
+        // parlay when SGP is off — keeps the full hard block: any shared event
+        // is rejected. This is the fail-safe gate (§4).
+        $sgpOn = $betType === 'parlay' && !empty($sgpConfig['enabled']);
+
+        // Group legs by event so we can inspect same-game clusters.
+        $byMatch = [];
         foreach ($validatedSelections as $selection) {
             $matchId = (string) ($selection['matchId'] ?? '');
             if ($matchId === '') {
                 continue;
             }
-            if (isset($matchIds[$matchId])) {
+            $byMatch[$matchId][] = $selection;
+        }
+
+        foreach ($byMatch as $legs) {
+            if (count($legs) < 2) {
+                continue; // not a same-game cluster
+            }
+            if (!$sgpOn) {
+                // Historical behavior: no two legs may share an event.
                 throw new ApiException('Unsupported same-game combination. Select different events.', 400, [
                     'code' => 'INVALID_COMBINATION',
                 ]);
             }
-            $matchIds[$matchId] = true;
+            // SGP on: allow the cluster UNLESS a TIER-1 pair conflicts.
+            $n = count($legs);
+            for ($i = 0; $i < $n; $i++) {
+                for ($j = $i + 1; $j < $n; $j++) {
+                    $conflict = self::sameGameConflict($legs[$i], $legs[$j]);
+                    if ($conflict !== null) {
+                        throw new ApiException('Unsupported same-game combination. Select different events.', 400, [
+                            'code' => 'INVALID_COMBINATION',
+                            'reason' => $conflict,
+                        ]);
+                    }
+                }
+            }
+
+            // Nested PLAYER props can't be rule-detected (the player is only in
+            // the selection string), so cap player props per same-game cluster
+            // — two can't nest if only one is allowed. Config-tunable.
+            $propCap = isset($sgpConfig['maxPlayerPropsPerGame']) && is_numeric($sgpConfig['maxPlayerPropsPerGame'])
+                ? max(1, (int) $sgpConfig['maxPlayerPropsPerGame'])
+                : self::SGP_DEFAULT_MAX_PLAYER_PROPS_PER_GAME;
+            $propCount = 0;
+            foreach ($legs as $leg) {
+                if (OddsMarketCatalog::isPropMarket(strtolower((string) ($leg['marketType'] ?? '')))) {
+                    $propCount++;
+                }
+            }
+            if ($propCount > $propCap) {
+                throw new ApiException('Unsupported same-game combination. Select different events.', 400, [
+                    'code' => 'INVALID_COMBINATION',
+                    'reason' => 'PLAYER_PROP_LIMIT',
+                ]);
+            }
         }
 
         if ($betType === 'teaser') {
@@ -1212,6 +1517,21 @@ final class SportsbookBetSupport
             foreach ($wonRows as $row) {
                 $combined *= self::num($row['odds'] ?? 0);
             }
+            // SGP correlation haircut — IDENTICAL detection + math as placement
+            // (calculatePotentialPayout). Re-runs same-game detection on the
+            // REMAINING WON legs: if a void dropped a leg so the survivors no
+            // longer share an event, the fraction is 0 and the parlay re-prices
+            // clean. The two rates are the placement SNAPSHOT off the bet doc
+            // (sgpHaircutPct/sgpPropHaircutPct) so an operator changing the live
+            // platformsettings after placement can never alter a settled ticket.
+            $combined = self::applyProfitHaircut(
+                $combined,
+                self::sameGameHaircutFraction(
+                    $wonRows,
+                    self::num($bet['sgpHaircutPct'] ?? 0),
+                    self::num($bet['sgpPropHaircutPct'] ?? 0)
+                )
+            );
             return ['status' => 'won', 'payout' => round($riskAmount * $combined)];
         }
 

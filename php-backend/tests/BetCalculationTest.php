@@ -29,6 +29,7 @@ if (!class_exists('SqlRepository')) {
     }
 }
 
+require_once __DIR__ . '/../src/OddsMarketCatalog.php';
 require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

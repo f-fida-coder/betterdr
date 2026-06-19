@@ -3344,6 +3344,13 @@ final class AdminCoreController
                 'alertCostAboveAvgMultiplier',
                 'alertCostDailyMaxDollars',
                 'alertMinRequestsForCostAlert',
+                // Same-Game Parlay (SGP) controls.
+                'sgpEnabled',
+                'sgpHaircutPct',
+                'sgpPlayerPropHaircutPct',
+                'sgpMaxLegs',
+                'sgpMaxPayoutMultiplier',
+                'sgpMaxPlayerPropsPerGame',
             ];
 
             $updates = ['updatedAt' => SqlRepository::nowUtc()];
@@ -3411,6 +3418,48 @@ final class AdminCoreController
                         continue;
                     }
                     $updates[$field] = (int) $num;
+                    continue;
+                }
+
+                // SGP master switch.
+                if ($field === 'sgpEnabled') {
+                    $updates[$field] = (bool) $value;
+                    continue;
+                }
+                // SGP haircut percentages — fraction in [0, 0.95].
+                if ($field === 'sgpHaircutPct' || $field === 'sgpPlayerPropHaircutPct') {
+                    if (!is_numeric($value) || (float) $value < 0.0 || (float) $value > 0.95) {
+                        $validationErrors[] = $field . ' must be a fraction between 0 and 0.95';
+                        continue;
+                    }
+                    $updates[$field] = (float) $value;
+                    continue;
+                }
+                // SGP leg cap — integer 2..12.
+                if ($field === 'sgpMaxLegs') {
+                    if (!is_numeric($value) || (int) $value != $value || (int) $value < 2 || (int) $value > 12) {
+                        $validationErrors[] = 'sgpMaxLegs must be an integer between 2 and 12';
+                        continue;
+                    }
+                    $updates[$field] = (int) $value;
+                    continue;
+                }
+                // SGP same-game player-prop cap — integer 1..12.
+                if ($field === 'sgpMaxPlayerPropsPerGame') {
+                    if (!is_numeric($value) || (int) $value != $value || (int) $value < 1 || (int) $value > 12) {
+                        $validationErrors[] = 'sgpMaxPlayerPropsPerGame must be an integer between 1 and 12';
+                        continue;
+                    }
+                    $updates[$field] = (int) $value;
+                    continue;
+                }
+                // SGP payout-cap multiplier (× maxBet) — 0.1..100.
+                if ($field === 'sgpMaxPayoutMultiplier') {
+                    if (!is_numeric($value) || (float) $value < 0.1 || (float) $value > 100.0) {
+                        $validationErrors[] = 'sgpMaxPayoutMultiplier must be between 0.1 and 100';
+                        continue;
+                    }
+                    $updates[$field] = (float) $value;
                     continue;
                 }
 

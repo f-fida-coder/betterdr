@@ -161,6 +161,12 @@ final class BetsController
                 throw new ApiException('Bet mode ' . $type . ' is not supported', 400);
             }
 
+            // Same-Game Parlay config (live, no restart). sgpEnabled=false ⇒ the
+            // full hard same-game block stays in force. Read once; the same %s
+            // gate validation, drive the haircut, and get SNAPSHOTTED onto the
+            // bet so settlement reprices identically.
+            $sgpCfg = SportsbookBetSupport::sgpConfig($this->db->findOne('platformsettings', []));
+
             if (in_array((string) ($user['status'] ?? ''), ['suspended', 'disabled', 'read only'], true)) {
                 throw new ApiException('Account is suspended, disabled, or read-only', 400);
             }
@@ -463,7 +469,21 @@ final class BetsController
                 }
             }
 
-            SportsbookBetSupport::validateTicketComposition($type, $validatedSelections);
+            SportsbookBetSupport::validateTicketComposition($type, $validatedSelections, $sgpCfg);
+
+            // Same-game ticket detection (≥2 legs share a matchId). Drives the
+            // SGP leg cap, the haircut snapshot, and the tighter payout ceiling.
+            // False for every cross-game parlay → those stay completely untouched.
+            $isSameGame = $type === 'parlay'
+                && !empty($sgpCfg['enabled'])
+                && SportsbookBetSupport::isSameGameTicket($validatedSelections);
+            if ($isSameGame && count($validatedSelections) > (int) $sgpCfg['maxLegs']) {
+                throw new ApiException(
+                    'Same-game parlays allow at most ' . (int) $sgpCfg['maxLegs'] . ' legs.',
+                    400,
+                    ['code' => 'SGP_TOO_MANY_LEGS', 'maxLegs' => (int) $sgpCfg['maxLegs'], 'actual' => count($validatedSelections)]
+                );
+            }
 
             $requestFingerprint = SportsbookBetSupport::payloadHash([
                 'type' => $type,
@@ -557,7 +577,17 @@ final class BetsController
             }
 
             $totalRisk = SportsbookBetSupport::ticketRiskAmount($type, $betAmount);
-            $potentialPayout = SportsbookBetSupport::calculatePotentialPayout($type, $betAmount, $validatedSelections, $modeRule);
+            // SGP haircut rates flow in here; sameGameHaircutFraction inside
+            // returns 0 for cross-game tickets, so non-SGP payouts are identical
+            // to before. The SAME rates are snapshotted onto the bet doc below.
+            $potentialPayout = SportsbookBetSupport::calculatePotentialPayout(
+                $type,
+                $betAmount,
+                $validatedSelections,
+                $modeRule,
+                (float) $sgpCfg['haircutPct'],
+                (float) $sgpCfg['propHaircutPct']
+            );
 
             // Win-mode pinning: when the client typed in Win mode and sent
             // `requestedWin`, lock potentialPayout = totalRisk + requestedWin
@@ -608,7 +638,12 @@ final class BetsController
             // change here if you want to expose it as a column.
             $isCombinedMode = in_array($type, ['parlay', 'teaser', 'if_bet', 'reverse'], true);
             if ($isCombinedMode && $maxBetLimit > 0) {
-                $parlayPayoutCap = $maxBetLimit * 3.0;
+                // 3× maxBet ceiling; for a same-game ticket tighten to
+                // sgpMaxPayoutMultiplier when it is stricter than 3×.
+                $payoutMultiplier = $isSameGame
+                    ? min(3.0, (float) $sgpCfg['maxPayoutMultiplier'])
+                    : 3.0;
+                $parlayPayoutCap = $maxBetLimit * $payoutMultiplier;
                 if ($winAmount > $parlayPayoutCap) {
                     $potentialPayout = (float) $totalRisk + $parlayPayoutCap;
                     $winAmount = $parlayPayoutCap;
@@ -784,6 +819,14 @@ final class BetsController
                     'teaserPayoutSnapshot' => ($type === 'teaser' && isset($modeRule['payoutProfile']) && is_array($modeRule['payoutProfile']))
                         ? $modeRule['payoutProfile']
                         : null,
+                    // SGP haircut SNAPSHOT — frozen at placement so a later
+                    // platformsettings edit can never re-price a settled ticket.
+                    // Present only on same-game parlays; absent (null) elsewhere,
+                    // so settlement applies no haircut to cross-game/legacy bets.
+                    // evaluateTicket reads these exact rates and re-runs the same
+                    // detection on the surviving won legs.
+                    'sgpHaircutPct' => $isSameGame ? (float) $sgpCfg['haircutPct'] : null,
+                    'sgpPropHaircutPct' => $isSameGame ? (float) $sgpCfg['propHaircutPct'] : null,
                     'createdAt' => $now,
                     'updatedAt' => $now,
                 ];

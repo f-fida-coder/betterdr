@@ -38,6 +38,7 @@ if (!class_exists('SportsMatchStatus')) {
     }
 }
 
+require_once __DIR__ . '/../src/OddsMarketCatalog.php';
 require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
