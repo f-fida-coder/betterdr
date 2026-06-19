@@ -345,9 +345,20 @@ final class RundownClient
 
         self::enforceRateLimit();
 
-        return CircuitBreaker::getInstance()->execute('rundown:http', static function () use ($url, $key, $timeout): ?array {
+        $result = CircuitBreaker::getInstance()->execute('rundown:http', static function () use ($url, $key, $timeout): ?array {
             return self::httpGet($url, $key, $timeout);
         }, $timeout * 1000);
+
+        // A successful DATA fetch (events / market delta) means the feed is
+        // flowing again — clear any hard-budget limit flag so the board
+        // recovers instantly. Scoped to data paths so free endpoints
+        // (/sports, /affiliates) can't falsely clear it while odds calls are
+        // still 403'd. Robust across API-key switches (unlike a used-counter
+        // delta, which breaks when a new key resets datapointsUsed to ~0).
+        if (is_array($result) && (str_contains($path, '/events') || str_contains($path, '/delta'))) {
+            self::clearLimitHit();
+        }
+        return $result;
     }
 
     /**
@@ -528,15 +539,6 @@ final class RundownClient
                 : (bool) ($prev['websocketAccess'] ?? false),
             'recordedAt'         => gmdate(DATE_ATOM),
         ];
-        // A successful, budget-CONSUMING call (datapointsUsed climbed) means
-        // the feed is flowing again — clear any prior hard-budget limit flag so
-        // the board recovers instantly instead of waiting out the safety window.
-        // Free endpoints (/sports, /affiliates) don't move datapointsUsed, so a
-        // 403'd account that can still reach them won't falsely clear the flag.
-        $prevUsed = (int) ($prev['datapointsUsed'] ?? 0);
-        if ($prevUsed > 0 && (int) $snap['datapointsUsed'] > $prevUsed) {
-            self::clearLimitHit();
-        }
         SharedFileCache::forget(self::QUOTA_CACHE_NS, self::QUOTA_CACHE_KEY);
         SharedFileCache::remember(self::QUOTA_CACHE_NS, self::QUOTA_CACHE_KEY, 3600, static fn (): array => $snap);
     }
