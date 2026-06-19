@@ -3235,9 +3235,11 @@ final class BetsController
             }
             // Validate the half-point grid + range (throws on bad input).
             BuyPointsPricing::halfStepsFromBoughtPoints($boughtPoints);
-            // Price the rung from the SAME feed alt-line source the display
-            // ladder uses ($markets includes the feed's extendedMarkets). No
-            // feed price for this exact rung → reject (no synthetic fallback).
+            // Price the rung from the SAME source the display ladder uses
+            // ($markets includes the feed's extendedMarkets): feed alt prices
+            // when present, else the house-safe synthetic ladder for no-alt-feed
+            // sports (basketball). Single source → display == placed == settled.
+            // No price for this exact rung (e.g. unsupported sport) → reject.
             $rung = BuyPointsPricing::priceBoughtPointFromFeed(
                 (string) ($match['sportKey'] ?? ''),
                 $marketKey,

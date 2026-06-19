@@ -27,6 +27,23 @@ final class BuyPointsPricing
     private const HALF_POINT = 0.5;
     private const MAX_HALF_STEPS = 5;
 
+    // ── Synthetic ladder (no-feed-alt-lines fallback) ───────────────────────
+    // Some sports (basketball) ship NO alternate-line ladder, so the feed-
+    // anchored path produces nothing and buy-points is unavailable. For these
+    // sports ONLY, we synthesize a house-safe ladder from the base line's own
+    // price using a fixed implied-probability cost per half-point.
+    //
+    // HOUSE SAFETY: every synthesized rung pays strictly LESS than the base
+    // line (and than the previous rung) — buying points can only ever worsen
+    // the payout. The flat per-step probability is set at/above the fair near-
+    // line marginal value; because the real marginal value of a point DECREASES
+    // as you move off the line, a flat step over-charges the bettor on every
+    // rung past the first, so the house never under-prices. Only used when the
+    // feed has no alt ladder; feed prices always win when present.
+    private const SYNTH_SPORT_PREFIXES = ['basketball_'];
+    private const DEFAULT_SYNTH_PROB_STEP = 0.022; // win-prob added per half-point
+    private const SYNTH_MAX_PROB = 0.97;           // payout floor; beyond this a buy is meaningless
+
     public static function isAllowedMarket(string $marketType): bool
     {
         $m = strtolower(trim($marketType));
@@ -87,6 +104,21 @@ final class BuyPointsPricing
             }
         }
         return false;
+    }
+
+    /**
+     * Run-line / puck-line sports (baseball, hockey) whose mainline spread is
+     * conventionally fixed at ±1.5. On these the half-point win-zone rung
+     * (±0.5) is just the moneyline ("win the game by any margin") — books do
+     * NOT list it as a buyable run/puck line, so we never synthesize it. The
+     * ±1 push-adjusted rung (win by 2+) IS real and stays. Tie-zone sports
+     * with continuous spreads (basketball, NCAAF) keep ±0.5: a close game
+     * genuinely sits there, so it's a real spread, not a moneyline alias.
+     */
+    private static function isRunLineSport(string $sportKey): bool
+    {
+        $k = strtolower(trim($sportKey));
+        return str_starts_with($k, 'baseball_') || str_starts_with($k, 'icehockey_');
     }
 
     /**
@@ -215,11 +247,20 @@ final class BuyPointsPricing
         }
         $m = strtolower(trim($marketType));
         $altOutcomes = self::outcomesForKey($pool, 'alternate_' . $m);
-        if ($altOutcomes === []) {
-            return [];
-        }
-        $priceByPoint = self::feedPriceByPoint($altOutcomes, $m, $selection);
+        $priceByPoint = $altOutcomes === [] ? [] : self::feedPriceByPoint($altOutcomes, $m, $selection);
+
         if ($priceByPoint === []) {
+            // No feed alt ladder for this selection. For configured no-alt-feed
+            // sports (basketball), synthesize a house-safe ladder from the base
+            // line's own price so buy-points still works; otherwise no ladder
+            // (the feed-anchored "never guess a price" rule still holds for
+            // every other sport).
+            if (self::isSynthSport($sportKey)) {
+                $baseDecimal = self::baseLineDecimal($pool, $m, $selection, $basePoint);
+                if ($baseDecimal !== null) {
+                    return self::synthesizeLadder($m, $selection, $basePoint, $baseDecimal);
+                }
+            }
             return [];
         }
 
@@ -274,8 +315,17 @@ final class BuyPointsPricing
         // and may lack the ±1 push-adjusted rungs. Fill them from the side
         // moneyline so a bettor can always buy down to "just win the game".
         // (Totals have no ML anchor; 3-way/real-tie sports keep real ±0 lines.)
+        // Run/puck-line sports (baseball, hockey) DON'T get the ±0.5 win-the-game
+        // rung — there it's just the moneyline, not a real run/puck line — but
+        // they still get the ±1 push-adjusted rung.
         if ($isSpread && $noTie) {
-            $ladder = self::fillNoTieWinZone($ladder, $basePoint, $priceByPoint, $mlDecimal);
+            $ladder = self::fillNoTieWinZone(
+                $ladder,
+                $basePoint,
+                $priceByPoint,
+                $mlDecimal,
+                !self::isRunLineSport($sportKey)
+            );
         }
 
         return $ladder;
@@ -308,7 +358,7 @@ final class BuyPointsPricing
      * @param array<string,float> $priceByPoint house-safe feed decimals for THIS side
      * @return list<array{points:float,line:float,decimal:float,american:int}>
      */
-    private static function fillNoTieWinZone(array $ladder, float $basePoint, array $priceByPoint, ?float $mlDecimal): array
+    private static function fillNoTieWinZone(array $ladder, float $basePoint, array $priceByPoint, ?float $mlDecimal, bool $synthesizeWinHalfPoint = true): array
     {
         if ($mlDecimal === null) {
             return $ladder; // no anchor → can't price the win zone; leave as-is.
@@ -338,7 +388,9 @@ final class BuyPointsPricing
 
         // 1) Win-the-game: the FIRST non-zero half-point inside the win zone,
         //    priced at the ML. Collapses the -0.5/0/+0.5 triple to one rung.
-        for ($steps = 1; $steps <= self::MAX_HALF_STEPS; $steps++) {
+        //    Skipped for run/puck-line sports (baseball, hockey), where ±0.5 is
+        //    just the moneyline and is not offered as a buyable run/puck line.
+        for ($steps = 1; $synthesizeWinHalfPoint && $steps <= self::MAX_HALF_STEPS; $steps++) {
             $line = round($basePoint + $steps * self::HALF_POINT, 2);
             if (abs($line) >= self::NO_TIE_WIN_ZONE) {
                 continue;
@@ -556,5 +608,126 @@ final class BuyPointsPricing
             return (is_finite($exact) && $exact > 1.0) ? $exact : null;
         }
         return null;
+    }
+
+    /**
+     * Whether this sport uses the synthetic ladder fallback (no feed alt
+     * lines). Basketball only, for now.
+     */
+    private static function isSynthSport(string $sportKey): bool
+    {
+        $k = strtolower(trim($sportKey));
+        foreach (self::SYNTH_SPORT_PREFIXES as $prefix) {
+            if (str_starts_with($k, $prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Win-probability cost per half-point for the synthetic ladder. Env-tunable
+     * via BUY_POINTS_SYNTH_PROB_STEP, clamped to a sane house-safe band so a
+     * mis-set value can't make buys absurdly cheap (too low) or worthless (too
+     * high).
+     */
+    private static function synthProbStep(): float
+    {
+        $raw = Env::get('BUY_POINTS_SYNTH_PROB_STEP', '');
+        $v = is_numeric($raw) ? (float) $raw : self::DEFAULT_SYNTH_PROB_STEP;
+        if (!is_finite($v) || $v < 0.005) {
+            $v = self::DEFAULT_SYNTH_PROB_STEP;
+        }
+        if ($v > 0.10) {
+            $v = 0.10;
+        }
+        return $v;
+    }
+
+    /**
+     * Exact base-line decimal for the selection's main spread/total rung, or
+     * null if absent. Anchors the synthetic ladder. Matches the same side
+     * (sideMatches) AND the exact base point so we never price off a different
+     * line than the one the bettor is buying from.
+     *
+     * @param list<array<string,mixed>> $pool
+     */
+    private static function baseLineDecimal(array $pool, string $marketType, string $selection, float $basePoint): ?float
+    {
+        $m = strtolower(trim($marketType));
+        $baseKey = self::pointKey($basePoint);
+        foreach (self::outcomesForKey($pool, $m) as $o) {
+            if (!is_array($o) || !self::sideMatches($m, $selection, (string) ($o['name'] ?? ''))) {
+                continue;
+            }
+            $pt = $o['point'] ?? null;
+            if (!is_numeric($pt) || self::pointKey((float) $pt) !== $baseKey) {
+                continue;
+            }
+            $price = $o['price'] ?? null;
+            if (!is_numeric($price) || (float) $price <= 1.0) {
+                return null;
+            }
+            $snapped = SportsbookBetSupport::snapDecimalOdds((float) $price);
+            $american = SportsbookBetSupport::decimalToAmericanInt($snapped);
+            if ($american === 0) {
+                return null;
+            }
+            $exact = SportsbookBetSupport::americanToDecimalExact($american);
+            return (is_finite($exact) && $exact > 1.0) ? $exact : null;
+        }
+        return null;
+    }
+
+    /**
+     * Build a house-safe synthetic buy-points ladder from the base line's own
+     * price. Each half-point adds a fixed win-probability (synthProbStep) and
+     * the rung is repriced at the new, higher probability. Every rung is
+     * clamped to pay strictly LESS than the base line and than the previous
+     * rung — buying points can only worsen the payout, never improve it.
+     *
+     * @return list<array{points: float, line: float, decimal: float, american: int}>
+     */
+    private static function synthesizeLadder(string $marketType, string $selection, float $basePoint, float $baseDecimal): array
+    {
+        $p0 = 1.0 / $baseDecimal; // vigged win prob implied by the base line price
+        if (!is_finite($p0) || $p0 <= 0.0 || $p0 >= 1.0) {
+            return [];
+        }
+        $step = self::synthProbStep();
+
+        $ladder = [];
+        $prevDecimal = $baseDecimal; // ceiling: no rung may pay >= the base line
+        for ($s = 1; $s <= self::MAX_HALF_STEPS; $s++) {
+            $p = $p0 + $s * $step;
+            if ($p > self::SYNTH_MAX_PROB) {
+                break; // payout floor reached; further buys are meaningless.
+            }
+            $snapped = SportsbookBetSupport::snapDecimalOdds(1.0 / $p);
+            $american = SportsbookBetSupport::decimalToAmericanInt($snapped);
+            if ($american === 0) {
+                continue;
+            }
+            $exact = SportsbookBetSupport::americanToDecimalExact($american);
+            if (!is_finite($exact) || $exact <= 1.0) {
+                continue;
+            }
+            // House safety: must strictly worsen the payout vs the previous
+            // (less-favorable) rung. Rounding can collapse two steps onto the
+            // same price — skip those rather than emit a duplicate/looser rung.
+            if ($exact >= $prevDecimal - 1e-9) {
+                continue;
+            }
+            $points = $s * self::HALF_POINT;
+            $line = round($basePoint + self::signedPointDelta($marketType, $selection, $points), 2);
+            $ladder[] = [
+                'points' => $points,
+                'line' => $line,
+                'decimal' => $exact,
+                'american' => $american,
+            ];
+            $prevDecimal = $exact;
+        }
+        return $ladder;
     }
 }

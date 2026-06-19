@@ -186,19 +186,19 @@ TestRunner::run('ladderFromFeed — NFL favorite priced from feed; gap omits one
     TestRunner::assertEquals($amer(1.55), $ladder[3]['american'], 'last rung american from feed');
 });
 
-TestRunner::run('ladderFromFeed — MLB run line collapses the ±0.5/0 win zone to ONE moneyline rung', function () use ($mkPool, $amer): void {
+TestRunner::run('ladderFromFeed — MLB run line OMITS the entire ±0.5/0 win zone (no moneyline alias rung)', function () use ($mkPool, $amer): void {
     // Yankees -1.5, ML -160 (1.625). Feed prices -1.0 (+120) and +1.0 (-210),
-    // plus the whole no-tie win zone (-0.5/0/+0.5). The three win-zone lines
-    // all equal "just win the game" → collapse to ONE half-point rung at the
-    // ML; -1.0 (harder) keeps its feed price > ML; +1.0 (push-adjusted) keeps
-    // its feed price < ML. Strictly monotonic.
+    // plus the whole no-tie win zone (-0.5/0/+0.5). On a run line ±0.5 IS the
+    // moneyline — books don't list it as a buyable run line — so NO win-the-game
+    // half-point rung is synthesized. Only the real run lines survive: -1.0
+    // (harder, feed price > ML) and +1.0 (push-adjusted, feed price < ML).
     $pool = $mkPool([
         'spreads'           => [['name' => 'Yankees', 'point' => -1.5, 'price' => 1.95]],
         'h2h'               => [['name' => 'Yankees', 'price' => 1.625]], // -160
         'alternate_spreads' => [
             ['name' => 'Yankees', 'point' => -1.5, 'price' => 2.50],
             ['name' => 'Yankees', 'point' => -1.0, 'price' => 2.20], // +120
-            ['name' => 'Yankees', 'point' => -0.5, 'price' => 1.65], // ignored — win zone uses ML
+            ['name' => 'Yankees', 'point' => -0.5, 'price' => 1.65], // omitted — ±0.5 = moneyline
             ['name' => 'Yankees', 'point' =>  0.0, 'price' => 1.60],
             ['name' => 'Yankees', 'point' =>  0.5, 'price' => 1.55],
             ['name' => 'Yankees', 'point' =>  1.0, 'price' => 1.476], // -210
@@ -209,17 +209,16 @@ TestRunner::run('ladderFromFeed — MLB run line collapses the ±0.5/0 win zone 
     foreach ($ladder as $r) { $byLine[number_format($r['line'], 1)] = $r; }
 
     $lines = array_map(static fn ($r) => $r['line'], $ladder);
-    TestRunner::assertEquals([-1.0, -0.5, 1.0], $lines, 'rungs: -1.0, win-the-game(-0.5), +1.0');
+    TestRunner::assertEquals([-1.0, 1.0], $lines, 'rungs: -1.0, +1.0 (no ±0.5/0 win-zone rung)');
     TestRunner::assertEquals($amer(2.20), $byLine['-1.0']['american'], '-1.0 from feed (harder, > ML)');
-    TestRunner::assertEquals($amer(1.625), $byLine['-0.5']['american'], 'win-the-game priced at the ML, not the feed -0.5');
     TestRunner::assertEquals($amer(1.476), $byLine['1.0']['american'], '+1.0 from feed (easier, < ML)');
-    TestRunner::assertFalse(in_array(0.0, $lines, true), '0 not surfaced (collapsed)');
-    TestRunner::assertFalse(in_array(0.5, $lines, true), '+0.5 not surfaced (collapsed)');
+    TestRunner::assertFalse(in_array(-0.5, $lines, true), '-0.5 not surfaced (= moneyline on a run line)');
+    TestRunner::assertFalse(in_array(0.0, $lines, true), '0 not surfaced');
+    TestRunner::assertFalse(in_array(0.5, $lines, true), '+0.5 not surfaced');
     // Monotonic: payout never rises as the line gets easier.
     TestRunner::assertTrue(
-        $byLine['-1.0']['decimal'] >= $byLine['-0.5']['decimal'] - 1e-9
-            && $byLine['-0.5']['decimal'] >= $byLine['1.0']['decimal'] - 1e-9,
-        'decimals strictly non-increasing -1.0 → -0.5 → +1.0'
+        $byLine['-1.0']['decimal'] >= $byLine['1.0']['decimal'] - 1e-9,
+        'decimals non-increasing -1.0 → +1.0'
     );
 });
 
@@ -246,8 +245,8 @@ TestRunner::run('ladderFromFeed — MLB synthesizes a missing ±1 between the ML
     $anchorDec = SportsbookBetSupport::americanToDecimalExact(-210);
     TestRunner::assertTrue($byLine['1.0']['decimal'] < $mlDec - 1e-9, '+1 pays LESS than the ML (it is easier)');
     TestRunner::assertTrue($byLine['1.0']['decimal'] > $anchorDec + 1e-9, '+1 pays MORE than +1.5 (it is harder)');
-    // win-the-game rung still present at the ML.
-    TestRunner::assertEquals($amer(1.625), $byLine['-0.5']['american'], 'win-the-game at the ML');
+    // No win-the-game rung on a run line: ±0.5 = moneyline, not offered.
+    TestRunner::assertFalse(isset($byLine['-0.5']), 'no ±0.5 win-the-game rung on a run line');
 });
 
 TestRunner::run('ladderFromFeed — missing ML omits the whole no-tie win-zone fill (fail safe)', function () use ($mkPool): void {
@@ -266,24 +265,24 @@ TestRunner::run('ladderFromFeed — missing ML omits the whole no-tie win-zone f
     TestRunner::assertEquals([-1.0], $lines, 'no ML → win-the-game omitted; only feed -1.0 survives');
 });
 
-TestRunner::run('ladderFromFeed — NHL puck line surfaces ONE win-the-game rung at the ML', function () use ($mkPool, $amer): void {
+TestRunner::run('ladderFromFeed — NHL puck line OMITS the ±0.5 win zone (no moneyline alias rung)', function () use ($mkPool, $amer): void {
     // Bruins -1.5, ML -222 (1.45). Feed has -1.0 (1.55) and the win-zone
-    // -0.5/+0.5, but no +1.0 / +1.5 anchor, so +1 can't synthesize.
+    // -0.5/+0.5, but no +1.0 / +1.5 anchor. On a puck line ±0.5 = moneyline, so
+    // it's never synthesized; only the real -1.0 puck line survives.
     $pool = $mkPool([
         'spreads'           => [['name' => 'Bruins', 'point' => -1.5, 'price' => 1.95]],
         'h2h'               => [['name' => 'Bruins', 'price' => 1.45]], // -222
         'alternate_spreads' => [
             ['name' => 'Bruins', 'point' => -1.5, 'price' => 2.00],
             ['name' => 'Bruins', 'point' => -1.0, 'price' => 1.55],
-            ['name' => 'Bruins', 'point' => -0.5, 'price' => 1.35], // ignored — win zone uses ML
+            ['name' => 'Bruins', 'point' => -0.5, 'price' => 1.35], // omitted — ±0.5 = moneyline
             ['name' => 'Bruins', 'point' =>  0.5, 'price' => 1.22],
         ],
     ]);
     $ladder = BuyPointsPricing::ladderFromFeed('icehockey_nhl', 'spreads', 'Bruins', -1.5, $pool);
     $lines = array_map(static fn ($r) => $r['line'], $ladder);
-    TestRunner::assertEquals([-1.0, -0.5], $lines, '-1.0 (feed) + one win-the-game (-0.5); +0.5 collapsed, no +1');
-    $win = $ladder[1];
-    TestRunner::assertEquals($amer(1.45), $win['american'], 'win-the-game at the ML, not the feed -0.5 (1.35)');
+    TestRunner::assertEquals([-1.0], $lines, 'only the feed -1.0 puck line; no ±0.5 win-zone rung, no +1 (no anchor)');
+    TestRunner::assertEquals($amer(1.55), $ladder[0]['american'], '-1.0 from feed');
 });
 
 TestRunner::run('ladderFromFeed — NBA small spread reaches the win zone (no-tie: win-the-game = ML)', function () use ($mkPool, $amer): void {
@@ -311,6 +310,29 @@ TestRunner::run('ladderFromFeed — NBA small spread reaches the win zone (no-ti
             && $byLine['-0.5']['decimal'] >= $byLine['1.0']['decimal'] - 1e-9,
         'monotonic -1.0 → -0.5 → +1.0'
     );
+});
+
+TestRunner::run('ladderFromFeed — run/puck-line sports drop ±0.5; continuous-spread sports keep it', function () use ($mkPool, $amer): void {
+    // SAME near-pickem pool through four no-tie sports. Baseball & hockey are
+    // run/puck-line sports: ±0.5 = moneyline, so the win-the-game half-point is
+    // never offered. Basketball & college football have continuous spreads that
+    // genuinely sit at ±0.5, so the win-the-game rung (priced at the ML) stays.
+    $build = static function (string $sportKey) use ($mkPool): array {
+        $ladder = BuyPointsPricing::ladderFromFeed($sportKey, 'spreads', 'Home', -1.5, $mkPool([
+            'spreads'           => [['name' => 'Home', 'point' => -1.5, 'price' => 1.95]],
+            'h2h'               => [['name' => 'Home', 'price' => 1.625]], // -160
+            'alternate_spreads' => [
+                ['name' => 'Home', 'point' => -1.5, 'price' => 2.40],
+                ['name' => 'Home', 'point' => -1.0, 'price' => 2.05],
+                ['name' => 'Home', 'point' => -0.5, 'price' => 1.80],
+            ],
+        ]));
+        return array_map(static fn ($r) => $r['line'], $ladder);
+    };
+    TestRunner::assertEquals([-1.0], $build('baseball_mlb'), 'MLB run line: no ±0.5');
+    TestRunner::assertEquals([-1.0], $build('icehockey_nhl'), 'NHL puck line: no ±0.5');
+    TestRunner::assertEquals([-1.0, -0.5], $build('basketball_nba'), 'NBA keeps ±0.5 (win-the-game = ML)');
+    TestRunner::assertEquals([-1.0, -0.5], $build('americanfootball_ncaaf'), 'NCAAF keeps ±0.5 (win-the-game = ML)');
 });
 
 TestRunner::run('ladderFromFeed — NFL keeps real win-zone lines (tie-possible: NO ML collapse)', function () use ($mkPool, $amer): void {
@@ -491,6 +513,113 @@ TestRunner::run('ladderFromFeed — disabled sport (not in env) → empty', func
     // tennis is not in the enabled list.
     $ladder = BuyPointsPricing::ladderFromFeed('tennis_atp', 'spreads', 'Team', -3.5, $pool);
     TestRunner::assertEquals(0, count($ladder), 'sport not enabled → []');
+});
+
+// ── synthetic ladder (no-feed-alt-lines fallback, basketball only) ───────────
+
+TestRunner::run('ladderFromFeed — basketball spread with NO feed alts synthesizes a house-safe ladder', function () use ($mkPool): void {
+    // NBA Celtics -5.5 at -110 (1.909), and the feed ships NO alternate_spreads.
+    // Basketball must synthesize a ladder from the base line price; every rung
+    // must pay strictly LESS than the base line and move in the buy direction.
+    $pool = $mkPool([
+        'spreads' => [['name' => 'Celtics', 'point' => -5.5, 'price' => 1.909]],
+        'h2h'     => [['name' => 'Celtics', 'price' => 1.45]],
+        // no alternate_spreads
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('basketball_nba', 'spreads', 'Celtics', -5.5, $pool);
+    TestRunner::assertTrue(count($ladder) > 0, 'synthesized a non-empty ladder');
+    TestRunner::assertTrue(count($ladder) <= 5, 'no more than MAX_HALF_STEPS rungs');
+
+    $base = SportsbookBetSupport::americanToDecimalExact(-110);
+    $prev = $base;
+    foreach ($ladder as $i => $rung) {
+        // Buy direction: spreads always move toward 0 (+points).
+        TestRunner::assertEqualsFloat(($i + 1) * 0.5, $rung['points'], "rung $i points", 1e-9);
+        TestRunner::assertEqualsFloat(-5.5 + ($i + 1) * 0.5, $rung['line'], "rung $i line moves +", 1e-9);
+        // House-safe: strictly worsening payout, never above the base line.
+        TestRunner::assertTrue($rung['decimal'] < $base - 1e-9, "rung $i pays less than base line");
+        TestRunner::assertTrue($rung['decimal'] < $prev - 1e-9, "rung $i pays less than previous rung");
+        $prev = $rung['decimal'];
+    }
+});
+
+TestRunner::run('ladderFromFeed — basketball total Over with NO feed alts synthesizes; line shrinks, payout worsens', function () use ($mkPool): void {
+    $pool = $mkPool([
+        'totals' => [['name' => 'Over', 'point' => 220.5, 'price' => 1.909]],
+        // no alternate_totals
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('basketball_nba', 'totals', 'Over', 220.5, $pool);
+    TestRunner::assertTrue(count($ladder) > 0, 'synthesized total rungs');
+    $base = SportsbookBetSupport::americanToDecimalExact(-110);
+    $prev = $base;
+    foreach ($ladder as $i => $rung) {
+        // Over buys DOWN: line shrinks by points.
+        TestRunner::assertEqualsFloat(220.5 - ($i + 1) * 0.5, $rung['line'], "over rung $i line shrinks", 1e-9);
+        TestRunner::assertTrue($rung['decimal'] < $prev - 1e-9, "over rung $i worsens");
+        $prev = $rung['decimal'];
+    }
+});
+
+TestRunner::run('ladderFromFeed — feed alts WIN over synthesis when present (basketball)', function () use ($mkPool, $amer): void {
+    // When the feed DOES ship a basketball alt ladder, use it verbatim — never
+    // synthesize. Below pick'em so the ML floor never binds.
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Celtics', 'point' => -5.5, 'price' => 1.91]],
+        'h2h'               => [['name' => 'Celtics', 'price' => 1.40]],
+        'alternate_spreads' => [['name' => 'Celtics', 'point' => -5.0, 'price' => 1.83]],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('basketball_nba', 'spreads', 'Celtics', -5.5, $pool);
+    TestRunner::assertEquals(1, count($ladder), 'one FEED rung (not synthesized)');
+    TestRunner::assertEquals($amer(1.83), $ladder[0]['american'], 'used the feed price, not a synthetic one');
+});
+
+TestRunner::run('ladderFromFeed — non-basketball with NO feed alts stays empty (no synthesis)', function () use ($mkPool): void {
+    // The "never guess a price" rule still holds for every non-synth sport.
+    $pool = $mkPool([
+        'spreads' => [['name' => 'Chiefs', 'point' => -3.5, 'price' => 1.909]],
+        'h2h'     => [['name' => 'Chiefs', 'price' => 1.50]],
+    ]);
+    foreach (['americanfootball_nfl', 'baseball_mlb', 'icehockey_nhl'] as $sport) {
+        $ladder = BuyPointsPricing::ladderFromFeed($sport, 'spreads', 'Chiefs', -3.5, $pool);
+        TestRunner::assertEquals(0, count($ladder), "$sport: no feed alts → no synthesis");
+    }
+});
+
+TestRunner::run('ladderFromFeed — synth respects the per-sport enable gate (WNBA off → empty)', function () use ($mkPool): void {
+    // basketball_wnba is NOT in the enabled env for this block, so even though
+    // it is synth-eligible, the gate blocks it (display == placed == locked).
+    $pool = $mkPool([
+        'spreads' => [['name' => 'Aces', 'point' => -5.5, 'price' => 1.909]],
+        'h2h'     => [['name' => 'Aces', 'price' => 1.45]],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('basketball_wnba', 'spreads', 'Aces', -5.5, $pool);
+    TestRunner::assertEquals(0, count($ladder), 'WNBA not enabled → no ladder even with synthesis');
+});
+
+TestRunner::run('ladderFromFeed — synth needs the base line price (missing → empty, fail safe)', function () use ($mkPool): void {
+    // No main spreads outcome for the selection → no anchor → no guessed ladder.
+    $pool = $mkPool([
+        'spreads' => [['name' => 'Lakers', 'point' => 5.5, 'price' => 1.909]], // different team
+        'h2h'     => [['name' => 'Celtics', 'price' => 1.45]],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('basketball_nba', 'spreads', 'Celtics', -5.5, $pool);
+    TestRunner::assertEquals(0, count($ladder), 'no base line price → no synthetic ladder');
+});
+
+TestRunner::run('priceBoughtPointFromFeed — placement returns the SAME synthetic rung as display', function () use ($mkPool): void {
+    // The single-source guarantee: placement reprices off ladderFromFeed, so a
+    // synthesized rung shown on the board is exactly what places + settles.
+    $pool = $mkPool([
+        'spreads' => [['name' => 'Celtics', 'point' => -5.5, 'price' => 1.909]],
+        'h2h'     => [['name' => 'Celtics', 'price' => 1.45]],
+    ]);
+    $display = BuyPointsPricing::ladderFromFeed('basketball_nba', 'spreads', 'Celtics', -5.5, $pool);
+    TestRunner::assertTrue(count($display) > 0, 'display ladder present');
+    $first = $display[0];
+    $placed = BuyPointsPricing::priceBoughtPointFromFeed('basketball_nba', 'spreads', 'Celtics', -5.5, $first['points'], $pool);
+    TestRunner::assertTrue($placed !== null, 'placement found the synthetic rung');
+    TestRunner::assertEquals($first['american'], $placed['american'], 'placement price == display price');
+    TestRunner::assertEqualsFloat($first['line'], $placed['line'], 'placement line == display line', 1e-9);
 });
 
 // ── placement: priceBoughtPointFromFeed (single rung or null) ────────────────

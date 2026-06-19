@@ -198,6 +198,11 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     // line / spread; true → the alternate-spread ladder (the
     // `alternate_spreads` extended market). Mirrors ttModeByMatch.
     const [altSpreadByMatch, setAltSpreadByMatch] = useState({});
+    // Per-match toggle for the Total column. false (default) → mainline game
+    // total; true → the alternate-total ladder (the `alternate_totals` extended
+    // market, both Over and Under). Mutually exclusive with the TT (team totals)
+    // mode — selecting one clears the other. Mirrors altSpreadByMatch.
+    const [altTotalByMatch, setAltTotalByMatch] = useState({});
     const [detailOpenMatch, setDetailOpenMatch] = useState(null);
     const attemptedLogoFetchesRef = React.useRef(new Set());
 
@@ -1077,6 +1082,31 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         }));
     };
 
+    // Add an alternate-total rung to the slip. Mirrors addAltSpread and the "+"
+    // sheet (MatchDetailView.addSelection) byte-for-byte: marketType
+    // 'alternate_totals', the UNSIGNED total point, and a selection string
+    // ("Over 8.5" / "Under 8.5") the backend pins pricing/grading to by
+    // (outcome name + point). `price` is the feed's house-safe decimal.
+    const addAltTotal = (match, rung) => {
+        const price = parseOddsNumber(rung?.price);
+        const point = Number(rung?.point);
+        if (!match?.id || price === null || !Number.isFinite(point)) return;
+        const selection = [rung.name, formatLineValue(point)].filter(Boolean).join(' ');
+        window.dispatchEvent(new CustomEvent('betslip:add', {
+            detail: {
+                matchId: match.id,
+                selection,
+                marketType: 'alternate_totals',
+                odds: price,
+                point,
+                matchName: `${match.team1.name} vs ${match.team2.name}`,
+                marketLabel: 'Alt Game Total',
+                isLive: match.status === 'LIVE',
+                sportKey: String(match.sportKey || '').toLowerCase(),
+            },
+        }));
+    };
+
     const normalizedMode = String(activeBetMode || 'straight').toLowerCase().replace(/-/g, '_');
     const showSpread = ['straight', 'parlay', 'teaser', 'if_bet', 'reverse', 'round_robin'].includes(normalizedMode);
     const showMoneyline = ['straight', 'parlay', 'if_bet', 'reverse', 'round_robin'].includes(normalizedMode);
@@ -1601,23 +1631,68 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 const matchName = `${match.team1.name} vs ${match.team2.name}`;
                                                 const blockReason = match.rawMatch?.bettingBlockedReason || 'Betting unavailable';
 
-                                                // Team totals (MLB full-game only). Render the Total ⇄ TT toggle
-                                                // only when the feed actually shipped team totals for this game.
+                                                // The Total column toggles Total ⇄ Alt ⇄ TT, each option
+                                                // shown only when its data exists.
+                                                //  - TT: team totals (MLB full-game only).
+                                                //  - Alt: the `alternate_totals` extended market (both Over
+                                                //    and Under), mirroring the Spread column's Alt ladder.
                                                 const tt = match.odds.teamTotals || {};
                                                 const sideAvail = (leg) => !!leg && leg.point !== null && hasValidOdds(leg.price);
                                                 const teamHasTT = (teamSide) => sideAvail(tt[teamSide]?.over) || sideAvail(tt[teamSide]?.under);
                                                 const hasTeamTotals = isMlbSportKey(match.sportKey) && (teamHasTT('away') || teamHasTT('home'));
-                                                const ttOn = hasTeamTotals && !!ttModeByMatch[match.id];
 
-                                                const modeToggle = hasTeamTotals ? (
+                                                // Alternate-total ladder. Suppressed in teaser mode (teaser
+                                                // legs price off the main total) — matching the alt-spread gate.
+                                                const altTotalMarket = normalizedMode !== 'teaser' ? getMatchMarket(match.rawMatch, 'alternate_totals') : null;
+                                                const normTot = (s) => String(s || '').trim().toLowerCase();
+                                                const buildTotalLadder = (sideName) => {
+                                                    const rows = (Array.isArray(altTotalMarket?.outcomes) ? altTotalMarket.outcomes : [])
+                                                        .filter((o) => normTot(o?.name) === sideName)
+                                                        .map((o) => ({ name: o.name, point: Number(o.point), price: parseOddsNumber(o.price) }))
+                                                        .filter((o) => Number.isFinite(o.point) && o.price !== null);
+                                                    // Defensive de-dupe by point (feed already collapses to one
+                                                    // house-safe rung per side+point; guard against stragglers).
+                                                    const seen = new Set();
+                                                    const unique = [];
+                                                    for (const r of rows) {
+                                                        if (seen.has(r.point)) continue;
+                                                        seen.add(r.point);
+                                                        unique.push(r);
+                                                    }
+                                                    // Keep the rungs nearest the main total, then read high→low
+                                                    // like a sportsbook alt column. The full ladder (every rung)
+                                                    // stays in the "+" sheet.
+                                                    const ref = Number(match.odds.total.point);
+                                                    const dist = (p) => (Number.isFinite(ref) ? Math.abs(p - ref) : p);
+                                                    return unique
+                                                        .sort((a, b) => dist(a.point) - dist(b.point))
+                                                        .slice(0, MAX_ALT_SPREAD_RUNGS)
+                                                        .sort((a, b) => b.point - a.point);
+                                                };
+                                                const overLadder = buildTotalLadder('over');
+                                                const underLadder = buildTotalLadder('under');
+                                                const hasAltTotals = overLadder.length > 0 || underLadder.length > 0;
+
+                                                // Modes are mutually exclusive; TT wins a stale double-set.
+                                                const ttOn = hasTeamTotals && !!ttModeByMatch[match.id];
+                                                const altOn = hasAltTotals && !ttOn && !!altTotalByMatch[match.id];
+
+                                                const totalModes = [['total', 'Total']];
+                                                if (hasAltTotals) totalModes.push(['alt', 'Alt']);
+                                                if (hasTeamTotals) totalModes.push(['tt', 'TT']);
+                                                const currentTotalMode = ttOn ? 'tt' : (altOn ? 'alt' : 'total');
+                                                const modeToggle = totalModes.length > 1 ? (
                                                     <span style={{ display: 'inline-flex', marginLeft: 6, borderRadius: 4, overflow: 'hidden', border: '1px solid #d0451b', verticalAlign: 'middle' }}>
-                                                        {[['total', 'Total'], ['tt', 'TT']].map(([mode, lbl]) => {
-                                                            const active = (mode === 'tt') === ttOn;
+                                                        {totalModes.map(([mode, lbl]) => {
+                                                            const active = mode === currentTotalMode;
                                                             return (
                                                                 <button
                                                                     key={mode}
                                                                     type="button"
-                                                                    onClick={() => setTtModeByMatch((prev) => ({ ...prev, [match.id]: mode === 'tt' }))}
+                                                                    onClick={() => {
+                                                                        setAltTotalByMatch((prev) => ({ ...prev, [match.id]: mode === 'alt' }));
+                                                                        setTtModeByMatch((prev) => ({ ...prev, [match.id]: mode === 'tt' }));
+                                                                    }}
                                                                     style={{ border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 700, lineHeight: 1.4, padding: '1px 6px', background: active ? '#d0451b' : '#fff', color: active ? '#fff' : '#d0451b' }}
                                                                 >
                                                                     {lbl}
@@ -1626,6 +1701,38 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         })}
                                                     </span>
                                                 ) : null;
+
+                                                if (altOn) {
+                                                    const toggleOnOver = overLadder.length > 0;
+                                                    const renderTotalLadderCell = (ladder, sideLabel, withToggle) => {
+                                                        if (ladder.length === 0) return null;
+                                                        const ou = sideLabel === 'Over' ? 'O' : 'U';
+                                                        return (
+                                                            <div className="odds-cell" key={sideLabel}>
+                                                                <span className="odds-label">{sideLabel} Alt{withToggle ? <> {modeToggle}</> : null}</span>
+                                                                <div className="odds-values-group">
+                                                                    {ladder.map((rung) => (
+                                                                        <React.Fragment key={rung.point}>
+                                                                            {renderOddsButton({
+                                                                                label: formatTotalDisplay(ou, rung.point, rung.price, oddsFormat),
+                                                                                onClick: () => addAltTotal(match, rung),
+                                                                                available: true,
+                                                                                disabled: match.rawMatch?.isBettable === false,
+                                                                                reason: blockReason,
+                                                                            })}
+                                                                        </React.Fragment>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    };
+                                                    return (
+                                                        <>
+                                                            {renderTotalLadderCell(overLadder, 'Over', toggleOnOver)}
+                                                            {renderTotalLadderCell(underLadder, 'Under', !toggleOnOver && underLadder.length > 0)}
+                                                        </>
+                                                    );
+                                                }
 
                                                 if (ttOn) {
                                                     const toggleSide = teamHasTT('away') ? 'away' : 'home';

@@ -149,6 +149,32 @@ const buildAltSpreadLadder = (outcomes, sideName) => {
         .sort((a, b) => b.point - a.point);
 };
 
+// Build a per-side (Over/Under) alt-total ladder from the `alternate_totals`
+// extended market: dedupe by point, keep the rungs nearest the main total,
+// then read high→low like a sportsbook alt column. Mirrors buildAltSpreadLadder
+// and SportContentView's buildTotalLadder so desktop and mobile match.
+const buildAltTotalLadder = (outcomes, sideName, refPoint) => {
+    const norm = (s) => String(s || '').trim().toLowerCase();
+    const target = norm(sideName);
+    const rows = (Array.isArray(outcomes) ? outcomes : [])
+        .filter((o) => norm(o?.name) === target)
+        .map((o) => ({ name: String(o?.name || ''), point: Number(o?.point), price: parseOddsNumber(o?.price) }))
+        .filter((o) => Number.isFinite(o.point) && o.price !== null);
+    const seen = new Set();
+    const unique = [];
+    for (const r of rows) {
+        if (seen.has(r.point)) continue;
+        seen.add(r.point);
+        unique.push(r);
+    }
+    const ref = Number(refPoint);
+    const dist = (p) => (Number.isFinite(ref) ? Math.abs(p - ref) : p);
+    return unique
+        .sort((a, b) => dist(a.point) - dist(b.point))
+        .slice(0, MAX_ALT_SPREAD_RUNGS)
+        .sort((a, b) => b.point - a.point);
+};
+
 const totalPeriodsFor = (sportKey) => {
     const key = String(sportKey || '').toLowerCase();
     if (!key) return 4;
@@ -791,10 +817,20 @@ const MobileContentView = ({
         // ladder doesn't apply.
         const altSpreadMarket = !suffix ? getMatchMarket(match, 'alternate_spreads') : null;
         const altSpreadOutcomes = Array.isArray(altSpreadMarket?.outcomes) ? altSpreadMarket.outcomes : [];
+        // Alternate-total ladders (full game only). Same `alternate_totals`
+        // extended market the "+" sheet and desktop board read. Over and Under
+        // are independent ladders, ordered nearest the main total.
+        const altTotalMarket = !suffix ? getMatchMarket(match, 'alternate_totals') : null;
+        const altTotalOutcomes = Array.isArray(altTotalMarket?.outcomes) ? altTotalMarket.outcomes : [];
+        const totalRefPoint = totalOverOutcome?.point ?? totalUnderOutcome?.point ?? null;
         return {
             altSpreads: {
                 away: buildAltSpreadLadder(altSpreadOutcomes, awayName),
                 home: buildAltSpreadLadder(altSpreadOutcomes, homeName),
+            },
+            altTotals: {
+                over: buildAltTotalLadder(altTotalOutcomes, 'over', totalRefPoint),
+                under: buildAltTotalLadder(altTotalOutcomes, 'under', totalRefPoint),
             },
             spreadHomePoint: spreadHomeOutcome?.point ?? null,
             spreadAwayPoint: spreadAwayOutcome?.point ?? null,
@@ -2158,6 +2194,9 @@ const matchCardSignature = (match) => {
         // Alt-spread fingerprint so a rung's price/line move repaints the card.
         (odds?.altSpreads?.away || []).map((r) => `${r.point}:${r.price}`).join(','),
         (odds?.altSpreads?.home || []).map((r) => `${r.point}:${r.price}`).join(','),
+        // Alt-total fingerprint so an Over/Under rung's price/line move repaints.
+        (odds?.altTotals?.over || []).map((r) => `${r.point}:${r.price}`).join(','),
+        (odds?.altTotals?.under || []).map((r) => `${r.point}:${r.price}`).join(','),
         match?.rotation?.away,
         match?.rotation?.home,
     ].join('|');
@@ -2259,8 +2298,24 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const ttSideAvail = (leg) => !!leg && leg.point !== null && leg.price !== null;
     const teamHasTT = (teamSide) => ttSideAvail(teamTotals[teamSide]?.over) || ttSideAvail(teamTotals[teamSide]?.under);
     const hasTeamTotals = isMlbSportKey(match?.sportKey || match?.sport) && (teamHasTT('away') || teamHasTT('home'));
-    const [ttOn, setTtOn] = React.useState(false);
-    const teamTotalsActive = hasTeamTotals && ttOn;
+    // Alternate-total ladders (Over / Under), built in extractOdds from the
+    // `alternate_totals` extended market. The away row's Total column renders
+    // the Over ladder, the home row the Under — mirroring the away/home split.
+    // Suppressed in teaser mode (teaser legs price off the MAIN total).
+    const altTotals = match.odds?.altTotals || {};
+    const overAltLadder = Array.isArray(altTotals.over) ? altTotals.over : [];
+    const underAltLadder = Array.isArray(altTotals.under) ? altTotals.under : [];
+    const hasAltTotals = !isTeaserMode && (overAltLadder.length > 0 || underAltLadder.length > 0);
+    // The Total column cycles Total → Alt → TT, each shown only when present.
+    const totalModeOrder = ['total', ...(hasAltTotals ? ['alt'] : []), ...(hasTeamTotals ? ['tt'] : [])];
+    const [totalMode, setTotalMode] = React.useState('total');
+    const effectiveTotalMode = totalModeOrder.includes(totalMode) ? totalMode : 'total';
+    const altTotalsActive = effectiveTotalMode === 'alt';
+    const teamTotalsActive = effectiveTotalMode === 'tt';
+    const cycleTotalMode = () => {
+        const i = totalModeOrder.indexOf(effectiveTotalMode);
+        setTotalMode(totalModeOrder[(i + 1) % totalModeOrder.length]);
+    };
     // Spread ⇄ Alt toggle. The away row's Spread column then renders the away
     // team's alt-spread ladder, the home row the home team's — mirroring the
     // Total ⇄ TT split. Ladders are pre-built in extractOdds. Suppressed in
@@ -2385,6 +2440,49 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             main={formatSpreadValue(rung.point)}
                             juice={formatOdds(rung.price, oddsFormat)}
                             onClick={() => addAltSpread(rung)}
+                        />
+                    );
+                })}
+            </div>
+        );
+    };
+    // Alt-total add. selection is built byte-identical to the "+" sheet, the
+    // desktop board, and addAltSpread ("Over 8.5") so the backend pins
+    // pricing+grading by (outcome name + point). price is the feed's
+    // house-safe decimal for that exact rung.
+    const addAltTotal = (rung) => {
+        if (blocked || !rung) return;
+        const point = Number(rung.point);
+        const price = parseOddsNumber(rung.price);
+        if (!Number.isFinite(point) || price === null) return;
+        const selection = [rung.name, formatLineValue(point)].filter(Boolean).join(' ');
+        onAddToSlip(match.id, selection, 'alternate_totals', price, matchName, 'Alt Game Total', point, {
+            isLive: !!match.isLive,
+            sportKey: String(match?.sportKey || match?.sport || '').toLowerCase(),
+            selectionFull: selection,
+            pitchers: showPitchers ? match.pitchers : null,
+            pitcherAction: showPitchers ? { home: !!pitcherAction.home, away: !!pitcherAction.away } : undefined,
+        });
+    };
+    // One Total-column cell for an Over/Under alt ladder: stacks the rungs
+    // high→low. Empty when the feed shipped no alt rungs for this side.
+    const renderAltTotalCell = (ladder, side) => {
+        if (!Array.isArray(ladder) || ladder.length === 0) {
+            return <OddsCell disabled selected={false} main="—" juice="" onClick={() => {}} />;
+        }
+        const ou = side === 'over' ? 'O' : 'U';
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {ladder.map((rung) => {
+                    const sel = [rung.name, formatLineValue(rung.point)].filter(Boolean).join(' ');
+                    return (
+                        <OddsCell
+                            key={rung.point}
+                            disabled={blocked}
+                            selected={isSelected('alternate_totals', sel) && !blocked}
+                            main={`${ou} ${formatLineValue(rung.point)}`}
+                            juice={formatOdds(rung.price, oddsFormat)}
+                            onClick={() => addAltTotal(rung)}
                         />
                     );
                 })}
@@ -2541,7 +2639,13 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             </>
                         )
                     ) : (
-                        <span style={matchTimeStyle}>{match.timeDisplay || match.time}</span>
+                        // The broadcast row above already shows the start time +
+                        // matchup; only show the standalone date/time here when
+                        // that row isn't rendered, so an upcoming game never
+                        // loses its time but a broadcast game isn't doubled up.
+                        match.broadcast ? null : (
+                            <span style={matchTimeStyle}>{match.timeDisplay || match.time}</span>
+                        )
                     )}
                     <OddsAge timestamp={match.lastOddsSyncAt} live={(match.status || '').toString().toLowerCase() === 'live'} />
                 </span>
@@ -2561,14 +2665,14 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 )}
                 {visibleMarkets.showMoneyline && <span style={columnLabelStyle}>ML</span>}
                 {visibleMarkets.showTotals && (
-                    hasTeamTotals ? (
+                    totalModeOrder.length > 1 ? (
                         <button
                             type="button"
-                            onClick={() => setTtOn((v) => !v)}
-                            style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: teamTotalsActive ? '#d0451b' : undefined, fontWeight: 700 }}
-                            title={teamTotalsActive ? 'Showing team totals — tap for game total' : 'Showing game total — tap for team totals'}
+                            onClick={cycleTotalMode}
+                            style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: effectiveTotalMode !== 'total' ? '#d0451b' : undefined, fontWeight: 700 }}
+                            title={`Showing ${effectiveTotalMode === 'tt' ? 'team totals' : effectiveTotalMode === 'alt' ? 'alternate totals' : 'game total'} — tap to switch`}
                         >
-                            {teamTotalsActive ? 'TT' : 'Total'}
+                            {effectiveTotalMode === 'tt' ? 'TT' : effectiveTotalMode === 'alt' ? 'Alt' : 'Total'}
                         </button>
                     ) : (
                         <span style={columnLabelStyle}>Total</span>
@@ -2640,7 +2744,9 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     />
                 )}
                 {visibleMarkets.showTotals && (
-                    teamTotalsActive ? (
+                    altTotalsActive ? (
+                        renderAltTotalCell(overAltLadder, 'over')
+                    ) : teamTotalsActive ? (
                         renderTeamTotalCell('away', match.team1Short || match.team1)
                     ) : (
                     <OddsCell
@@ -2772,7 +2878,9 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     />
                 )}
                 {visibleMarkets.showTotals && (
-                    teamTotalsActive ? (
+                    altTotalsActive ? (
+                        renderAltTotalCell(underAltLadder, 'under')
+                    ) : teamTotalsActive ? (
                         renderTeamTotalCell('home', match.team2Short || match.team2)
                     ) : (
                     <OddsCell
