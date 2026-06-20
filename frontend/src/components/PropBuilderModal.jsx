@@ -584,7 +584,7 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
     // one short row instead of two tall ones.
     const playerRowStyle = {
         display: 'grid',
-        gridTemplateColumns: 'minmax(0, 1fr) 78px 78px',
+        gridTemplateColumns: 'minmax(0, 1fr) 86px 86px',
         alignItems: 'stretch',
         background: '#fff',
         borderBottom: '1px solid #e2e2e2',
@@ -624,7 +624,7 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
         color: selected ? '#fff' : '#111',
         border: 'none',
         borderRight: isFirst ? '1px solid #ccc' : 'none',
-        padding: '7px 9px',
+        padding: '7px 4px',
         fontSize: 13,
         fontWeight: 600,
         cursor: 'pointer',
@@ -699,7 +699,7 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
                     disabled={!eligible}
                     onClick={() => addSelection(catKey, playerName, outcome)}
                 >
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
                         {outcome.name}{outcome?.point != null ? ` ${formatLineValue(outcome.point)}` : ''}
                     </div>
                     <div style={{ fontSize: 11, marginTop: 2, color: selected ? '#fff' : '#b36a00', fontWeight: 700 }}>
