@@ -57,23 +57,31 @@ TestRunner::run('isAllowedMarket — spreads & totals only', function (): void {
     TestRunner::assertFalse(BuyPointsPricing::isAllowedMarket('player_total_passing_yards'), 'props rejected');
 });
 
-TestRunner::run('halfStepsFromBoughtPoints — happy path', function (): void {
+TestRunner::run('halfStepsFromBoughtPoints — happy path (signed: + buys, - sells)', function (): void {
     TestRunner::assertEquals(0, BuyPointsPricing::halfStepsFromBoughtPoints(0.0), '0 → 0 steps');
     TestRunner::assertEquals(1, BuyPointsPricing::halfStepsFromBoughtPoints(0.5), '0.5 → 1 step');
     TestRunner::assertEquals(2, BuyPointsPricing::halfStepsFromBoughtPoints(1.0), '1.0 → 2 steps');
-    TestRunner::assertEquals(5, BuyPointsPricing::halfStepsFromBoughtPoints(2.5), '2.5 → 5 steps');
+    TestRunner::assertEquals(6, BuyPointsPricing::halfStepsFromBoughtPoints(3.0), '3.0 → 6 steps');
+    // Sells: negative is now a valid direction.
+    TestRunner::assertEquals(-1, BuyPointsPricing::halfStepsFromBoughtPoints(-0.5), '-0.5 → -1 step (sell)');
+    TestRunner::assertEquals(-6, BuyPointsPricing::halfStepsFromBoughtPoints(-3.0), '-3.0 → -6 steps (sell)');
 });
 
-TestRunner::run('halfStepsFromBoughtPoints — rejects out-of-range', function (): void {
+TestRunner::run('halfStepsFromBoughtPoints — rejects out-of-range / off-grid (either sign)', function (): void {
     TestRunner::assertThrows(
-        fn() => BuyPointsPricing::halfStepsFromBoughtPoints(-0.5),
+        fn() => BuyPointsPricing::halfStepsFromBoughtPoints(3.5),
         ApiException::class,
-        'negative rejected'
+        'over max (buy) rejected'
     );
     TestRunner::assertThrows(
-        fn() => BuyPointsPricing::halfStepsFromBoughtPoints(3.0),
+        fn() => BuyPointsPricing::halfStepsFromBoughtPoints(-3.5),
         ApiException::class,
-        'over max rejected'
+        'over max (sell) rejected'
+    );
+    TestRunner::assertThrows(
+        fn() => BuyPointsPricing::halfStepsFromBoughtPoints(0.3),
+        ApiException::class,
+        'off-grid rejected'
     );
 });
 
@@ -117,7 +125,7 @@ TestRunner::run('signedPointDelta — rejects non-allowed markets', function ():
 });
 
 TestRunner::run('maxBoughtPoints constant', function (): void {
-    TestRunner::assertEqualsFloat(2.5, BuyPointsPricing::maxBoughtPoints(), 'max = 2.5', 0.001);
+    TestRunner::assertEqualsFloat(3.0, BuyPointsPricing::maxBoughtPoints(), 'max = 3.0', 0.001);
 });
 
 // ── per-sport enable gate (BUY_POINTS_ENABLED_SPORTS env) ───────────────────
@@ -528,7 +536,7 @@ TestRunner::run('ladderFromFeed — basketball spread with NO feed alts synthesi
     ]);
     $ladder = BuyPointsPricing::ladderFromFeed('basketball_nba', 'spreads', 'Celtics', -5.5, $pool);
     TestRunner::assertTrue(count($ladder) > 0, 'synthesized a non-empty ladder');
-    TestRunner::assertTrue(count($ladder) <= 5, 'no more than MAX_HALF_STEPS rungs');
+    TestRunner::assertTrue(count($ladder) <= 6, 'no more than MAX_HALF_STEPS rungs');
 
     $base = SportsbookBetSupport::americanToDecimalExact(-110);
     $prev = $base;
@@ -620,6 +628,71 @@ TestRunner::run('priceBoughtPointFromFeed — placement returns the SAME synthet
     TestRunner::assertTrue($placed !== null, 'placement found the synthetic rung');
     TestRunner::assertEquals($first['american'], $placed['american'], 'placement price == display price');
     TestRunner::assertEqualsFloat($first['line'], $placed['line'], 'placement line == display line', 1e-9);
+});
+
+// ── bidirectional ladder: buys (+) AND sells (-) ─────────────────────────────
+
+TestRunner::run('sellLadderFromFeed — MLB run line surfaces harder feed rungs with NEGATIVE points', function () use ($mkPool, $amer): void {
+    // Yankees -1.5; the feed prices the harder lines -2.0 and -2.5 (laying more
+    // for a better payout). sellLadderFromFeed returns them with negative
+    // points (the sell direction), feed-priced, no win-zone, no ML floor below 0.
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Yankees', 'point' => -1.5, 'price' => 1.95]],
+        'h2h'               => [['name' => 'Yankees', 'price' => 1.625]], // -160
+        'alternate_spreads' => [
+            ['name' => 'Yankees', 'point' => -2.5, 'price' => 2.37], // +137
+            ['name' => 'Yankees', 'point' => -2.0, 'price' => 2.18], // +118
+            ['name' => 'Yankees', 'point' => -1.0, 'price' => 2.20],
+            ['name' => 'Yankees', 'point' =>  1.0, 'price' => 1.3125],
+            ['name' => 'Yankees', 'point' =>  1.5, 'price' => 1.244],
+        ],
+    ]);
+    $sell = BuyPointsPricing::sellLadderFromFeed('baseball_mlb', 'spreads', 'Yankees', -1.5, $pool);
+    $byLine = [];
+    foreach ($sell as $r) { $byLine[number_format($r['line'], 1)] = $r; }
+    $lines = array_map(static fn ($r) => $r['line'], $sell);
+    TestRunner::assertEquals([-2.0, -2.5], $lines, 'sell rungs at the harder feed lines');
+    TestRunner::assertEqualsFloat(-0.5, $byLine['-2.0']['points'], '-2.0 is a 0.5-pt SELL (negative)', 1e-9);
+    TestRunner::assertEqualsFloat(-1.0, $byLine['-2.5']['points'], '-2.5 is a 1.0-pt SELL (negative)', 1e-9);
+    TestRunner::assertEquals($amer(2.18), $byLine['-2.0']['american'], '-2.0 priced from feed');
+});
+
+TestRunner::run('fullLadderFromFeed — MLB -1.5 shows BOTH the -2.5 sell and the +1.5 buy (Nicky)', function () use ($mkPool): void {
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Tigers', 'point' => -1.5, 'price' => 1.95]],
+        'h2h'               => [['name' => 'Tigers', 'price' => 1.625]], // -160
+        'alternate_spreads' => [
+            ['name' => 'Tigers', 'point' => -2.5, 'price' => 2.37],
+            ['name' => 'Tigers', 'point' => -2.0, 'price' => 2.18],
+            ['name' => 'Tigers', 'point' => -1.0, 'price' => 2.20],
+            ['name' => 'Tigers', 'point' =>  1.0, 'price' => 1.3125],
+            ['name' => 'Tigers', 'point' =>  1.5, 'price' => 1.244],
+        ],
+    ]);
+    $full = BuyPointsPricing::fullLadderFromFeed('baseball_mlb', 'spreads', 'Tigers', -1.5, $pool);
+    $lines = array_map(static fn ($r) => $r['line'], $full);
+    // Sorted ascending by signed points: sells first (most negative), then buys.
+    TestRunner::assertEquals([-2.5, -2.0, -1.0, 1.0, 1.5], $lines, 'full ladder spans -2.5 .. +1.5');
+    TestRunner::assertTrue(in_array(-2.5, $lines, true), 'includes the -2.5 sell (Nicky)');
+    TestRunner::assertTrue(in_array(1.5, $lines, true), 'includes the +1.5 buy (Nicky)');
+    TestRunner::assertFalse(in_array(-0.5, $lines, true), 'still no ±0.5 win-zone rung on a run line');
+});
+
+TestRunner::run('priceBoughtPointFromFeed — places a SELL rung via negative boughtPoints', function () use ($mkPool): void {
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Tigers', 'point' => -1.5, 'price' => 1.95]],
+        'h2h'               => [['name' => 'Tigers', 'price' => 1.625]],
+        'alternate_spreads' => [
+            ['name' => 'Tigers', 'point' => -2.5, 'price' => 2.37],
+            ['name' => 'Tigers', 'point' =>  1.5, 'price' => 1.244],
+        ],
+    ]);
+    $sell = BuyPointsPricing::priceBoughtPointFromFeed('baseball_mlb', 'spreads', 'Tigers', -1.5, -1.0, $pool);
+    TestRunner::assertTrue($sell !== null, 'sell rung priced for boughtPoints = -1.0');
+    TestRunner::assertEqualsFloat(-2.5, $sell['line'], 'sell line -2.5', 1e-9);
+    $buy = BuyPointsPricing::priceBoughtPointFromFeed('baseball_mlb', 'spreads', 'Tigers', -1.5, 3.0, $pool);
+    TestRunner::assertTrue($buy !== null, 'buy rung priced for boughtPoints = +3.0');
+    TestRunner::assertEqualsFloat(1.5, $buy['line'], 'buy line +1.5', 1e-9);
 });
 
 // ── placement: priceBoughtPointFromFeed (single rung or null) ────────────────

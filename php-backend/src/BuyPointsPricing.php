@@ -25,7 +25,9 @@ declare(strict_types=1);
 final class BuyPointsPricing
 {
     private const HALF_POINT = 0.5;
-    private const MAX_HALF_STEPS = 5;
+    // Up to 6 half-points (±3.0) in EITHER direction. 6 (not 5) so a base run
+    // line of ±1.5 can reach the opposite main line (e.g. -1.5 → +1.5).
+    private const MAX_HALF_STEPS = 6;
 
     // ── Synthetic ladder (no-feed-alt-lines fallback) ───────────────────────
     // Some sports (basketball) ship NO alternate-line ladder, so the feed-
@@ -152,22 +154,18 @@ final class BuyPointsPricing
     }
 
     /**
-     * Validate a boughtPoints value. Returns the number of half-point
-     * steps (1..MAX_HALF_STEPS) on success, throws on invalid input.
-     * boughtPoints==0 returns 0 (no buy; caller short-circuits).
+     * Validate a boughtPoints value. Returns the SIGNED number of half-point
+     * steps on success, throws on invalid input. The sign is the direction:
+     * positive = buy (easier/cheaper line), negative = sell (harder line for a
+     * better payout). boughtPoints==0 returns 0 (no move; caller short-circuits).
      */
     public static function halfStepsFromBoughtPoints(float $boughtPoints): int
     {
-        if ($boughtPoints < 0) {
-            throw new ApiException('boughtPoints must be a non-negative half-point value.', 400, [
-                'code' => 'INVALID_BUY_POINTS',
-            ]);
-        }
         if ($boughtPoints === 0.0) {
             return 0;
         }
-        // Convert to half-point steps. 0.5 → 1, 1.0 → 2, 2.5 → 5, etc.
-        // We accept floating drift up to 1e-6 (e.g. 0.4999999) and snap.
+        // Convert to half-point steps. 0.5 → 1, -1.0 → -2, 2.5 → 5, etc.
+        // We accept floating drift up to 1e-4 (e.g. 0.4999999) and snap.
         $stepsFloat = $boughtPoints / self::HALF_POINT;
         $stepsRounded = (int) round($stepsFloat);
         if (abs($stepsFloat - $stepsRounded) > 1e-4) {
@@ -175,9 +173,10 @@ final class BuyPointsPricing
                 'code' => 'INVALID_BUY_POINTS',
             ]);
         }
-        if ($stepsRounded < 1 || $stepsRounded > self::MAX_HALF_STEPS) {
+        $magnitude = abs($stepsRounded);
+        if ($magnitude < 1 || $magnitude > self::MAX_HALF_STEPS) {
             throw new ApiException(
-                sprintf('boughtPoints must be between 0.5 and %.1f.', self::MAX_HALF_STEPS * self::HALF_POINT),
+                sprintf('boughtPoints must be between -%.1f and %.1f.', self::MAX_HALF_STEPS * self::HALF_POINT, self::MAX_HALF_STEPS * self::HALF_POINT),
                 400,
                 ['code' => 'INVALID_BUY_POINTS']
             );
@@ -488,15 +487,103 @@ final class BuyPointsPricing
     }
 
     /**
-     * The single feed-priced rung for a specific boughtPoints buy, or null if
-     * the feed has no price for it (caller throws BUY_POINTS_NO_FEED_PRICE).
+     * The "sell" (harder-line) half of the ladder: feed-priced rungs in the
+     * OPPOSITE direction to a buy — laying more points / a tougher total for a
+     * better payout. `points` is NEGATIVE (the sign carries the direction, same
+     * convention as signedPointDelta). Feed-only: no synthesis, no win-zone fill
+     * (a harder line is never the pick'em zone). House-safe: rungs that land on
+     * the bettor-favorable side (spread line >= 0, e.g. a dog laying fewer
+     * points) still can't beat the side moneyline (same ML floor as buys).
+     *
+     * @param list<array<string,mixed>> $pool combined market pool
+     * @return list<array{points: float, line: float, decimal: float, american: int}>
+     */
+    public static function sellLadderFromFeed(string $sportKey, string $marketType, string $selection, float $basePoint, array $pool): array
+    {
+        if (!self::isAllowedMarket($marketType) || !self::isSportEnabled($sportKey)) {
+            return [];
+        }
+        $m = strtolower(trim($marketType));
+        $altOutcomes = self::outcomesForKey($pool, 'alternate_' . $m);
+        if ($altOutcomes === []) {
+            return []; // sells are feed-only — never synthesized.
+        }
+        $priceByPoint = self::feedPriceByPoint($altOutcomes, $m, $selection);
+        if ($priceByPoint === []) {
+            return [];
+        }
+
+        $isSpread = $m === 'spreads';
+        $noTie = self::isNoTieSport($sportKey);
+        $mlDecimal = $isSpread ? self::sideMoneylineDecimal($pool, $selection) : null;
+
+        $ladder = [];
+        for ($steps = 1; $steps <= self::MAX_HALF_STEPS; $steps++) {
+            $points = -($steps * self::HALF_POINT); // NEGATIVE = sell direction
+            $line = round($basePoint + self::signedPointDelta($m, $selection, $points), 2);
+
+            // No-tie spreads never surface the win zone, in either direction.
+            if ($isSpread && $noTie && abs($line) < self::NO_TIE_WIN_ZONE) {
+                continue;
+            }
+            $key = self::pointKey($line);
+            if (!array_key_exists($key, $priceByPoint)) {
+                continue; // D1: no feed price → no rung.
+            }
+            $decimal = SportsbookBetSupport::snapDecimalOdds($priceByPoint[$key]);
+            $american = SportsbookBetSupport::decimalToAmericanInt($decimal);
+            if ($american === 0) {
+                continue;
+            }
+            $exactDecimal = SportsbookBetSupport::americanToDecimalExact($american);
+            if (!is_finite($exactDecimal) || $exactDecimal <= 1.0) {
+                continue;
+            }
+            // ML floor on any bettor-favorable rung (line >= 0), same as buys.
+            if ($isSpread && $line >= -1e-9) {
+                if ($mlDecimal === null || $exactDecimal > $mlDecimal + 1e-9) {
+                    continue;
+                }
+            }
+            $ladder[] = [
+                'points' => $points,
+                'line' => $line,
+                'decimal' => $exactDecimal,
+                'american' => $american,
+            ];
+        }
+        return $ladder;
+    }
+
+    /**
+     * The full bidirectional dropdown ladder: buys (positive points) + sells
+     * (negative points), sorted ascending by signed points. SINGLE SOURCE for
+     * both display (attachBuyPointsLadders) and placement
+     * (priceBoughtPointFromFeed) so what shows == what places == what settles.
+     *
+     * @param list<array<string,mixed>> $pool combined market pool
+     * @return list<array{points: float, line: float, decimal: float, american: int}>
+     */
+    public static function fullLadderFromFeed(string $sportKey, string $marketType, string $selection, float $basePoint, array $pool): array
+    {
+        $buys = self::ladderFromFeed($sportKey, $marketType, $selection, $basePoint, $pool);
+        $sells = self::sellLadderFromFeed($sportKey, $marketType, $selection, $basePoint, $pool);
+        $all = array_merge($sells, $buys);
+        usort($all, static fn(array $a, array $b): int => $a['points'] <=> $b['points']);
+        return $all;
+    }
+
+    /**
+     * The single feed-priced rung for a specific boughtPoints move (buy when
+     * positive, sell when negative), or null if there's no price for it (caller
+     * throws BUY_POINTS_NO_FEED_PRICE).
      *
      * @param list<array<string,mixed>> $pool combined market pool
      * @return array{points: float, line: float, decimal: float, american: int}|null
      */
     public static function priceBoughtPointFromFeed(string $sportKey, string $marketType, string $selection, float $basePoint, float $boughtPoints, array $pool): ?array
     {
-        $ladder = self::ladderFromFeed($sportKey, $marketType, $selection, $basePoint, $pool);
+        $ladder = self::fullLadderFromFeed($sportKey, $marketType, $selection, $basePoint, $pool);
         foreach ($ladder as $rung) {
             if (abs($rung['points'] - $boughtPoints) < 1e-6) {
                 return $rung;

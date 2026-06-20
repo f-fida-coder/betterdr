@@ -320,9 +320,12 @@ const buildBuyPointsOptions = (sel) => {
             const altDec = Number(alt?.odds);
             if (!Number.isFinite(altLine) || !Number.isFinite(altDec) || altDec <= 1) return;
             const delta = altLine - baseLine;
-            if (lineStep > 0 && delta <= 0) return;
-            if (lineStep < 0 && delta >= 0) return;
-            if (Math.abs(delta) > 2.5 + 1e-6) return;
+            if (Math.abs(delta) < 1e-9) return; // skip the base line (already added)
+            // Show BOTH directions — buying (easier/cheaper) AND selling
+            // (harder line for a better payout). The server already vetted and
+            // priced every rung (feed-anchored or house-safe synthetic), so we
+            // surface them all within the ±3.0 window.
+            if (Math.abs(delta) > 3.0 + 1e-6) return;
             const altAmerican = decimalToAmerican(altDec);
             if (!Number.isFinite(altAmerican)) return;
             options.push({
@@ -332,8 +335,9 @@ const buildBuyPointsOptions = (sel) => {
                 isOriginal: false,
             });
         });
+        // Nearest the base line first, then cap so the dropdown stays scannable.
         options.sort((a, b) => Math.abs(a.line - baseLine) - Math.abs(b.line - baseLine));
-        return options.slice(0, 5);
+        return options.slice(0, 8);
     }
 
     // No server alternateLines → no buy-points (base line only, no dropdown).
@@ -1362,9 +1366,10 @@ const ModeBetPanel = ({
                             : originalLine - Number(option.line);
                     }
                 }
-                // Snap to a half-point grid and clamp negatives. A user
-                // selecting the original row produces bought ≈ 0.
-                const snapped = Math.max(0, Math.round(bought * 2) / 2);
+                // Snap to a half-point grid. SIGNED: positive = buy (easier),
+                // negative = sell (harder line, better payout). Selecting the
+                // original row produces bought ≈ 0.
+                const snapped = Math.round(bought * 2) / 2;
                 return {
                     ...s,
                     line: option.line,
@@ -1614,10 +1619,11 @@ const ModeBetPanel = ({
                             // Exact alt rung point (signed) so the server pins
                             // the rung by (name + point), not name alone.
                             ...(Number.isFinite(Number(sel.point)) ? { point: Number(sel.point) } : {}),
-                            // Buy Points (spread/total only). Omitted when 0
-                            // so legacy backends don't see an unexpected
-                            // field; backend default is 0.0 either way.
-                            ...(Number(sel.boughtPoints) > 0 ? { boughtPoints: Number(sel.boughtPoints) } : {}),
+                            // Buy Points (spread/total only). SIGNED: + buys
+                            // (easier), - sells (harder). Omitted when 0 so
+                            // legacy backends don't see an unexpected field;
+                            // backend default is 0.0 either way.
+                            ...(Math.abs(Number(sel.boughtPoints)) > 1e-9 ? { boughtPoints: Number(sel.boughtPoints) } : {}),
                             // MLB listed-pitcher Action waiver, per side.
                             ...(isMlbSportKey(sel.sportKey) ? { pitcherAction: { home: !!sel.pitcherAction?.home, away: !!sel.pitcherAction?.away } } : {}),
                         }],
@@ -1732,7 +1738,7 @@ const ModeBetPanel = ({
                     // Exact alt rung point (signed) so the server pins the rung
                     // by (name + point), not name alone.
                     ...(Number.isFinite(Number(sel.point)) ? { point: Number(sel.point) } : {}),
-                    ...(Number(sel.boughtPoints) > 0 ? { boughtPoints: Number(sel.boughtPoints) } : {}),
+                    ...(Math.abs(Number(sel.boughtPoints)) > 1e-9 ? { boughtPoints: Number(sel.boughtPoints) } : {}),
                     // MLB listed-pitcher Action waiver, per side.
                     ...(isMlbSportKey(sel.sportKey) ? { pitcherAction: { home: !!sel.pitcherAction?.home, away: !!sel.pitcherAction?.away } } : {}),
                 })),

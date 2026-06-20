@@ -1207,7 +1207,7 @@ final class MatchesController
                 if (!is_numeric($pointRaw)) {
                     continue;
                 }
-                $ladder = BuyPointsPricing::ladderFromFeed(
+                $ladder = BuyPointsPricing::fullLadderFromFeed(
                     $sportKey,
                     $marketKey,
                     (string) ($outcome['name'] ?? ''),

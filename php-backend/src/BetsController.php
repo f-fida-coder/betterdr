@@ -243,7 +243,7 @@ final class BetsController
                 // (the slip already hides the picker). Reject before we
                 // touch the pricing helper so a tampered client can't
                 // stack a paid-juice buy on top of a tease.
-                if ($boughtPoints > 0 && $type === 'teaser') {
+                if (abs($boughtPoints) > 1e-9 && $type === 'teaser') {
                     throw new ApiException('Buy Points is not available in teaser mode.', 400, [
                         'code' => 'BUY_POINTS_NOT_ALLOWED_IN_TEASER',
                     ]);
@@ -3210,9 +3210,10 @@ final class BetsController
         $originalPoint = $adjustedPoint;
         $appliedBoughtPoints = 0.0;
         $signedPointDelta = 0.0;
-        if ($boughtPoints > 0) {
+        if (abs($boughtPoints) > 1e-9) {
             // Buy-points is gated per sport (interim lock 2026-06-16: default
             // OFF until each sport's feed-anchored pricing is verified).
+            // boughtPoints is SIGNED: + buys (easier), - sells (harder).
             // Base lines (boughtPoints == 0) are unaffected.
             if (!BuyPointsPricing::isSportEnabled((string) ($match['sportKey'] ?? ''))) {
                 throw new ApiException('Buy Points is temporarily unavailable. Please place the base line instead.', 400, [
@@ -3398,7 +3399,7 @@ final class BetsController
             // audit, reporting) can filter buy-points legs without
             // re-deriving from boughtPoints. Derived here from the magnitude
             // the validator already vetted, so it stays in lockstep.
-            'isBuyPoints' => (isset($selection['boughtPoints']) && (float) $selection['boughtPoints'] > 0.0),
+            'isBuyPoints' => (isset($selection['boughtPoints']) && abs((float) $selection['boughtPoints']) > 1e-9),
             'status' => 'pending',
             // MLB listed-pitcher Action waiver (per side). Settlement reads
             // this alongside the leg's matchSnapshot to decide whether a
