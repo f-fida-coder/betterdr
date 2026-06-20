@@ -83,6 +83,22 @@ final class RundownClient
     }
 
     /**
+     * GET /events/{eventID}/players/stats — final player box-score stats.
+     * Used by player-prop settlement to grade a leg against the player's
+     * actual stat line. Returns null when the feed is unconfigured/unavailable
+     * (caller leaves the bet pending — never guesses).
+     *
+     * @param array<string,mixed> $params optional player_ids / stats_ids filters
+     */
+    public static function getPlayerGameStats(string $eventId, array $params = []): ?array
+    {
+        if ($eventId === '') {
+            return null;
+        }
+        return self::get('/events/' . rawurlencode($eventId) . '/players/stats', self::normalizeQuery($params));
+    }
+
+    /**
      * Wrap self::get() with ≤12-ID market_ids batching. When batching is off
      * (RUNDOWN_MARKET_IDS_BATCH != true) or the request already has ≤12 IDs,
      * this is a passthrough — ZERO behavior change. When on AND >12 IDs, the

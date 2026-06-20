@@ -3311,10 +3311,19 @@ final class BetsController
             // the stable match key settlement and the odds-change handshake run
             // on — do NOT replace it with the full name.
             'selection' => (string) ($outcome['name'] ?? $selection),
-            // selectionFull / selectionPid are DISPLAY + audit only: the full
-            // "City Mascot" team name for the picked side, and the outcome's
-            // stable team_id. Nothing matches on them.
-            'selectionFull' => $this->fullSelectionLabel($match, $outcome, $selection),
+            // selectionFull: the full "City Mascot" team name for team markets,
+            // or the player-inclusive label ("Aaron Judge Over 0.5") for props
+            // so the slip/MyBets show WHO the bet is on (and prop settlement has
+            // a name fallback). selectionPid: the stable team_id (team markets)
+            // or PLAYER id (props) — prop settlement matches the box score on
+            // this id, never the display name.
+            'selectionFull' => $isPropMarket
+                ? trim(
+                    (string) ($outcome['description'] ?? '')
+                    . ' ' . (string) ($outcome['name'] ?? '')
+                    . ($adjustedPoint !== null ? ' ' . rtrim(rtrim(number_format((float) $adjustedPoint, 2, '.', ''), '0'), '.') : '')
+                )
+                : $this->fullSelectionLabel($match, $outcome, $selection),
             'selectionPid' => $outcome['pid'] ?? null,
             // Team totals canonical fields (null on every other market). The
             // outcome carries these structured from the mapper; settlement

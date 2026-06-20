@@ -107,6 +107,11 @@ final class BetSettlementService
             }
 
             $teaserRule = self::getTeaserRule($db);
+            // Player-prop box score, fetched lazily ONCE per match (the first
+            // time a prop leg needs it) and cached for the rest of this match's
+            // legs. `false` = not yet fetched; null = unavailable/disabled (prop
+            // legs then stay pending). See fetchPlayerStatsForMatch().
+            $playerStats = false;
             foreach (array_keys($betIds) as $betId) {
                 try {
                     $db->beginTransaction();
@@ -152,10 +157,18 @@ final class BetSettlementService
                         $rowMatchId = (string) ($row['matchId'] ?? '');
                         $rowStatus = (string) ($row['status'] ?? 'pending');
                         if ($rowMatchId === $matchId && $rowStatus === 'pending') {
+                            // Prop leg → make sure the box score is loaded (once
+                            // per match, feature-flagged). Non-prop legs ignore it.
+                            if ($playerStats === false
+                                && PlayerPropSettlement::isGradableProp((string) ($row['marketType'] ?? ''))
+                            ) {
+                                $playerStats = self::fetchPlayerStatsForMatch($match);
+                            }
                             $resolvedStatus = SportsbookBetSupport::selectionResult(
                                 $match,
                                 $row,
-                                self::isH2HMarket((string) ($row['marketType'] ?? '')) ? $manualWinner : null
+                                self::isH2HMarket((string) ($row['marketType'] ?? '')) ? $manualWinner : null,
+                                is_array($playerStats) ? $playerStats : null
                             );
 
                             if ($resolvedStatus !== $rowStatus) {
@@ -646,6 +659,48 @@ final class BetSettlementService
         $fresh = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
         $status = strtolower((string) ($fresh['status'] ?? ''));
         return in_array($status, ['finished', 'canceled', 'cancelled'], true);
+    }
+
+    /**
+     * Final player box score for prop settlement, or null. Feature-flagged
+     * (SPORTSBOOK_PROP_SETTLEMENT_ENABLED, default OFF): disabled → returns null
+     * so every prop leg stays pending (today's behavior). Cached per event for a
+     * short window so a sweep doesn't re-hit the upstream for the same game.
+     * Never throws — any failure returns null (→ the prop stays pending, never a
+     * guessed grade).
+     *
+     * @param array<string,mixed> $match
+     * @return array<string,mixed>|null
+     */
+    private static function fetchPlayerStatsForMatch(array $match): ?array
+    {
+        $flag = strtolower(trim((string) (Env::get('SPORTSBOOK_PROP_SETTLEMENT_ENABLED', 'false') ?? 'false')));
+        if ($flag !== 'true' && $flag !== '1') {
+            return null; // feature off → props stay pending
+        }
+        $eventId = trim((string) ($match['externalId'] ?? ''));
+        if ($eventId === '' || !RundownClient::isConfigured()) {
+            return null;
+        }
+        try {
+            $cached = SharedFileCache::remember(
+                'rundown-player-stats',
+                $eventId,
+                120,
+                static function () use ($eventId): array {
+                    $stats = RundownClient::getPlayerGameStats($eventId);
+                    return ['stats' => is_array($stats) ? $stats : null];
+                }
+            );
+            $stats = $cached['stats'] ?? null;
+            return is_array($stats) ? $stats : null;
+        } catch (Throwable $e) {
+            Logger::warning('player-stats fetch failed', [
+                'eventId' => $eventId,
+                'error'   => $e->getMessage(),
+            ], 'settlement');
+            return null;
+        }
     }
 
     private static function shouldTryFallbackScore(array $match, ?int $nowTs = null): bool

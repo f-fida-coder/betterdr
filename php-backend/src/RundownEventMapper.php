@@ -413,7 +413,12 @@ final class RundownEventMapper
                         if ($isProp || $participantType === 'TYPE_PLAYER') {
                             if (!$isMain) continue;
                             $propKey = RundownMarketMap::propKey($marketId) ?? 'player_unknown';
-                            $propOutcome = self::buildPropOutcome($rawParticipantName, $lineValueRaw, $point, $priceDecimal);
+                            // Player id (Rundown participant.id for a TYPE_PLAYER
+                            // participant) — carried as `pid` so settlement can
+                            // match this leg to the player's box-score stats by a
+                            // STABLE id, never by name. Empty → null.
+                            $playerId = ($participantTeamKey !== '') ? $participantTeamKey : null;
+                            $propOutcome = self::buildPropOutcome($rawParticipantName, $lineValueRaw, $point, $priceDecimal, $playerId);
                             if ($propOutcome !== null) {
                                 $propsByKey[$propKey][] = $propOutcome + ['book' => $book['key']];
                             }
@@ -715,9 +720,14 @@ final class RundownEventMapper
      * player to one lineless price. Parse the line value first; fall back to
      * the legacy participant-name prefix and bare-numeric shapes.
      */
-    private static function buildPropOutcome(string $participantName, string $lineValueRaw, ?float $pointNumeric, int|float $price): ?array
+    private static function buildPropOutcome(string $participantName, string $lineValueRaw, ?float $pointNumeric, int|float $price, ?string $playerId = null): ?array
     {
         if ($participantName === '') return null;
+
+        // Stable player id (Rundown participant.id) so settlement matches the
+        // player's box-score stats by id, not by display name. Stamped on every
+        // shape; null when the feed didn't carry one.
+        $pid = ($playerId !== null && $playerId !== '') ? ['pid' => $playerId] : [];
 
         $lineValue = trim($lineValueRaw);
 
@@ -728,7 +738,7 @@ final class RundownEventMapper
                 'description' => $participantName,
                 'price'       => $price,
                 'point'       => (float) $m[2],
-            ];
+            ] + $pid;
         }
 
         // Legacy shape: the participant name itself carries the O/U prefix
@@ -739,7 +749,7 @@ final class RundownEventMapper
                 'description' => trim($m[2]),
                 'price'       => $price,
                 'point'       => $pointNumeric,
-            ];
+            ] + $pid;
         }
 
         // Non-O/U side label (e.g. "Yes"/"No" for double-double, scorer
@@ -750,7 +760,7 @@ final class RundownEventMapper
                 'description' => $participantName,
                 'price'       => $price,
                 'point'       => $pointNumeric,
-            ];
+            ] + $pid;
         }
 
         // Bare player prop: numeric or empty line value, no side. Prefer the
@@ -760,7 +770,7 @@ final class RundownEventMapper
             'description' => $participantName,
             'price'       => $price,
             'point'       => $pointNumeric ?? ($lineValue !== '' && is_numeric($lineValue) ? (float) $lineValue : null),
-        ];
+        ] + $pid;
     }
 
     /**

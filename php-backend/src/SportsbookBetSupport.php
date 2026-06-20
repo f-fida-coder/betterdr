@@ -942,7 +942,7 @@ final class SportsbookBetSupport
         return 'short'; // positively fewer than 9 innings → no action
     }
 
-    public static function selectionResult(array $match, array $selection, ?string $manualWinner = null): string
+    public static function selectionResult(array $match, array $selection, ?string $manualWinner = null, ?array $playerStats = null): string
     {
         $effectiveStatus = SportsMatchStatus::effectiveStatus($match);
         if ($manualWinner !== null) {
@@ -979,6 +979,18 @@ final class SportsbookBetSupport
         }
 
         $marketType = strtolower((string) ($selection['marketType'] ?? ''));
+
+        // Player props grade off the player's box-score stats, matched by stable
+        // player id (selectionPid). The settlement sweep supplies $playerStats
+        // ONLY when prop settlement is enabled and the box score is available;
+        // without it (flag off, no stats, or a pre-player-id leg) the prop stays
+        // 'pending' — never a guessed grade.
+        if (PlayerPropSettlement::isGradableProp($marketType)) {
+            return $playerStats !== null
+                ? PlayerPropSettlement::grade($selection, $playerStats)
+                : 'pending';
+        }
+
         $selectionName = (string) ($selection['selection'] ?? '');
         $point = array_key_exists('point', $selection) && is_numeric($selection['point']) ? (float) $selection['point'] : null;
         $homeTeam = (string) ($match['homeTeam'] ?? '');
