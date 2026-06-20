@@ -93,19 +93,21 @@ final class AltLineCap
 
     /**
      * Single-offset GAME-totals alt selection config. When enabled, the totals
-     * alt column shows ONE rung per direction at ~main±offset (instead of the
-     * nearest-N ladder). Resolution: platformsettings (live, no restart) → env
-     * → defaults. DEFAULT OFF so production behavior is unchanged until the
-     * operator opts in.
+     * alt column shows ONE total line at ~main+offset and surfaces BOTH sides
+     * (Over AND Under) of that single line — matching the competitor's one alt
+     * total line (e.g. O 11½ +375 / U 11½ −550) — instead of the nearest-N
+     * ladder. Resolution: platformsettings (live, no restart) → env → defaults.
+     * DEFAULT OFF so production behavior is unchanged until the operator opts in.
      *
      *   - enabled:   altTotalSingleEnabled / SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED
      *   - offset:    altTotalOffset       / SPORTSBOOK_ALT_TOTAL_OFFSET     (3.0)
      *   - bandLo:    altTotalBandLow      / SPORTSBOOK_ALT_TOTAL_BAND_LOW   (3.0)
      *   - bandHi:    altTotalBandHigh     / SPORTSBOOK_ALT_TOTAL_BAND_HIGH  (3.5)
      *   - direction: altTotalDirection    / SPORTSBOOK_ALT_TOTAL_DIRECTION  (both)
+     *     both = O+U at the line; over = Over only; under = Under only.
      *
-     * This only PICKS which published feed rung to surface; prices stay whatever
-     * the feed stored at that rung — nothing is synthesized.
+     * This only PICKS which published feed line to surface; prices stay whatever
+     * the feed stored on each side of that line — nothing is synthesized.
      *
      * @param array<string,mixed>|null $platformSettings
      * @return array{enabled:bool,offset:float,bandLo:float,bandHi:float,direction:string}
@@ -142,7 +144,7 @@ final class AltLineCap
             'SPORTSBOOK_ALT_TOTAL_DIRECTION',
             'both'
         )));
-        if ($direction !== 'over') {
+        if ($direction !== 'over' && $direction !== 'under') {
             $direction = 'both';
         }
         if ($bandHi < $bandLo) {
@@ -429,11 +431,13 @@ final class AltLineCap
 
     /**
      * Single-offset totals selection. Anchored on the existing main total (from
-     * coreOutcomes — NOT re-derived from pricing): surface ONE published feed
-     * rung per direction at ~main±offset. Over always; Under only when
-     * direction is 'both'. If the main can't be resolved, return [] (fail safe:
-     * no rungs rather than a guessed anchor). Picks indices only — prices are
-     * the feed's stored prices at those rungs.
+     * coreOutcomes — NOT re-derived from pricing): pick ONE published total line
+     * at ~main+offset, then surface BOTH sides (Over AND Under) of that single
+     * line at their real feed prices — the competitor's one-alt-line style.
+     * `direction` filters which side(s) of the line to show (both | over | under).
+     * If the main can't be resolved, return [] (fail safe: no rungs rather than
+     * a guessed anchor). Picks the line only — prices are the feed's stored
+     * prices on each side.
      *
      * @param array<int,array<string,mixed>> $altOutcomes
      * @param array<int,array<string,mixed>> $coreOutcomes
@@ -447,15 +451,25 @@ final class AltLineCap
             return [];
         }
 
-        $keep = [];
-        $overIdx = self::pickOffsetRung($altOutcomes, 'over', $main, $offset, $bandLo, $bandHi, true);
-        if ($overIdx !== null) {
-            $keep[$overIdx] = true;
+        $line = self::pickOffsetLine($altOutcomes, $main, $offset, $bandLo, $bandHi);
+        if ($line === null) {
+            return [];
         }
-        if ($direction !== 'over') {
-            $underIdx = self::pickOffsetRung($altOutcomes, 'under', $main, $offset, $bandLo, $bandHi, false);
-            if ($underIdx !== null) {
-                $keep[$underIdx] = true;
+
+        $wantOver = $direction !== 'under';
+        $wantUnder = $direction !== 'over';
+
+        $keep = [];
+        foreach ($altOutcomes as $i => $o) {
+            if (!is_array($o) || !isset($o['point']) || !is_numeric($o['point'])) {
+                continue;
+            }
+            if (abs((float) $o['point'] - $line) > self::EPS) {
+                continue; // only the chosen line
+            }
+            $name = strtolower(trim((string) ($o['name'] ?? '')));
+            if (($name === 'over' && $wantOver) || ($name === 'under' && $wantUnder)) {
+                $keep[$i] = true;
             }
         }
 
@@ -463,39 +477,34 @@ final class AltLineCap
     }
 
     /**
-     * Pick the single published rung for one totals direction. Over uses rungs
-     * ABOVE the main (target = main + offset); Under uses rungs BELOW (target =
-     * main − offset). Preference: in-band [main±bandLo .. main±bandHi] rung
-     * closest to the target; else nearest published rung at least `offset` away
-     * from the main in the right direction. Returns the original index or null.
+     * Pick the single published total line at ~main+offset (ABOVE the main).
+     * Preference: in-band [main+bandLo .. main+bandHi] line closest to the
+     * target (main+offset); else the nearest published line at least `offset`
+     * above the main. Returns the line's point value, or null when the feed
+     * published no line that far out. The same value carries both the Over and
+     * Under outcomes in the feed.
      *
      * @param array<int,array<string,mixed>> $altOutcomes
      */
-    private static function pickOffsetRung(array $altOutcomes, string $sideName, float $main, float $offset, float $bandLo, float $bandHi, bool $above): ?int
+    private static function pickOffsetLine(array $altOutcomes, float $main, float $offset, float $bandLo, float $bandHi): ?float
     {
-        $target = $above ? $main + $offset : $main - $offset;
-        $bandNear = $above ? $main + $bandLo : $main - $bandLo;
-        $bandFar = $above ? $main + $bandHi : $main - $bandHi;
-        $bandMin = min($bandNear, $bandFar);
-        $bandMax = max($bandNear, $bandFar);
-        $floor = $above ? $main + $offset : $main - $offset; // min distance fallback edge
+        $target = $main + $offset;
+        $bandMin = $main + min($bandLo, $bandHi);
+        $bandMax = $main + max($bandLo, $bandHi);
+        $floor = $main + $offset; // fallback must be at least `offset` out
 
         $inBand = null;
         $inBandDist = INF;
         $fallback = null;
         $fallbackDist = INF;
 
-        foreach ($altOutcomes as $i => $o) {
+        foreach ($altOutcomes as $o) {
             if (!is_array($o) || !isset($o['point']) || !is_numeric($o['point'])) {
                 continue;
             }
-            if (strtolower(trim((string) ($o['name'] ?? ''))) !== $sideName) {
-                continue;
-            }
             $p = (float) $o['point'];
-            // Correct side of the main only.
-            if ($above ? ($p <= $main + self::EPS) : ($p >= $main - self::EPS)) {
-                continue;
+            if ($p <= $main + self::EPS) {
+                continue; // the alt line sits above the main
             }
 
             // In-band candidate: closest to the offset target.
@@ -503,16 +512,16 @@ final class AltLineCap
                 $d = abs($p - $target);
                 if ($d < $inBandDist - self::EPS) {
                     $inBandDist = $d;
-                    $inBand = $i;
+                    $inBand = $p;
                 }
             }
 
-            // Fallback candidate: at least `offset` from the main, nearest such.
-            if ($above ? ($p >= $floor - self::EPS) : ($p <= $floor + self::EPS)) {
+            // Fallback candidate: at least `offset` above the main, nearest such.
+            if ($p >= $floor - self::EPS) {
                 $d = abs($p - $target);
                 if ($d < $fallbackDist - self::EPS) {
                     $fallbackDist = $d;
-                    $fallback = $i;
+                    $fallback = $p;
                 }
             }
         }
