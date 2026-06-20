@@ -744,10 +744,14 @@ final class MatchesController
             } catch (Throwable $altCapErr) {
                 $altCapSettings = null;
             }
-            $altPerSide = AltLineCap::perSideLimit(is_array($altCapSettings) ? $altCapSettings : null);
-            if ($altPerSide !== AltLineCap::UNLIMITED) {
-                $annotated = array_map(function (array $match) use ($altPerSide): array {
-                    return $this->capMatchAlternateLadders($match, $altPerSide);
+            $capSettings = is_array($altCapSettings) ? $altCapSettings : [];
+            // Spreads and totals can have different caps; only skip entirely
+            // when BOTH are UNLIMITED (nothing to trim).
+            $spreadCap = AltLineCap::perSideLimit($capSettings);
+            $totalsCap = AltLineCap::totalsPerSideLimit($capSettings);
+            if ($spreadCap !== AltLineCap::UNLIMITED || $totalsCap !== AltLineCap::UNLIMITED) {
+                $annotated = array_map(function (array $match) use ($capSettings): array {
+                    return $this->capMatchAlternateLadders($match, $capSettings);
                 }, $annotated);
             }
         }
@@ -1011,13 +1015,14 @@ final class MatchesController
      * alternate ladders, in BOTH locations a client may read (odds.extendedMarkets
      * preferred, top-level extendedMarkets fallback — see frontend getMatchMarkets).
      * The main-line reference is the canonical odds.markets built moments earlier
-     * by canonicalizeOddsMarkets. perSide is resolved once by the caller (hot
+     * by canonicalizeOddsMarkets. Settings are resolved once by the caller (hot
      * list path), so this does no per-match settings read.
      *
      * @param array<string,mixed> $match
+     * @param array<string,mixed> $capSettings resolved platformsettings doc
      * @return array<string,mixed>
      */
-    private function capMatchAlternateLadders(array $match, int $perSide): array
+    private function capMatchAlternateLadders(array $match, array $capSettings): array
     {
         $sportKey    = (string) ($match['sportKey'] ?? '');
         $baseMarkets = is_array($match['odds']['markets'] ?? null) ? $match['odds']['markets'] : [];
@@ -1027,7 +1032,7 @@ final class MatchesController
                 $match['odds']['extendedMarkets'],
                 $baseMarkets,
                 $sportKey,
-                $perSide
+                $capSettings
             );
         }
         if (is_array($match['extendedMarkets'] ?? null)) {
@@ -1035,7 +1040,7 @@ final class MatchesController
                 $match['extendedMarkets'],
                 $baseMarkets,
                 $sportKey,
-                $perSide
+                $capSettings
             );
         }
         return $match;
@@ -1056,22 +1061,19 @@ final class MatchesController
      * @param array<int,array<string,mixed>> $baseMarkets
      * @return array<int,array<string,mixed>>
      */
-    private function capAlternateLadders(array $extended, array $baseMarkets, string $sportKey = '', ?int $perSide = null): array
+    private function capAlternateLadders(array $extended, array $baseMarkets, string $sportKey = '', ?array $capSettings = null): array
     {
-        // perSide is resolved per-call by default (MORE BETS sheet path); the
-        // board list passes a value resolved ONCE for the whole response so a
-        // 50-game pull doesn't read platformsettings 50 times.
-        if ($perSide === null) {
-            $settings = null;
+        // Cap is resolved PER MARKET KEY (totals get a wider limit than spreads)
+        // from platformsettings. Resolved per-call by default (MORE BETS sheet
+        // path); the board list passes the settings resolved ONCE for the whole
+        // response so a 50-game pull doesn't read platformsettings 50 times.
+        if ($capSettings === null) {
             try {
-                $settings = $this->db->findOne('platformsettings', []);
+                $capSettings = $this->db->findOne('platformsettings', []);
             } catch (Throwable $capErr) {
-                $settings = null;
+                $capSettings = null;
             }
-            $perSide = AltLineCap::perSideLimit(is_array($settings) ? $settings : null);
-        }
-        if ($perSide === AltLineCap::UNLIMITED) {
-            return $extended;
+            $capSettings = is_array($capSettings) ? $capSettings : [];
         }
 
         // coreKey → outcomes from non-alt markets (core board + period mains)
@@ -1095,6 +1097,11 @@ final class MatchesController
                 continue;
             }
             $altMarketKey = (string) ($m['key'] ?? '');
+            $perSide = AltLineCap::perSideLimitForKey($capSettings, $altMarketKey);
+            if ($perSide === AltLineCap::UNLIMITED) {
+                $out[] = $m; // no cap for this market type
+                continue;
+            }
             $coreOutcomes = $coreByKey[AltLineCap::coreKeyFor($altMarketKey)] ?? [];
             $altOutcomes = is_array($m['outcomes'] ?? null) ? $m['outcomes'] : [];
             $m['outcomes'] = AltLineCap::capOutcomes(

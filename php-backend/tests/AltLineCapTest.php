@@ -163,3 +163,33 @@ TestRunner::run('AltLineCap — key helpers', function (): void {
     TestRunner::assertEquals('spreads', AltLineCap::coreKeyFor('alternate_spreads'), 'core key strip');
     TestRunner::assertEquals('totals_1st_5_innings', AltLineCap::coreKeyFor('alternate_totals_1st_5_innings'), 'period core key strip');
 });
+
+// ── totals get a wider per-side cap than spreads ─────────────────────────────
+TestRunner::run('AltLineCap — totals cap wider than spreads; key-aware resolver', function (): void {
+    $origGetTotals = getenv('SPORTSBOOK_ALT_TOTALS_PER_SIDE');
+    $origEnvTotals = $_ENV['SPORTSBOOK_ALT_TOTALS_PER_SIDE'] ?? null;
+    $origGetSpread = getenv('SPORTSBOOK_ALT_LINES_PER_SIDE');
+    $origEnvSpread = $_ENV['SPORTSBOOK_ALT_LINES_PER_SIDE'] ?? null;
+    putenv('SPORTSBOOK_ALT_TOTALS_PER_SIDE'); unset($_ENV['SPORTSBOOK_ALT_TOTALS_PER_SIDE']);
+    putenv('SPORTSBOOK_ALT_LINES_PER_SIDE'); unset($_ENV['SPORTSBOOK_ALT_LINES_PER_SIDE']);
+
+    // Defaults: totals (4) > spreads (1).
+    TestRunner::assertEquals(AltLineCap::DEFAULT_TOTALS_PER_SIDE, AltLineCap::totalsPerSideLimit(null), 'totals default 4');
+    TestRunner::assertTrue(AltLineCap::DEFAULT_TOTALS_PER_SIDE > AltLineCap::DEFAULT_PER_SIDE, 'totals wider than spreads');
+
+    // Key-aware resolver: game totals → totals cap; spreads/team_totals → spread cap.
+    TestRunner::assertEquals(AltLineCap::DEFAULT_TOTALS_PER_SIDE, AltLineCap::perSideLimitForKey(null, 'alternate_totals'), 'alternate_totals → totals cap');
+    TestRunner::assertEquals(AltLineCap::DEFAULT_TOTALS_PER_SIDE, AltLineCap::perSideLimitForKey(null, 'alternate_totals_1st_5_innings'), 'period total → totals cap');
+    TestRunner::assertEquals(AltLineCap::DEFAULT_PER_SIDE, AltLineCap::perSideLimitForKey(null, 'alternate_spreads'), 'alternate_spreads → spread cap');
+    TestRunner::assertEquals(AltLineCap::DEFAULT_PER_SIDE, AltLineCap::perSideLimitForKey(null, 'alternate_team_totals'), 'team_totals → spread cap (not game totals)');
+
+    // settings > env > default for totals.
+    TestRunner::assertEquals(6, AltLineCap::totalsPerSideLimit(['alternateTotalsPerSide' => 6]), 'totals settings wins');
+    putenv('SPORTSBOOK_ALT_TOTALS_PER_SIDE=5'); $_ENV['SPORTSBOOK_ALT_TOTALS_PER_SIDE'] = '5';
+    TestRunner::assertEquals(5, AltLineCap::totalsPerSideLimit(null), 'totals env fallback');
+
+    if ($origGetTotals === false) { putenv('SPORTSBOOK_ALT_TOTALS_PER_SIDE'); } else { putenv('SPORTSBOOK_ALT_TOTALS_PER_SIDE=' . $origGetTotals); }
+    if ($origEnvTotals === null) { unset($_ENV['SPORTSBOOK_ALT_TOTALS_PER_SIDE']); } else { $_ENV['SPORTSBOOK_ALT_TOTALS_PER_SIDE'] = $origEnvTotals; }
+    if ($origGetSpread === false) { putenv('SPORTSBOOK_ALT_LINES_PER_SIDE'); } else { putenv('SPORTSBOOK_ALT_LINES_PER_SIDE=' . $origGetSpread); }
+    if ($origEnvSpread === null) { unset($_ENV['SPORTSBOOK_ALT_LINES_PER_SIDE']); } else { $_ENV['SPORTSBOOK_ALT_LINES_PER_SIDE'] = $origEnvSpread; }
+});

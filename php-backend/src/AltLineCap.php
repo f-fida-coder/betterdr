@@ -27,6 +27,14 @@ final class AltLineCap
     /** Default rungs per side when no setting/env is present. */
     public const DEFAULT_PER_SIDE = 1;
 
+    /**
+     * Default rungs per side for GAME TOTALS only. Totals have a meaningful
+     * range of alt lines (the competitor shows several O/U rungs), so they get
+     * a wider default than spreads — whose deep run-line alts are noise. Spreads
+     * keep DEFAULT_PER_SIDE.
+     */
+    public const DEFAULT_TOTALS_PER_SIDE = 4;
+
     /** Sentinel: no cap (show/accept every rung). */
     public const UNLIMITED = -1;
 
@@ -52,6 +60,50 @@ final class AltLineCap
             return self::clamp((int) $env);
         }
         return self::DEFAULT_PER_SIDE;
+    }
+
+    /**
+     * Per-side limit for GAME TOTALS ladders (alternate_totals and its period
+     * variants). platformsettings.alternateTotalsPerSide → env
+     * SPORTSBOOK_ALT_TOTALS_PER_SIDE → DEFAULT_TOTALS_PER_SIDE.
+     *
+     * @param array<string,mixed>|null $platformSettings
+     */
+    public static function totalsPerSideLimit(?array $platformSettings): int
+    {
+        if (
+            is_array($platformSettings)
+            && isset($platformSettings['alternateTotalsPerSide'])
+            && is_numeric($platformSettings['alternateTotalsPerSide'])
+        ) {
+            return self::clamp((int) $platformSettings['alternateTotalsPerSide']);
+        }
+        $env = Env::get('SPORTSBOOK_ALT_TOTALS_PER_SIDE', '');
+        if (is_string($env) && $env !== '' && is_numeric($env)) {
+            return self::clamp((int) $env);
+        }
+        return self::DEFAULT_TOTALS_PER_SIDE;
+    }
+
+    /** True for GAME-total ladders (totals, totals_h1, …) — NOT team_totals. */
+    public static function isTotalsCoreKey(string $coreKey): bool
+    {
+        return str_starts_with(strtolower(trim($coreKey)), 'totals');
+    }
+
+    /**
+     * The per-side cap for a specific alt market key: the wider totals cap for
+     * game-total ladders, else the spread/default cap. Used by BOTH display
+     * (capAlternateLadders) and placement (isPointAllowed guard) so a board-
+     * shown rung is always placeable.
+     *
+     * @param array<string,mixed>|null $platformSettings
+     */
+    public static function perSideLimitForKey(?array $platformSettings, string $altKey): int
+    {
+        return self::isTotalsCoreKey(self::coreKeyFor($altKey))
+            ? self::totalsPerSideLimit($platformSettings)
+            : self::perSideLimit($platformSettings);
     }
 
     private static function clamp(int $n): int

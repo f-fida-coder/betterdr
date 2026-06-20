@@ -46,6 +46,15 @@ final class BuyPointsPricing
     private const DEFAULT_SYNTH_PROB_STEP = 0.022; // win-prob added per half-point
     private const SYNTH_MAX_PROB = 0.97;           // payout floor; beyond this a buy is meaningless
 
+    // Run/puck-line "reference lines" cap. On baseball/hockey the meaningful
+    // run/puck lines cluster near pick'em (±1, ±1.5, ±2, ±2.5); deeper alts
+    // (+3, +3.5, +4 …) are noise that clutters the buy-points dropdown. For
+    // run/puck-line sports ONLY, drop any rung whose |line| exceeds this cap so
+    // the dropdown shows the reference band, not the whole feed ladder. Env-
+    // tunable (BUY_POINTS_REFERENCE_LINE_CAP). Other sports (basketball, NFL)
+    // have large spreads, so no absolute cap applies to them.
+    private const DEFAULT_REFERENCE_LINE_CAP = 2.5;
+
     public static function isAllowedMarket(string $marketType): bool
     {
         $m = strtolower(trim($marketType));
@@ -121,6 +130,29 @@ final class BuyPointsPricing
     {
         $k = strtolower(trim($sportKey));
         return str_starts_with($k, 'baseball_') || str_starts_with($k, 'icehockey_');
+    }
+
+    /**
+     * Whether a rung's line is outside the run/puck-line "reference band" and
+     * should be dropped from the dropdown (run/puck-line sports only). Keeps the
+     * dropdown to the meaningful near-pick'em lines instead of the deep alt
+     * ladder. Env-tunable via BUY_POINTS_REFERENCE_LINE_CAP (clamped to a sane
+     * 1.5–5.0 range).
+     */
+    private static function exceedsReferenceBand(string $sportKey, float $line): bool
+    {
+        if (!self::isRunLineSport($sportKey)) {
+            return false;
+        }
+        $raw = Env::get('BUY_POINTS_REFERENCE_LINE_CAP', '');
+        $cap = is_numeric($raw) ? (float) $raw : self::DEFAULT_REFERENCE_LINE_CAP;
+        if (!is_finite($cap) || $cap < 1.5) {
+            $cap = self::DEFAULT_REFERENCE_LINE_CAP;
+        }
+        if ($cap > 5.0) {
+            $cap = 5.0;
+        }
+        return abs($line) > $cap + 1e-9;
     }
 
     /**
@@ -277,6 +309,11 @@ final class BuyPointsPricing
 
             // D2: no-tie win-zone spreads are omitted (book-standard skip).
             if ($isSpread && $noTie && abs($line) < self::NO_TIE_WIN_ZONE) {
+                continue;
+            }
+            // Reference-band cap: drop deep run/puck-line alts (keeps the
+            // dropdown to the near-pick'em reference lines).
+            if ($isSpread && self::exceedsReferenceBand($sportKey, $line)) {
                 continue;
             }
 
@@ -524,6 +561,10 @@ final class BuyPointsPricing
 
             // No-tie spreads never surface the win zone, in either direction.
             if ($isSpread && $noTie && abs($line) < self::NO_TIE_WIN_ZONE) {
+                continue;
+            }
+            // Reference-band cap: drop deep run/puck-line alts.
+            if ($isSpread && self::exceedsReferenceBand($sportKey, $line)) {
                 continue;
             }
             $key = self::pointKey($line);

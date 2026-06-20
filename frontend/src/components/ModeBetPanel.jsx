@@ -335,9 +335,13 @@ const buildBuyPointsOptions = (sel) => {
                 isOriginal: false,
             });
         });
-        // Nearest the base line first, then cap so the dropdown stays scannable.
+        // Nearest the base line first, then cap so the dropdown stays compact
+        // (base + 5 nearest reference rungs ≈ the competitor's tight look). 6
+        // (not 4) so a favorite's opposite-side reference line — e.g. +1.5 on a
+        // -1.5 run line, which sits 5 rungs out across the win-zone gap — isn't
+        // silently dropped.
         options.sort((a, b) => Math.abs(a.line - baseLine) - Math.abs(b.line - baseLine));
-        return options.slice(0, 8);
+        return options.slice(0, 6);
     }
 
     // No server alternateLines → no buy-points (base line only, no dropdown).
@@ -1503,8 +1507,15 @@ const ModeBetPanel = ({
         }
         if (updates.size === 0) return false;
 
+        // Compute the patch SYNCHRONOUSLY against the current slip so
+        // patchedCount is reliable. (Previously this counter was incremented
+        // inside a setState updater, which React runs LATER during render — so
+        // the patchedCount===0 check below always saw 0 and every odds change
+        // dead-ended at "couldn't be refreshed", even when legs did match.)
+        // The submission lock holds the slip stable during placement, so
+        // reading `selections` here is safe.
         let patchedCount = 0;
-        onSelectionsChange((prev) => prev.map((s) => {
+        const patched = selections.map((s) => {
             // Backend may not echo the marketType verbatim — try a
             // marketType-qualified match first, then fall back to
             // (matchId, selection) so a leg whose marketType lookup
@@ -1525,7 +1536,10 @@ const ModeBetPanel = ({
             // them re-type) is the safe default after a price move.
             const { wagerOverride: _drop, ...rest } = s;
             return { ...rest, odds: next };
-        }));
+        });
+        if (patchedCount > 0) {
+            onSelectionsChange(patched);
+        }
 
         // Force a fresh requestId on the next click — the slip
         // signature changes when we patch odds, but we also clear

@@ -695,6 +695,29 @@ TestRunner::run('priceBoughtPointFromFeed — places a SELL rung via negative bo
     TestRunner::assertEqualsFloat(1.5, $buy['line'], 'buy line +1.5', 1e-9);
 });
 
+TestRunner::run('fullLadderFromFeed — run-line reference cap drops deep alts (|line| > 2.5)', function () use ($mkPool): void {
+    // White Sox +2 (-265) dog. The feed prices deep alts +3/+3.5/+4 plus the
+    // reference lines. The dropdown should show only the near-pick'em reference
+    // band (|line| <= 2.5): -1, +1, +2.5 (and the base +2 the frontend adds).
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'White Sox', 'point' => 2.0, 'price' => 1.377]], // -265
+        'h2h'               => [['name' => 'White Sox', 'price' => 2.80]],                   // +180 dog ML
+        'alternate_spreads' => [
+            ['name' => 'White Sox', 'point' => 2.5, 'price' => 1.31],
+            ['name' => 'White Sox', 'point' => 3.0, 'price' => 1.23],
+            ['name' => 'White Sox', 'point' => 3.5, 'price' => 1.19],
+            ['name' => 'White Sox', 'point' => 4.0, 'price' => 1.14],
+            ['name' => 'White Sox', 'point' => 1.0, 'price' => 1.714],
+            ['name' => 'White Sox', 'point' => -1.0, 'price' => 2.37],
+        ],
+    ]);
+    $full = BuyPointsPricing::fullLadderFromFeed('baseball_mlb', 'spreads', 'White Sox', 2.0, $pool);
+    $lines = array_map(static fn ($r) => $r['line'], $full);
+    TestRunner::assertEquals([-1.0, 1.0, 2.5], $lines, 'only reference lines (|line| <= 2.5)');
+    TestRunner::assertFalse(in_array(3.0, $lines, true), '+3.0 deep alt dropped');
+    TestRunner::assertFalse(in_array(4.0, $lines, true), '+4.0 deep alt dropped');
+});
+
 // ── placement: priceBoughtPointFromFeed (single rung or null) ────────────────
 
 TestRunner::run('priceBoughtPointFromFeed — returns the feed rung for a priced buy', function () use ($mkPool, $amer): void {

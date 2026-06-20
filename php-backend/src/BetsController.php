@@ -3075,7 +3075,7 @@ final class BetsController
                 } catch (Throwable $capSettingsErr) {
                     $capSettings = null;
                 }
-                $perSide = AltLineCap::perSideLimit(is_array($capSettings) ? $capSettings : null);
+                $perSide = AltLineCap::perSideLimitForKey(is_array($capSettings) ? $capSettings : null, $altKey);
                 $coreMarket = $this->findMarket($markets, AltLineCap::coreKeyFor($altKey));
                 $coreOutcomes = is_array($coreMarket['outcomes'] ?? null) ? $coreMarket['outcomes'] : [];
                 $altOutcomes = is_array($market['outcomes'] ?? null) ? $market['outcomes'] : [];
