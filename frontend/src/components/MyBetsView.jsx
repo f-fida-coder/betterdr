@@ -180,9 +180,16 @@ const legDescription = (leg, oddsFormat) => {
         return [team, line, odds].filter(Boolean).join(' ');
     }
     if (market === 'totals') {
+        // Game total (not a team total — that market type is `team_totals` and
+        // falls through to the default branch). The selection is just
+        // "Over"/"Under", so append the matchup for context: "Over 9 — DET @ CHC".
         const isUnder = selection.toLowerCase().startsWith('u');
         const line = point === null ? '' : formatLineValue(Math.abs(point));
-        return [`${isUnder ? 'Under' : 'Over'}`, line, odds].filter(Boolean).join(' ');
+        const base = [`${isUnder ? 'Under' : 'Over'}`, line, odds].filter(Boolean).join(' ');
+        const snap = leg?.matchSnapshot || {};
+        const away = String(snap.awayTeamShort || snap.awayTeam || '').trim();
+        const home = String(snap.homeTeamShort || snap.homeTeam || '').trim();
+        return away && home ? `${base} — ${away} @ ${home}` : base;
     }
     // Player props: keep the full selection (player + side + line) and append
     // the friendly stat label — "Osuna Over 0.5 Runs Scored -110".
