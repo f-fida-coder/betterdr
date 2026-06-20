@@ -156,6 +156,89 @@ TestRunner::run('AltLineCap — perSideLimit resolution order', function (): voi
     else { $_ENV['SPORTSBOOK_ALT_LINES_PER_SIDE'] = $origEnv; }
 });
 
+// ── SINGLE-OFFSET totals: one rung per direction at ~main±offset ─────────────
+/** single-offset totals config bundle */
+function singleCfg(bool $enabled = true, float $offset = 3.0, float $lo = 3.0, float $hi = 3.5, string $dir = 'both'): array
+{
+    return ['enabled' => $enabled, 'offset' => $offset, 'bandLo' => $lo, 'bandHi' => $hi, 'direction' => $dir];
+}
+
+TestRunner::run('AltLineCap — single-offset totals pick main+3 / main-3 (main 9 → 12 / 6)', function (): void {
+    // Main 9. Over rungs above; Under rungs below; plus near rungs that must NOT win.
+    $alt = [
+        alt('Over', 9.5), alt('Over', 10.5), alt('Over', 11.5), alt('Over', 12.0), alt('Over', 12.5), alt('Over', 13.0),
+        alt('Under', 8.5), alt('Under', 7.5), alt('Under', 6.5), alt('Under', 6.0), alt('Under', 5.5), alt('Under', 5.0),
+    ];
+    $coreM = [core('Over', 9.0), core('Under', 9.0)];
+    $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals', singleCfg());
+    TestRunner::assertEquals([12.0], keptPoints($out, 'Over'), 'Over → single rung 12 (main+3)');
+    TestRunner::assertEquals([6.0], keptPoints($out, 'Under'), 'Under → single rung 6 (main-3)');
+    TestRunner::assertEquals(2, count($out), 'exactly one rung per direction');
+});
+
+TestRunner::run('AltLineCap — single-offset totals fallback to nearest >= offset when band empty', function (): void {
+    // Main 9, band [12..12.5] empty on Over (only 11.5 below-offset and 13 beyond).
+    $alt = [alt('Over', 10.0), alt('Over', 11.5), alt('Over', 13.0), alt('Under', 6.5)];
+    $coreM = [core('Over', 9.0), core('Under', 9.0)];
+    $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals', singleCfg());
+    TestRunner::assertEquals([13.0], keptPoints($out, 'Over'), 'Over → 13 (nearest rung at least +3 from main)');
+    // Under: nearest at/below main-3 (=6). Only 6.5 exists (above the floor) → no Under rung.
+    TestRunner::assertEquals([], keptPoints($out, 'Under'), 'Under has no rung at or beyond -3 → omitted');
+});
+
+TestRunner::run('AltLineCap — single-offset totals OVER-ONLY direction', function (): void {
+    $alt = [alt('Over', 12.0), alt('Under', 6.0)];
+    $coreM = [core('Over', 9.0), core('Under', 9.0)];
+    $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals', singleCfg(true, 3.0, 3.0, 3.5, 'over'));
+    TestRunner::assertEquals([12.0], keptPoints($out, 'Over'), 'Over surfaced');
+    TestRunner::assertEquals([], keptPoints($out, 'Under'), 'Under suppressed in over-only mode');
+});
+
+TestRunner::run('AltLineCap — single-offset disabled falls back to nearest ladder', function (): void {
+    $alt = [alt('Over', 8.5), alt('Over', 9.5), alt('Over', 12.0)];
+    $coreM = [core('Over', 9.0), core('Under', 9.0)];
+    // Disabled bundle → behaves like the perSide=1 nearest selection.
+    $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals', singleCfg(false));
+    TestRunner::assertEquals([8.5, 9.5], keptPoints($out, 'Over'), 'disabled → nearest above+below, not the +3 rung');
+});
+
+TestRunner::run('AltLineCap — single-offset isPointAllowed parity (display == placement)', function (): void {
+    $alt = [
+        alt('Over', 9.5), alt('Over', 12.0), alt('Over', 12.5),
+        alt('Under', 6.0), alt('Under', 8.5),
+    ];
+    $coreM = [core('Over', 9.0), core('Under', 9.0)];
+    $cfg = singleCfg();
+    TestRunner::assertTrue(AltLineCap::isPointAllowed('Over', 12.0, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'Over 12 (the surfaced rung) allowed');
+    TestRunner::assertTrue(AltLineCap::isPointAllowed('Under', 6.0, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'Under 6 allowed');
+    TestRunner::assertFalse(AltLineCap::isPointAllowed('Over', 9.5, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'near rung 9.5 rejected');
+    TestRunner::assertFalse(AltLineCap::isPointAllowed('Over', 12.5, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'in-band-but-not-closest 12.5 rejected');
+    TestRunner::assertFalse(AltLineCap::isPointAllowed('Over', 9.0, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'main echo rejected');
+});
+
+TestRunner::run('AltLineCap — single-offset does not touch spreads', function (): void {
+    // Run-line spreads stay reverse+buy-up even when a totals-single bundle is passed.
+    $alt = [alt('Boston', -1.5), alt('Boston', 1.5), alt('Boston', -2.5), alt('Boston', -3.5)];
+    $coreM = [core('Boston', -1.5)];
+    $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'spreads', singleCfg());
+    TestRunner::assertEquals([-2.5, 1.5], keptPoints($out, 'Boston'), 'spreads unaffected by totals-single config');
+});
+
+TestRunner::run('AltLineCap — totalsAltConfig defaults OFF', function (): void {
+    $origGet = getenv('SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED');
+    $origEnv = $_ENV['SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED'] ?? null;
+    putenv('SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED'); unset($_ENV['SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED']);
+
+    $cfg = AltLineCap::totalsAltConfig(null);
+    TestRunner::assertFalse($cfg['enabled'], 'single-offset OFF by default (production unchanged)');
+    TestRunner::assertEquals(3.0, $cfg['offset'], 'default offset 3.0');
+    TestRunner::assertEquals('both', $cfg['direction'], 'default direction both');
+    TestRunner::assertTrue(AltLineCap::totalsAltConfig(['altTotalSingleEnabled' => true])['enabled'], 'settings can enable');
+
+    if ($origGet === false) { putenv('SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED'); } else { putenv('SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED=' . $origGet); }
+    if ($origEnv === null) { unset($_ENV['SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED']); } else { $_ENV['SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED'] = $origEnv; }
+});
+
 // ── key helpers ──────────────────────────────────────────────────────────────
 TestRunner::run('AltLineCap — key helpers', function (): void {
     TestRunner::assertTrue(AltLineCap::isAltKey('alternate_spreads'), 'alternate_ is alt');

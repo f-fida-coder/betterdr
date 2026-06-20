@@ -92,6 +92,145 @@ final class AltLineCap
     }
 
     /**
+     * Single-offset GAME-totals alt selection config. When enabled, the totals
+     * alt column shows ONE rung per direction at ~main±offset (instead of the
+     * nearest-N ladder). Resolution: platformsettings (live, no restart) → env
+     * → defaults. DEFAULT OFF so production behavior is unchanged until the
+     * operator opts in.
+     *
+     *   - enabled:   altTotalSingleEnabled / SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED
+     *   - offset:    altTotalOffset       / SPORTSBOOK_ALT_TOTAL_OFFSET     (3.0)
+     *   - bandLo:    altTotalBandLow      / SPORTSBOOK_ALT_TOTAL_BAND_LOW   (3.0)
+     *   - bandHi:    altTotalBandHigh     / SPORTSBOOK_ALT_TOTAL_BAND_HIGH  (3.5)
+     *   - direction: altTotalDirection    / SPORTSBOOK_ALT_TOTAL_DIRECTION  (both)
+     *
+     * This only PICKS which published feed rung to surface; prices stay whatever
+     * the feed stored at that rung — nothing is synthesized.
+     *
+     * @param array<string,mixed>|null $platformSettings
+     * @return array{enabled:bool,offset:float,bandLo:float,bandHi:float,direction:string}
+     */
+    public static function totalsAltConfig(?array $platformSettings): array
+    {
+        $enabled = self::resolveBool(
+            $platformSettings,
+            'altTotalSingleEnabled',
+            'SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED',
+            false
+        );
+        $offset = self::resolveFloat(
+            $platformSettings,
+            'altTotalOffset',
+            'SPORTSBOOK_ALT_TOTAL_OFFSET',
+            3.0
+        );
+        $bandLo = self::resolveFloat(
+            $platformSettings,
+            'altTotalBandLow',
+            'SPORTSBOOK_ALT_TOTAL_BAND_LOW',
+            3.0
+        );
+        $bandHi = self::resolveFloat(
+            $platformSettings,
+            'altTotalBandHigh',
+            'SPORTSBOOK_ALT_TOTAL_BAND_HIGH',
+            3.5
+        );
+        $direction = strtolower(trim(self::resolveString(
+            $platformSettings,
+            'altTotalDirection',
+            'SPORTSBOOK_ALT_TOTAL_DIRECTION',
+            'both'
+        )));
+        if ($direction !== 'over') {
+            $direction = 'both';
+        }
+        if ($bandHi < $bandLo) {
+            [$bandLo, $bandHi] = [$bandHi, $bandLo];
+        }
+
+        return [
+            'enabled' => $enabled,
+            'offset' => $offset,
+            'bandLo' => $bandLo,
+            'bandHi' => $bandHi,
+            'direction' => $direction,
+        ];
+    }
+
+    /** Is single-offset totals selection enabled in this config bundle? */
+    private static function totalsSingleEnabled(?array $totalsAltConfig): bool
+    {
+        return is_array($totalsAltConfig) && ($totalsAltConfig['enabled'] ?? false) === true;
+    }
+
+    /**
+     * @param array<string,mixed>|null $platformSettings
+     */
+    private static function resolveBool(?array $platformSettings, string $settingKey, string $envKey, bool $default): bool
+    {
+        if (is_array($platformSettings) && array_key_exists($settingKey, $platformSettings)) {
+            return self::truthy($platformSettings[$settingKey]);
+        }
+        $env = Env::get($envKey, '');
+        if (is_string($env) && $env !== '') {
+            return self::truthy($env);
+        }
+        return $default;
+    }
+
+    private static function truthy(mixed $v): bool
+    {
+        if (is_bool($v)) {
+            return $v;
+        }
+        if (is_numeric($v)) {
+            return (float) $v != 0.0;
+        }
+        $s = strtolower(trim((string) $v));
+        return $s === 'true' || $s === '1' || $s === 'yes' || $s === 'on';
+    }
+
+    /**
+     * @param array<string,mixed>|null $platformSettings
+     */
+    private static function resolveFloat(?array $platformSettings, string $settingKey, string $envKey, float $default): float
+    {
+        if (
+            is_array($platformSettings)
+            && isset($platformSettings[$settingKey])
+            && is_numeric($platformSettings[$settingKey])
+        ) {
+            return (float) $platformSettings[$settingKey];
+        }
+        $env = Env::get($envKey, '');
+        if (is_string($env) && $env !== '' && is_numeric($env)) {
+            return (float) $env;
+        }
+        return $default;
+    }
+
+    /**
+     * @param array<string,mixed>|null $platformSettings
+     */
+    private static function resolveString(?array $platformSettings, string $settingKey, string $envKey, string $default): string
+    {
+        if (
+            is_array($platformSettings)
+            && isset($platformSettings[$settingKey])
+            && is_string($platformSettings[$settingKey])
+            && trim($platformSettings[$settingKey]) !== ''
+        ) {
+            return $platformSettings[$settingKey];
+        }
+        $env = Env::get($envKey, '');
+        if (is_string($env) && $env !== '') {
+            return $env;
+        }
+        return $default;
+    }
+
+    /**
      * The per-side cap for a specific alt market key: the wider totals cap for
      * game-total ladders, else the spread/default cap. Used by BOTH display
      * (capAlternateLadders) and placement (isPointAllowed guard) so a board-
@@ -147,8 +286,22 @@ final class AltLineCap
      * @param array<int,array<string,mixed>> $coreOutcomes
      * @return array<int,array<string,mixed>>
      */
-    public static function capOutcomes(array $altOutcomes, array $coreOutcomes, int $perSide, string $sportKey = '', string $marketType = ''): array
+    public static function capOutcomes(array $altOutcomes, array $coreOutcomes, int $perSide, string $sportKey = '', string $marketType = '', ?array $totalsAltConfig = null): array
     {
+        // Single-offset totals selection (config-gated, totals only). Anchored on
+        // the board's existing main total; picks ONE published feed rung per
+        // direction at ~main±offset. Independent of perSide. Spreads never enter.
+        if (self::isTotalsCoreKey($marketType) && self::totalsSingleEnabled($totalsAltConfig)) {
+            return self::selectSingleOffsetTotal(
+                $altOutcomes,
+                $coreOutcomes,
+                (float) $totalsAltConfig['offset'],
+                (float) $totalsAltConfig['bandLo'],
+                (float) $totalsAltConfig['bandHi'],
+                (string) $totalsAltConfig['direction']
+            );
+        }
+
         if ($perSide === self::UNLIMITED) {
             return $altOutcomes;
         }
@@ -275,6 +428,99 @@ final class AltLineCap
     }
 
     /**
+     * Single-offset totals selection. Anchored on the existing main total (from
+     * coreOutcomes — NOT re-derived from pricing): surface ONE published feed
+     * rung per direction at ~main±offset. Over always; Under only when
+     * direction is 'both'. If the main can't be resolved, return [] (fail safe:
+     * no rungs rather than a guessed anchor). Picks indices only — prices are
+     * the feed's stored prices at those rungs.
+     *
+     * @param array<int,array<string,mixed>> $altOutcomes
+     * @param array<int,array<string,mixed>> $coreOutcomes
+     * @return array<int,array<string,mixed>>
+     */
+    private static function selectSingleOffsetTotal(array $altOutcomes, array $coreOutcomes, float $offset, float $bandLo, float $bandHi, string $direction): array
+    {
+        $mainByName = self::mainPointByName($coreOutcomes);
+        $main = $mainByName['over'] ?? $mainByName['under'] ?? null;
+        if ($main === null) {
+            return [];
+        }
+
+        $keep = [];
+        $overIdx = self::pickOffsetRung($altOutcomes, 'over', $main, $offset, $bandLo, $bandHi, true);
+        if ($overIdx !== null) {
+            $keep[$overIdx] = true;
+        }
+        if ($direction !== 'over') {
+            $underIdx = self::pickOffsetRung($altOutcomes, 'under', $main, $offset, $bandLo, $bandHi, false);
+            if ($underIdx !== null) {
+                $keep[$underIdx] = true;
+            }
+        }
+
+        return self::keepInOrder($altOutcomes, $keep);
+    }
+
+    /**
+     * Pick the single published rung for one totals direction. Over uses rungs
+     * ABOVE the main (target = main + offset); Under uses rungs BELOW (target =
+     * main − offset). Preference: in-band [main±bandLo .. main±bandHi] rung
+     * closest to the target; else nearest published rung at least `offset` away
+     * from the main in the right direction. Returns the original index or null.
+     *
+     * @param array<int,array<string,mixed>> $altOutcomes
+     */
+    private static function pickOffsetRung(array $altOutcomes, string $sideName, float $main, float $offset, float $bandLo, float $bandHi, bool $above): ?int
+    {
+        $target = $above ? $main + $offset : $main - $offset;
+        $bandNear = $above ? $main + $bandLo : $main - $bandLo;
+        $bandFar = $above ? $main + $bandHi : $main - $bandHi;
+        $bandMin = min($bandNear, $bandFar);
+        $bandMax = max($bandNear, $bandFar);
+        $floor = $above ? $main + $offset : $main - $offset; // min distance fallback edge
+
+        $inBand = null;
+        $inBandDist = INF;
+        $fallback = null;
+        $fallbackDist = INF;
+
+        foreach ($altOutcomes as $i => $o) {
+            if (!is_array($o) || !isset($o['point']) || !is_numeric($o['point'])) {
+                continue;
+            }
+            if (strtolower(trim((string) ($o['name'] ?? ''))) !== $sideName) {
+                continue;
+            }
+            $p = (float) $o['point'];
+            // Correct side of the main only.
+            if ($above ? ($p <= $main + self::EPS) : ($p >= $main - self::EPS)) {
+                continue;
+            }
+
+            // In-band candidate: closest to the offset target.
+            if ($p >= $bandMin - self::EPS && $p <= $bandMax + self::EPS) {
+                $d = abs($p - $target);
+                if ($d < $inBandDist - self::EPS) {
+                    $inBandDist = $d;
+                    $inBand = $i;
+                }
+            }
+
+            // Fallback candidate: at least `offset` from the main, nearest such.
+            if ($above ? ($p >= $floor - self::EPS) : ($p <= $floor + self::EPS)) {
+                $d = abs($p - $target);
+                if ($d < $fallbackDist - self::EPS) {
+                    $fallbackDist = $d;
+                    $fallback = $i;
+                }
+            }
+        }
+
+        return $inBand ?? $fallback;
+    }
+
+    /**
      * Sort indices in place by ascending distance from $ref, tie-broken toward
      * pick'em, then by signed point (deterministic).
      *
@@ -323,15 +569,21 @@ final class AltLineCap
      * @param array<int,array<string,mixed>> $altOutcomes  full stored ladder
      * @param array<int,array<string,mixed>> $coreOutcomes
      */
-    public static function isPointAllowed(string $name, float $point, array $altOutcomes, array $coreOutcomes, int $perSide, string $sportKey = '', string $marketType = ''): bool
+    public static function isPointAllowed(string $name, float $point, array $altOutcomes, array $coreOutcomes, int $perSide, string $sportKey = '', string $marketType = '', ?array $totalsAltConfig = null): bool
     {
-        if ($perSide === self::UNLIMITED) {
-            return true;
+        // When single-offset totals selection is active for this market, the
+        // perSide sentinels don't apply — membership is decided purely by the
+        // single-offset rule (board↔placement parity via the same capOutcomes).
+        $totalsSingle = self::isTotalsCoreKey($marketType) && self::totalsSingleEnabled($totalsAltConfig);
+        if (!$totalsSingle) {
+            if ($perSide === self::UNLIMITED) {
+                return true;
+            }
+            if ($perSide <= 0) {
+                return false;
+            }
         }
-        if ($perSide <= 0) {
-            return false;
-        }
-        $kept = self::capOutcomes($altOutcomes, $coreOutcomes, $perSide, $sportKey, $marketType);
+        $kept = self::capOutcomes($altOutcomes, $coreOutcomes, $perSide, $sportKey, $marketType, $totalsAltConfig);
         $nl = strtolower(trim($name));
         foreach ($kept as $o) {
             if (strtolower(trim((string) ($o['name'] ?? ''))) !== $nl) {

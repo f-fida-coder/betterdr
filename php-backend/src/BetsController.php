@@ -3075,11 +3075,15 @@ final class BetsController
                 } catch (Throwable $capSettingsErr) {
                     $capSettings = null;
                 }
-                $perSide = AltLineCap::perSideLimitForKey(is_array($capSettings) ? $capSettings : null, $altKey);
+                $capSettingsArr = is_array($capSettings) ? $capSettings : null;
+                $perSide = AltLineCap::perSideLimitForKey($capSettingsArr, $altKey);
+                // Same single-offset totals bundle the board uses, so placement
+                // accepts exactly the rung the board surfaced (no show-but-reject).
+                $totalsAltCfg = AltLineCap::totalsAltConfig($capSettingsArr);
                 $coreMarket = $this->findMarket($markets, AltLineCap::coreKeyFor($altKey));
                 $coreOutcomes = is_array($coreMarket['outcomes'] ?? null) ? $coreMarket['outcomes'] : [];
                 $altOutcomes = is_array($market['outcomes'] ?? null) ? $market['outcomes'] : [];
-                if (!AltLineCap::isPointAllowed((string) ($rungMatch['name'] ?? ''), $submittedPoint, $altOutcomes, $coreOutcomes, $perSide, $sportKey, AltLineCap::coreKeyFor($altKey))) {
+                if (!AltLineCap::isPointAllowed((string) ($rungMatch['name'] ?? ''), $submittedPoint, $altOutcomes, $coreOutcomes, $perSide, $sportKey, AltLineCap::coreKeyFor($altKey), $totalsAltCfg)) {
                     throw new ApiException('That alternate line is not currently available.', 400, [
                         'code' => 'ALT_LINE_CAPPED',
                     ]);

@@ -749,7 +749,11 @@ final class MatchesController
             // when BOTH are UNLIMITED (nothing to trim).
             $spreadCap = AltLineCap::perSideLimit($capSettings);
             $totalsCap = AltLineCap::totalsPerSideLimit($capSettings);
-            if ($spreadCap !== AltLineCap::UNLIMITED || $totalsCap !== AltLineCap::UNLIMITED) {
+            // Single-offset totals selection always trims (independent of the
+            // perSide caps), so run the pass when it's enabled even if both
+            // caps are UNLIMITED.
+            $totalsSingleOn = AltLineCap::totalsAltConfig($capSettings)['enabled'];
+            if ($spreadCap !== AltLineCap::UNLIMITED || $totalsCap !== AltLineCap::UNLIMITED || $totalsSingleOn) {
                 $annotated = array_map(function (array $match) use ($capSettings): array {
                     return $this->capMatchAlternateLadders($match, $capSettings);
                 }, $annotated);
@@ -1090,6 +1094,10 @@ final class MatchesController
             $coreByKey[$k] = is_array($m['outcomes'] ?? null) ? $m['outcomes'] : [];
         }
 
+        // Single-offset totals selection bundle (config-gated). When enabled it
+        // governs totals alt selection regardless of the perSide cap.
+        $totalsAltCfg = AltLineCap::totalsAltConfig($capSettings);
+
         $out = [];
         foreach ($extended as $m) {
             if (!is_array($m) || !AltLineCap::isAltKey((string) ($m['key'] ?? ''))) {
@@ -1097,19 +1105,22 @@ final class MatchesController
                 continue;
             }
             $altMarketKey = (string) ($m['key'] ?? '');
+            $coreKey = AltLineCap::coreKeyFor($altMarketKey);
+            $totalsSingleHere = $totalsAltCfg['enabled'] && AltLineCap::isTotalsCoreKey($coreKey);
             $perSide = AltLineCap::perSideLimitForKey($capSettings, $altMarketKey);
-            if ($perSide === AltLineCap::UNLIMITED) {
+            if ($perSide === AltLineCap::UNLIMITED && !$totalsSingleHere) {
                 $out[] = $m; // no cap for this market type
                 continue;
             }
-            $coreOutcomes = $coreByKey[AltLineCap::coreKeyFor($altMarketKey)] ?? [];
+            $coreOutcomes = $coreByKey[$coreKey] ?? [];
             $altOutcomes = is_array($m['outcomes'] ?? null) ? $m['outcomes'] : [];
             $m['outcomes'] = AltLineCap::capOutcomes(
                 $altOutcomes,
                 $coreOutcomes,
                 $perSide,
                 $sportKey,
-                AltLineCap::coreKeyFor($altMarketKey)
+                $coreKey,
+                $totalsAltCfg
             );
             if ($m['outcomes'] !== []) {
                 $out[] = $m;   // drop alt markets emptied by the cap
