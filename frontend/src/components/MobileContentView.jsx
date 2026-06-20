@@ -2306,8 +2306,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const overAltLadder = Array.isArray(altTotals.over) ? altTotals.over : [];
     const underAltLadder = Array.isArray(altTotals.under) ? altTotals.under : [];
     const hasAltTotals = !isTeaserMode && (overAltLadder.length > 0 || underAltLadder.length > 0);
-    // The Total column cycles Total → Alt → TT, each shown only when present.
-    const totalModeOrder = ['total', ...(hasAltTotals ? ['alt'] : []), ...(hasTeamTotals ? ['tt'] : [])];
+    // The Total column cycles Total → TT → Alt, each shown only when present.
+    // TT (team totals) is the primary companion next to Total (competitor
+    // "Total/TT" grouping); the single alt-total line follows on the next toggle.
+    const totalModeOrder = ['total', ...(hasTeamTotals ? ['tt'] : []), ...(hasAltTotals ? ['alt'] : [])];
     const [totalMode, setTotalMode] = React.useState('total');
     const effectiveTotalMode = totalModeOrder.includes(totalMode) ? totalMode : 'total';
     const altTotalsActive = effectiveTotalMode === 'alt';

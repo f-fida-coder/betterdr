@@ -1677,9 +1677,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 const ttOn = hasTeamTotals && !!ttModeByMatch[match.id];
                                                 const altOn = hasAltTotals && !ttOn && !!altTotalByMatch[match.id];
 
+                                                // Order: Total → TT → Alt. TT (team totals) is the primary
+                                                // companion next to Total (competitor "Total/TT" grouping);
+                                                // the single alt-total line stays reachable on the next toggle.
                                                 const totalModes = [['total', 'Total']];
-                                                if (hasAltTotals) totalModes.push(['alt', 'Alt']);
                                                 if (hasTeamTotals) totalModes.push(['tt', 'TT']);
+                                                if (hasAltTotals) totalModes.push(['alt', 'Alt']);
                                                 const currentTotalMode = ttOn ? 'tt' : (altOn ? 'alt' : 'total');
                                                 const modeToggle = totalModes.length > 1 ? (
                                                     <span style={{ display: 'inline-flex', marginLeft: 6, borderRadius: 4, overflow: 'hidden', border: '1px solid #d0451b', verticalAlign: 'middle' }}>
