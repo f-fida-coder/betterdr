@@ -689,13 +689,17 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
         const twoSided = allLines.filter(([, pair]) => pair.over && pair.under);
         const lines = twoSided.length > 0 ? [twoSided[0]] : allLines;
 
-        const renderSide = (outcome, isFirst) => {
+        // `span` makes a lone side stretch across both odds columns when the
+        // feed only priced one direction (e.g. juiced "Over 0.5 to-record"
+        // props the book never two-sides) — so the row reads as intentional
+        // rather than a broken empty "—" cell.
+        const renderSide = (outcome, isFirst, span = false) => {
             if (!outcome) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', borderLeft: '1px solid #e2e2e2' }}>—</div>;
             const selKey = selectionKeyFor(catKey, playerName, outcome);
             const selected = selectedKeys.has(selKey);
             return (
                 <button
-                    style={{ ...pairBtnStyle(selected, isFirst), borderRight: 'none', borderLeft: '1px solid #e2e2e2', ...(eligible ? null : disabledBtnStyle) }}
+                    style={{ ...pairBtnStyle(selected, isFirst), borderRight: 'none', borderLeft: '1px solid #e2e2e2', ...(span ? { gridColumn: '2 / 4' } : null), ...(eligible ? null : disabledBtnStyle) }}
                     disabled={!eligible}
                     onClick={() => addSelection(catKey, playerName, outcome)}
                 >
@@ -711,13 +715,20 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
 
         return (
             <React.Fragment key={`${catKey}-${playerName}`}>
-                {lines.map(([pointKey, pair]) => (
-                    <div key={`${catKey}-${playerName}-${pointKey}`} style={playerRowStyle}>
-                        <div style={playerNameCellStyle} title={playerName}>{playerName}</div>
-                        {renderSide(pair.over, true)}
-                        {renderSide(pair.under, false)}
-                    </div>
-                ))}
+                {lines.map(([pointKey, pair]) => {
+                    // One-sided line (feed priced only Over or only Under) →
+                    // stretch the lone side across both odds columns; no empty cell.
+                    const solo = pair.over && !pair.under ? pair.over
+                        : (pair.under && !pair.over ? pair.under : null);
+                    return (
+                        <div key={`${catKey}-${playerName}-${pointKey}`} style={playerRowStyle}>
+                            <div style={playerNameCellStyle} title={playerName}>{playerName}</div>
+                            {solo
+                                ? renderSide(solo, false, true)
+                                : <>{renderSide(pair.over, true)}{renderSide(pair.under, false)}</>}
+                        </div>
+                    );
+                })}
                 {rest.length > 0 && (
                     <>
                     <div style={playerHeaderStyle}>{playerName}</div>
