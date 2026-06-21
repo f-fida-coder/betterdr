@@ -697,15 +697,16 @@ final class RundownSyncService
             if ($applied > 0) {
                 SportsbookHealth::recordOddsSourceSuccess($db, false);
                 self::publishOddsEvent($sportKey, ['src' => 'delta', 'applied' => $applied]);
-            } elseif (RundownClient::quotaExhausted()) {
-                // Credits/datapoints are exhausted: the "clean" 200 above is a
-                // dead feed returning an empty delta, NOT a genuinely quiet
-                // live minute. Do NOT heartbeat — let lastOddsSyncAt age out so
-                // the freshness gate drops these rows and betting suspends,
-                // instead of freezing stale odds on screen indefinitely. The
-                // global feed-stale gate also keys off lastOddsSyncAt, so a
+            } elseif (RundownClient::feedLimitReached()) {
+                // Feed can't return fresh odds: datapoints exhausted, a 403
+                // hard-budget block, OR the manual feed kill-switch is ON. In
+                // all three the "clean" empty result above is a DEAD feed, not a
+                // quiet live minute. Do NOT heartbeat — let lastOddsSyncAt age
+                // out so the freshness gate drops these rows and betting
+                // suspends, instead of freezing stale odds on screen forever.
+                // The global feed-stale gate also keys off lastOddsSyncAt, so a
                 // false heartbeat here would silently defeat that too.
-                Logger::warning('rundown.pollDeltasForSport heartbeat skipped — quota exhausted', [
+                Logger::warning('rundown.pollDeltasForSport heartbeat skipped — feed limit/kill-switch', [
                     'sportKey' => $sportKey,
                     'sportId'  => $sportId,
                 ], 'sportsbook');

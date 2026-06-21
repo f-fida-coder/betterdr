@@ -32,6 +32,13 @@ final class RundownClient
     // Safety expiry — if the clear-on-success path is somehow missed, the
     // limit state self-heals after this window so a healthy feed isn't gated.
     private const LIMIT_REACHED_WINDOW_SECONDS = 900;
+    // Manual operator kill-switch (scripts/feed-off.php / feed-on.php). When
+    // set, RundownClient makes ZERO upstream calls (no datapoints) and the feed
+    // reads as "limit reached" so the board shows odds unavailable + suspends
+    // instead of freezing stale prices. Distinct from the AUTOMATIC limit_hit
+    // (quota/403) so a manual off never auto-clears on a successful call —
+    // only feed-on.php clears it.
+    private const FEED_OFF_CACHE_KEY = 'feed_off';
     /** Rundown caps market_ids at 12 per request (enforced 2026-05). */
     private const MAX_MARKET_IDS_PER_REQUEST = 12;
 
@@ -312,6 +319,9 @@ final class RundownClient
      */
     public static function feedLimitReached(): bool
     {
+        if (self::feedOff()) {
+            return true; // manual kill-switch → unavailable, never stale
+        }
         $hit = SharedFileCache::peek(self::QUOTA_CACHE_NS, self::LIMIT_CACHE_KEY);
         if (is_array($hit)) {
             $at = (int) ($hit['at'] ?? 0);
@@ -320,6 +330,30 @@ final class RundownClient
             }
         }
         return self::quotaExhausted();
+    }
+
+    /**
+     * True when an operator has manually switched the Rundown feed OFF via
+     * scripts/feed-off.php. File-backed (SharedFileCache), so every process —
+     * the running workers AND php-fpm — sees the change within seconds, no
+     * restart needed. While off: zero upstream calls (no datapoints) and
+     * feedLimitReached() is true so the board shows unavailable + suspends.
+     */
+    public static function feedOff(): bool
+    {
+        $v = SharedFileCache::peek(self::QUOTA_CACHE_NS, self::FEED_OFF_CACHE_KEY);
+        return is_array($v) && (bool) ($v['off'] ?? false);
+    }
+
+    /** Flip the manual feed kill-switch on/off (used by feed-off.php / feed-on.php). */
+    public static function setFeedOff(bool $off): void
+    {
+        SharedFileCache::forget(self::QUOTA_CACHE_NS, self::FEED_OFF_CACHE_KEY);
+        if ($off) {
+            // peek() ignores TTL, so this persists until feed-on.php forgets it —
+            // a manual switch must never silently expire like the limit_hit window.
+            SharedFileCache::put(self::QUOTA_CACHE_NS, self::FEED_OFF_CACHE_KEY, ['off' => true, 'at' => time()]);
+        }
     }
 
     /** Record a hard-budget/spend-cap 403 so the board can degrade gracefully. */
@@ -345,6 +379,15 @@ final class RundownClient
     /** @param array<string,string|int> $query @return array<string,mixed>|null */
     private static function get(string $path, array $query = []): ?array
     {
+        // Manual feed kill-switch: make ZERO upstream calls (no datapoints).
+        // Callers treat null exactly like a disabled/failed fetch, so no deltas
+        // apply and — with the heartbeat also gated on feedLimitReached() — the
+        // freshness gate ages stale rows out and suspends betting instead of
+        // freezing old prices. Re-enable with scripts/feed-on.php.
+        if (self::feedOff()) {
+            return null;
+        }
+
         $key = self::resolveKey();
         if ($key === '') {
             // Caller treats null as "feature disabled" — never throws so
