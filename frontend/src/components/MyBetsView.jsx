@@ -443,24 +443,44 @@ const legTeamAbbr = (leg, teamName) => {
     return '';
 };
 
-// Team whose logo represents this ticket on the collapsed row. For
-// straight spreads/h2h it's the picked team (taken from leg.selection,
-// which already resolves "Los Angeles Angels" vs "Angels" depending on
-// what the betslip stored). Totals don't have a single team — we fall
-// back to the home team of the matchup. Multi-leg tickets return null
-// (the row renders a multi-leg badge instead of a logo).
-const primaryTeamFor = (bet) => {
-    const selections = Array.isArray(bet?.selections) ? bet.selections : [];
-    if (selections.length !== 1) return null;
-    const leg = selections[0];
-    const market = String(leg?.marketType || '').toLowerCase();
-    if (market === 'spreads' || market === 'h2h' || market === '') {
-        return String(leg?.selection || '').trim() || null;
+// Teams whose crests represent a leg. Team markets → the single picked/home
+// team. Player props have NO team on the leg (only the player), so we show the
+// MATCHUP — both away and home crests from the snapshot — rather than guessing
+// which side the player is on. Returns [{ name, abbr }] (1 or 2 entries).
+const legLogoTeams = (leg) => {
+    const snap = leg?.matchSnapshot || {};
+    if (isPlayerPropMarket(leg?.marketType)) {
+        return [
+            { name: String(snap.awayTeam || '').trim(), abbr: String(snap.awayTeamShort || '').trim() },
+            { name: String(snap.homeTeam || '').trim(), abbr: String(snap.homeTeamShort || '').trim() },
+        ].filter((t) => t.name);
     }
-    if (market === 'totals') {
-        return String(leg?.matchSnapshot?.homeTeam || '').trim() || null;
-    }
-    return String(leg?.selection || '').trim() || null;
+    const team = legTeamForLogo(leg);
+    return team ? [{ name: team, abbr: legTeamAbbr(leg, team) }] : [];
+};
+
+// Logo(s) shown next to a leg's description. One crest for team markets; the
+// two matchup crests for player props. Uses the warmed teamLogos map with a
+// generated-initials fallback so the row never shows a broken image.
+const MyBetsLegLogo = ({ leg, teamLogos }) => {
+    const teams = legLogoTeams(leg);
+    if (teams.length === 0) return null;
+    const imgs = teams.map(({ name }, i) => (
+        <img
+            key={`${name}-${i}`}
+            src={teamLogos[name] || createFallbackTeamLogoDataUri(name)}
+            alt=""
+            className="my-bets-table-logo"
+            width="20"
+            height="20"
+            loading="lazy"
+            decoding="async"
+            onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(name); }}
+        />
+    ));
+    return teams.length > 1
+        ? <span className="my-bets-table-logo-pair">{imgs}</span>
+        : <>{imgs}</>;
 };
 
 // Right-side amount + sign + colour theme for the collapsed row.
@@ -923,26 +943,11 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                             <span className={`my-bets-table-col-win ${childWinTheme}`}>{childWinCell}</span>
                                         </div>
                                         {childSelections.map((leg, idx) => {
-                                            const legTeam = legTeamForLogo(leg);
-                                            const legLogo = legTeam
-                                                ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
-                                                : null;
                                             const childLegLive = isLegLive(leg, child);
                                             return (
                                                 <div key={`${betId}-child-${ci}-leg-${idx}`} className="my-bets-table-row leg" style={{ paddingLeft: 24 }}>
                                                     <span className="my-bets-table-col-desc">
-                                                        {legLogo && (
-                                                            <img
-                                                                src={legLogo}
-                                                                alt=""
-                                                                className="my-bets-table-logo"
-                                                                width="20"
-                                                                height="20"
-                                                                loading="lazy"
-                                                                decoding="async"
-                                                                onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
-                                                            />
-                                                        )}
+                                                        <MyBetsLegLogo leg={leg} teamLogos={teamLogos} />
                                                         <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
                                                         {childLegLive && (
                                                             <span className="my-bets-table-live-badge" aria-label="Live game">{legBadgeLabel(leg, child)}</span>
@@ -994,10 +999,6 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                 <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
                             </div>
                             {selections.map((leg, idx) => {
-                                const legTeam = legTeamForLogo(leg);
-                                const legLogo = legTeam
-                                    ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
-                                    : null;
                                 const legStatus = normalizeStatus(leg?.status);
                                 // Single source of truth for badge label
                                 // + tooltip across straight tickets and
@@ -1020,18 +1021,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpandedLeg(betId, idx); } }}
                                         >
                                             <span className="my-bets-table-col-desc">
-                                                {legLogo && (
-                                                    <img
-                                                        src={legLogo}
-                                                        alt=""
-                                                        className="my-bets-table-logo"
-                                                        width="20"
-                                                        height="20"
-                                                        loading="lazy"
-                                                        decoding="async"
-                                                        onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
-                                                    />
-                                                )}
+                                                <MyBetsLegLogo leg={leg} teamLogos={teamLogos} />
                                                 <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
                                                 {legLive && (
                                                     <span className="my-bets-table-live-badge" aria-label="Live game">{legBadgeLabel(leg, bet)}</span>
@@ -1060,10 +1050,6 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                 }
 
                 const leg = selections[0] || {};
-                const legTeam = legTeamForLogo(leg);
-                const logoSrc = legTeam
-                    ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
-                    : null;
                 // Straight tickets only have one leg, so the parent bet's
                 // status IS the leg's status — but the leg row carries
                 // the machine-readable gradeReason ('push_tie' vs
@@ -1086,18 +1072,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(betId); } }}
                         >
                             <span className="my-bets-table-col-desc">
-                                {logoSrc && (
-                                    <img
-                                        src={logoSrc}
-                                        alt=""
-                                        className="my-bets-table-logo"
-                                        width="20"
-                                        height="20"
-                                        loading="lazy"
-                                        decoding="async"
-                                        onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
-                                    />
-                                )}
+                                <MyBetsLegLogo leg={leg} teamLogos={teamLogos} />
                                 <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
                                 {straightLive && (
                                     <span className="my-bets-table-live-badge" aria-label="Live game">{straightBadgeLabel(bet)}</span>
@@ -1172,19 +1147,16 @@ const MyBetsView = () => {
         const teamMap = new Map(); // name → ctx
         bets.forEach((bet) => {
             const selections = Array.isArray(bet?.selections) ? bet.selections : [];
-            const firstLeg = selections[0];
-            const team = primaryTeamFor(bet);
-            if (team && !teamLogos[team] && !teamMap.has(team)) {
-                teamMap.set(team, { ...(legSportCtx(firstLeg) || {}), abbr: legTeamAbbr(firstLeg, team) });
-            }
-            if (selections.length > 1) {
-                selections.forEach((leg) => {
-                    const legTeam = legTeamForLogo(leg);
-                    if (legTeam && !teamLogos[legTeam] && !teamMap.has(legTeam)) {
-                        teamMap.set(legTeam, { ...(legSportCtx(leg) || {}), abbr: legTeamAbbr(leg, legTeam) });
+            // Warm every team a leg will render — the picked/home team for team
+            // markets, BOTH matchup teams for player props — across straight and
+            // multi-leg tickets alike (legLogoTeams handles the per-market split).
+            selections.forEach((leg) => {
+                legLogoTeams(leg).forEach(({ name, abbr }) => {
+                    if (name && !teamLogos[name] && !teamMap.has(name)) {
+                        teamMap.set(name, { ...(legSportCtx(leg) || {}), abbr });
                     }
                 });
-            }
+            });
         });
         if (teamMap.size === 0) return undefined;
         (async () => {

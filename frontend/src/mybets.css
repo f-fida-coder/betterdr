@@ -533,6 +533,17 @@
   border: 1px solid var(--bg-light-alt);
 }
 
+/* Player props have no single team — show both matchup crests, slightly
+   overlapped so the pair reads as one unit and doesn't crowd the description. */
+.my-bets-table-logo-pair {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.my-bets-table-logo-pair .my-bets-table-logo:nth-child(2) {
+  margin-left: -8px;
+}
+
 .my-bets-table-leg-text {
   white-space: nowrap;
   overflow: hidden;

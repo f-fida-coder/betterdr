@@ -1106,6 +1106,16 @@ final class MatchesController
             }
             $altMarketKey = (string) ($m['key'] ?? '');
             $coreKey = AltLineCap::coreKeyFor($altMarketKey);
+            // Domain rule: soccer has alternate totals (O/U) but NO alternate
+            // spreads (handicaps). Drop alt spread ladders for soccer entirely
+            // so they never display on the board/match view and can never be
+            // placed (this is the single serve-side chokepoint). Alt totals,
+            // team totals, BTTS, draw-no-bet, etc. are unaffected; the main
+            // spread line (non-alt) is also untouched.
+            if (str_starts_with(strtolower($sportKey), 'soccer')
+                && str_starts_with(strtolower($coreKey), 'spreads')) {
+                continue;
+            }
             $totalsSingleHere = $totalsAltCfg['enabled'] && AltLineCap::isTotalsCoreKey($coreKey);
             $perSide = AltLineCap::perSideLimitForKey($capSettings, $altMarketKey);
             if ($perSide === AltLineCap::UNLIMITED && !$totalsSingleHere) {

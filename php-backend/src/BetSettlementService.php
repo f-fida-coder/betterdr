@@ -171,6 +171,31 @@ final class BetSettlementService
                                 is_array($playerStats) ? $playerStats : null
                             );
 
+                            // Diagnostics for silently-stuck player props: a prop
+                            // leg on a FINISHED match that still won't grade. Logs
+                            // the precise reason (legacy bet with no player id,
+                            // settlement flag off / box score missing, incomplete
+                            // stats, unmapped market, …) so operations can see why
+                            // a prop is hanging instead of it failing invisibly.
+                            // Pure read — never changes the grade.
+                            if ($resolvedStatus === 'pending'
+                                && PlayerPropSettlement::isGradableProp((string) ($row['marketType'] ?? ''))
+                                && SportsMatchStatus::effectiveStatus($match) === 'finished'
+                            ) {
+                                $reason = is_array($playerStats)
+                                    ? (PlayerPropSettlement::evaluate($row, $playerStats)['reason'] ?: 'unresolved')
+                                    : 'settlement_disabled_or_no_boxscore';
+                                Logger::warning('player prop stuck pending on finished match', [
+                                    'betId' => $betId,
+                                    'matchId' => $matchId,
+                                    'selectionId' => (string) ($row['id'] ?? ''),
+                                    'marketType' => (string) ($row['marketType'] ?? ''),
+                                    'selectionPid' => (string) ($row['selectionPid'] ?? ''),
+                                    'sportKey' => (string) ($match['sportKey'] ?? ''),
+                                    'reason' => $reason,
+                                ], 'settlement');
+                            }
+
                             if ($resolvedStatus !== $rowStatus) {
                                 $row['status'] = $resolvedStatus;
                                 $row['updatedAt'] = $now;

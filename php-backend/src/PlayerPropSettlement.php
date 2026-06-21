@@ -83,39 +83,57 @@ final class PlayerPropSettlement
      */
     public static function grade(array $leg, array $stats): string
     {
+        return self::evaluate($leg, $stats)['status'];
+    }
+
+    /**
+     * Same grading logic as grade(), but also returns a short machine-readable
+     * reason WHY a leg stayed 'pending' (empty string once graded). Used by the
+     * settlement sweep to log silently-stuck props without changing the grade
+     * contract. The reason set is closed and stable for log-grepping:
+     *   unknown_market | no_over_under_side | no_line | no_player_id |
+     *   no_box_score | stats_incomplete | missing_stat_component
+     *
+     * @param array<string,mixed> $leg
+     * @param array<string,mixed> $stats
+     * @return array{status:string, reason:string}
+     */
+    public static function evaluate(array $leg, array $stats): array
+    {
         $marketType = strtolower(trim((string) ($leg['marketType'] ?? '')));
         $map = self::STAT_MAP[$marketType] ?? null;
         if ($map === null) {
-            return 'pending'; // unknown / yes-no prop → never guess
+            return ['status' => 'pending', 'reason' => 'unknown_market']; // unknown / yes-no prop → never guess
         }
 
         // Over/Under side from the stored "Over"/"Under" selection.
         $side = self::sideOf($leg);
         if ($side === null) {
-            return 'pending';
+            return ['status' => 'pending', 'reason' => 'no_over_under_side'];
         }
 
         // Line.
         if (!isset($leg['point']) || !is_numeric($leg['point'])) {
-            return 'pending';
+            return ['status' => 'pending', 'reason' => 'no_line'];
         }
         $point = (float) $leg['point'];
 
         // Stable player id — REQUIRED. Legs placed before player-id capture have
-        // none → they stay pending (manual settlement), never mis-graded.
+        // none → they stay pending (manual settlement), never mis-graded. This is
+        // the legacy-bet case: the player was never recorded on the leg.
         $playerId = trim((string) ($leg['selectionPid'] ?? ''));
         if ($playerId === '') {
-            return 'pending';
+            return ['status' => 'pending', 'reason' => 'no_player_id'];
         }
 
         $rows = self::flattenStatRows($stats);
         if ($rows === []) {
-            return 'pending'; // no box score yet → defer
+            return ['status' => 'pending', 'reason' => 'no_box_score']; // no box score yet → defer
         }
 
         // Only grade off FINAL/complete stats when the feed tells us.
         if (self::statsIncomplete($stats, $playerId, $rows)) {
-            return 'pending';
+            return ['status' => 'pending', 'reason' => 'stats_incomplete'];
         }
 
         // Sum components; ANY missing component → pending (don't guess a 0).
@@ -123,12 +141,12 @@ final class PlayerPropSettlement
         foreach ($map['components'] as $aliases) {
             $v = self::statValue($rows, $playerId, $aliases, $map['cat']);
             if ($v === null) {
-                return 'pending';
+                return ['status' => 'pending', 'reason' => 'missing_stat_component'];
             }
             $total += $v;
         }
 
-        return self::compare($side, $total, $point);
+        return ['status' => self::compare($side, $total, $point), 'reason' => ''];
     }
 
     /** 'over' | 'under' | null from the leg's stored selection / full label. */
