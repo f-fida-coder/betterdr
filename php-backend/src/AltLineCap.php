@@ -431,13 +431,14 @@ final class AltLineCap
 
     /**
      * Single-offset totals selection. Anchored on the existing main total (from
-     * coreOutcomes — NOT re-derived from pricing): pick ONE published total line
-     * at ~main+offset, then surface BOTH sides (Over AND Under) of that single
-     * line at their real feed prices — the competitor's one-alt-line style.
-     * `direction` filters which side(s) of the line to show (both | over | under).
-     * If the main can't be resolved, return [] (fail safe: no rungs rather than
-     * a guessed anchor). Picks the line only — prices are the feed's stored
-     * prices on each side.
+     * coreOutcomes — NOT re-derived from pricing): pick ONE published Over rung
+     * at ~main+offset (ABOVE the main) and ONE published Under rung at ~main-offset
+     * (BELOW the main), and surface each side at its real feed price. So a main of
+     * 8 with offset 1.5 yields Over 9.5 / Under 6.5 — symmetric, the way a
+     * one-alt-line book presents it. `direction` filters which side(s) to show
+     * (both | over | under). If the main can't be resolved, return [] (fail safe:
+     * no rungs rather than a guessed anchor). Picks the rungs only — prices are
+     * the feed's stored prices on each side.
      *
      * @param array<int,array<string,mixed>> $altOutcomes
      * @param array<int,array<string,mixed>> $coreOutcomes
@@ -451,24 +452,29 @@ final class AltLineCap
             return [];
         }
 
-        $line = self::pickOffsetLine($altOutcomes, $main, $offset, $bandLo, $bandHi);
-        if ($line === null) {
-            return [];
-        }
-
         $wantOver = $direction !== 'under';
         $wantUnder = $direction !== 'over';
+
+        // Symmetric selection: the Over rung sits ~offset ABOVE the main, the
+        // Under rung ~offset BELOW it (e.g. main 8, offset 1.5 -> Over 9.5 /
+        // Under 6.5). Each side is the feed's own published rung at that point,
+        // so prices stay the stored feed values; we only pick indices.
+        $overLine  = $wantOver  ? self::pickOffsetLine($altOutcomes, $main, $offset, $bandLo, $bandHi, true)  : null;
+        $underLine = $wantUnder ? self::pickOffsetLine($altOutcomes, $main, $offset, $bandLo, $bandHi, false) : null;
+        if ($overLine === null && $underLine === null) {
+            return [];
+        }
 
         $keep = [];
         foreach ($altOutcomes as $i => $o) {
             if (!is_array($o) || !isset($o['point']) || !is_numeric($o['point'])) {
                 continue;
             }
-            if (abs((float) $o['point'] - $line) > self::EPS) {
-                continue; // only the chosen line
-            }
+            $p = (float) $o['point'];
             $name = strtolower(trim((string) ($o['name'] ?? '')));
-            if (($name === 'over' && $wantOver) || ($name === 'under' && $wantUnder)) {
+            if ($name === 'over' && $overLine !== null && abs($p - $overLine) <= self::EPS) {
+                $keep[$i] = true;
+            } elseif ($name === 'under' && $underLine !== null && abs($p - $underLine) <= self::EPS) {
                 $keep[$i] = true;
             }
         }
@@ -477,21 +483,27 @@ final class AltLineCap
     }
 
     /**
-     * Pick the single published total line at ~main+offset (ABOVE the main).
-     * Preference: in-band [main+bandLo .. main+bandHi] line closest to the
-     * target (main+offset); else the nearest published line at least `offset`
-     * above the main. Returns the line's point value, or null when the feed
-     * published no line that far out. The same value carries both the Over and
-     * Under outcomes in the feed.
+     * Pick the single published total line ~offset away from the main on the
+     * requested side: ABOVE the main for the Over ($over = true), BELOW it for
+     * the Under ($over = false). Preference: the in-band line closest to the
+     * offset target (main ± offset); else the nearest published line at least
+     * `offset` out on that side. Returns the line's point value, or null when
+     * the feed published no line that far out on the requested side.
      *
      * @param array<int,array<string,mixed>> $altOutcomes
      */
-    private static function pickOffsetLine(array $altOutcomes, float $main, float $offset, float $bandLo, float $bandHi): ?float
+    private static function pickOffsetLine(array $altOutcomes, float $main, float $offset, float $bandLo, float $bandHi, bool $over): ?float
     {
-        $target = $main + $offset;
-        $bandMin = $main + min($bandLo, $bandHi);
-        $bandMax = $main + max($bandLo, $bandHi);
-        $floor = $main + $offset; // fallback must be at least `offset` out
+        $sign = $over ? 1.0 : -1.0;
+        $lo = min(abs($bandLo), abs($bandHi));
+        $hi = max(abs($bandLo), abs($bandHi));
+        $target = $main + $sign * $offset;
+        // Band window mirrored onto the requested side of the main.
+        $bandNear = $main + $sign * $lo;
+        $bandFar  = $main + $sign * $hi;
+        $bandMin = min($bandNear, $bandFar);
+        $bandMax = max($bandNear, $bandFar);
+        $floor = $main + $sign * $offset; // fallback must be at least `offset` out
 
         $inBand = null;
         $inBandDist = INF;
@@ -503,8 +515,9 @@ final class AltLineCap
                 continue;
             }
             $p = (float) $o['point'];
-            if ($p <= $main + self::EPS) {
-                continue; // the alt line sits above the main
+            // The rung must sit on the requested side of the main.
+            if ($over ? ($p <= $main + self::EPS) : ($p >= $main - self::EPS)) {
+                continue;
             }
 
             // In-band candidate: closest to the offset target.
@@ -516,8 +529,9 @@ final class AltLineCap
                 }
             }
 
-            // Fallback candidate: at least `offset` above the main, nearest such.
-            if ($p >= $floor - self::EPS) {
+            // Fallback candidate: at least `offset` out on this side, nearest such.
+            $farEnough = $over ? ($p >= $floor - self::EPS) : ($p <= $floor + self::EPS);
+            if ($farEnough) {
                 $d = abs($p - $target);
                 if ($d < $fallbackDist - self::EPS) {
                     $fallbackDist = $d;
