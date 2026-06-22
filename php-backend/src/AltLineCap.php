@@ -118,25 +118,25 @@ final class AltLineCap
             $platformSettings,
             'altTotalSingleEnabled',
             'SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED',
-            false
+            true
         );
         $offset = self::resolveFloat(
             $platformSettings,
             'altTotalOffset',
             'SPORTSBOOK_ALT_TOTAL_OFFSET',
-            3.0
+            1.0
         );
         $bandLo = self::resolveFloat(
             $platformSettings,
             'altTotalBandLow',
             'SPORTSBOOK_ALT_TOTAL_BAND_LOW',
-            3.0
+            1.0
         );
         $bandHi = self::resolveFloat(
             $platformSettings,
             'altTotalBandHigh',
             'SPORTSBOOK_ALT_TOTAL_BAND_HIGH',
-            3.5
+            1.5
         );
         $direction = strtolower(trim(self::resolveString(
             $platformSettings,
@@ -430,15 +430,17 @@ final class AltLineCap
     }
 
     /**
-     * Single-offset totals selection. Anchored on the existing main total (from
-     * coreOutcomes — NOT re-derived from pricing): pick ONE published Over rung
-     * at ~main+offset (ABOVE the main) and ONE published Under rung at ~main-offset
-     * (BELOW the main), and surface each side at its real feed price. So a main of
-     * 8 with offset 1.5 yields Over 9.5 / Under 6.5 — symmetric, the way a
-     * one-alt-line book presents it. `direction` filters which side(s) to show
-     * (both | over | under). If the main can't be resolved, return [] (fail safe:
-     * no rungs rather than a guessed anchor). Picks the rungs only — prices are
-     * the feed's stored prices on each side.
+     * Bracketed alt-totals selection. Anchored on the existing main total (from
+     * coreOutcomes — NOT re-derived from pricing): pick TWO published lines that
+     * bracket the main — one ~offset ABOVE it (~main+offset) and one ~offset
+     * BELOW it (~main-offset) — then surface BOTH the Over AND the Under at EACH
+     * of those two lines. So a main of 9 with offset 1 yields exactly FOUR
+     * outcomes: Over 10 / Under 10 / Over 8 / Under 8 — the competitor's compact
+     * alt-total block. `direction` filters which side(s) to show
+     * (both | over | under: over/under each yield the two same-side rungs only).
+     * If the main can't be resolved, return [] (fail safe: no rungs rather than a
+     * guessed anchor). Picks the lines only — prices are the feed's stored prices
+     * at each line, nothing is synthesized.
      *
      * @param array<int,array<string,mixed>> $altOutcomes
      * @param array<int,array<string,mixed>> $coreOutcomes
@@ -455,14 +457,22 @@ final class AltLineCap
         $wantOver = $direction !== 'under';
         $wantUnder = $direction !== 'over';
 
-        // Symmetric selection: the Over rung sits ~offset ABOVE the main, the
-        // Under rung ~offset BELOW it (e.g. main 8, offset 1.5 -> Over 9.5 /
-        // Under 6.5). Each side is the feed's own published rung at that point,
-        // so prices stay the stored feed values; we only pick indices.
-        $overLine  = $wantOver  ? self::pickOffsetLine($altOutcomes, $main, $offset, $bandLo, $bandHi, true)  : null;
-        $underLine = $wantUnder ? self::pickOffsetLine($altOutcomes, $main, $offset, $bandLo, $bandHi, false) : null;
-        if ($overLine === null && $underLine === null) {
+        // Two bracket lines: one ABOVE the main (~main+offset) and one BELOW it
+        // (~main-offset). Each is the feed's own published rung at that point;
+        // we only pick the line values. The Over and the Under are BOTH kept at
+        // each line, giving up to four outcomes (2 lines × O/U).
+        $lineUp   = self::pickOffsetLine($altOutcomes, $main, $offset, $bandLo, $bandHi, true);
+        $lineDown = self::pickOffsetLine($altOutcomes, $main, $offset, $bandLo, $bandHi, false);
+        if ($lineUp === null && $lineDown === null) {
             return [];
+        }
+
+        $lines = [];
+        if ($lineUp !== null) {
+            $lines[] = $lineUp;
+        }
+        if ($lineDown !== null) {
+            $lines[] = $lineDown;
         }
 
         $keep = [];
@@ -470,12 +480,22 @@ final class AltLineCap
             if (!is_array($o) || !isset($o['point']) || !is_numeric($o['point'])) {
                 continue;
             }
-            $p = (float) $o['point'];
             $name = strtolower(trim((string) ($o['name'] ?? '')));
-            if ($name === 'over' && $overLine !== null && abs($p - $overLine) <= self::EPS) {
-                $keep[$i] = true;
-            } elseif ($name === 'under' && $underLine !== null && abs($p - $underLine) <= self::EPS) {
-                $keep[$i] = true;
+            if ($name === 'over' && !$wantOver) {
+                continue;
+            }
+            if ($name === 'under' && !$wantUnder) {
+                continue;
+            }
+            if ($name !== 'over' && $name !== 'under') {
+                continue;
+            }
+            $p = (float) $o['point'];
+            foreach ($lines as $line) {
+                if (abs($p - $line) <= self::EPS) {
+                    $keep[$i] = true;
+                    break;
+                }
             }
         }
 

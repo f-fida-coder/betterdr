@@ -156,120 +156,121 @@ TestRunner::run('AltLineCap — perSideLimit resolution order', function (): voi
     else { $_ENV['SPORTSBOOK_ALT_LINES_PER_SIDE'] = $origEnv; }
 });
 
-// ── SINGLE-OFFSET totals: one rung per direction at ~main±offset ─────────────
-/** single-offset totals config bundle */
-function singleCfg(bool $enabled = true, float $offset = 3.0, float $lo = 3.0, float $hi = 3.5, string $dir = 'both'): array
+// ── BRACKETED alt-totals: O+U at two lines bracketing the main (~main±offset) ─
+/** bracketed alt-totals config bundle (default offset 1 → main±1) */
+function singleCfg(bool $enabled = true, float $offset = 1.0, float $lo = 1.0, float $hi = 1.5, string $dir = 'both'): array
 {
     return ['enabled' => $enabled, 'offset' => $offset, 'bandLo' => $lo, 'bandHi' => $hi, 'direction' => $dir];
 }
 
-TestRunner::run('AltLineCap — single-offset totals: symmetric Over above / Under below (main 9 → Over 12 / Under 6)', function (): void {
-    // Main 9, offset 3. Over rung = main+3 = 12 (above), Under rung = main-3 = 6
-    // (below). Near/far lines on each side must NOT win.
+TestRunner::run('AltLineCap — bracketed alt-totals: exactly 4 (main 9 → O/U 10 and O/U 8)', function (): void {
+    // Main 9, offset 1. Up line = main+1 = 10, down line = main-1 = 8. Surface
+    // BOTH the Over and the Under at EACH line → Over 8/10, Under 8/10. Off-line
+    // rungs (9.5/8.5/etc.) must NOT survive.
     $alt = [
-        alt('Over', 10.5), alt('Over', 11.5), alt('Over', 12.0), alt('Over', 12.5), alt('Over', 13.0),
-        alt('Under', 5.0), alt('Under', 5.5), alt('Under', 6.0), alt('Under', 7.5), alt('Under', 8.5),
+        alt('Over', 7.5), alt('Over', 8.0), alt('Over', 8.5), alt('Over', 9.0), alt('Over', 9.5), alt('Over', 10.0), alt('Over', 10.5),
+        alt('Under', 7.5), alt('Under', 8.0), alt('Under', 8.5), alt('Under', 9.0), alt('Under', 9.5), alt('Under', 10.0), alt('Under', 10.5),
     ];
     $coreM = [core('Over', 9.0), core('Under', 9.0)];
     $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals', singleCfg());
-    TestRunner::assertEquals([12.0], keptPoints($out, 'Over'), 'Over 12 (main+3, above)');
-    TestRunner::assertEquals([6.0], keptPoints($out, 'Under'), 'Under 6 (main-3, below)');
-    TestRunner::assertEquals(2, count($out), 'exactly one rung per direction');
+    TestRunner::assertEquals([8.0, 10.0], keptPoints($out, 'Over'), 'Over at both bracket lines 8 & 10');
+    TestRunner::assertEquals([8.0, 10.0], keptPoints($out, 'Under'), 'Under at both bracket lines 8 & 10');
+    TestRunner::assertEquals(4, count($out), 'exactly four outcomes (2 lines × O/U)');
 });
 
-TestRunner::run('AltLineCap — single-offset totals: Nicky 1.5 offset (main 8 → Over 9.5 / Under 6.5)', function (): void {
-    // The case from the chat: total 8, ±1.5 -> Over 9.5 and Under 6.5.
+TestRunner::run('AltLineCap — bracketed alt-totals: offset variant (main 8, offset 1 → O/U 9 and O/U 7)', function (): void {
     $alt = [
-        alt('Over', 8.5), alt('Over', 9.5), alt('Over', 10.5),
-        alt('Under', 5.5), alt('Under', 6.5), alt('Under', 7.5),
+        alt('Over', 6.5), alt('Over', 7.0), alt('Over', 8.0), alt('Over', 9.0), alt('Over', 9.5),
+        alt('Under', 6.5), alt('Under', 7.0), alt('Under', 8.0), alt('Under', 9.0), alt('Under', 9.5),
     ];
     $coreM = [core('Over', 8.0), core('Under', 8.0)];
-    $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals', singleCfg(true, 1.5, 1.0, 2.0));
-    TestRunner::assertEquals([9.5], keptPoints($out, 'Over'), 'Over 9.5 (main+1.5)');
-    TestRunner::assertEquals([6.5], keptPoints($out, 'Under'), 'Under 6.5 (main-1.5)');
+    $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals', singleCfg());
+    TestRunner::assertEquals([7.0, 9.0], keptPoints($out, 'Over'), 'Over at 7 & 9');
+    TestRunner::assertEquals([7.0, 9.0], keptPoints($out, 'Under'), 'Under at 7 & 9');
 });
 
-TestRunner::run('AltLineCap — single-offset totals fallback to nearest line >= offset when band empty', function (): void {
-    // Main 9, offset 3. Over band [12..12.5] empty (11.5 below-offset, 13 beyond)
-    // → Over picks 13. Under band [5.5..6] empty (6.5 below-offset, 5 beyond)
-    // → Under picks 5.
+TestRunner::run('AltLineCap — bracketed alt-totals fallback to nearest line >= offset when band empty', function (): void {
+    // Main 9, offset 1, band [10..10.5]/[7.5..8] empty on each side → fall back
+    // to nearest published line at least 1 out: up 10.5, down 7.5.
     $alt = [
-        alt('Over', 10.0), alt('Over', 11.5), alt('Over', 13.0),
-        alt('Under', 6.5), alt('Under', 5.0), alt('Under', 8.0),
+        alt('Over', 9.5), alt('Over', 10.5), alt('Over', 7.5), alt('Over', 13.0),
+        alt('Under', 9.5), alt('Under', 10.5), alt('Under', 7.5), alt('Under', 13.0),
     ];
     $coreM = [core('Over', 9.0), core('Under', 9.0)];
     $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals', singleCfg());
-    TestRunner::assertEquals([13.0], keptPoints($out, 'Over'), 'Over 13 (nearest line at least +3)');
-    TestRunner::assertEquals([5.0], keptPoints($out, 'Under'), 'Under 5 (nearest line at least -3)');
+    TestRunner::assertEquals([7.5, 10.5], keptPoints($out, 'Over'), 'Over fallback lines 7.5 & 10.5');
+    TestRunner::assertEquals([7.5, 10.5], keptPoints($out, 'Under'), 'Under fallback lines 7.5 & 10.5');
 });
 
-TestRunner::run('AltLineCap — single-offset totals OVER-ONLY shows only the above-main Over', function (): void {
-    $alt = [alt('Over', 12.0), alt('Under', 6.0)];
+TestRunner::run('AltLineCap — bracketed alt-totals OVER-ONLY keeps only the Over at both lines', function (): void {
+    $alt = [alt('Over', 10.0), alt('Over', 8.0), alt('Under', 10.0), alt('Under', 8.0)];
     $coreM = [core('Over', 9.0), core('Under', 9.0)];
-    $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals', singleCfg(true, 3.0, 3.0, 3.5, 'over'));
-    TestRunner::assertEquals([12.0], keptPoints($out, 'Over'), 'Over side surfaced');
+    $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals', singleCfg(true, 1.0, 1.0, 1.5, 'over'));
+    TestRunner::assertEquals([8.0, 10.0], keptPoints($out, 'Over'), 'Over at both lines surfaced');
     TestRunner::assertEquals([], keptPoints($out, 'Under'), 'Under suppressed in over-only mode');
 });
 
-TestRunner::run('AltLineCap — single-offset totals UNDER-ONLY shows only the below-main Under', function (): void {
-    $alt = [alt('Over', 12.0), alt('Under', 6.0)];
+TestRunner::run('AltLineCap — bracketed alt-totals UNDER-ONLY keeps only the Under at both lines', function (): void {
+    $alt = [alt('Over', 10.0), alt('Over', 8.0), alt('Under', 10.0), alt('Under', 8.0)];
     $coreM = [core('Over', 9.0), core('Under', 9.0)];
-    $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals', singleCfg(true, 3.0, 3.0, 3.5, 'under'));
+    $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals', singleCfg(true, 1.0, 1.0, 1.5, 'under'));
     TestRunner::assertEquals([], keptPoints($out, 'Over'), 'Over suppressed in under-only mode');
-    TestRunner::assertEquals([6.0], keptPoints($out, 'Under'), 'Under side surfaced (below main)');
+    TestRunner::assertEquals([8.0, 10.0], keptPoints($out, 'Under'), 'Under at both lines surfaced');
 });
 
-TestRunner::run('AltLineCap — single-offset surfaces a side even when the other has no rung', function (): void {
-    // Feed priced an above-main Over but no below-main Under → Over still shows.
-    $alt = [alt('Over', 12.0), alt('Under', 12.0), alt('Under', 10.5)];
+TestRunner::run('AltLineCap — bracketed alt-totals surfaces one line when the other is absent', function (): void {
+    // Feed published an up line (10) but nothing far enough below the main →
+    // only the up line's O/U survive (2 outcomes).
+    $alt = [alt('Over', 10.0), alt('Under', 10.0), alt('Over', 8.5), alt('Under', 8.5)];
     $coreM = [core('Over', 9.0), core('Under', 9.0)];
     $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals', singleCfg());
-    TestRunner::assertEquals([12.0], keptPoints($out, 'Over'), 'Over 12 surfaced');
-    TestRunner::assertEquals([], keptPoints($out, 'Under'), 'no below-main Under rung → none (never an easy above-main Under)');
+    TestRunner::assertEquals([10.0], keptPoints($out, 'Over'), 'Over only at the up line 10');
+    TestRunner::assertEquals([10.0], keptPoints($out, 'Under'), 'Under only at the up line 10');
+    TestRunner::assertEquals(2, count($out), 'no down line far enough → two outcomes');
 });
 
-TestRunner::run('AltLineCap — single-offset disabled falls back to nearest ladder', function (): void {
+TestRunner::run('AltLineCap — bracketed alt-totals disabled falls back to nearest ladder', function (): void {
     $alt = [alt('Over', 8.5), alt('Over', 9.5), alt('Over', 12.0)];
     $coreM = [core('Over', 9.0), core('Under', 9.0)];
     // Disabled bundle → behaves like the perSide=1 nearest selection.
     $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'totals', singleCfg(false));
-    TestRunner::assertEquals([8.5, 9.5], keptPoints($out, 'Over'), 'disabled → nearest above+below, not the +3 rung');
+    TestRunner::assertEquals([8.5, 9.5], keptPoints($out, 'Over'), 'disabled → nearest above+below, not the bracket model');
 });
 
-TestRunner::run('AltLineCap — single-offset isPointAllowed parity (Over above, Under below)', function (): void {
+TestRunner::run('AltLineCap — bracketed alt-totals isPointAllowed parity (O/U at both bracket lines)', function (): void {
     $alt = [
-        alt('Over', 11.5), alt('Over', 12.0), alt('Over', 12.5),
-        alt('Under', 5.5), alt('Under', 6.0), alt('Under', 6.5),
+        alt('Over', 8.0), alt('Over', 9.5), alt('Over', 10.0),
+        alt('Under', 8.0), alt('Under', 9.5), alt('Under', 10.0),
     ];
     $coreM = [core('Over', 9.0), core('Under', 9.0)];
     $cfg = singleCfg();
-    // Over rung = 12 (above), Under rung = 6 (below). Only those are placeable.
-    TestRunner::assertTrue(AltLineCap::isPointAllowed('Over', 12.0, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'Over 12 allowed');
-    TestRunner::assertTrue(AltLineCap::isPointAllowed('Under', 6.0, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'Under 6 allowed');
-    TestRunner::assertFalse(AltLineCap::isPointAllowed('Over', 11.5, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'below-offset Over 11.5 rejected');
-    TestRunner::assertFalse(AltLineCap::isPointAllowed('Under', 6.5, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'in-band-but-not-closest Under 6.5 rejected');
-    TestRunner::assertFalse(AltLineCap::isPointAllowed('Under', 12.0, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'above-main Under 12 rejected (never an easy Under)');
+    // Bracket lines 8 & 10. Both O and U at each are placeable; off-line 9.5 not.
+    TestRunner::assertTrue(AltLineCap::isPointAllowed('Over', 10.0, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'Over 10 allowed');
+    TestRunner::assertTrue(AltLineCap::isPointAllowed('Under', 10.0, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'Under 10 allowed');
+    TestRunner::assertTrue(AltLineCap::isPointAllowed('Over', 8.0, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'Over 8 allowed');
+    TestRunner::assertTrue(AltLineCap::isPointAllowed('Under', 8.0, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'Under 8 allowed');
+    TestRunner::assertFalse(AltLineCap::isPointAllowed('Over', 9.5, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'off-bracket Over 9.5 rejected');
     TestRunner::assertFalse(AltLineCap::isPointAllowed('Over', 9.0, $alt, $coreM, 1, 'baseball_mlb', 'totals', $cfg), 'main echo rejected');
 });
 
-TestRunner::run('AltLineCap — single-offset does not touch spreads', function (): void {
-    // Run-line spreads stay reverse+buy-up even when a totals-single bundle is passed.
+TestRunner::run('AltLineCap — bracketed alt-totals does not touch spreads', function (): void {
+    // Run-line spreads stay reverse+buy-up even when a totals bundle is passed.
     $alt = [alt('Boston', -1.5), alt('Boston', 1.5), alt('Boston', -2.5), alt('Boston', -3.5)];
     $coreM = [core('Boston', -1.5)];
     $out = AltLineCap::capOutcomes($alt, $coreM, 1, 'baseball_mlb', 'spreads', singleCfg());
-    TestRunner::assertEquals([-2.5, 1.5], keptPoints($out, 'Boston'), 'spreads unaffected by totals-single config');
+    TestRunner::assertEquals([-2.5, 1.5], keptPoints($out, 'Boston'), 'spreads unaffected by totals bundle');
 });
 
-TestRunner::run('AltLineCap — totalsAltConfig defaults OFF', function (): void {
+TestRunner::run('AltLineCap — totalsAltConfig defaults ON (bracketed main±1)', function (): void {
     $origGet = getenv('SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED');
     $origEnv = $_ENV['SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED'] ?? null;
     putenv('SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED'); unset($_ENV['SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED']);
 
     $cfg = AltLineCap::totalsAltConfig(null);
-    TestRunner::assertFalse($cfg['enabled'], 'single-offset OFF by default (production unchanged)');
-    TestRunner::assertEquals(3.0, $cfg['offset'], 'default offset 3.0');
+    TestRunner::assertTrue($cfg['enabled'], 'bracketed alt-totals ON by default');
+    TestRunner::assertEquals(1.0, $cfg['offset'], 'default offset 1.0 (main±1)');
     TestRunner::assertEquals('both', $cfg['direction'], 'default direction both');
-    TestRunner::assertTrue(AltLineCap::totalsAltConfig(['altTotalSingleEnabled' => true])['enabled'], 'settings can enable');
+    TestRunner::assertFalse(AltLineCap::totalsAltConfig(['altTotalSingleEnabled' => false])['enabled'], 'settings can disable');
 
     if ($origGet === false) { putenv('SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED'); } else { putenv('SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED=' . $origGet); }
     if ($origEnv === null) { unset($_ENV['SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED']); } else { $_ENV['SPORTSBOOK_ALT_TOTAL_SINGLE_ENABLED'] = $origEnv; }
