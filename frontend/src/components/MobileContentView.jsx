@@ -2298,37 +2298,39 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const ttSideAvail = (leg) => !!leg && leg.point !== null && leg.price !== null;
     const teamHasTT = (teamSide) => ttSideAvail(teamTotals[teamSide]?.over) || ttSideAvail(teamTotals[teamSide]?.under);
     const hasTeamTotals = isMlbSportKey(match?.sportKey || match?.sport) && (teamHasTT('away') || teamHasTT('home'));
-    // Alternate-total ladders (Over / Under), built in extractOdds from the
-    // `alternate_totals` extended market. The away row's Total column renders
-    // the Over ladder, the home row the Under — mirroring the away/home split.
-    // Suppressed in teaser mode (teaser legs price off the MAIN total).
-    const altTotals = match.odds?.altTotals || {};
-    const overAltLadder = Array.isArray(altTotals.over) ? altTotals.over : [];
-    const underAltLadder = Array.isArray(altTotals.under) ? altTotals.under : [];
-    const hasAltTotals = !isTeaserMode && (overAltLadder.length > 0 || underAltLadder.length > 0);
-    // The Total column cycles Total → TT → Alt, each shown only when present.
-    // TT (team totals) is the primary companion next to Total (competitor
-    // "Total/TT" grouping); the single alt-total line follows on the next toggle.
-    const totalModeOrder = ['total', ...(hasTeamTotals ? ['tt'] : []), ...(hasAltTotals ? ['alt'] : [])];
-    const [totalMode, setTotalMode] = React.useState('total');
-    const effectiveTotalMode = totalModeOrder.includes(totalMode) ? totalMode : 'total';
-    const altTotalsActive = effectiveTotalMode === 'alt';
-    const teamTotalsActive = effectiveTotalMode === 'tt';
-    const cycleTotalMode = () => {
-        const i = totalModeOrder.indexOf(effectiveTotalMode);
-        setTotalMode(totalModeOrder[(i + 1) % totalModeOrder.length]);
-    };
-    // Spread ⇄ Alt toggle. The away row's Spread column then renders the away
-    // team's alt-spread ladder, the home row the home team's — mirroring the
-    // Total ⇄ TT split. Ladders are pre-built in extractOdds. Suppressed in
-    // teaser mode (teaser legs must price off the MAIN spread, same as the
-    // "+" sheet) and on period views (full-game ladder only).
+    // Spread ⇄ Alt toggle. The "Spread" pill flips the board into ALT mode:
+    // the away/home rows render the alt-spread ladders here AND the alt-total
+    // ladders in the Total column (both keyed off altOn), so a single "Spread"
+    // tap always surfaces alt spreads and alt totals together. Ladders are
+    // pre-built in extractOdds. Suppressed in teaser mode (teaser legs must
+    // price off the MAIN spread) and on period views (full-game ladder only).
     const altSpreads = match.odds?.altSpreads || {};
     const awayAltLadder = Array.isArray(altSpreads.away) ? altSpreads.away : [];
     const homeAltLadder = Array.isArray(altSpreads.home) ? altSpreads.home : [];
     const hasAltSpreads = !isTeaserMode && (awayAltLadder.length > 0 || homeAltLadder.length > 0);
     const [altOn, setAltOn] = React.useState(false);
     const altSpreadsActive = hasAltSpreads && altOn;
+    // Alternate-total ladders (Over / Under), built in extractOdds from the
+    // `alternate_totals` extended market. They ride along with ALT mode (the
+    // Spread pill) — never offered as a standalone Total-column option. The
+    // away row's Total column renders the Over ladder, the home row the Under.
+    const altTotals = match.odds?.altTotals || {};
+    const overAltLadder = Array.isArray(altTotals.over) ? altTotals.over : [];
+    const underAltLadder = Array.isArray(altTotals.under) ? altTotals.under : [];
+    const hasAltTotals = !isTeaserMode && (overAltLadder.length > 0 || underAltLadder.length > 0);
+    const altTotalsActive = altSpreadsActive && hasAltTotals;
+    // The Total column's own pill cycles Total ⇄ Team Totals only (TT is MLB
+    // full-game only). Generic Alt Totals are intentionally not in this cycle.
+    // Switching total mode clears ALT mode so the two stay mutually exclusive.
+    const totalModeOrder = ['total', ...(hasTeamTotals ? ['tt'] : [])];
+    const [totalMode, setTotalMode] = React.useState('total');
+    const effectiveTotalMode = totalModeOrder.includes(totalMode) ? totalMode : 'total';
+    const teamTotalsActive = effectiveTotalMode === 'tt';
+    const cycleTotalMode = () => {
+        const i = totalModeOrder.indexOf(effectiveTotalMode);
+        setTotalMode(totalModeOrder[(i + 1) % totalModeOrder.length]);
+        setAltOn(false);
+    };
     // 1st-inning totals at 0.5 IS the NRFI/YRFI market — relabel chips so bettors
     // recognise it. Selection name stays "Over"/"Under" for settlement (totals
     // resolution in SportsbookBetSupport::selectionResult matches on substring
@@ -2655,9 +2657,9 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     hasAltSpreads ? (
                         <button
                             type="button"
-                            onClick={() => setAltOn((v) => !v)}
+                            onClick={() => { setAltOn((v) => !v); setTotalMode('total'); }}
                             style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: altSpreadsActive ? '#d0451b' : undefined, fontWeight: 700 }}
-                            title={altSpreadsActive ? 'Showing alternate spreads — tap for main spread' : 'Showing main spread — tap for alternate spreads'}
+                            title={altSpreadsActive ? 'Showing alt spreads + alt totals — tap for main spread' : 'Showing main spread — tap for alt spreads + alt totals'}
                         >
                             {altSpreadsActive ? 'Alt' : 'Spread'}
                         </button>
@@ -2672,9 +2674,9 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             type="button"
                             onClick={cycleTotalMode}
                             style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: effectiveTotalMode !== 'total' ? '#d0451b' : undefined, fontWeight: 700 }}
-                            title={`Showing ${effectiveTotalMode === 'tt' ? 'team totals' : effectiveTotalMode === 'alt' ? 'alternate totals' : 'game total'} — tap to switch`}
+                            title={`Showing ${effectiveTotalMode === 'tt' ? 'team totals' : 'game total'} — tap to switch`}
                         >
-                            {effectiveTotalMode === 'tt' ? 'TT' : effectiveTotalMode === 'alt' ? 'Alt' : 'Total'}
+                            {effectiveTotalMode === 'tt' ? 'TT' : 'Total'}
                         </button>
                     ) : (
                         <span style={columnLabelStyle}>Total</span>

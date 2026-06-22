@@ -194,15 +194,13 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     // instead of the game over/under. MLB-only and only when the feed
     // actually shipped team totals (gated at render).
     const [ttModeByMatch, setTtModeByMatch] = useState({});
-    // Per-match toggle for the Spread column. false (default) → mainline run
-    // line / spread; true → the alternate-spread ladder (the
-    // `alternate_spreads` extended market). Mirrors ttModeByMatch.
+    // Per-match ALT-mode toggle, driven by the Spread column's "Spread" pill.
+    // false (default) → mainline run line / spread + mainline game total;
+    // true → the alternate-spread ladder AND the alternate-total ladder shown
+    // together (the `alternate_spreads` / `alternate_totals` extended markets).
+    // Mutually exclusive with the TT (team totals) mode — selecting one clears
+    // the other.
     const [altSpreadByMatch, setAltSpreadByMatch] = useState({});
-    // Per-match toggle for the Total column. false (default) → mainline game
-    // total; true → the alternate-total ladder (the `alternate_totals` extended
-    // market, both Over and Under). Mutually exclusive with the TT (team totals)
-    // mode — selecting one clears the other. Mirrors altSpreadByMatch.
-    const [altTotalByMatch, setAltTotalByMatch] = useState({});
     const [detailOpenMatch, setDetailOpenMatch] = useState(null);
     const attemptedLogoFetchesRef = React.useRef(new Set());
 
@@ -1114,6 +1112,26 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
 
     const hasValidOdds = (value) => parseOddsNumber(value) !== null;
 
+    // Column header label that doubles as its own toggle — no separate pill.
+    // The plain "Spread"/"Total" text is clickable; clicking it flips the
+    // column's mode and the word itself swaps (Spread→Alt, Total→TT). When not
+    // clickable (no alt/TT data) it renders as ordinary, identical-looking text.
+    const renderColumnLabel = ({ text, onClick, active, clickable, title }) => (
+        clickable
+            ? (
+                <button
+                    type="button"
+                    className="odds-label"
+                    onClick={onClick}
+                    title={title}
+                    style={{ appearance: 'none', background: 'none', border: 'none', padding: 0, margin: 0, fontFamily: 'inherit', cursor: 'pointer', color: active ? '#d0451b' : undefined }}
+                >
+                    {text}
+                </button>
+            )
+            : <span className="odds-label">{text}</span>
+    );
+
     const renderOddsButton = ({ label, onClick, available, disabled, reason = '', peerAvailable }) => {
         if (!available) {
             // If the peer outcome (other side of the same market) IS priced,
@@ -1512,30 +1530,24 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 const hasAltSpreads = awayLadder.length > 0 || homeLadder.length > 0;
                                                 const altOn = hasAltSpreads && !!altSpreadByMatch[match.id];
 
-                                                const modeToggle = hasAltSpreads ? (
-                                                    <span style={{ display: 'inline-flex', marginLeft: 6, borderRadius: 4, overflow: 'hidden', border: '1px solid #d0451b', verticalAlign: 'middle' }}>
-                                                        {[['main', 'Spread'], ['alt', 'Alt']].map(([mode, lbl]) => {
-                                                            const active = (mode === 'alt') === altOn;
-                                                            return (
-                                                                <button
-                                                                    key={mode}
-                                                                    type="button"
-                                                                    onClick={() => setAltSpreadByMatch((prev) => ({ ...prev, [match.id]: mode === 'alt' }))}
-                                                                    style={{ border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 700, lineHeight: 1.4, padding: '1px 6px', background: active ? '#d0451b' : '#fff', color: active ? '#fff' : '#d0451b' }}
-                                                                >
-                                                                    {lbl}
-                                                                </button>
-                                                            );
-                                                        })}
-                                                    </span>
-                                                ) : null;
+                                                // The "Spread" header text IS the toggle — no separate pill.
+                                                // Clicking it flips the whole board into ALT mode (the alt-spread
+                                                // ladder here AND the alt-total ladder in the Total column, both
+                                                // keyed off altSpreadByMatch) and the word swaps Spread→Alt.
+                                                // Clicking again returns to mainline. Choosing alt clears Team
+                                                // Totals so the two modes stay mutually exclusive.
+                                                const toggleSpreadAlt = () => {
+                                                    const toAlt = !altOn;
+                                                    setAltSpreadByMatch((prev) => ({ ...prev, [match.id]: toAlt }));
+                                                    if (toAlt) setTtModeByMatch((prev) => ({ ...prev, [match.id]: false }));
+                                                };
 
                                                 if (altOn) {
-                                                    const renderLadderCell = (ladder, teamLabel, withToggle) => {
+                                                    const renderLadderCell = (ladder, teamLabel) => {
                                                         if (ladder.length === 0) return null;
                                                         return (
                                                             <div className="odds-cell" key={teamLabel}>
-                                                                <span className="odds-label">{teamLabel} Alt{withToggle ? <> {modeToggle}</> : null}</span>
+                                                                {renderColumnLabel({ text: `${teamLabel} Alt`, onClick: toggleSpreadAlt, active: true, clickable: true, title: 'Showing alt spreads + alt totals — click for main' })}
                                                                 <div className="odds-values-group">
                                                                     {ladder.map((rung) => (
                                                                         <React.Fragment key={rung.point}>
@@ -1552,19 +1564,17 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                             </div>
                                                         );
                                                     };
-                                                    // Anchor the Spread⇄Alt toggle to whichever ladder renders first.
-                                                    const toggleOnAway = awayLadder.length > 0;
                                                     return (
                                                         <>
-                                                            {renderLadderCell(awayLadder, match.team1.shortName || match.team1.name, toggleOnAway)}
-                                                            {renderLadderCell(homeLadder, match.team2.shortName || match.team2.name, !toggleOnAway && homeLadder.length > 0)}
+                                                            {renderLadderCell(awayLadder, match.team1.shortName || match.team1.name)}
+                                                            {renderLadderCell(homeLadder, match.team2.shortName || match.team2.name)}
                                                         </>
                                                     );
                                                 }
 
                                                 return (
                                                 <div className="odds-cell">
-                                                    <span className="odds-label">Spread{modeToggle ? <> {modeToggle}</> : null}</span>
+                                                    {renderColumnLabel({ text: 'Spread', onClick: toggleSpreadAlt, active: false, clickable: hasAltSpreads, title: hasAltSpreads ? 'Click for alt spreads + alt totals' : undefined })}
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: formatSpreadDisplay(match.odds.spread.awayPoint, match.odds.spread.awayOdds, oddsFormat),
@@ -1631,11 +1641,15 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 const matchName = `${match.team1.name} vs ${match.team2.name}`;
                                                 const blockReason = match.rawMatch?.bettingBlockedReason || 'Betting unavailable';
 
-                                                // The Total column toggles Total ⇄ Alt ⇄ TT, each option
-                                                // shown only when its data exists.
-                                                //  - TT: team totals (MLB full-game only).
-                                                //  - Alt: the `alternate_totals` extended market (both Over
-                                                //    and Under), mirroring the Spread column's Alt ladder.
+                                                // The Total column shows one of three states:
+                                                //  - mainline game total (default),
+                                                //  - Team Totals (TT) — MLB full-game only, opened by this
+                                                //    column's own "Total" pill,
+                                                //  - the `alternate_totals` ladder — shown when the board is in
+                                                //    ALT mode (driven by the Spread column's "Spread" pill, so
+                                                //    Alt Spreads and Alt Totals always appear together).
+                                                // Generic Alt Totals are never offered as a standalone toggle
+                                                // here.
                                                 const tt = match.odds.teamTotals || {};
                                                 const sideAvail = (leg) => !!leg && leg.point !== null && hasValidOdds(leg.price);
                                                 const teamHasTT = (teamSide) => sideAvail(tt[teamSide]?.over) || sideAvail(tt[teamSide]?.under);
@@ -1673,46 +1687,31 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 const underLadder = buildTotalLadder('under');
                                                 const hasAltTotals = overLadder.length > 0 || underLadder.length > 0;
 
-                                                // Modes are mutually exclusive; TT wins a stale double-set.
+                                                // TT and ALT mode are mutually exclusive; TT wins a stale
+                                                // double-set. ALT totals piggyback on the Spread column's
+                                                // altSpreadByMatch flag so a "Spread" click surfaces both.
                                                 const ttOn = hasTeamTotals && !!ttModeByMatch[match.id];
-                                                const altOn = hasAltTotals && !ttOn && !!altTotalByMatch[match.id];
+                                                const altOn = hasAltTotals && !ttOn && !!altSpreadByMatch[match.id];
 
-                                                // Order: Total → TT → Alt. TT (team totals) is the primary
-                                                // companion next to Total (competitor "Total/TT" grouping);
-                                                // the single alt-total line stays reachable on the next toggle.
-                                                const totalModes = [['total', 'Total']];
-                                                if (hasTeamTotals) totalModes.push(['tt', 'TT']);
-                                                if (hasAltTotals) totalModes.push(['alt', 'Alt']);
-                                                const currentTotalMode = ttOn ? 'tt' : (altOn ? 'alt' : 'total');
-                                                const modeToggle = totalModes.length > 1 ? (
-                                                    <span style={{ display: 'inline-flex', marginLeft: 6, borderRadius: 4, overflow: 'hidden', border: '1px solid #d0451b', verticalAlign: 'middle' }}>
-                                                        {totalModes.map(([mode, lbl]) => {
-                                                            const active = mode === currentTotalMode;
-                                                            return (
-                                                                <button
-                                                                    key={mode}
-                                                                    type="button"
-                                                                    onClick={() => {
-                                                                        setAltTotalByMatch((prev) => ({ ...prev, [match.id]: mode === 'alt' }));
-                                                                        setTtModeByMatch((prev) => ({ ...prev, [match.id]: mode === 'tt' }));
-                                                                    }}
-                                                                    style={{ border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 700, lineHeight: 1.4, padding: '1px 6px', background: active ? '#d0451b' : '#fff', color: active ? '#fff' : '#d0451b' }}
-                                                                >
-                                                                    {lbl}
-                                                                </button>
-                                                            );
-                                                        })}
-                                                    </span>
-                                                ) : null;
+                                                // The "Total" header text IS the toggle — no separate pill.
+                                                // Clicking it opens Team Totals (the word swaps Total→TT) and
+                                                // clicks again return to the mainline total. Clicking it while
+                                                // ALT totals show (driven by the Spread click) also jumps to TT.
+                                                // Only clickable when this game actually ships team totals
+                                                // (MLB full-game); otherwise the label is ordinary text.
+                                                const toggleTotalTt = () => {
+                                                    const toTt = !ttOn;
+                                                    setTtModeByMatch((prev) => ({ ...prev, [match.id]: toTt }));
+                                                    if (toTt) setAltSpreadByMatch((prev) => ({ ...prev, [match.id]: false }));
+                                                };
 
                                                 if (altOn) {
-                                                    const toggleOnOver = overLadder.length > 0;
-                                                    const renderTotalLadderCell = (ladder, sideLabel, withToggle) => {
+                                                    const renderTotalLadderCell = (ladder, sideLabel) => {
                                                         if (ladder.length === 0) return null;
                                                         const ou = sideLabel === 'Over' ? 'O' : 'U';
                                                         return (
                                                             <div className="odds-cell" key={sideLabel}>
-                                                                <span className="odds-label">{sideLabel} Alt{withToggle ? <> {modeToggle}</> : null}</span>
+                                                                {renderColumnLabel({ text: `${sideLabel} Alt`, onClick: toggleTotalTt, active: true, clickable: hasTeamTotals, title: hasTeamTotals ? 'Click for team totals' : undefined })}
                                                                 <div className="odds-values-group">
                                                                     {ladder.map((rung) => (
                                                                         <React.Fragment key={rung.point}>
@@ -1731,15 +1730,14 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     };
                                                     return (
                                                         <>
-                                                            {renderTotalLadderCell(overLadder, 'Over', toggleOnOver)}
-                                                            {renderTotalLadderCell(underLadder, 'Under', !toggleOnOver && underLadder.length > 0)}
+                                                            {renderTotalLadderCell(overLadder, 'Over')}
+                                                            {renderTotalLadderCell(underLadder, 'Under')}
                                                         </>
                                                     );
                                                 }
 
                                                 if (ttOn) {
-                                                    const toggleSide = teamHasTT('away') ? 'away' : 'home';
-                                                    const renderTeamCell = (teamSide, teamLabel, withToggle) => {
+                                                    const renderTeamCell = (teamSide, teamLabel) => {
                                                         const bucket = tt[teamSide] || {};
                                                         const overOk = sideAvail(bucket.over);
                                                         const underOk = sideAvail(bucket.under);
@@ -1754,7 +1752,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         );
                                                         return (
                                                             <div className="odds-cell" key={teamSide}>
-                                                                <span className="odds-label">{teamLabel} TT{withToggle ? <> {modeToggle}</> : null}</span>
+                                                                {renderColumnLabel({ text: `${teamLabel} TT`, onClick: toggleTotalTt, active: true, clickable: true, title: 'Showing team totals — click for game total' })}
                                                                 <div className="odds-values-group">
                                                                     {overOk ? renderOddsButton({
                                                                         label: formatTotalDisplay('O', bucket.over.point, bucket.over.price, oddsFormat),
@@ -1776,15 +1774,15 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     };
                                                     return (
                                                         <>
-                                                            {renderTeamCell('away', match.team1.shortName || match.team1.name, toggleSide === 'away')}
-                                                            {renderTeamCell('home', match.team2.shortName || match.team2.name, toggleSide === 'home')}
+                                                            {renderTeamCell('away', match.team1.shortName || match.team1.name)}
+                                                            {renderTeamCell('home', match.team2.shortName || match.team2.name)}
                                                         </>
                                                     );
                                                 }
 
                                                 return (
                                                 <div className="odds-cell">
-                                                    <span className="odds-label">{totalLabel}{modeToggle ? <> {modeToggle}</> : null}</span>
+                                                    {renderColumnLabel({ text: totalLabel, onClick: toggleTotalTt, active: false, clickable: hasTeamTotals, title: hasTeamTotals ? 'Click for team totals' : undefined })}
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: overLabel,
