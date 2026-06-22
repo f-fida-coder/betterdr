@@ -182,14 +182,14 @@ const legDescription = (leg, oddsFormat) => {
     if (market === 'totals') {
         // Game total (not a team total — that market type is `team_totals` and
         // falls through to the default branch). The selection is just
-        // "Over"/"Under", so append the matchup for context: "Over 9 — DET @ CHC".
+        // "Over"/"Under", so PREFIX the team whose crest the row shows (the
+        // home side, matching legTeamForLogo) → "Detroit Tigers Over 8.5".
         const isUnder = selection.toLowerCase().startsWith('u');
         const line = point === null ? '' : formatLineValue(Math.abs(point));
-        const base = [`${isUnder ? 'Under' : 'Over'}`, line, odds].filter(Boolean).join(' ');
         const snap = leg?.matchSnapshot || {};
-        const away = String(snap.awayTeamShort || snap.awayTeam || '').trim();
-        const home = String(snap.homeTeamShort || snap.homeTeam || '').trim();
-        return away && home ? `${base} — ${away} @ ${home}` : base;
+        const team = String(snap.homeTeamFull || snap.homeTeam || '').trim();
+        const ou = isUnder ? 'Under' : 'Over';
+        return [team, ou, line, odds].filter(Boolean).join(' ');
     }
     // Player props: keep the full selection (player + side + line) and append
     // the friendly stat label — "Osuna Over 0.5 Runs Scored -110".
@@ -465,18 +465,20 @@ const propPlayerTeam = (leg) => {
 
 // Teams whose crests represent a leg. Team markets (spread/total/ML) → the
 // single picked/home team. Player props → ONLY the player's own team when the
-// side is known (propPlayerTeam); otherwise fall back to the full MATCHUP (both
-// away and home crests) so legacy prop legs never lose their logo. Returns
-// [{ name, abbr }] (1 or 2 entries).
+// side is known (propPlayerTeam); otherwise fall back to a SINGLE home crest so
+// a leg never stacks two overlapping logos. Returns [{ name, abbr }] (always 1
+// entry, or 0 when nothing resolves).
 const legLogoTeams = (leg) => {
     const snap = leg?.matchSnapshot || {};
     if (isPlayerPropMarket(leg?.marketType)) {
         const own = propPlayerTeam(leg);
         if (own) return [own];
-        return [
-            { name: String(snap.awayTeam || '').trim(), abbr: String(snap.awayTeamShort || '').trim() },
-            { name: String(snap.homeTeam || '').trim(), abbr: String(snap.homeTeamShort || '').trim() },
-        ].filter((t) => t.name);
+        // Side unknown (backend playerTeamSide null — legacy legs or an
+        // unresolved /players lookup). Show ONE crest (home) instead of
+        // stacking BOTH matchup crests. The correct player team comes from
+        // playerTeamSide above; this is only a single-logo fallback.
+        const home = String(snap.homeTeam || '').trim();
+        return home ? [{ name: home, abbr: String(snap.homeTeamShort || '').trim() }] : [];
     }
     const team = legTeamForLogo(leg);
     return team ? [{ name: team, abbr: legTeamAbbr(leg, team) }] : [];
