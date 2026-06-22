@@ -106,6 +106,21 @@ final class RundownClient
     }
 
     /**
+     * GET /players/{playerID} — full player record (team_id, names, position).
+     * Used to resolve a player-prop leg's player to their team so the bet shows
+     * a single team crest. For a TYPE_PLAYER prop participant, participant.id IS
+     * the playerID, and the returned players[].team_id matches event.teams[].team_id.
+     * Returns null when the feed is unconfigured/unavailable (caller falls back).
+     */
+    public static function getPlayer(string $playerId): ?array
+    {
+        if ($playerId === '') {
+            return null;
+        }
+        return self::get('/players/' . rawurlencode($playerId));
+    }
+
+    /**
      * Wrap self::get() with ≤12-ID market_ids batching. When batching is off
      * (RUNDOWN_MARKET_IDS_BATCH != true) or the request already has ≤12 IDs,
      * this is a passthrough — ZERO behavior change. When on AND >12 IDs, the

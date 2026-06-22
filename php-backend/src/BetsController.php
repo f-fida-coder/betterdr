@@ -3329,6 +3329,15 @@ final class BetsController
                 )
                 : $this->fullSelectionLabel($match, $outcome, $selection),
             'selectionPid' => $outcome['pid'] ?? null,
+            // Player-prop only: which side of the matchup the player is on, so
+            // the pending-bets row shows a SINGLE team crest (the player's own
+            // team) instead of both. Best-effort — null on non-props or any
+            // unresolved lookup, and the UI falls back to both matchup crests
+            // (legacy behavior). Resolved once here off selectionPid + the
+            // snapshot's team ids; never re-derived from the display name.
+            'playerTeamSide' => $isPropMarket
+                ? PlayerPropTeam::side(isset($outcome['pid']) ? (string) $outcome['pid'] : null, is_array($match) ? $match : [])
+                : null,
             // Team totals canonical fields (null on every other market). The
             // outcome carries these structured from the mapper; settlement
             // grades the picked team's score on teamSide + side and NEVER
@@ -3393,6 +3402,11 @@ final class BetsController
             // picked team's score against `point`.
             'teamSide' => $selection['teamSide'] ?? null,
             'side' => $selection['side'] ?? null,
+            // Player-prop only: which matchup side the player is on ('home'/
+            // 'away'), so the pending-bets row shows a single team crest. Null
+            // on every non-prop or unresolved leg (UI then shows both crests).
+            // Display-only — never read by settlement.
+            'playerTeamSide' => $selection['playerTeamSide'] ?? null,
             'point' => $selection['point'] ?? null,
             // basePoint preserves the pregame line BEFORE teaser shift OR
             // buy-points shift. originalPoint mirrors basePoint for buy

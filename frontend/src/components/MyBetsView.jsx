@@ -443,13 +443,36 @@ const legTeamAbbr = (leg, teamName) => {
     return '';
 };
 
-// Teams whose crests represent a leg. Team markets → the single picked/home
-// team. Player props have NO team on the leg (only the player), so we show the
-// MATCHUP — both away and home crests from the snapshot — rather than guessing
-// which side the player is on. Returns [{ name, abbr }] (1 or 2 entries).
+// The player's OWN team for a player-prop leg, or null when we can't tell.
+// Backend resolves the player → their matchup side at placement and stamps
+// `playerTeamSide` ('home'|'away') on the leg (from the player's team_id). We
+// turn that into the single { name, abbr } to show one crest. Legacy prop legs
+// placed before this resolution have no side → null (caller shows both crests;
+// the player name alone can't tell us which team without a roster lookup).
+const propPlayerTeam = (leg) => {
+    const snap = leg?.matchSnapshot || {};
+    const side = String(leg?.playerTeamSide || '').trim().toLowerCase();
+    if (side === 'home') {
+        const name = String(snap.homeTeam || '').trim();
+        return name ? { name, abbr: String(snap.homeTeamShort || '').trim() } : null;
+    }
+    if (side === 'away') {
+        const name = String(snap.awayTeam || '').trim();
+        return name ? { name, abbr: String(snap.awayTeamShort || '').trim() } : null;
+    }
+    return null;
+};
+
+// Teams whose crests represent a leg. Team markets (spread/total/ML) → the
+// single picked/home team. Player props → ONLY the player's own team when the
+// side is known (propPlayerTeam); otherwise fall back to the full MATCHUP (both
+// away and home crests) so legacy prop legs never lose their logo. Returns
+// [{ name, abbr }] (1 or 2 entries).
 const legLogoTeams = (leg) => {
     const snap = leg?.matchSnapshot || {};
     if (isPlayerPropMarket(leg?.marketType)) {
+        const own = propPlayerTeam(leg);
+        if (own) return [own];
         return [
             { name: String(snap.awayTeam || '').trim(), abbr: String(snap.awayTeamShort || '').trim() },
             { name: String(snap.homeTeam || '').trim(), abbr: String(snap.homeTeamShort || '').trim() },

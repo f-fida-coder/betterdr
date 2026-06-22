@@ -1701,6 +1701,12 @@ final class SportsbookBetSupport
             // prop row reads the player's name, not the bare "Over". Falls back
             // to `selection` for legacy rows that never stored it.
             'selectionFull' => (string) ($selection['selectionFull'] ?? $selection['selection'] ?? ''),
+            // Stable outcome id (player id for props) — display/audit only.
+            'selectionPid' => $selection['selectionPid'] ?? null,
+            // Player-prop only: matchup side the player is on ('home'/'away'),
+            // so the row shows a single team crest. Null on non-props / legacy
+            // rows (UI then shows both crests). Display-only.
+            'playerTeamSide' => $selection['playerTeamSide'] ?? null,
             'odds' => self::num($selection['odds'] ?? 0),
             'oddsAmerican' => $americanOdds,
             'marketType' => $selection['marketType'] ?? null,
@@ -1999,6 +2005,8 @@ final class SportsbookBetSupport
             // runs off `selection` + matchSnapshot, never these).
             'selectionFull' => (string) ($selection['selectionFull'] ?? $selection['selection'] ?? ''),
             'selectionPid' => $selection['selectionPid'] ?? null,
+            // Player-prop single-crest logo hint ('home'/'away'); null elsewhere.
+            'playerTeamSide' => $selection['playerTeamSide'] ?? null,
             'odds' => self::num($selection['odds'] ?? 0),
             'oddsAmerican' => $americanOdds,
             'marketType' => (string) ($selection['marketType'] ?? ''),
