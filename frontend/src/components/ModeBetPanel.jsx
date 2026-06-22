@@ -62,6 +62,52 @@ const roundRobinCombinationCount = (selectionCount, sizes) => {
     return total;
 };
 
+// ── Same-Game Parlay (SGP) correlation profit-haircut ───────────────────────
+// The backend (SportsbookBetSupport::calculatePotentialPayout) shrinks a
+// same-game parlay's PROFIT before paying it out, because legs from one event
+// are correlated. The betslip must mirror this exactly or it over-promises a
+// payout the ticket will never pay (e.g. a 3-leg NYY@DET parlay with a prop
+// showed To Win $1000 but the ticket paid $649.90).
+//
+// MUST stay in sync with the backend constants
+// SportsbookBetSupport::SGP_DEFAULT_HAIRCUT_PCT (0.20) and
+// SGP_DEFAULT_PROP_HAIRCUT_PCT (0.35). Backend remains the payout authority;
+// this is only a display mirror.
+// TODO(sgp-settings): fetch sgpHaircutPct / sgpPlayerPropHaircutPct from the
+// platform-settings API and thread them in instead of these hardcoded defaults.
+const SGP_HAIRCUT_PCT = 0.20;
+const SGP_PROP_HAIRCUT_PCT = 0.35;
+
+// True when ANY event appears on 2+ legs — the backend's exact same-game test
+// (isSameGameTicket: a matchId seen >= 2 times), NOT "all legs same game".
+const isSameGameSlip = (selections) => {
+    const counts = new Map();
+    for (const sel of (selections || [])) {
+        const mid = String(sel?.matchId || '');
+        if (!mid) continue;
+        const n = (counts.get(mid) || 0) + 1;
+        if (n >= 2) return true;
+        counts.set(mid, n);
+    }
+    return false;
+};
+
+// Correlation haircut fraction for a same-game slip (0 when cross-game). The
+// larger player-prop rate applies when ANY leg is a player prop — identical to
+// the backend's sameGameHaircutFraction.
+const sgpHaircutFraction = (selections) => {
+    if (!isSameGameSlip(selections)) return 0;
+    const hasProp = (selections || []).some((sel) => isPlayerPropMarket(sel?.marketType));
+    return hasProp ? SGP_PROP_HAIRCUT_PCT : SGP_HAIRCUT_PCT;
+};
+
+// Apply the PROFIT-ONLY haircut to a combined decimal: new = 1 + (d-1)(1-f).
+// Mirrors SportsbookBetSupport::applyProfitHaircut. Stake is never touched.
+const applySgpHaircut = (combinedDecimal, fraction) => {
+    if (fraction <= 0 || !(combinedDecimal > 1)) return combinedDecimal;
+    return 1 + (combinedDecimal - 1) * (1 - fraction);
+};
+
 const formatAmount = (value) => {
     const n = Number(value);
     return Number.isFinite(n) ? String(Math.round(n)) : '0';
@@ -723,7 +769,8 @@ const ModeBetPanel = ({
             return n > 0 ? n : null;
         }
         if (normalizedMode === 'parlay') {
-            return selections.reduce((acc, sel) => acc * exactDecimalForLeg(sel?.odds), 1);
+            const combined = selections.reduce((acc, sel) => acc * exactDecimalForLeg(sel?.odds), 1);
+            return applySgpHaircut(combined, sgpHaircutFraction(selections));
         }
         if (normalizedMode === 'if_bet' || normalizedMode === 'reverse') {
             const firstTwo = selections.slice(0, 2);
@@ -1167,7 +1214,10 @@ const ModeBetPanel = ({
             // Raw-decimal multiplication previously made Win read $997
             // for a typed $1000 because Risk used American int but
             // payout used raw decimals.
-            const combined = selections.reduce((acc, sel) => acc * exactDecimalForLeg(sel?.odds), 1);
+            const combined = applySgpHaircut(
+                selections.reduce((acc, sel) => acc * exactDecimalForLeg(sel?.odds), 1),
+                sgpHaircutFraction(selections),
+            );
             return effectiveCombinedRisk * combined;
         }
         if (normalizedMode === 'teaser') {
