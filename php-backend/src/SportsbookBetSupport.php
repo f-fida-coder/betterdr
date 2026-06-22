@@ -1696,6 +1696,11 @@ final class SportsbookBetSupport
         return [
             'matchId' => $selection['matchId'] ?? null,
             'selection' => $selection['selection'] ?? null,
+            // Full display label ("Amed Rosario Over 1.5" for props, "City
+            // Mascot" for team markets). The pending-bets UI renders this so a
+            // prop row reads the player's name, not the bare "Over". Falls back
+            // to `selection` for legacy rows that never stored it.
+            'selectionFull' => (string) ($selection['selectionFull'] ?? $selection['selection'] ?? ''),
             'odds' => self::num($selection['odds'] ?? 0),
             'oddsAmerican' => $americanOdds,
             'marketType' => $selection['marketType'] ?? null,
