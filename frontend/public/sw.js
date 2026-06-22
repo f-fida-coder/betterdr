@@ -1,289 +1,55 @@
-/**
- * Service Worker for BetterDR
- * Implements caching strategies and offline support
+/*
+ * Self-destructing service worker.
+ *
+ * The app NO LONGER uses a service worker. A previous caching worker caused
+ * stale bundles to stick on clients — notably a phone kept serving an old build
+ * after a deploy, so mobile and desktop diverged. This file exists ONLY to
+ * evict that worker from any client that still has it registered: on activation
+ * it deletes every cache, unregisters itself, and reloads open tabs so they
+ * fetch fresh code from the network. New clients never register a worker, and
+ * the app actively unregisters on load (see unregisterLegacyServiceWorker).
+ *
+ * Do not add caching logic here. If a worker is ever reintroduced, do it in a
+ * new file/scope so this self-destruct can fully retire first.
  */
 
-// Bump CACHE_VERSION to purge clients that were serving stale admin/auth
-// responses under the old blanket /api/* stale-while-revalidate rule.
-// 2026-05-08 — bumped to v1.4: post-perf-overhaul deploy changed every chunk
-// hash; clients running v1.3 were serving an old cached index.html whose
-// <script src> pointed at JS files that no longer exist on origin, causing
-// React to never mount and only the LCP image preload to render.
-// 2026-05-08 — bumped to v1.6: teaser flow ships a board-level type
-// picker; clients on v1.5 had a cached `/api/betting/rules` response
-// that predated the teaserTypes catalog, so the picker stayed empty
-// even after deploy. Bumping invalidates API_CACHE so the next fetch
-// hits origin and pulls the new shape.
-const CACHE_VERSION = 'v1.6';
-const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
-const ASSETS_CACHE = `assets-${CACHE_VERSION}`;
-const API_CACHE = `api-${CACHE_VERSION}`;
-
-const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/logo.png',
-];
-
-// Only these exact public read-only endpoints are safe to cache. Everything
-// else — /api/admin/**, /api/auth/**, /api/wallet/**, /api/bets/**, etc. —
-// MUST hit the network so balances and transactions reflect live DB state.
-// Odds endpoints use network-first (see NETWORK_FIRST_API_PATHS) so live
-// odds are served when online and cached only as an offline fallback.
-const NETWORK_FIRST_API_PATHS = [
-  '/api/matches',
-  '/api/matches/sports',
-];
-const CACHEABLE_API_PATHS = [
-  '/api/betting/rules',
-];
-
-const matchesApiPath = (pathname, list) => (
-  list.some((prefix) => pathname === prefix || pathname.startsWith(prefix + '/'))
-);
-const isNetworkFirstApi = (pathname) => matchesApiPath(pathname, NETWORK_FIRST_API_PATHS);
-const isCacheableApi = (pathname) => matchesApiPath(pathname, CACHEABLE_API_PATHS);
-
-// Install: Cache critical assets
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(ASSETS_CACHE).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
-    }).then(() => self.skipWaiting())
-  );
+self.addEventListener('install', () => {
+  // Activate immediately, replacing any previously-installed caching worker.
+  self.skipWaiting();
 });
 
-// Activate: Clean up old caches
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames
-          .filter(name => name !== RUNTIME_CACHE && name !== ASSETS_CACHE && name !== API_CACHE)
-          .map(name => caches.delete(name))
-      );
-    }).then(() => self.clients.claim())
-  );
+  event.waitUntil((async () => {
+    // 1) Purge every cache this origin holds (old assets/api/runtime caches).
+    try {
+      const names = await caches.keys();
+      await Promise.all(names.map((name) => caches.delete(name)));
+    } catch (e) {
+      // best-effort — ignore
+    }
+    // 2) Unregister this worker so no future request is intercepted.
+    try {
+      await self.registration.unregister();
+    } catch (e) {
+      // ignore
+    }
+    // 3) Reload open tabs so they re-fetch index.html + chunks from the network
+    //    (uncontrolled now), landing them on the latest deployed bundle.
+    try {
+      const clients = await self.clients.matchAll({ type: 'window' });
+      clients.forEach((client) => client.navigate(client.url));
+    } catch (e) {
+      // ignore
+    }
+  })());
 });
 
+// Older app builds post SKIP_WAITING after an update is found — honor it so
+// this self-destruct worker takes over promptly.
 self.addEventListener('message', (event) => {
-  const type = event?.data?.type;
-  if (type === 'SKIP_WAITING') {
+  if (event && event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
 });
 
-// Fetch: Implement caching strategies
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  const url = new URL(request.url);
-
-  // Skip non-GET requests
-  if (request.method !== 'GET') {
-    return;
-  }
-
-  // Cache API only accepts http/https. Browser extensions and devtools
-  // routinely issue chrome-extension:// (or moz-extension://) requests
-  // through the page context, which would otherwise blow up cache.put().
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    return;
-  }
-
-  // API requests: only the explicit public, read-only endpoints get SWR.
-  // Everything else under /api/ bypasses the SW entirely (authenticated and
-  // mutating-adjacent routes like /api/admin/**, /api/auth/**, /api/wallet/**,
-  // /api/bets/** must never serve a stale cache — real-time balance, pending,
-  // and session state depend on a live response).
-  if (url.pathname.startsWith('/api/')) {
-    if (isNetworkFirstApi(url.pathname)) {
-      return event.respondWith(networkFirst(request, API_CACHE));
-    }
-    if (isCacheableApi(url.pathname)) {
-      return event.respondWith(staleWhileRevalidate(request, API_CACHE));
-    }
-    return; // fall through to default network handling
-  }
-
-  // Navigation requests: App Shell network-first with offline fallback.
-  if (request.mode === 'navigate') {
-    return event.respondWith(navigationNetworkFirst(request));
-  }
-
-  // Static assets: Cache First
-  if (isStaticAsset(url.pathname)) {
-    return event.respondWith(
-      cacheFirst(request, ASSETS_CACHE)
-    );
-  }
-
-  // HTML/App shell: Network First
-  event.respondWith(
-    networkFirst(request, RUNTIME_CACHE)
-  );
-});
-
-async function navigationNetworkFirst(request) {
-  const cache = await caches.open(RUNTIME_CACHE);
-  try {
-    const response = await fetch(request);
-    if (response && response.ok) {
-      cache.put('/index.html', response.clone());
-    }
-    return response;
-  } catch (error) {
-    const appShell = await cache.match('/index.html');
-    if (appShell) {
-      return appShell;
-    }
-    const assetsCache = await caches.open(ASSETS_CACHE);
-    const fallbackShell = await assetsCache.match('/index.html');
-    if (fallbackShell) {
-      return fallbackShell;
-    }
-    return new Response('Offline - App shell unavailable', { status: 503 });
-  }
-}
-
-/**
- * Network First strategy
- * Try network first, fallback to cache
- */
-async function networkFirst(request, cacheName) {
-  const cache = await caches.open(cacheName);
-  try {
-    const response = await fetch(request);
-    if (response.ok) {
-      cache.put(request, response.clone());
-    }
-    return response;
-  } catch (error) {
-    return cache.match(request) || 
-      new Response('Offline - Resource not available', { status: 503 });
-  }
-}
-
-/**
- * Cache First strategy
- * Use cache, fallback to network
- */
-async function cacheFirst(request, cacheName) {
-  const cache = await caches.open(cacheName);
-  const cached = await cache.match(request);
-  if (cached) {
-    return cached;
-  }
-  try {
-    const response = await fetch(request);
-    if (response.ok) {
-      cache.put(request, response.clone());
-    }
-    return response;
-  } catch (error) {
-    return new Response('Offline - Resource not available', { status: 503 });
-  }
-}
-
-/**
- * Stale While Revalidate strategy
- * Return cached immediately, update in background
- */
-async function staleWhileRevalidate(request, cacheName) {
-  const cache = await caches.open(cacheName);
-  const cached = await cache.match(request);
-
-  const fetchPromise = fetch(request).then(response => {
-    if (response && response.ok) {
-      cache.put(request, response.clone());
-    }
-    return response;
-  }).catch(() => {
-    return cached || new Response('Offline', { status: 503 });
-  });
-
-  return cached || fetchPromise;
-}
-
-/**
- * Determine if URL is a static asset
- */
-function isStaticAsset(pathname) {
-  return /\.(js|css|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$/i.test(pathname);
-}
-
-/**
- * Background Sync for offline actions
- * Queue failed requests and retry when online
- */
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'sync-bets') {
-    event.waitUntil(
-      syncPendingBets()
-    );
-  }
-});
-
-async function syncPendingBets() {
-  const db = await openDatabase();
-  const pending = await getAllFromStore(db, 'pending_bets');
-  
-  for (const bet of pending) {
-    try {
-      const response = await fetch('/api/bets/place', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bet),
-      });
-      if (response.ok) {
-        await deleteFromStore(db, 'pending_bets', bet.id);
-      }
-    } catch (error) {
-      // Keep in queue for retry
-      console.warn('Failed to sync bet:', error);
-    }
-  }
-}
-
-/**
- * Open IndexedDB for offline storage
- */
-function openDatabase() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open('betterdr', 1);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-    request.onupgradeneeded = (event) => {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains('pending_bets')) {
-        db.createObjectStore('pending_bets', { keyPath: 'id' });
-      }
-    };
-  });
-}
-
-/**
- * Get all items from object store
- */
-function getAllFromStore(db, storeName) {
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(storeName, 'readonly');
-    const store = transaction.objectStore(storeName);
-    const request = store.getAll();
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-  });
-}
-
-/**
- * Delete from object store
- */
-function deleteFromStore(db, storeName, key) {
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(storeName, 'readwrite');
-    const store = transaction.objectStore(storeName);
-    const request = store.delete(key);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve();
-  });
-}
+// No fetch handler: the browser goes straight to the network for everything.

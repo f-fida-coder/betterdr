@@ -242,50 +242,21 @@ export function deduplicateRequest(key, requestFn, ttl = 100) {
  * Register Service Worker for offline caching and background sync
  * Caches API responses and static assets
  */
-export function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js', { scope: '/' })
-        .then(reg => {
-          if (import.meta.env.DEV) {
-            console.log('Service Worker registered:', reg);
-          }
-          // Check for updates once per hour on tab focus instead of a
-          // fixed 5-minute polling interval that fires even for inactive tabs.
-          let lastUpdateCheck = 0;
-          const checkForUpdate = () => {
-            if (document.hidden) return;
-            const now = Date.now();
-            if (now - lastUpdateCheck < 3_600_000) return; // 1 hour
-            lastUpdateCheck = now;
-            reg.update().catch(() => {}); // best-effort
-          };
-          document.addEventListener('visibilitychange', checkForUpdate);
-
-          // If a new worker is waiting, activate it immediately.
-          if (reg.waiting) {
-            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-          }
-
-          reg.addEventListener('updatefound', () => {
-            const installing = reg.installing;
-            if (!installing) return;
-
-            installing.addEventListener('statechange', () => {
-              if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-                if (reg.waiting) {
-                  reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-                }
-              }
-            });
-          });
-        })
-        .catch(err => {
-          if (import.meta.env.DEV) {
-            console.warn('Service Worker registration failed:', err);
-          }
-        });
-    });
+// The app previously registered a caching service worker. It caused stale
+// bundles to persist on clients (a phone kept serving an old build after a
+// deploy, so desktop and mobile diverged). The service worker has been removed
+// so every client always loads the latest code from the network. This actively
+// unregisters any worker a returning client still has and purges its caches.
+// The self-destructing /sw.js handles clients that load it before this runs.
+export function unregisterLegacyServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.getRegistrations()
+    .then((regs) => regs.forEach((reg) => { reg.unregister().catch(() => {}); }))
+    .catch(() => {});
+  if (typeof caches !== 'undefined' && caches.keys) {
+    caches.keys()
+      .then((names) => Promise.all(names.map((name) => caches.delete(name).catch(() => {}))))
+      .catch(() => {});
   }
 }
 
@@ -574,8 +545,9 @@ export function initializePhase3AOptimizations() {
   // Measure paint timing
   measurePaintTiming();
 
-  // Register Service Worker for offline support
-  registerServiceWorker();
+  // Service worker removed — evict any worker/caches a returning client still
+  // has so desktop and mobile always load the latest code (no stale bundles).
+  unregisterLegacyServiceWorker();
 
   if (import.meta.env.DEV) {
     console.log('Phase 3A performance optimizations initialized');
