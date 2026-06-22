@@ -463,22 +463,32 @@ const propPlayerTeam = (leg) => {
     return null;
 };
 
+// Neutral player-prop placeholder shown when a leg's playerTeamSide does not
+// resolve. A confidently-wrong team crest (e.g. Detroit next to a Yankees
+// player) is worse than a generic icon, so the unknown branch renders this
+// instead of guessing. Interim only — the correct crest returns once backend
+// PlayerPropTeam::side populates playerTeamSide.
+const NEUTRAL_PROP_LOGO_DATA_URI = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80">
+  <circle cx="40" cy="40" r="38" fill="#3a3f4b" />
+  <circle cx="40" cy="40" r="36" fill="none" stroke="rgba(255,255,255,.28)" stroke-width="2" />
+  <circle cx="40" cy="31" r="13" fill="rgba(255,255,255,.78)" />
+  <path d="M18 64 a22 22 0 0 1 44 0 Z" fill="rgba(255,255,255,.78)" />
+</svg>`.trim())}`;
+
 // Teams whose crests represent a leg. Team markets (spread/total/ML) → the
 // single picked/home team. Player props → ONLY the player's own team when the
-// side is known (propPlayerTeam); otherwise fall back to a SINGLE home crest so
-// a leg never stacks two overlapping logos. Returns [{ name, abbr }] (always 1
-// entry, or 0 when nothing resolves).
+// side is known (propPlayerTeam); otherwise a single NEUTRAL placeholder (never
+// a guessed home crest, which is often the wrong team). Returns [{ name, abbr,
+// neutral? }] (always 1 entry, or 0 when nothing resolves).
 const legLogoTeams = (leg) => {
-    const snap = leg?.matchSnapshot || {};
     if (isPlayerPropMarket(leg?.marketType)) {
         const own = propPlayerTeam(leg);
         if (own) return [own];
         // Side unknown (backend playerTeamSide null — legacy legs or an
-        // unresolved /players lookup). Show ONE crest (home) instead of
-        // stacking BOTH matchup crests. The correct player team comes from
-        // playerTeamSide above; this is only a single-logo fallback.
-        const home = String(snap.homeTeam || '').trim();
-        return home ? [{ name: home, abbr: String(snap.homeTeamShort || '').trim() }] : [];
+        // unresolved /players lookup). Show a NEUTRAL player icon rather than
+        // guessing the home team, which would render a confidently-wrong crest.
+        return [{ name: '', abbr: '', neutral: true }];
     }
     const team = legTeamForLogo(leg);
     return team ? [{ name: team, abbr: legTeamAbbr(leg, team) }] : [];
@@ -490,17 +500,17 @@ const legLogoTeams = (leg) => {
 const MyBetsLegLogo = ({ leg, teamLogos }) => {
     const teams = legLogoTeams(leg);
     if (teams.length === 0) return null;
-    const imgs = teams.map(({ name }, i) => (
+    const imgs = teams.map(({ name, neutral }, i) => (
         <img
-            key={`${name}-${i}`}
-            src={teamLogos[name] || createFallbackTeamLogoDataUri(name)}
+            key={`${neutral ? 'neutral' : name}-${i}`}
+            src={neutral ? NEUTRAL_PROP_LOGO_DATA_URI : (teamLogos[name] || createFallbackTeamLogoDataUri(name))}
             alt=""
             className="my-bets-table-logo"
             width="20"
             height="20"
             loading="lazy"
             decoding="async"
-            onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(name); }}
+            onError={neutral ? undefined : (e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(name); }}
         />
     ));
     return teams.length > 1
