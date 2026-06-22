@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { placeBet, normalizeBetMode, createRequestId } from '../api';
+import { placeBet, createOpenParlay, normalizeBetMode, createRequestId } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal } from '../utils/odds';
@@ -541,8 +541,15 @@ const ModeBetPanel = ({
         return () => media.removeEventListener('change', sync);
     }, []);
 
-    const normalizedMode = normalizeBetMode(mode);
-    const rule = rulesByMode[normalizedMode] || DEFAULT_RULES[normalizedMode] || DEFAULT_RULES.straight;
+    const isOpenParlay = normalizeBetMode(mode) === 'open_parlay';
+    // Open parlay shares all parlay math/payout/validation; it only differs at
+    // the placement endpoint, min-legs, freeplay, and labels. Map it to 'parlay'
+    // everywhere downstream so the existing parlay paths run unchanged.
+    const normalizedMode = isOpenParlay ? 'parlay' : normalizeBetMode(mode);
+    const baseRule = rulesByMode[normalizedMode] || DEFAULT_RULES[normalizedMode] || DEFAULT_RULES.straight;
+    // Open parlay can be committed with a single leg (more added later before
+    // the earliest leg starts); the finalizer voids+refunds if <2 by close.
+    const rule = isOpenParlay ? { ...baseRule, minLegs: 1 } : baseRule;
     const legCount = selections.length;
 
     // If the user had Freeplay toggled on and then added a second leg
@@ -1632,7 +1639,9 @@ const ModeBetPanel = ({
             return;
         }
 
-        const useFp = useFreeplay && hasFreeplay;
+        // Open parlay disallows freeplay (backend rejects useFreeplay with
+        // OPEN_PARLAY_NO_FREEPLAY), so force it off regardless of the toggle.
+        const useFp = !isOpenParlay && useFreeplay && hasFreeplay;
 
         try {
             submissionLockRef.current = true;
@@ -1809,7 +1818,12 @@ const ModeBetPanel = ({
             };
 
             const requestId = getRequestIdForTicket();
-            const result = await placeBet(payload, token, { requestId });
+            // Open parlay routes to the dedicated create endpoint (status='open',
+            // legs added later). Payload shape is identical to a parlay placement;
+            // createOpenParlay forces type='parlay' server-side.
+            const result = isOpenParlay
+                ? await createOpenParlay(payload, token, { requestId })
+                : await placeBet(payload, token, { requestId });
             const successText = result?.message || 'Bet placed successfully';
             requestStateRef.current = { requestId: '', signature: '' };
             setMessage({ type: 'success', text: successText });
@@ -2290,8 +2304,9 @@ const ModeBetPanel = ({
                             })}
                         </div>
 
-                        {/* Row 3: Use Freeplay (only when there's a freeplay balance) */}
-                        {hasFreeplay && (
+                        {/* Row 3: Use Freeplay (only when there's a freeplay balance).
+                            Hidden for open parlay — backend rejects freeplay on it. */}
+                        {hasFreeplay && !isOpenParlay && (
                             <label style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -2464,7 +2479,30 @@ const ModeBetPanel = ({
                     </div>
                 )}
 
-                {legCount === 1 && normalizedMode === 'parlay' && (
+                {isOpenParlay && legCount > 0 && (
+                    <div style={{
+                        fontSize: 12,
+                        color: palette.textMuted,
+                        background: '#f8fafc',
+                        border: `1px solid ${palette.cardBorder}`,
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        marginBottom: 10,
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 8,
+                    }}>
+                        <i className="fa-solid fa-circle-info" style={{ marginTop: 2 }} />
+                        <span>
+                            Open parlay: place now, then add more legs before any
+                            leg's game starts. Started games can't be added. The
+                            ticket locks at the earliest leg's kickoff — if it still
+                            has fewer than 2 legs then, it's voided and refunded.
+                            Freeplay can't be used.
+                        </span>
+                    </div>
+                )}
+                {legCount === 1 && normalizedMode === 'parlay' && !isOpenParlay && (
                     <div style={{
                         fontSize: 12,
                         color: palette.warn,
@@ -3228,6 +3266,7 @@ const ModeBetPanel = ({
                                     if (normalizedMode === 'straight') {
                                         return legCount > 1 ? `Place ${legCount} Bets` : 'Place Bet';
                                     }
+                                    if (isOpenParlay) return 'Place Open Parlay';
                                     if (normalizedMode === 'parlay') return 'Place Parlay';
                                     if (normalizedMode === 'teaser') return 'Place Teaser';
                                     if (normalizedMode === 'if_bet') return 'Place If Bet';
@@ -3268,7 +3307,8 @@ const ModeBetPanel = ({
                         return Number.isFinite(win) && win > 0 ? Math.round(win) : 0;
                     })
                     : null}
-                isFreeplay={useFreeplay && hasFreeplay}
+                isFreeplay={!isOpenParlay && useFreeplay && hasFreeplay}
+                isOpenParlay={isOpenParlay}
                 onCancel={() => setShowConfirm(false)}
                 onConfirm={executePlaceBet}
                 isSubmitting={placing}

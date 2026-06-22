@@ -600,6 +600,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                         {[
                             { id: 'straight', label: 'STRAIGHT', letter: 'S' },
                             { id: 'parlay', label: 'PARLAY', letter: 'P' },
+                            { id: 'open_parlay', label: 'OPEN', letter: 'OP' },
                             { id: 'teaser', label: 'TEASER', letter: 'T' },
                             { id: 'round_robin', label: 'R ROBIN', letter: 'RR' },
                             { id: 'if_bet', label: 'IF BET', letter: 'I' },
@@ -816,6 +817,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                             {[
                                 { id: 'straight', label: 'STRAIGHT', icon: 'S' },
                                 { id: 'parlay', label: 'PARLAY', icon: 'P' },
+                                { id: 'open_parlay', label: 'OPEN', icon: 'OP' },
                                 { id: 'teaser', label: 'TEASER', icon: 'T' },
                                 { id: 'round_robin', label: 'R ROBIN', icon: 'RR' },
                                 { id: 'if_bet', label: 'IF BET', icon: 'I' },

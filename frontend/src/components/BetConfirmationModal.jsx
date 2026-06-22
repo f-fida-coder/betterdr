@@ -76,6 +76,7 @@ const BetConfirmationModal = ({
   legStakes = null,
   legWins = null,
   isFreeplay = false,
+  isOpenParlay = false,
   onConfirm,
   onCancel,
   isSubmitting = false,
@@ -132,7 +133,14 @@ const BetConfirmationModal = ({
       }}>
         <div style={{ padding: '16px 18px', borderBottom: '1px solid rgba(255,255,255,0.12)', flexShrink: 0 }}>
           <div style={{ fontSize: 12, color: '#9ec6ff', letterSpacing: '0.08em' }}>BET REVIEW</div>
-          <div style={{ fontSize: 18, fontWeight: 800, marginTop: 3 }}>{prettyMode(betType)}</div>
+          <div style={{ fontSize: 18, fontWeight: 800, marginTop: 3 }}>{isOpenParlay ? 'OPEN PARLAY' : prettyMode(betType)}</div>
+          {isOpenParlay && (
+            <div style={{ fontSize: 11, color: '#9aa5bd', marginTop: 6, lineHeight: 1.4 }}>
+              Placed open — add more legs before any leg starts. Locks at the
+              earliest kickoff; if it has fewer than 2 legs then, it's voided and
+              refunded. No freeplay.
+            </div>
+          )}
         </div>
 
         <div style={{ padding: 18, overflowY: 'auto', flex: 1, minHeight: 0 }}>
