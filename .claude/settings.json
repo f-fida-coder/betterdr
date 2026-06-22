@@ -63,10 +63,16 @@
       "Bash(curl -s -m 8 -o /dev/null -w \"cloudflare: %{http_code} t=%{time_total}\\\\n\" \"https://1.1.1.1\")",
       "Bash(curl -s -m 12 -o /dev/null -w \"site again: %{http_code} t=%{time_total}\\\\n\" \"https://www.bettorplays247.com/\")",
       "Bash(git --no-pager diff --stat -- ':!dist')",
-      "Bash(git --no-pager diff -- frontend/src/utils/teaserAdjustment.js .claude/settings.json)"
+      "Bash(git --no-pager diff -- frontend/src/utils/teaserAdjustment.js .claude/settings.json)",
+      "Bash(cd /Users/mac/Desktop/betterdr; sed -n '/function isPointAllowed/,/^    }/p' php-backend/src/AltLineCap.php)",
+      "Bash(php tests/runone.php tests/AltLineCapTest.php)",
+      "Bash(data)",
+      "Bash(grep -i \"json\\\\|FROM \\\\|table\\\\|column\\\\|`data`\\\\|doc\")",
+      "Bash(grep -nE \"json_extract|JSON_EXTRACT|->data|'data'|document|payload|FROM \\\\`?\\\\w+\\\\`?|SELECT\" php-backend/src/SqlRepository.php)"
     ],
     "additionalDirectories": [
-      "/Users/mac/Desktop/betterdr/php-backend/cache"
+      "/Users/mac/Desktop/betterdr/php-backend/cache",
+      "/Users/mac/Desktop/betterdr/php-backend/src"
     ]
   }
 }
