@@ -3,7 +3,7 @@ import { getMyBets, getUserFigures, getUserTransactions, getRoundRobinChildren, 
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatLineValue, formatOdds, formatSpreadValue } from '../utils/odds';
 import { formatSiteDateTime } from '../utils/timezone';
-import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
+import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri, mascotName } from '../utils/teamLogos';
 import '../mybets.css';
 import { consumeMyBetsInitialFilter } from './myBetsState';
 import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
@@ -175,7 +175,9 @@ const legDescription = (leg, oddsFormat) => {
     const selection = String(leg?.selection || '').trim();
     const odds = formatOdds(leg?.odds, oddsFormat);
     if (market === 'spreads') {
-        const team = String(leg?.selectionFull || '').trim() || selection;
+        // Mascot-only team name so the leg stays on one line and doesn't
+        // truncate ("New York Yankees -1.5 +1…" → "Yankees -1.5 +133").
+        const team = mascotName(leg?.selectionFull, selection) || 'Pick';
         const line = point === null ? '' : formatSpreadValue(point);
         return [team, line, odds].filter(Boolean).join(' ');
     }
@@ -183,11 +185,12 @@ const legDescription = (leg, oddsFormat) => {
         // Game total (not a team total — that market type is `team_totals` and
         // falls through to the default branch). The selection is just
         // "Over"/"Under", so PREFIX the team whose crest the row shows (the
-        // home side, matching legTeamForLogo) → "Detroit Tigers Over 8.5".
+        // home side, matching legTeamForLogo) using the MASCOT only →
+        // "Tigers Over 8.5".
         const isUnder = selection.toLowerCase().startsWith('u');
         const line = point === null ? '' : formatLineValue(Math.abs(point));
         const snap = leg?.matchSnapshot || {};
-        const team = String(snap.homeTeamFull || snap.homeTeam || '').trim();
+        const team = mascotName(snap.homeTeamFull, snap.homeTeam);
         const ou = isUnder ? 'Under' : 'Over';
         return [team, ou, line, odds].filter(Boolean).join(' ');
     }
@@ -197,7 +200,8 @@ const legDescription = (leg, oddsFormat) => {
         const pick = String(leg?.selectionFull || '').trim() || selection || 'Pick';
         return [pick, prettyPlayerMarketLabel(leg?.marketType), odds].filter(Boolean).join(' ');
     }
-    const team = String(leg?.selectionFull || '').trim() || selection || 'Pick';
+    // Moneyline / fallback → mascot-only team + odds ("Tigers +105").
+    const team = mascotName(leg?.selectionFull, selection) || 'Pick';
     return [team, odds].filter(Boolean).join(' ');
 };
 

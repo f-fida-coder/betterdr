@@ -1,9 +1,10 @@
 import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
-import { formatOdds } from '../utils/odds';
+import { formatOdds, formatSpreadValue, formatLineValue } from '../utils/odds';
 import { formatSiteDateTime } from '../utils/timezone';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
 import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
+import { mascotName } from '../utils/teamLogos';
 
 // Confirmation-modal money formatter — always 2dp with thousands
 // separator. The slip card just below the betslip sheet shows the
@@ -22,18 +23,38 @@ const formatAmount = (value) => {
 
 const prettyMode = (mode) => String(mode || 'straight').replace('_', ' ').toUpperCase();
 
-const marketShortLabel = (selection = {}) => {
+// One-line leg headline for the review modal — mirrors the pending-bets list
+// (MyBetsView.legDescription): mascot-only team + the actual line + odds, and
+// drops the literal SPREAD/TOTAL market words (the line itself conveys the
+// market). The leg's line value lives on `line` (set at add-to-slip) with
+// `point` as a fallback for legs that carry only the placement field.
+const legHeadline = (selection = {}, oddsFormat) => {
   const market = String(selection?.marketType || selection?.type || '').toLowerCase();
-  if (market === 'h2h' || market === 'moneyline' || market === 'ml' || market === 'straight') {
-    return 'ML';
+  const odds = formatOdds(selection.odds, oddsFormat);
+  const point = Number.isFinite(Number(selection?.line))
+    ? Number(selection.line)
+    : (Number.isFinite(Number(selection?.point)) ? Number(selection.point) : null);
+  if (market === 'spreads') {
+    // <Mascot> <signed line> <odds> → "Yankees -1.5 +133".
+    const team = mascotName(selection.selectionFull, selection.selection);
+    const line = point === null ? '' : formatSpreadValue(point);
+    return [team, line, odds].filter(Boolean).join(' ');
   }
-  if (market === 'spreads') return 'SPREAD';
-  if (market === 'totals') return 'TOTAL';
-  // Player props: friendly stat label ("Runs Scored"), never the raw key.
+  if (market === 'totals') {
+    // Over/Under <line> <odds> → "Over 8.5 -115" (no literal "TOTAL").
+    const isUnder = String(selection.selection || '').trim().toLowerCase().startsWith('u');
+    const line = point === null ? '' : formatLineValue(Math.abs(point));
+    return [isUnder ? 'Under' : 'Over', line, odds].filter(Boolean).join(' ');
+  }
+  // Player props: keep the full selection (player + side + line) + stat label.
   if (isPlayerPropMarket(selection?.marketType || selection?.type)) {
-    return prettyPlayerMarketLabel(selection?.marketType || selection?.type);
+    const pick = String(selection.selectionFull || selection.selection || '').trim();
+    const label = prettyPlayerMarketLabel(selection?.marketType || selection?.type);
+    return [pick, label, odds].filter(Boolean).join(' ');
   }
-  return '';
+  // moneyline / h2h / fallback → mascot + ML.
+  const team = mascotName(selection.selectionFull, selection.selection);
+  return [team, 'ML', odds].filter(Boolean).join(' ');
 };
 
 const formatGameTime = (selection = {}) => {
@@ -139,7 +160,7 @@ const BetConfirmationModal = ({
                 >
                   <div style={{ color: '#d8e2f5' }}>{selection.matchName || selection.matchId}</div>
                   <div style={{ color: '#ffd776', fontWeight: 700 }}>
-                    {selection.selection} {marketShortLabel(selection)} {formatOdds(selection.odds, oddsFormat)}
+                    {legHeadline(selection, oddsFormat)}
                   </div>
                   {formatGameTime(selection) && (
                     <div style={{ color: '#9aa5bd', fontSize: 11, marginTop: 4 }}>

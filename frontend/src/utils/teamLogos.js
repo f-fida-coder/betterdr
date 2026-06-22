@@ -323,6 +323,25 @@ export const normalizeTeamName = (teamName = '') =>
         .replace(/\s+/g, ' ')
         .trim();
 
+// Mascot-only team name for compact surfaces (bet-review modal, pending-bet
+// legs) where the full "City Mascot" string truncates ("New York Yankees -1.5
+// +1…"). The stored leg carries both the full display name ("New York Yankees")
+// and the short match key / city ("New York"); stripping the city prefix leaves
+// the mascot — "Yankees", "Red Sox", "Blue Jays" — without a hardcoded mascot
+// map and correctly handles multi-word mascots. Falls back to the full name
+// (then the short key) when the prefix doesn't match, so the label is never
+// empty.
+export const mascotName = (fullName = '', shortKey = '') => {
+    const full = String(fullName || '').trim();
+    const city = String(shortKey || '').trim();
+    if (!full) return city;
+    if (city && full.toLowerCase().startsWith(city.toLowerCase())) {
+        const rest = full.slice(city.length).trim();
+        if (rest) return rest;
+    }
+    return full;
+};
+
 // ── Sport-aware ESPN fallback ────────────────────────────────────────
 // Rundown's live/in-play (V1-style delta) feed ships team rows with a
 // CITY-only name ("Boston", "Baltimore") plus an uppercase abbreviation
