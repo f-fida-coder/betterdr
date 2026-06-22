@@ -1116,7 +1116,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     // The plain "Spread"/"Total" text is clickable; clicking it flips the
     // column's mode and the word itself swaps (Spread→Alt, Total→TT). When not
     // clickable (no alt/TT data) it renders as ordinary, identical-looking text.
-    const renderColumnLabel = ({ text, onClick, active, clickable, title }) => (
+    const renderColumnLabel = ({ text, onClick, active, clickable, title, color }) => (
         clickable
             ? (
                 <button
@@ -1124,12 +1124,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     className="odds-label"
                     onClick={onClick}
                     title={title}
-                    style={{ appearance: 'none', background: 'none', border: 'none', padding: 0, margin: 0, fontFamily: 'inherit', cursor: 'pointer', color: active ? '#d0451b' : undefined }}
+                    style={{ appearance: 'none', background: 'none', border: 'none', padding: 0, margin: 0, fontFamily: 'inherit', cursor: 'pointer', color: color ?? (active ? '#d0451b' : undefined) }}
                 >
                     {text}
                 </button>
             )
-            : <span className="odds-label">{text}</span>
+            : <span className="odds-label" style={color ? { color } : undefined}>{text}</span>
     );
 
     const renderOddsButton = ({ label, onClick, available, disabled, reason = '', peerAvailable }) => {
@@ -1547,7 +1547,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         if (ladder.length === 0) return null;
                                                         return (
                                                             <div className="odds-cell" key={teamLabel}>
-                                                                {renderColumnLabel({ text: `${teamLabel} Alt`, onClick: toggleSpreadAlt, active: true, clickable: true, title: 'Showing alt spreads + alt totals — click for main' })}
+                                                                {renderColumnLabel({ text: `${teamLabel} Alt S`, onClick: toggleSpreadAlt, active: true, clickable: true, color: '#d32f2f', title: 'Showing alt spreads + alt totals — click for main' })}
                                                                 <div className="odds-values-group">
                                                                     {ladder.map((rung) => (
                                                                         <React.Fragment key={rung.point}>
@@ -1711,7 +1711,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         const ou = sideLabel === 'Over' ? 'O' : 'U';
                                                         return (
                                                             <div className="odds-cell" key={sideLabel}>
-                                                                {renderColumnLabel({ text: `${sideLabel} Alt`, onClick: toggleTotalTt, active: true, clickable: hasTeamTotals, title: hasTeamTotals ? 'Click for team totals' : undefined })}
+                                                                {renderColumnLabel({ text: `${sideLabel} Alt T`, onClick: toggleTotalTt, active: true, clickable: hasTeamTotals, color: '#d32f2f', title: hasTeamTotals ? 'Click for team totals' : undefined })}
                                                                 <div className="odds-values-group">
                                                                     {ladder.map((rung) => (
                                                                         <React.Fragment key={rung.point}>

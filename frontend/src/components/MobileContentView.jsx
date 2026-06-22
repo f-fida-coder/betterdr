@@ -2658,10 +2658,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         <button
                             type="button"
                             onClick={() => { setAltOn((v) => !v); setTotalMode('total'); }}
-                            style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: altSpreadsActive ? '#d0451b' : undefined, fontWeight: 700 }}
+                            style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: altSpreadsActive ? '#d32f2f' : undefined, fontWeight: 700 }}
                             title={altSpreadsActive ? 'Showing alt spreads + alt totals — tap for main spread' : 'Showing main spread — tap for alt spreads + alt totals'}
                         >
-                            {altSpreadsActive ? 'Alt' : 'Spread'}
+                            {altSpreadsActive ? 'Alt S' : 'Spread'}
                         </button>
                     ) : (
                         <span style={columnLabelStyle}>Spread</span>
@@ -2673,10 +2673,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         <button
                             type="button"
                             onClick={cycleTotalMode}
-                            style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: effectiveTotalMode !== 'total' ? '#d0451b' : undefined, fontWeight: 700 }}
-                            title={`Showing ${effectiveTotalMode === 'tt' ? 'team totals' : 'game total'} — tap to switch`}
+                            style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: altTotalsActive ? '#d32f2f' : (effectiveTotalMode !== 'total' ? '#d0451b' : undefined), fontWeight: 700 }}
+                            title={altTotalsActive ? 'Showing alt totals — tap to switch' : `Showing ${effectiveTotalMode === 'tt' ? 'team totals' : 'game total'} — tap to switch`}
                         >
-                            {effectiveTotalMode === 'tt' ? 'TT' : 'Total'}
+                            {altTotalsActive ? 'Alt T' : (effectiveTotalMode === 'tt' ? 'TT' : 'Total')}
                         </button>
                     ) : (
                         <span style={columnLabelStyle}>Total</span>
