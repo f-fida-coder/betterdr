@@ -131,6 +131,15 @@ const shortTeam = (name) => {
 const ticketSummary = (bet) => {
     const selections = Array.isArray(bet?.selections) ? bet.selections : [];
     const type = String(bet?.type || 'straight').toLowerCase();
+    // Open parlay: lead with its declared-leg progress so the pending row
+    // reads "Open Parlay — 1 of 8 legs" while the player fills it in.
+    if (bet?.isOpenParlay) {
+        const filled = selections.length;
+        const target = Number.isFinite(Number(bet?.targetLegs)) && Number(bet.targetLegs) > 0
+            ? Number(bet.targetLegs)
+            : filled;
+        return `Open Parlay — ${filled} of ${target} legs`;
+    }
     if (type === 'round_robin') {
         const sizes = Array.isArray(bet?.sizes) ? bet.sizes : [];
         const sizesLabel = sizes.length > 0
@@ -1288,8 +1297,15 @@ const MyBetsView = () => {
         };
     }, []);
 
+    // Pending view includes open parlays (status 'open') alongside ordinary
+    // pending tickets. An open parlay has its full stake committed and sits in
+    // pendingBalance, so it belongs in the player's pending list while they
+    // fill the remaining legs — it just isn't graded until complete.
     const pendingBets = useMemo(
-        () => bets.filter((bet) => normalizeStatus(bet?.status) === 'pending'),
+        () => bets.filter((bet) => {
+            const s = normalizeStatus(bet?.status);
+            return s === 'pending' || s === 'open';
+        }),
         [bets],
     );
 
