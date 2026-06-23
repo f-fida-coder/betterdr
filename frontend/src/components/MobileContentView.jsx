@@ -288,6 +288,15 @@ const dayLabelOf = (d) => {
     const p = etPartsOf(d);
     return p ? `${p.weekday}, ${MONTHS_SHORT[p.m - 1]} ${p.d}` : '';
 };
+// Comparable integer calendar-day key (YYYYMMDD) in the SITE timezone — the
+// same time source the day headers use, so "today" tracks the displayed
+// (CT) date and DST is handled by Intl, not a hardcoded offset. Lets us
+// classify a game as today / future by numeric comparison against
+// dayNumOf(new Date()).
+const dayNumOf = (d) => {
+    const p = etPartsOf(d);
+    return p ? (p.y * 10000 + p.m * 100 + p.d) : 0;
+};
 
 // Site-timezone formatter for the broadcast row — matches the
 // reference book's "09:30 PM ET" prefix, with the label tracking the
@@ -1105,6 +1114,7 @@ const MobileContentView = ({
                 timeDisplay: formatMatchDateTime(startDate),
                 dayKey: dayKeyOf(startDate),
                 dayLabel: dayLabelOf(startDate),
+                dayNum: dayNumOf(startDate),
                 // Carried through so the MatchCard can render "Updated N min ago"
                 // without having to reach into rawMatch. ONLY lastOddsSyncAt
                 // — never falling back to lastUpdated, because the live
@@ -1682,11 +1692,16 @@ const MobileContentView = ({
     // board (more games on screen, no redundant date strip between the
     // league header and the first game row).
     const suppressDayDividers = statusFilter === 'live';
-    const groupedEntries = React.useMemo(() => {
+    // Whether the collapsible future-day games section is expanded.
+    const [showFutureGames, setShowFutureGames] = React.useState(false);
+    // Build the interleaved [league / day / match] entry list for a slice of
+    // matches. Extracted so we can group the same-day and future-day slices
+    // independently (each keeps its own day-header dividers) — see below.
+    const buildGroupedEntries = React.useCallback((matchList) => {
         const entries = [];
         let currentLeagueKey = null;
         let currentDayKey = null;
-        matchesForGrouping.forEach(match => {
+        matchList.forEach(match => {
             const leagueKey = String(match.sportKey || match.sport || '').toLowerCase();
             if (showLeagueHeaders && leagueKey && leagueKey !== currentLeagueKey) {
                 currentLeagueKey = leagueKey;
@@ -1722,7 +1737,32 @@ const MobileContentView = ({
             entries.push({ type: 'match', id: `match-${match.id}`, match });
         });
         return entries;
-    }, [matchesForGrouping, showLeagueHeaders, periodSuffixLabel, suppressDayDividers, isMultiSportView, perSportMeta]);
+    }, [showLeagueHeaders, periodSuffixLabel, suppressDayDividers, isMultiSportView, perSportMeta]);
+
+    // Default to showing only same-day games; future-day games live behind an
+    // expandable "Future Games" section. "Today" is the current SITE-tz (CT)
+    // calendar date, derived from the same dayNum source as the headers so it
+    // tracks the displayed timezone and DST. A game is "future" only when its
+    // calendar day is strictly AFTER today — so a still-live game that started
+    // earlier (today or a prior day) is never hidden behind the toggle.
+    const todayDayNum = dayNumOf(new Date());
+    const { todayEntries, futureEntries, futureMatchCount } = React.useMemo(() => {
+        const todayMatches = [];
+        const futureMatches = [];
+        matchesForGrouping.forEach((m) => {
+            if ((m.dayNum || 0) > todayDayNum) futureMatches.push(m);
+            else todayMatches.push(m);
+        });
+        return {
+            todayEntries: buildGroupedEntries(todayMatches),
+            futureEntries: buildGroupedEntries(futureMatches),
+            futureMatchCount: futureMatches.length,
+        };
+    }, [matchesForGrouping, buildGroupedEntries, todayDayNum]);
+    // Combined count drives the loading / empty-state guards: only show "no
+    // matches" when BOTH today and future are empty, so a future-only board
+    // still surfaces its games via the toggle instead of reading as empty.
+    const totalEntryCount = todayEntries.length + futureEntries.length;
 
     return (
         <div style={containerStyle}>
@@ -1931,11 +1971,11 @@ const MobileContentView = ({
                     </div>
                 )}
 
-                {groupedEntries.length === 0 && !hasLoadedOnce && (
+                {totalEntryCount === 0 && !hasLoadedOnce && (
                     <SkeletonList />
                 )}
 
-                {groupedEntries.length === 0 && hasLoadedOnce && (() => {
+                {totalEntryCount === 0 && hasLoadedOnce && (() => {
                     // When the Live Now rail filter has narrowed to a sport
                     // that's currently empty (e.g. user tapped Basketball
                     // when nothing is in-play), say so directly. Otherwise
@@ -1974,7 +2014,7 @@ const MobileContentView = ({
                         over" message (no point waiting for a sync).
                       • Just no lines this cycle → reassuring "refresh
                         every 90 s" hint. */}
-                {!isMultiSportView && groupedEntries.length > 0 && !activePeriodHasLines && (
+                {!isMultiSportView && totalEntryCount > 0 && !activePeriodHasLines && (
                     <div style={{
                         padding: '14px 16px',
                         margin: '0 0 8px 0',
@@ -1999,7 +2039,8 @@ const MobileContentView = ({
                     </div>
                 )}
 
-                {groupedEntries.map(entry => {
+                {(() => {
+                const renderEntry = (entry) => {
                     if (entry.type === 'day') {
                         // Day header only — per-match column labels now
                         // render inside each MatchCard so every row
@@ -2055,7 +2096,47 @@ const MobileContentView = ({
                             betMode={normalizedBetMode}
                         />
                     );
-                })}
+                };
+                return (
+                    <>
+                        {/* Same-day games always render at the top. */}
+                        {todayEntries.map(renderEntry)}
+
+                        {/* When there are no same-day games but future ones
+                            exist, say so plainly so the toggle below doesn't
+                            read as an error/empty board. */}
+                        {todayEntries.length === 0 && futureMatchCount > 0 && (
+                            <div style={noTodayNoticeStyle}>
+                                No games scheduled today — tap below for upcoming games.
+                            </div>
+                        )}
+
+                        {/* Future-day games collapse behind a toggle. Hidden
+                            entirely when there are none. */}
+                        {futureMatchCount > 0 && (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowFutureGames((v) => !v)}
+                                    style={futureToggleStyle}
+                                    aria-expanded={showFutureGames}
+                                >
+                                    <span>
+                                        <i
+                                            className="fa-solid fa-calendar-days"
+                                            style={{ marginRight: 8 }}
+                                        />
+                                        {showFutureGames ? 'Hide Future Games' : 'Future Games'}
+                                        {' '}({futureMatchCount})
+                                    </span>
+                                    <i className={`fa-solid ${showFutureGames ? 'fa-chevron-up' : 'fa-chevron-down'}`} />
+                                </button>
+                                {showFutureGames && futureEntries.map(renderEntry)}
+                            </>
+                        )}
+                    </>
+                );
+                })()}
             </div>
         </div>
     );
@@ -3333,6 +3414,37 @@ const dayHeaderStyle = {
     fontWeight: 700,
     letterSpacing: '0.6px',
     textTransform: 'uppercase',
+};
+
+// Expand/collapse control for the future-day games section. Full-width row
+// styled to sit between the same-day list and the (expanded) future list,
+// echoing the board's red accent so it reads as a board control.
+const futureToggleStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    padding: '12px 16px',
+    margin: '4px 0',
+    background: '#fff',
+    color: '#b91c1c',
+    border: 'none',
+    borderTop: '1px solid #eee',
+    borderBottom: '1px solid #eee',
+    fontSize: '13px',
+    fontWeight: 700,
+    letterSpacing: '0.3px',
+    textTransform: 'uppercase',
+    cursor: 'pointer',
+};
+
+// Muted notice shown when there are no same-day games but future ones exist,
+// so the toggle below has context instead of reading as an empty board.
+const noTodayNoticeStyle = {
+    padding: '14px 16px',
+    color: '#999',
+    fontSize: '12px',
+    textAlign: 'center',
 };
 
 const leagueHeaderStyle = {

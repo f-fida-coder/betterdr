@@ -71,6 +71,22 @@ const formatBroadcastTimeET = (iso) => {
     return `${formatted} ${getSiteTimezoneLabel(tz)}`;
 };
 
+// Comparable integer calendar-day key (YYYYMMDD) for a date in the given IANA
+// timezone — the same site timezone the board renders game times in. Lets the
+// board split games into same-day vs future-day by numeric comparison against
+// today. DST is handled by Intl; no hardcoded offset. Mirrors
+// MobileContentView's dayNumOf so both boards classify "today" identically.
+const siteDayNum = (value, tz) => {
+    if (!value) return 0;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 0;
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(date);
+    const get = (t) => Number(parts.find((p) => p.type === t)?.value);
+    return get('year') * 10000 + get('month') * 100 + get('day');
+};
+
 // Per-sport grouping for the desktop "Live Now" board (sportId === null,
 // status === 'live'). The single useMatches({status:'live'}) call returns
 // every in-play game across all sports in one response, so they all land
@@ -279,6 +295,27 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         }
         return entries;
     }, [content.matches, groupBySport]);
+
+    // Show only same-day games by default; future-day games collapse behind a
+    // "Future Games" toggle. "Today" is the current site-tz (CT) calendar date
+    // — the same zone the board prints game times in. A game is "future" only
+    // when its calendar day is strictly AFTER today, so a still-live game that
+    // started earlier is never hidden. The live all-sports view (groupBySport)
+    // is live-only and keeps its sport-grouped list unsplit.
+    const [showFutureGames, setShowFutureGames] = useState(false);
+    const todayDayNum = siteDayNum(new Date(), getSiteTimezone());
+    const { todayDisplay, futureDisplay, futureCount } = React.useMemo(() => {
+        if (groupBySport) {
+            return { todayDisplay: displayEntries, futureDisplay: [], futureCount: 0 };
+        }
+        const today = [];
+        const future = [];
+        displayEntries.forEach((entry) => {
+            if ((entry.match?.dayNum || 0) > todayDayNum) future.push(entry);
+            else today.push(entry);
+        });
+        return { todayDisplay: today, futureDisplay: future, futureCount: future.length };
+    }, [displayEntries, groupBySport, todayDayNum]);
 
     // Period chip strip: scan rawMatches for which period suffixes the
     // backend has actually synced (e.g. `_q1`, `_h1`). Always include the
@@ -874,6 +911,9 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     date: match.startTime
                         ? new Date(match.startTime).toLocaleDateString('en-US', { timeZone: siteTz, month: 'numeric', day: 'numeric', year: 'numeric' })
                         : '',
+                    // Site-tz calendar day (YYYYMMDD) for the same-day vs
+                    // future-day board split. 0 when no start time is known.
+                    dayNum: siteDayNum(match.startTime, siteTz),
                     // Broadcast row above the match-header. Resolved client-side
                     // so we can keep the chip palette in one place; raw string
                     // comes from ESPN's scoreboard side-channel via the
@@ -1252,8 +1292,8 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                     : 'No fresh odds available — check back in a moment.'}
                             </p>
                         </div>
-                    ) : (
-                        displayEntries.map(({ match, header }) => (
+                    ) : (() => {
+                        const renderMatchEntry = ({ match, header }) => (
                             <React.Fragment key={match.id}>
                                 {header && (
                                     <div style={liveGroupHeaderStyle}>
@@ -1825,8 +1865,56 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                 )}
                             </div>
                             </React.Fragment>
-                        ))
-                    )}
+                        );
+                        return (
+                            <>
+                                {/* Same-day games always render at the top. */}
+                                {todayDisplay.map(renderMatchEntry)}
+
+                                {todayDisplay.length === 0 && futureCount > 0 && (
+                                    <div style={{ padding: '14px 16px', color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>
+                                        No games scheduled today — open Future Games for upcoming matches.
+                                    </div>
+                                )}
+
+                                {/* Future-day games collapse behind a toggle;
+                                    hidden entirely when there are none. */}
+                                {futureCount > 0 && (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowFutureGames((v) => !v)}
+                                            aria-expanded={showFutureGames}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                width: '100%',
+                                                padding: '12px 16px',
+                                                margin: '8px 0',
+                                                background: '#fff',
+                                                color: '#b91c1c',
+                                                border: '1px solid #eee',
+                                                borderRadius: 8,
+                                                fontSize: 13,
+                                                fontWeight: 700,
+                                                letterSpacing: '0.3px',
+                                                textTransform: 'uppercase',
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            <span>
+                                                <i className="fa-solid fa-calendar-days" style={{ marginRight: 8 }} />
+                                                {showFutureGames ? 'Hide Future Games' : 'Future Games'} ({futureCount})
+                                            </span>
+                                            <i className={`fa-solid ${showFutureGames ? 'fa-chevron-up' : 'fa-chevron-down'}`} />
+                                        </button>
+                                        {showFutureGames && futureDisplay.map(renderMatchEntry)}
+                                    </>
+                                )}
+                            </>
+                        );
+                    })()}
                 </div>
             )}
 
