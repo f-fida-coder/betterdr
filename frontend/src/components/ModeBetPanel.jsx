@@ -39,6 +39,13 @@ const MODE_TABS = [
     { id: 'round_robin', label: 'ROUND ROBIN', icon: 'RR' },
 ];
 
+// Open Parlay declared-leg-count bounds. Mirrors the backend
+// (OpenParlayService::MIN_TARGET_LEGS / MAX_LEGS) — the user declares up front
+// how many legs the ticket will hold, commits the full stake, and fills the
+// remaining slots over time. Keep these in sync with the server.
+const OPEN_PARLAY_MIN_LEGS = 2;
+const OPEN_PARLAY_MAX_LEGS = 8;
+
 // nCr-based combination count for the Round Robin live readout. n is the
 // selection count, `sizes` is the user's chosen "By X's" set. Mirrors
 // php-backend RoundRobinService::combinationCount.
@@ -470,6 +477,12 @@ const ModeBetPanel = ({
     // chosen size that's now out of range (e.g. picked "By 4's" with 5
     // legs, then dropped a leg) doesn't silently linger.
     const [roundRobinSizes, setRoundRobinSizes] = useState([]);
+    // Open Parlay: the declared target leg count (2–8). The full stake commits
+    // at placement and the player fills the remaining slots later. The declared
+    // count can never sit below the legs already in the slip, so an effect
+    // below auto-raises it as legs are added (you can't un-declare a leg you've
+    // already picked). Default to the minimum.
+    const [openParlayTargetLegs, setOpenParlayTargetLegs] = useState(OPEN_PARLAY_MIN_LEGS);
     // Track the user-prefs `betDefaults` signature so a refreshed
     // /auth/me payload (e.g. user just saved new defaults in Account)
     // re-seeds the slip mode without forcing a remount.
@@ -547,10 +560,24 @@ const ModeBetPanel = ({
     // everywhere downstream so the existing parlay paths run unchanged.
     const normalizedMode = isOpenParlay ? 'parlay' : normalizeBetMode(mode);
     const baseRule = rulesByMode[normalizedMode] || DEFAULT_RULES[normalizedMode] || DEFAULT_RULES.straight;
-    // Open parlay can be committed with a single leg (more added later before
-    // the earliest leg starts); the finalizer voids+refunds if <2 by close.
-    const rule = isOpenParlay ? { ...baseRule, minLegs: 1 } : baseRule;
+    // Open parlay can be committed with a single starting leg (the rest are
+    // added later, each before its own game starts); it never auto-voids and
+    // simply stays open until all declared legs are filled.
+    const rule = isOpenParlay ? { ...baseRule, minLegs: 1, maxLegs: OPEN_PARLAY_MAX_LEGS } : baseRule;
     const legCount = selections.length;
+
+    // Keep the declared target leg count valid: it can never be below the legs
+    // already in the slip (you can't un-declare a leg you've picked), so raise
+    // it to match when more legs are added, clamped to the 2–8 bounds. Removing
+    // a leg never lowers an already-declared target.
+    useEffect(() => {
+        if (!isOpenParlay) return;
+        const floor = Math.max(OPEN_PARLAY_MIN_LEGS, Math.min(legCount, OPEN_PARLAY_MAX_LEGS));
+        setOpenParlayTargetLegs((prev) => {
+            const next = Math.min(OPEN_PARLAY_MAX_LEGS, Math.max(floor, prev));
+            return next === prev ? prev : next;
+        });
+    }, [isOpenParlay, legCount]);
 
     // If the user had Freeplay toggled on and then added a second leg
     // (flipping the slip into multi-bet straight mode), the gate above
@@ -1185,13 +1212,25 @@ const ModeBetPanel = ({
                 errors.push(`Teasers can't mix sports — split your ${slipTeaserGroups.join(' + ')} legs into separate teaser tickets`);
             }
         }
+        // Open parlay: the declared leg count must be within 2–8 and never
+        // below the legs already in the slip. The clamp effect normally keeps
+        // this satisfied, but guard at submit so Place stays disabled (instead
+        // of round-tripping the backend's OPEN_PARLAY_TARGET_LEGS_INVALID) if
+        // the slip somehow holds more legs than the declared count.
+        if (isOpenParlay) {
+            if (openParlayTargetLegs < OPEN_PARLAY_MIN_LEGS || openParlayTargetLegs > OPEN_PARLAY_MAX_LEGS) {
+                errors.push(`Choose how many legs this open parlay will have (${OPEN_PARLAY_MIN_LEGS}–${OPEN_PARLAY_MAX_LEGS})`);
+            } else if (legCount > openParlayTargetLegs) {
+                errors.push(`You've selected ${legCount} legs — declare at least ${legCount} for this open parlay`);
+            }
+        }
         if (!selections.every(sel => Number.isFinite(Number(sel.odds)) && Number(sel.odds) > 0)) {
             errors.push('One or more selections have invalid odds');
         }
         if (limitFlags.messages.min) errors.push(limitFlags.messages.min);
         if (limitFlags.messages.max) errors.push(limitFlags.messages.max);
         return errors;
-    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, limitFlags, roundRobinSizes, roundRobinStakePerParlay, roundRobinParlayCount, roundRobinMaxParlays, activeTeaserPointOptions, slipTeaserGroups, selectedTeaserType, teaserTypeRequired, teaserTypeReady]);
+    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, limitFlags, roundRobinSizes, roundRobinStakePerParlay, roundRobinParlayCount, roundRobinMaxParlays, activeTeaserPointOptions, slipTeaserGroups, selectedTeaserType, teaserTypeRequired, teaserTypeReady, isOpenParlay, openParlayTargetLegs]);
 
     const ticketSignature = useMemo(() => JSON.stringify({
         type: normalizedMode,
@@ -1802,6 +1841,10 @@ const ModeBetPanel = ({
                 ...(normalizedMode === 'teaser' && selectedTeaserTypeId
                     ? { teaserTypeId: selectedTeaserTypeId }
                     : {}),
+                // Open parlay: the declared leg count (2–8). createOpenParlay
+                // spreads betData into the body, so this reaches the backend's
+                // required `targetLegs` field. Omitted on every other mode.
+                ...(isOpenParlay ? { targetLegs: openParlayTargetLegs } : {}),
                 useFreeplay: useFp,
                 selections: selections.map((sel) => ({
                     matchId: sel.matchId,
@@ -2480,27 +2523,91 @@ const ModeBetPanel = ({
                 )}
 
                 {isOpenParlay && legCount > 0 && (
-                    <div style={{
-                        fontSize: 12,
-                        color: palette.textMuted,
-                        background: '#f8fafc',
-                        border: `1px solid ${palette.cardBorder}`,
-                        padding: '8px 12px',
-                        borderRadius: 8,
-                        marginBottom: 10,
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 8,
-                    }}>
-                        <i className="fa-solid fa-circle-info" style={{ marginTop: 2 }} />
-                        <span>
-                            Open parlay: place now, then add more legs before any
-                            leg's game starts. Started games can't be added. The
-                            ticket locks at the earliest leg's kickoff — if it still
-                            has fewer than 2 legs then, it's voided and refunded.
-                            Freeplay can't be used.
-                        </span>
-                    </div>
+                    <>
+                        {/* Declared leg count picker (2–8). Buttons below the
+                            current slip size are disabled — you can't declare
+                            fewer legs than you've already selected. */}
+                        <div style={{
+                            background: palette.cardBg,
+                            border: `1px solid ${palette.cardBorder}`,
+                            padding: '10px 12px',
+                            borderRadius: 8,
+                            marginBottom: 10,
+                        }}>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'baseline',
+                                justifyContent: 'space-between',
+                                marginBottom: 8,
+                            }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: palette.textPrimary }}>
+                                    How many legs?
+                                </span>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: palette.accent }}>
+                                    Open Parlay — {legCount} of {openParlayTargetLegs} legs
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                {Array.from(
+                                    { length: OPEN_PARLAY_MAX_LEGS - OPEN_PARLAY_MIN_LEGS + 1 },
+                                    (_, i) => OPEN_PARLAY_MIN_LEGS + i
+                                ).map((n) => {
+                                    const selected = openParlayTargetLegs === n;
+                                    const disabled = n < legCount; // can't declare fewer than already picked
+                                    return (
+                                        <button
+                                            key={n}
+                                            type="button"
+                                            disabled={disabled}
+                                            onClick={() => setOpenParlayTargetLegs(n)}
+                                            style={{
+                                                minWidth: 40,
+                                                padding: '8px 0',
+                                                flex: '1 1 40px',
+                                                borderRadius: 8,
+                                                fontSize: 14,
+                                                fontWeight: 700,
+                                                cursor: disabled ? 'not-allowed' : 'pointer',
+                                                border: `1px solid ${selected ? palette.accent : palette.cardBorder}`,
+                                                background: selected ? palette.accent : palette.cardBg,
+                                                color: selected ? '#fff' : (disabled ? palette.textFaint : palette.textPrimary),
+                                                opacity: disabled ? 0.5 : 1,
+                                                transition: 'all 0.12s ease',
+                                            }}
+                                        >{n}</button>
+                                    );
+                                })}
+                            </div>
+                            <div style={{ fontSize: 11, color: palette.textMuted, marginTop: 8 }}>
+                                {legCount < openParlayTargetLegs
+                                    ? `Add ${openParlayTargetLegs - legCount} more leg${openParlayTargetLegs - legCount === 1 ? '' : 's'} after placing — each before its game starts.`
+                                    : 'All declared legs selected — you can place now.'}
+                            </div>
+                        </div>
+
+                        <div style={{
+                            fontSize: 12,
+                            color: palette.textMuted,
+                            background: '#f8fafc',
+                            border: `1px solid ${palette.cardBorder}`,
+                            padding: '8px 12px',
+                            borderRadius: 8,
+                            marginBottom: 10,
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: 8,
+                        }}>
+                            <i className="fa-solid fa-circle-info" style={{ marginTop: 2 }} />
+                            <span>
+                                Open parlay: the full stake is committed now, then
+                                you fill the remaining legs over time — each leg must
+                                be added before its own game starts. There's no time
+                                limit; the ticket pays only once all {openParlayTargetLegs} legs
+                                are filled and win. Any losing leg loses the ticket.
+                                Freeplay can't be used.
+                            </span>
+                        </div>
+                    </>
                 )}
                 {legCount === 1 && normalizedMode === 'parlay' && !isOpenParlay && (
                     <div style={{
