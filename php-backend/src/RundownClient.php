@@ -121,6 +121,20 @@ final class RundownClient
     }
 
     /**
+     * GET /teams/{teamID}/players — full roster (players[].id, players[].team_id).
+     * Used to map a game's prop players to their team in TWO calls (one per
+     * team) instead of one /players call per player. Returns null when the feed
+     * is unconfigured/unavailable (caller falls back to no team data).
+     */
+    public static function getTeamPlayers(string $teamId): ?array
+    {
+        if ($teamId === '') {
+            return null;
+        }
+        return self::get('/teams/' . rawurlencode($teamId) . '/players');
+    }
+
+    /**
      * Wrap self::get() with ≤12-ID market_ids batching. When batching is off
      * (RUNDOWN_MARKET_IDS_BATCH != true) or the request already has ≤12 IDs,
      * this is a passthrough — ZERO behavior change. When on AND >12 IDs, the

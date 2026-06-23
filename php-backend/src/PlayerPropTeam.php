@@ -25,6 +25,7 @@ declare(strict_types=1);
 final class PlayerPropTeam
 {
     private const CACHE_NS = 'player-team';
+    private const ROSTER_CACHE_NS = 'team-roster';
     private const CACHE_TTL_SECONDS = 86400; // 1 day — team rarely changes mid-season
 
     /**
@@ -98,5 +99,82 @@ final class PlayerPropTeam
 
         $teamId = (string) ($cached['teamId'] ?? '');
         return $teamId !== '' ? $teamId : '';
+    }
+
+    /**
+     * Map of player_id => 'home'|'away' for every rostered player on the two
+     * teams in this match, built from BOTH team rosters in two cached calls
+     * (not one /players call per player). Used to tag a game's player props with
+     * their team so the Prop Builder can filter by team.
+     *
+     * Best-effort and display-only: returns [] when the feed is off / rosters
+     * unavailable (gated by SPORTSBOOK_PROP_TEAM_FILTER_ENABLED, default on), and
+     * the caller then ships props untagged so the filter falls back to "All". A
+     * prop player not found in either roster stays untagged (shown under "All").
+     *
+     * @param array<string,mixed> $match  match doc (carries homeTeamId/awayTeamId)
+     * @return array<string,string>       pid => 'home'|'away'
+     */
+    public static function sideMap(array $match): array
+    {
+        $flag = strtolower(trim((string) (Env::get('SPORTSBOOK_PROP_TEAM_FILTER_ENABLED', 'true') ?? 'true')));
+        if ($flag === '0' || $flag === 'false' || $flag === 'off') {
+            return [];
+        }
+
+        $homeId = trim((string) ($match['homeTeamId'] ?? ''));
+        $awayId = trim((string) ($match['awayTeamId'] ?? ''));
+        if ($homeId === '' && $awayId === '') {
+            return [];
+        }
+
+        $map = [];
+        // away first so a (shouldn't-happen) duplicate id resolves deterministically.
+        foreach ([['side' => 'away', 'teamId' => $awayId], ['side' => 'home', 'teamId' => $homeId]] as $team) {
+            if ($team['teamId'] === '') {
+                continue;
+            }
+            foreach (self::rosterPlayerIds($team['teamId']) as $pid) {
+                if (!isset($map[$pid])) {
+                    $map[$pid] = $team['side'];
+                }
+            }
+        }
+        return $map;
+    }
+
+    /**
+     * Cached list of player ids on a team via GET /teams/{id}/players. Returns
+     * [] when unavailable (a transient failure is NOT cached as authoritative).
+     *
+     * @return array<int,string>
+     */
+    private static function rosterPlayerIds(string $teamId): array
+    {
+        try {
+            $cached = SharedFileCache::remember(
+                self::ROSTER_CACHE_NS,
+                $teamId,
+                self::CACHE_TTL_SECONDS,
+                static function () use ($teamId): array {
+                    $resp = RundownClient::getTeamPlayers($teamId);
+                    if (!is_array($resp)) {
+                        throw new RuntimeException('roster lookup unavailable');
+                    }
+                    $players = is_array($resp['players'] ?? null) ? $resp['players'] : [];
+                    $ids = [];
+                    foreach ($players as $p) {
+                        $pid = is_array($p) ? ($p['id'] ?? null) : null;
+                        if ($pid !== null && $pid !== '') {
+                            $ids[] = (string) $pid;
+                        }
+                    }
+                    return ['ids' => $ids];
+                }
+            );
+        } catch (Throwable $e) {
+            return [];
+        }
+        return is_array($cached['ids'] ?? null) ? $cached['ids'] : [];
     }
 }

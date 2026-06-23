@@ -176,6 +176,11 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
     // (pick the star, see only their props) and avoids typo / partial-name
     // mismatches against the feed's canonical descriptions.
     const [playerFilter, setPlayerFilter] = React.useState('all');
+    // teamFilter narrows the player list to one side of the matchup
+    // ('all' | 'away' | 'home'). Each player's side comes from the backend
+    // (outcome.teamSide), resolved from team rosters. 'all' shows everyone,
+    // including players whose team couldn't be resolved.
+    const [teamFilter, setTeamFilter] = React.useState('all');
     // Category accordion state. Default collapsed — the category bars ARE
     // the overview (mirrors the market-list-first layout players know from
     // competitor prop screens); expanding everything up front buries the
@@ -355,11 +360,38 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
         return cats;
     }, [payload.playerProps, bookRank]);
 
+    // player name → matchup side ('home'|'away') from the backend-tagged
+    // outcomes (outcome.teamSide). Players with no resolved side are absent
+    // from the map and only ever show under the "All" team filter.
+    const playerTeamByName = React.useMemo(() => {
+        const m = new Map();
+        categories.forEach((cat) => cat.byPlayer.forEach((outcomes, name) => {
+            if (m.has(name)) return;
+            const withSide = (outcomes || []).find((o) => o?.teamSide === 'home' || o?.teamSide === 'away');
+            if (withSide) m.set(name, withSide.teamSide);
+        }));
+        return m;
+    }, [categories]);
+
+    // A player passes the team filter when 'all' is selected or their resolved
+    // side matches. Unknown-side players are hidden once a team is picked — we
+    // never guess which team they're on.
+    const playerMatchesTeam = React.useCallback(
+        (name) => teamFilter === 'all' || playerTeamByName.get(name) === teamFilter,
+        [teamFilter, playerTeamByName]
+    );
+
+    // Whether the feed resolved ANY player's team — gates the team toggle so we
+    // never show a control that can only ever filter to empty.
+    const hasTeamData = playerTeamByName.size > 0;
+
     const playerNames = React.useMemo(() => {
         const names = new Set();
-        categories.forEach((cat) => cat.byPlayer.forEach((_, name) => names.add(name)));
+        categories.forEach((cat) => cat.byPlayer.forEach((_, name) => {
+            if (playerMatchesTeam(name)) names.add(name);
+        }));
         return Array.from(names).sort((a, b) => a.localeCompare(b));
-    }, [categories]);
+    }, [categories, playerMatchesTeam]);
 
     // When the modal swaps to a different match (or the API serves a
     // refreshed payload that no longer includes the previously-selected
@@ -372,10 +404,20 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
         }
     }, [playerNames, playerFilter]);
 
+    // Reset both filters when the modal switches to a different game.
+    React.useEffect(() => {
+        setTeamFilter('all');
+        setPlayerFilter('all');
+    }, [matchId]);
+
     const visibleCategories = React.useMemo(() => {
-        if (playerFilter === 'all') return categories;
-        return categories.filter((cat) => cat.byPlayer.has(playerFilter));
-    }, [categories, playerFilter]);
+        if (playerFilter === 'all' && teamFilter === 'all') return categories;
+        return categories.filter((cat) =>
+            Array.from(cat.byPlayer.keys()).some(
+                (name) => (playerFilter === 'all' || name === playerFilter) && playerMatchesTeam(name)
+            )
+        );
+    }, [categories, playerFilter, teamFilter, playerMatchesTeam]);
 
     const allOpen = visibleCategories.length > 0 && visibleCategories.every((cat) => expanded[cat.key]);
     const openAll = () => {
@@ -761,7 +803,7 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
     const renderCategory = (cat) => {
         const isOpen = !!expanded[cat.key];
         const players = Array.from(cat.byPlayer.entries())
-            .filter(([name]) => playerFilter === 'all' || name === playerFilter)
+            .filter(([name]) => (playerFilter === 'all' || name === playerFilter) && playerMatchesTeam(name))
             .sort(([a], [b]) => a.localeCompare(b));
         if (players.length === 0) return null;
         return (
@@ -809,6 +851,46 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
                         <span style={{ fontSize: 12, fontWeight: 800, color: '#555', flexShrink: 0 }}>VS</span>
                         {renderTeam(homeTeam, teamLogos.home, true)}
                     </div>
+                    {hasTeamData && (
+                        <div style={{ display: 'flex', gap: 6, padding: '8px 10px 0', flexWrap: 'wrap' }}>
+                            {[
+                                { id: 'all', label: 'All', logo: null, name: 'All players' },
+                                { id: 'away', label: awayAbbr || awayTeam.split(/\s+/).pop(), logo: teamLogos.away, name: awayTeam },
+                                { id: 'home', label: homeAbbr || homeTeam.split(/\s+/).pop(), logo: teamLogos.home, name: homeTeam },
+                            ].map((opt) => {
+                                const active = teamFilter === opt.id;
+                                return (
+                                    <button
+                                        key={opt.id}
+                                        type="button"
+                                        onClick={() => setTeamFilter(opt.id)}
+                                        aria-pressed={active}
+                                        title={opt.id === 'all' ? 'Show all players' : opt.name}
+                                        style={{
+                                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                                            border: active ? '1px solid #e0584a' : '1px solid #d0d0d0',
+                                            background: active ? '#e0584a' : '#fff',
+                                            color: active ? '#fff' : '#333',
+                                            borderRadius: 16, padding: '4px 10px', fontSize: 12, fontWeight: 700,
+                                            cursor: 'pointer', lineHeight: 1.4,
+                                        }}
+                                    >
+                                        {opt.logo && (
+                                            <img
+                                                src={opt.logo}
+                                                alt=""
+                                                width="16"
+                                                height="16"
+                                                style={{ borderRadius: '50%', objectFit: 'cover' }}
+                                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                            />
+                                        )}
+                                        {opt.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
                     {(playerNames.length > 0 || visibleCategories.length > 0) && (
                         <div style={vsControlsRowStyle}>
                             {playerNames.length > 0 && (
@@ -847,7 +929,11 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
                         <div style={{ padding: 30, textAlign: 'center', color: '#777' }}>
                             {categories.length === 0
                                 ? 'No player props available for this match right now.'
-                                : `No props for ${playerFilter}.`}
+                                : playerFilter !== 'all'
+                                    ? `No props for ${playerFilter}.`
+                                    : teamFilter !== 'all'
+                                        ? `No props for ${teamFilter === 'away' ? awayTeam : homeTeam}.`
+                                        : 'No player props available for this match right now.'}
                         </div>
                     )}
                     {!loading && !error && visibleCategories.some((cat) => !isEligible(cat.key)) && (

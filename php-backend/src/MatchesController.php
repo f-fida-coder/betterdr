@@ -999,6 +999,17 @@ final class MatchesController
             // +/-2.5 range is unaffected. Placement re-derives the same cap.
             $extended = $this->capAlternateLadders($extended, $baseMarkets, $sportKey);
 
+            // Tag each player-prop outcome with the player's team side
+            // ('home'/'away') so the Prop Builder can filter by team. Built from
+            // the two team rosters in two cached calls (PlayerPropTeam::sideMap).
+            // Display-only + best-effort: returns [] when the feed/rosters are
+            // unavailable or the feature is off, leaving props untagged (the
+            // filter then shows "All"). Never touches pricing/selection/settlement.
+            $teamSideByPid = ($props !== []) ? PlayerPropTeam::sideMap($refreshed ?? $match) : [];
+            if ($teamSideByPid !== []) {
+                $props = self::tagPropTeamSides($props, $teamSideByPid);
+            }
+
             $payload = [
                 'matchId' => $id,
                 'cached'  => true,
@@ -1012,6 +1023,35 @@ final class MatchesController
             Logger::exception($e, 'getMatchProps failed', ['matchId' => $id]);
             Response::json(['message' => 'Server Error fetching props'], 500);
         }
+    }
+
+    /**
+     * Stamp each player-prop outcome with `teamSide` ('home'|'away') from the
+     * pid→side map. Outcomes whose pid isn't in the map (player not rostered /
+     * no pid) are left untagged so the Prop Builder still shows them under "All".
+     * Display-only — no pricing/selection/grading field is touched.
+     *
+     * @param array<int,mixed>     $props
+     * @param array<string,string> $sideByPid
+     * @return array<int,mixed>
+     */
+    private static function tagPropTeamSides(array $props, array $sideByPid): array
+    {
+        foreach ($props as $mi => $market) {
+            if (!is_array($market) || !is_array($market['outcomes'] ?? null)) {
+                continue;
+            }
+            foreach ($market['outcomes'] as $oi => $outcome) {
+                if (!is_array($outcome)) {
+                    continue;
+                }
+                $pid = isset($outcome['pid']) && $outcome['pid'] !== null ? (string) $outcome['pid'] : '';
+                if ($pid !== '' && isset($sideByPid[$pid])) {
+                    $props[$mi]['outcomes'][$oi]['teamSide'] = $sideByPid[$pid];
+                }
+            }
+        }
+        return $props;
     }
 
     /**
