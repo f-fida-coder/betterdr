@@ -5,6 +5,12 @@ export function isMlbSportKey(sportKey) {
     return String(sportKey || '').toLowerCase().startsWith('baseball');
 }
 
+// Soccer sport-key predicate (e.g. 'soccer_fifa_world_cup', 'soccer_epl').
+// Used to enable soccer-specific board markets (the Draw row, team totals).
+export function isSoccerSportKey(sportKey) {
+    return String(sportKey || '').toLowerCase().startsWith('soccer');
+}
+
 // "Sandy Alcantara" -> "S Alcantara" (matches the listed-pitcher convention
 // real books use on the board). One-word names pass through unchanged.
 export function abbreviatePitcherName(name) {

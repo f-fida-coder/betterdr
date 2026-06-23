@@ -6,7 +6,7 @@ import { useToast } from '../contexts/ToastContext';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import { teaserSportGroup } from '../utils/teaserAdjustment';
 import { resolveBroadcast } from '../utils/broadcast';
-import { isMlbSportKey, formatPitcherLabel, hasListedPitchers, MLB_LISTED_PITCHER_POLICY } from '../utils/pitchers';
+import { isMlbSportKey, isSoccerSportKey, formatPitcherLabel, hasListedPitchers, MLB_LISTED_PITCHER_POLICY } from '../utils/pitchers';
 import { TERMINAL_MATCH_STATUSES, isLiveLikeMatch } from '../utils/liveStatus';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
@@ -876,6 +876,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     moneyline: {
                         homeOdds: parseOddsNumber(h2hHome?.price),
                         awayOdds: parseOddsNumber(h2hAway?.price),
+                        // 3-way (1X2) Draw price when the feed ships it (soccer).
+                        // Null on 2-way US sports. Placed as marketType 'h2h'
+                        // (NOT 'h2h_3_way') so settlement grades it draw-aware.
+                        drawOdds: parseOddsNumber(getMarketOutcomeByName(h2h, 'Draw')?.price),
                     },
                     total: {
                         point: totalOver?.point ?? totalUnder?.point ?? null,
@@ -1669,6 +1673,18 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                             disabled: match.rawMatch?.isBettable === false,
                                                             reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
                                                         })}
+                                                        {/* 3-way Draw (soccer / 1X2): shown only when the feed
+                                                            ships a Draw price. Labeled "Draw" since it's not a
+                                                            positional team button. Tagged 'h2h' (NOT 'h2h_3_way')
+                                                            so settlement grades it draw-aware. */}
+                                                        {hasValidOdds(match.odds.moneyline.drawOdds) && renderOddsButton({
+                                                            label: `Draw ${formatOdds(match.odds.moneyline.drawOdds, oddsFormat)}`,
+                                                            onClick: () => handleAddToSlip(match.id, 'Draw', 'h2h', match.odds.moneyline.drawOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline', null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
+                                                            available: hasValidOdds(match.odds.moneyline.drawOdds),
+                                                            peerAvailable: awayAvail || homeAvail,
+                                                            disabled: match.rawMatch?.isBettable === false,
+                                                            reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
+                                                        })}
                                                     </div>
                                                 </div>
                                                 );
@@ -1703,7 +1719,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 const tt = match.odds.teamTotals || {};
                                                 const sideAvail = (leg) => !!leg && leg.point !== null && hasValidOdds(leg.price);
                                                 const teamHasTT = (teamSide) => sideAvail(tt[teamSide]?.over) || sideAvail(tt[teamSide]?.under);
-                                                const hasTeamTotals = isMlbSportKey(match.sportKey) && (teamHasTT('away') || teamHasTT('home'));
+                                                const hasTeamTotals = (isMlbSportKey(match.sportKey) || isSoccerSportKey(match.sportKey)) && (teamHasTT('away') || teamHasTT('home'));
 
                                                 // Alternate-total ladder. Suppressed in teaser mode (teaser
                                                 // legs price off the main total) — matching the alt-spread gate.

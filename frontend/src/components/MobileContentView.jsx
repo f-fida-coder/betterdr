@@ -19,7 +19,7 @@ import { resolveBroadcast } from '../utils/broadcast';
 import { isLiveLikeMatch } from '../utils/liveStatus';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
-import { isMlbSportKey, formatPitcherLabel, MLB_LISTED_PITCHER_POLICY } from '../utils/pitchers';
+import { isMlbSportKey, isSoccerSportKey, formatPitcherLabel, MLB_LISTED_PITCHER_POLICY } from '../utils/pitchers';
 import {
     FULL_PERIOD,
     getPeriodsForSportKey,
@@ -852,6 +852,10 @@ const MobileContentView = ({
             spreadAwayAlternateLines: Array.isArray(spreadAwayOutcome?.alternateLines) ? spreadAwayOutcome.alternateLines : null,
             moneylineHome: parseOddsNumber(getMarketOutcomeByName(h2h, homeName)?.price),
             moneylineAway: parseOddsNumber(getMarketOutcomeByName(h2h, awayName)?.price),
+            // 3-way (1X2) Draw price, when the feed ships it (soccer). Null on
+            // 2-way US sports so no empty Draw row renders. Tagged 'h2h' at
+            // placement (NOT 'h2h_3_way') so settlement grades it draw-aware.
+            moneylineDraw: parseOddsNumber(getMarketOutcomeByName(h2h, 'Draw')?.price),
             totalPoint: totalOverOutcome?.point ?? totalUnderOutcome?.point ?? null,
             totalOverPrice: parseOddsNumber(totalOverOutcome?.price),
             totalUnderPrice: parseOddsNumber(totalUnderOutcome?.price),
@@ -2276,6 +2280,7 @@ const matchCardSignature = (match) => {
         odds?.spreadHomePoint,
         odds?.spreadHomePrice,
         odds?.moneylineHome,
+        odds?.moneylineDraw,
         odds?.totalUnderPrice,
         // Team-total fingerprint so a TT price/line move re-renders the card
         // even when the game total is unchanged.
@@ -2389,7 +2394,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const teamTotals = match.odds?.teamTotals || {};
     const ttSideAvail = (leg) => !!leg && leg.point !== null && leg.price !== null;
     const teamHasTT = (teamSide) => ttSideAvail(teamTotals[teamSide]?.over) || ttSideAvail(teamTotals[teamSide]?.under);
-    const hasTeamTotals = isMlbSportKey(match?.sportKey || match?.sport) && (teamHasTT('away') || teamHasTT('home'));
+    const hasTeamTotals = (isMlbSportKey(match?.sportKey || match?.sport) || isSoccerSportKey(match?.sportKey || match?.sport)) && (teamHasTT('away') || teamHasTT('home'));
     // Spread ⇄ Alt toggle. The "Spread" pill flips the board into ALT mode:
     // the away/home rows render the alt-spread ladders here AND the alt-total
     // ladders in the Total column (both keyed off altOn), so a single "Spread"
@@ -2421,8 +2426,8 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
         underAltLadder.forEach((r) => { const k = Number(r.point); if (!byPoint.has(k)) byPoint.set(k, { point: k }); byPoint.get(k).under = r; });
         return [...byPoint.values()].sort((a, b) => b.point - a.point);
     })();
-    // The Total column's own pill cycles Total ⇄ Team Totals only (TT is MLB
-    // full-game only). Generic Alt Totals are intentionally not in this cycle.
+    // The Total column's own pill cycles Total ⇄ Team Totals only (TT is
+    // full-game MLB + soccer). Generic Alt Totals are intentionally not in this cycle.
     // Switching total mode clears ALT mode so the two stay mutually exclusive.
     const totalModeOrder = ['total', ...(hasTeamTotals ? ['tt'] : [])];
     const [totalMode, setTotalMode] = React.useState('total');
@@ -3017,6 +3022,33 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     )
                 )}
             </div>
+
+            {/* 3-way moneyline Draw row (soccer / 1X2). Renders only when the
+                feed shipped a Draw price, so 2-way US sports never get an empty
+                row. A separate grid with the SAME column template as the team
+                rows above, so the Draw price lines up under the ML column.
+                Tagged 'h2h' (NOT 'h2h_3_way') so settlement grades it
+                draw-aware. */}
+            {visibleMarkets.showMoneyline && match.odds.moneylineDraw != null && (
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 30px'}`,
+                    alignItems: 'stretch',
+                    borderTop: '1px solid #f0f1f3',
+                }}>
+                    <span style={{ ...teamNameStyle, display: 'flex', alignItems: 'center', color: '#64748b', fontWeight: 600 }}>Draw</span>
+                    {visibleMarkets.showSpread && <span />}
+                    <OddsCell
+                        disabled={blocked || match.odds.moneylineDraw === null}
+                        selected={isSelected('h2h', 'Draw') && !blocked}
+                        main={formatOdds(match.odds.moneylineDraw, oddsFormat)}
+                        juice=""
+                        onClick={() => addIfAllowed(match.id, 'Draw', 'h2h', match.odds.moneylineDraw, matchName, 'Moneyline', null)}
+                    />
+                    {visibleMarkets.showTotals && <span />}
+                    {!isTeaserMode && <span />}
+                </div>
+            )}
 
             {showPitchers && (() => {
                 const renderSide = (side, pitcher, isAway) => {
