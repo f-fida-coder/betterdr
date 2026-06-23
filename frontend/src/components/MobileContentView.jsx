@@ -2682,10 +2682,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: altSpreadsActive ? '#d32f2f' : undefined, fontWeight: 700 }}
                             title={altSpreadsActive ? 'Showing alt spreads + alt totals — tap for main spread' : 'Showing main spread — tap for alt spreads + alt totals'}
                         >
-                            {altSpreadsActive ? 'Alt Sp' : 'Sp'}
+                            {altSpreadsActive ? 'Alt Sp' : 'Spread'}
                         </button>
                     ) : (
-                        <span style={columnLabelStyle}>Sp</span>
+                        <span style={columnLabelStyle}>Spread</span>
                     )
                 )}
                 {visibleMarkets.showMoneyline && <span style={columnLabelStyle}>ML</span>}
@@ -2697,10 +2697,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: altTotalsActive ? '#d32f2f' : (effectiveTotalMode !== 'total' ? '#d0451b' : undefined), fontWeight: 700 }}
                             title={altTotalsActive ? 'Showing alt totals — tap to switch' : `Showing ${effectiveTotalMode === 'tt' ? 'team totals' : 'game total'} — tap to switch`}
                         >
-                            {altTotalsActive ? 'Alt Tot' : (effectiveTotalMode === 'tt' ? 'TT' : 'Tot')}
+                            {altTotalsActive ? 'Alt Tot' : (effectiveTotalMode === 'tt' ? 'TT' : 'Total')}
                         </button>
                     ) : (
-                        <span style={columnLabelStyle}>Tot</span>
+                        <span style={columnLabelStyle}>Total</span>
                     )
                 )}
                 {!isTeaserMode && <span />}
