@@ -141,6 +141,31 @@ const prettyMarketLabel = (key) => {
 
 const isOverUnderName = (name) => /^(over|under)$/i.test(String(name || '').trim());
 
+// Split a player's outcomes into two-sided Over/Under lines and the rest.
+// A line (a single `point`) is "two-sided" only when BOTH an Over and an
+// Under are priced at that point. Single-sided O/U lines (e.g. an Over with
+// no Under) are dropped entirely — we never fabricate the missing side, and
+// per the display rule a one-sided prop simply isn't shown. `rest` carries
+// non-Over/Under outcomes (markets that aren't O/U-shaped) unchanged.
+// Returns twoSided as [pointKey, {over, under}] sorted by ascending point.
+const splitOverUnderProps = (outcomes) => {
+    const linesByPoint = new Map();
+    const rest = [];
+    (outcomes || []).forEach((outcome) => {
+        if (isOverUnderName(outcome?.name)) {
+            const pointKey = String(outcome?.point ?? '');
+            if (!linesByPoint.has(pointKey)) linesByPoint.set(pointKey, {});
+            linesByPoint.get(pointKey)[/^over$/i.test(outcome.name) ? 'over' : 'under'] = outcome;
+        } else {
+            rest.push(outcome);
+        }
+    });
+    const twoSided = Array.from(linesByPoint.entries())
+        .filter(([, pair]) => pair.over && pair.under)
+        .sort(([a], [b]) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
+    return { twoSided, rest };
+};
+
 /**
  * The feed appends one outcome per (book × line × side). The board shows
  * one price per selection (the server orders odds.bookmakers by the
@@ -333,14 +358,26 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
         const cats = [];
         outcomesByKey.forEach((outcomes, key) => {
             const deduped = dedupeByPreferredBook(outcomes, bookRank);
-            const byPlayer = new Map();
+            const grouped = new Map();
             let hasOverUnder = false;
             deduped.forEach((outcome) => {
                 const player = String(outcome?.description || outcome?.name || '').trim();
                 if (!player) return;
                 if (isOverUnderName(outcome?.name)) hasOverUnder = true;
-                if (!byPlayer.has(player)) byPlayer.set(player, []);
-                byPlayer.get(player).push(outcome);
+                if (!grouped.has(player)) grouped.set(player, []);
+                grouped.get(player).push(outcome);
+            });
+            // Display rule: only show props that have BOTH an Over and an Under
+            // at the same line. Drop any player left with no two-sided O/U line
+            // and no non-O/U outcomes — they fall off the list naturally (no
+            // empty row, accurate "N players" count). Single-sided lines are
+            // never shown and never synthesized.
+            const byPlayer = new Map();
+            grouped.forEach((playerOutcomes, player) => {
+                const { twoSided, rest } = splitOverUnderProps(playerOutcomes);
+                if (twoSided.length > 0 || rest.length > 0) {
+                    byPlayer.set(player, playerOutcomes);
+                }
             });
             if (byPlayer.size === 0) return;
             const base = prettyMarketLabel(key);
@@ -706,42 +743,22 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
      */
     const renderPlayerOutcomes = (catKey, playerName, outcomes) => {
         const eligible = isEligible(catKey);
-        const linesByPoint = new Map();
-        const rest = [];
-        outcomes.forEach((outcome) => {
-            if (isOverUnderName(outcome?.name)) {
-                const pointKey = String(outcome?.point ?? '');
-                if (!linesByPoint.has(pointKey)) linesByPoint.set(pointKey, {});
-                linesByPoint.get(pointKey)[/^over$/i.test(outcome.name) ? 'over' : 'under'] = outcome;
-            } else {
-                rest.push(outcome);
-            }
-        });
-        const allLines = Array.from(linesByPoint.entries())
-            .sort(([a], [b]) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
+        const { twoSided, rest } = splitOverUnderProps(outcomes);
         // ONE row per player: the player's MAIN two-sided Over/Under line — the
-        // line that has BOTH an Over and an Under price (the feed doesn't ship
-        // an is_main_line flag on the outcome, so "both sides priced" is the
-        // signal). Drops the standalone single-sided rungs (e.g. the extra
-        // "Over 0.5" with no Under) that cluttered the list. If a player has NO
-        // two-sided line at all (e.g. Over-only markets like singles/walks —
-        // ~47% of MLB prop players), fall back to their single line(s) so the
-        // player is never dropped. Prefer the lowest-point two-sided line when
-        // a player somehow has more than one.
-        const twoSided = allLines.filter(([, pair]) => pair.over && pair.under);
-        const lines = twoSided.length > 0 ? [twoSided[0]] : allLines;
+        // lowest-point line that has BOTH an Over and an Under price (the feed
+        // doesn't ship an is_main_line flag, so "both sides priced" is the
+        // signal). Single-sided lines are filtered out entirely by
+        // splitOverUnderProps, so a player with no two-sided line shows no O/U
+        // row at all (the categories memo also drops such players when they
+        // have nothing else to show). No spanning, no empty "—" cell.
+        const lines = twoSided.length > 0 ? [twoSided[0]] : [];
 
-        // `span` makes a lone side stretch across both odds columns when the
-        // feed only priced one direction (e.g. juiced "Over 0.5 to-record"
-        // props the book never two-sides) — so the row reads as intentional
-        // rather than a broken empty "—" cell.
-        const renderSide = (outcome, isFirst, span = false) => {
-            if (!outcome) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', borderLeft: '1px solid #e2e2e2' }}>—</div>;
+        const renderSide = (outcome, isFirst) => {
             const selKey = selectionKeyFor(catKey, playerName, outcome);
             const selected = selectedKeys.has(selKey);
             return (
                 <button
-                    style={{ ...pairBtnStyle(selected, isFirst), borderRight: 'none', borderLeft: '1px solid #e2e2e2', ...(span ? { gridColumn: '2 / 4' } : null), ...(eligible ? null : disabledBtnStyle) }}
+                    style={{ ...pairBtnStyle(selected, isFirst), borderRight: 'none', borderLeft: '1px solid #e2e2e2', ...(eligible ? null : disabledBtnStyle) }}
                     disabled={!eligible}
                     onClick={() => addSelection(catKey, playerName, outcome)}
                 >
@@ -757,20 +774,13 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
 
         return (
             <React.Fragment key={`${catKey}-${playerName}`}>
-                {lines.map(([pointKey, pair]) => {
-                    // One-sided line (feed priced only Over or only Under) →
-                    // stretch the lone side across both odds columns; no empty cell.
-                    const solo = pair.over && !pair.under ? pair.over
-                        : (pair.under && !pair.over ? pair.under : null);
-                    return (
-                        <div key={`${catKey}-${playerName}-${pointKey}`} style={playerRowStyle}>
-                            <div style={playerNameCellStyle} title={playerName}>{playerName}</div>
-                            {solo
-                                ? renderSide(solo, false, true)
-                                : <>{renderSide(pair.over, true)}{renderSide(pair.under, false)}</>}
-                        </div>
-                    );
-                })}
+                {lines.map(([pointKey, pair]) => (
+                    // Both sides guaranteed present (single-sided lines were filtered out).
+                    <div key={`${catKey}-${playerName}-${pointKey}`} style={playerRowStyle}>
+                        <div style={playerNameCellStyle} title={playerName}>{playerName}</div>
+                        {renderSide(pair.over, true)}{renderSide(pair.under, false)}
+                    </div>
+                ))}
                 {rest.length > 0 && (
                     <>
                     <div style={playerHeaderStyle}>{playerName}</div>
