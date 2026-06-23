@@ -2319,6 +2319,16 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const underAltLadder = Array.isArray(altTotals.under) ? altTotals.under : [];
     const hasAltTotals = !isTeaserMode && (overAltLadder.length > 0 || underAltLadder.length > 0);
     const altTotalsActive = altSpreadsActive && hasAltTotals;
+    // Group the alt-total ladder by LINE so the column reads Over/Under for each
+    // line (O10, U10, O7, U7) rather than all Overs then all Unders. Each group
+    // is the Over+Under rungs at one point, sorted high→low; the away (top) row
+    // renders the higher line's pair, the home (bottom) row the lower line's.
+    const altTotalPairs = (() => {
+        const byPoint = new Map();
+        overAltLadder.forEach((r) => { const k = Number(r.point); if (!byPoint.has(k)) byPoint.set(k, { point: k }); byPoint.get(k).over = r; });
+        underAltLadder.forEach((r) => { const k = Number(r.point); if (!byPoint.has(k)) byPoint.set(k, { point: k }); byPoint.get(k).under = r; });
+        return [...byPoint.values()].sort((a, b) => b.point - a.point);
+    })();
     // The Total column's own pill cycles Total ⇄ Team Totals only (TT is MLB
     // full-game only). Generic Alt Totals are intentionally not in this cycle.
     // Switching total mode clears ALT mode so the two stay mutually exclusive.
@@ -2478,18 +2488,21 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     };
     // One Total-column cell for an Over/Under alt ladder: stacks the rungs
     // high→low. Empty when the feed shipped no alt rungs for this side.
-    const renderAltTotalCell = (ladder, side) => {
-        if (!Array.isArray(ladder) || ladder.length === 0) {
+    // One alt-total line rendered as its Over rung above its Under rung, so the
+    // two stacked rows read O10 / U10 then O7 / U7 down the column.
+    const renderAltTotalPairCell = (group) => {
+        const rungs = group ? [group.over, group.under].filter(Boolean) : [];
+        if (rungs.length === 0) {
             return <OddsCell disabled selected={false} main="—" juice="" onClick={() => {}} />;
         }
-        const ou = side === 'over' ? 'O' : 'U';
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {ladder.map((rung) => {
+                {rungs.map((rung) => {
+                    const ou = String(rung.name || '').trim().toLowerCase().startsWith('u') ? 'U' : 'O';
                     const sel = [rung.name, formatLineValue(rung.point)].filter(Boolean).join(' ');
                     return (
                         <OddsCell
-                            key={rung.point}
+                            key={`${ou}${rung.point}`}
                             disabled={blocked}
                             selected={isSelected('alternate_totals', sel) && !blocked}
                             main={`${ou}${formatLineValue(rung.point)}`}
@@ -2757,7 +2770,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 )}
                 {visibleMarkets.showTotals && (
                     altTotalsActive ? (
-                        renderAltTotalCell(overAltLadder, 'over')
+                        renderAltTotalPairCell(altTotalPairs[0])
                     ) : teamTotalsActive ? (
                         renderTeamTotalCell('away', match.team1Short || match.team1)
                     ) : (
@@ -2891,7 +2904,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 )}
                 {visibleMarkets.showTotals && (
                     altTotalsActive ? (
-                        renderAltTotalCell(underAltLadder, 'under')
+                        renderAltTotalPairCell(altTotalPairs[1])
                     ) : teamTotalsActive ? (
                         renderTeamTotalCell('home', match.team2Short || match.team2)
                     ) : (
