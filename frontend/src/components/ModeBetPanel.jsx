@@ -45,6 +45,13 @@ const MODE_TABS = [
 // remaining slots over time. Keep these in sync with the server.
 const OPEN_PARLAY_MIN_LEGS = 2;
 const OPEN_PARLAY_MAX_LEGS = 8;
+// PREVIEW-ONLY default for an open parlay's not-yet-added legs. The betslip
+// prices an open parlay as if all declared legs already exist, with each
+// unfilled slot treated as a -110 placeholder, so the player sees a full
+// declared-parlay payout up front (capped). These placeholders live ONLY in
+// the slip's payout preview — they are never sent to placement and never enter
+// settlement, which grades only the real added legs at their real odds.
+const OPEN_PARLAY_PLACEHOLDER_AMERICAN = -110;
 
 // nCr-based combination count for the Round Robin live readout. n is the
 // selection count, `sizes` is the user's chosen "By X's" set. Mirrors
@@ -1260,11 +1267,25 @@ const ModeBetPanel = ({
             // Raw-decimal multiplication previously made Win read $997
             // for a typed $1000 because Risk used American int but
             // payout used raw decimals.
-            const combined = applySgpHaircut(
+            const realCombined = applySgpHaircut(
                 selections.reduce((acc, sel) => acc * exactDecimalForLeg(sel?.odds), 1),
                 sgpHaircutFraction(selections),
             );
-            return effectiveCombinedRisk * combined;
+            // Open parlay PREVIEW: price as if all declared legs already exist.
+            // Each unfilled slot (targetLegs − legCount) is a -110 placeholder,
+            // so the previewed payout shows the full declared parlay. PREVIEW
+            // ONLY — placeholders never reach placeOpenParlay / addOpenParlayLeg
+            // / settlement. The preview intentionally starts high and shrinks
+            // toward the true odds as real (often favored) legs replace
+            // placeholders; displayWinAmount clamps it to the 3×maxBet cap.
+            if (isOpenParlay) {
+                const placeholderCount = Math.max(0, openParlayTargetLegs - legCount);
+                const combined = placeholderCount > 0
+                    ? realCombined * Math.pow(americanToDecimal(OPEN_PARLAY_PLACEHOLDER_AMERICAN), placeholderCount)
+                    : realCombined;
+                return effectiveCombinedRisk * combined;
+            }
+            return effectiveCombinedRisk * realCombined;
         }
         if (normalizedMode === 'teaser') {
             return effectiveCombinedRisk * getTeaserMultiplier(rule, legCount, selectedTeaserType);
@@ -1285,7 +1306,7 @@ const ModeBetPanel = ({
             return roundRobinMaxWin;
         }
         return 0;
-    }, [effectiveCombinedRisk, legCount, normalizedMode, selections, rule, selectedTeaserType, wagerForSelection, roundRobinMaxWin]);
+    }, [effectiveCombinedRisk, legCount, normalizedMode, selections, rule, selectedTeaserType, wagerForSelection, roundRobinMaxWin, isOpenParlay, openParlayTargetLegs]);
 
     const totalRisk = normalizedMode === 'reverse'
         ? effectiveCombinedRisk * 2
@@ -1328,14 +1349,19 @@ const ModeBetPanel = ({
             ? resolveBetSmartMode(ticketDecimalOdds)
             : stakeMode;
         let rawWin;
-        if (summarySmartMode === 'win' && wagerAmount > 0 && legCount > 0 && normalizedMode !== 'straight') {
+        // Open parlay is risk-anchored: the displayed Win is always the
+        // (capped) preview payout derived from the committed stake and the
+        // full declared parlay (real legs + -110 placeholders) — never a
+        // typed Win, since the odds aren't final while legs are still being
+        // filled. So bypass the Win-mode pin for open parlays.
+        if (!isOpenParlay && summarySmartMode === 'win' && wagerAmount > 0 && legCount > 0 && normalizedMode !== 'straight') {
             rawWin = wagerAmount;
         } else {
             rawWin = Math.max(0, potentialPayout - totalRisk);
         }
         if (parlayPayoutCap > 0 && rawWin > parlayPayoutCap) return parlayPayoutCap;
         return rawWin;
-    }, [stakeMode, wagerAmount, legCount, normalizedMode, potentialPayout, totalRisk, parlayPayoutCap, ticketDecimalOdds]);
+    }, [stakeMode, wagerAmount, legCount, normalizedMode, potentialPayout, totalRisk, parlayPayoutCap, ticketDecimalOdds, isOpenParlay]);
     // Use the same pool the top bar's AVAILABLE tile shows: creditAvailable
     // for credit accounts, availableBalance for cash accounts. Otherwise the
     // bet-placement guard rejects with "Insufficient balance: $0.00" while
@@ -3199,6 +3225,9 @@ const ModeBetPanel = ({
                                 <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Win:</span>
                                 <span style={{ fontSize: 13, fontWeight: 800, color: displayWinAmount > 0 ? palette.success : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
                                     ${formatMoney2dp(displayWinAmount)}
+                                    {parlayPayoutCap > 0 && displayWinAmount >= parlayPayoutCap && (
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, marginLeft: 4 }}>(max)</span>
+                                    )}
                                 </span>
                             </div>
                         </div>
