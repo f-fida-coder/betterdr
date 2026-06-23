@@ -1201,7 +1201,11 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     </div>
                 );
             }
-            return <div className="odds-unavailable">Unavailable</div>;
+            // Whole market unavailable (no line on either side) → clean empty
+            // space that still holds the cell's flex column, instead of an
+            // "Unavailable" box. Mirrors the mobile board's empty-cell
+            // treatment so SPREAD/ML/TOTAL stay aligned with no blank boxes.
+            return <div aria-hidden="true" style={{ minHeight: 26 }} />;
         }
         return (
             <button

@@ -2505,7 +2505,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
         const bucket = teamTotals[teamSide] || {};
         const legs = ['over', 'under'].map((s) => bucket[s]).filter(ttSideAvail);
         if (legs.length === 0) {
-            return <OddsCell disabled selected={false} main="—" juice="" onClick={() => {}} />;
+            return <OddsCell empty />;
         }
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -2545,7 +2545,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     // shipped no alt rungs for this side — never synthesizes one.
     const renderAltSpreadCell = (ladder) => {
         if (!Array.isArray(ladder) || ladder.length === 0) {
-            return <OddsCell disabled selected={false} main="—" juice="" onClick={() => {}} />;
+            return <OddsCell empty />;
         }
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -2590,7 +2590,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const renderAltTotalPairCell = (group) => {
         const rungs = group ? [group.over, group.under].filter(Boolean) : [];
         if (rungs.length === 0) {
-            return <OddsCell disabled selected={false} main="—" juice="" onClick={() => {}} />;
+            return <OddsCell empty />;
         }
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -2845,6 +2845,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         renderAltSpreadCell(awayAltLadder)
                     ) : (
                     <OddsCell
+                        empty={match.odds.spreadAwayPrice === null}
                         disabled={blocked || match.odds.spreadAwayPrice === null}
                         selected={isSelected('spreads', match.team1) && !blocked}
                         main={formatSpreadValue(teaserPreview.spread(match.odds.spreadAwayPoint))}
@@ -2858,6 +2859,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 )}
                 {visibleMarkets.showMoneyline && (
                     <OddsCell
+                        empty={match.odds.moneylineAway === null}
                         disabled={blocked || match.odds.moneylineAway === null}
                         selected={isSelected('h2h', match.team1) && !blocked}
                         main={formatOdds(match.odds.moneylineAway, oddsFormat)}
@@ -2872,6 +2874,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         renderTeamTotalCell('away', match.team1Short || match.team1)
                     ) : (
                     <OddsCell
+                        empty={match.odds.totalOverPrice === null}
                         disabled={blocked || match.odds.totalOverPrice === null}
                         selected={isSelected('totals', 'Over') && !blocked}
                         main={totalsOverDisplay}
@@ -2983,6 +2986,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         renderAltSpreadCell(homeAltLadder)
                     ) : (
                     <OddsCell
+                        empty={match.odds.spreadHomePrice === null}
                         disabled={blocked || match.odds.spreadHomePrice === null}
                         selected={isSelected('spreads', match.team2) && !blocked}
                         main={formatSpreadValue(teaserPreview.spread(match.odds.spreadHomePoint))}
@@ -2996,6 +3000,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 )}
                 {visibleMarkets.showMoneyline && (
                     <OddsCell
+                        empty={match.odds.moneylineHome === null}
                         disabled={blocked || match.odds.moneylineHome === null}
                         selected={isSelected('h2h', match.team2) && !blocked}
                         main={formatOdds(match.odds.moneylineHome, oddsFormat)}
@@ -3010,6 +3015,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         renderTeamTotalCell('home', match.team2Short || match.team2)
                     ) : (
                     <OddsCell
+                        empty={match.odds.totalUnderPrice === null}
                         disabled={blocked || match.odds.totalUnderPrice === null}
                         selected={isSelected('totals', 'Under') && !blocked}
                         main={totalsUnderDisplay}
@@ -3225,16 +3231,24 @@ const SkeletonList = () => (
     </div>
 );
 
-const OddsCell = ({ disabled, selected, main, juice, onClick }) => (
-    <button
-        style={disabled ? oddsCellDisabledStyle : (selected ? oddsCellSelectedStyle : oddsCellStyle)}
-        onClick={onClick}
-        disabled={disabled}
-    >
-        <span style={selected && !disabled ? oddsCellMainSelectedStyle : oddsCellMainStyle}>{disabled ? '—' : main}</span>
-        {!disabled && juice ? <span style={selected ? oddsCellJuiceSelectedStyle : oddsCellJuiceStyle}>{juice}</span> : null}
-    </button>
-);
+const OddsCell = ({ disabled, selected, main, juice, onClick, empty = false }) => {
+    // Unavailable market (no line) → render clean empty space that still holds
+    // the grid column, so SPREAD / ML / TOTAL stay aligned across rows but no
+    // dashed blank box shows. Not a button (nothing to tap, nothing to read).
+    if (empty) {
+        return <span aria-hidden="true" style={oddsCellEmptyStyle} />;
+    }
+    return (
+        <button
+            style={disabled ? oddsCellDisabledStyle : (selected ? oddsCellSelectedStyle : oddsCellStyle)}
+            onClick={onClick}
+            disabled={disabled}
+        >
+            <span style={selected && !disabled ? oddsCellMainSelectedStyle : oddsCellMainStyle}>{disabled ? '—' : main}</span>
+            {!disabled && juice ? <span style={selected ? oddsCellJuiceSelectedStyle : oddsCellJuiceStyle}>{juice}</span> : null}
+        </button>
+    );
+};
 
 // ── Styles ────────────────────────────────────────────────
 
@@ -3722,6 +3736,14 @@ const oddsCellDisabledStyle = {
     opacity: 0.5,
     cursor: 'not-allowed',
     background: '#f9fafb',
+};
+
+// Empty (unavailable-market) cell: occupies the same grid track as a real
+// odds cell so columns stay aligned, but has no box/border/background/content
+// — an unavailable SPREAD/ML/TOTAL reads as clean empty space, not a dash box.
+const oddsCellEmptyStyle = {
+    height: '40px',
+    minWidth: 0,
 };
 const oddsCellSelectedStyle = {
     ...oddsCellStyle,
