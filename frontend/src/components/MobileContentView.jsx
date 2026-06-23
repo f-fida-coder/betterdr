@@ -3483,11 +3483,11 @@ const futureToggleStyle = {
     width: '100%',
     padding: '12px 16px',
     margin: '4px 0',
-    background: '#fff',
-    color: '#b91c1c',
+    // Bright board-accent red with white text so the bar pops as a tappable
+    // section (same coral red as the sport header / period bar — #ff5051).
+    background: '#ff5051',
+    color: '#fff',
     border: 'none',
-    borderTop: '1px solid #eee',
-    borderBottom: '1px solid #eee',
     fontSize: '13px',
     fontWeight: 700,
     letterSpacing: '0.3px',

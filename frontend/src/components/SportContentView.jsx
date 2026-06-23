@@ -1922,9 +1922,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 width: '100%',
                                                 padding: '12px 16px',
                                                 margin: '8px 0',
-                                                background: '#fff',
-                                                color: '#b91c1c',
-                                                border: '1px solid #eee',
+                                                // Bright board-accent red + white text so the bar
+                                                // pops as a tappable section (matches the board's
+                                                // coral red #ff5051). White chevron stays visible.
+                                                background: '#ff5051',
+                                                color: '#fff',
+                                                border: 'none',
                                                 borderRadius: 8,
                                                 fontSize: 13,
                                                 fontWeight: 700,
