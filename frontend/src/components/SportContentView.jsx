@@ -317,6 +317,16 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         return { todayDisplay: today, futureDisplay: future, futureCount: future.length };
     }, [displayEntries, groupBySport, todayDayNum]);
 
+    // Auto-expand the future section when there are NO same-day games but
+    // future ones exist, so upcoming games show without an extra tap. Keyed on
+    // the conditions (not on showFutureGames) so a manual collapse afterwards
+    // sticks; when same-day games exist, future stays collapsed by default.
+    useEffect(() => {
+        if (todayDisplay.length === 0 && futureCount > 0) {
+            setShowFutureGames(true);
+        }
+    }, [todayDisplay.length, futureCount]);
+
     // Period chip strip: scan rawMatches for which period suffixes the
     // backend has actually synced (e.g. `_q1`, `_h1`). Always include the
     // empty suffix so the Game chip never disappears. Only chips whose
@@ -1873,7 +1883,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
 
                                 {todayDisplay.length === 0 && futureCount > 0 && (
                                     <div style={{ padding: '14px 16px', color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>
-                                        No games scheduled today — open Future Games for upcoming matches.
+                                        No games scheduled today — showing upcoming games below.
                                     </div>
                                 )}
 

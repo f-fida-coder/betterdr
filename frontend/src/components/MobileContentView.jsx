@@ -1764,6 +1764,17 @@ const MobileContentView = ({
     // still surfaces its games via the toggle instead of reading as empty.
     const totalEntryCount = todayEntries.length + futureEntries.length;
 
+    // Auto-expand the future section when there are NO same-day games but
+    // future ones exist, so the player sees upcoming games without an extra
+    // tap. Keyed on the conditions (not on showFutureGames) so a manual
+    // collapse afterwards sticks; when same-day games exist, the section
+    // stays collapsed by default as before.
+    React.useEffect(() => {
+        if (todayEntries.length === 0 && futureMatchCount > 0) {
+            setShowFutureGames(true);
+        }
+    }, [todayEntries.length, futureMatchCount]);
+
     return (
         <div style={containerStyle}>
             <div style={sportHeaderStyle}>
@@ -2107,7 +2118,7 @@ const MobileContentView = ({
                             read as an error/empty board. */}
                         {todayEntries.length === 0 && futureMatchCount > 0 && (
                             <div style={noTodayNoticeStyle}>
-                                No games scheduled today — tap below for upcoming games.
+                                No games scheduled today — showing upcoming games below.
                             </div>
                         )}
 
