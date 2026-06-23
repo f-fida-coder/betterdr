@@ -3,53 +3,64 @@
 declare(strict_types=1);
 
 /**
- * Open Parlay ("open play") support.
+ * Open Parlay ("open play") support — DECLARED-LEG-COUNT model.
  *
- * An open parlay is a plain `type='parlay'` ticket that a player commits
- * with a stake and one-or-more locked legs, then adds more legs to before
- * any leg's game starts. The stake is reserved in `pendingBalance` at OPEN
- * exactly like a normal parlay — no new money path — and the ticket sits in
- * `status='open'` until its earliest leg is about to start.
+ * An open parlay is a plain `type='parlay'` ticket. At placement the player
+ * declares how many legs it will ultimately have (`targetLegs`, 2..MAX_LEGS)
+ * and commits the FULL stake up front (reserved in `pendingBalance` exactly
+ * like a normal parlay — no new money path). The ticket sits in
+ * `status='open'` and the player fills the remaining slots over time, one leg
+ * per add. Adding a leg moves no money.
+ *
+ * There is NO kickoff lock and NO expiry. A ticket stays open until every
+ * declared slot is filled. A never-completed ticket simply stays open forever
+ * (no auto-void, no refund); an operator removes it manually if needed.
  *
  * Money + integrity rules enforced here (see also BetsController create /
- * add-leg endpoints which call these helpers):
+ * add-leg endpoints and BetSettlementService, which call these helpers):
  *
  *   - Anti-past-posting (M1): a leg may only be added while its own event
- *     start (`matchSnapshot.startTime`) is strictly in the future. This is a
- *     HARD server-side time check, independent of the `isBettable` flag
- *     (which can fail-open during a status-sync gap). assertLegStartsInFuture
- *     is the single gate; the controller calls it for every initial and
- *     added leg.
+ *     start (`matchSnapshot.startTime`) is strictly in the future. HARD
+ *     server-side check, independent of the `isBettable` flag.
+ *     assertLegStartsInFuture is the single gate; the controller calls it for
+ *     every initial and added leg.
  *
- *   - Triple-layer skip: (1) the settlement grader refuses to grade any leg
- *     on an 'open' ticket (BetSettlementService::settleMatch guards on
- *     status==='pending'); (2) the finalizer flips open→pending at closesAt;
- *     (3) even if the finalizer never ran, an 'open' ticket is never graded.
+ *   - Cap enforcement: a ticket can never hold more than `targetLegs` legs
+ *     (and never more than MAX_LEGS). Enforced server-side in addOpenParlayLeg.
  *
- *   - Incomplete-at-close void (M2): at close, if the ticket never reached
- *     the minimum leg count (2), the finalizer VOIDS + REFUNDS the whole
- *     ticket BEFORE it can enter 'pending' / settlement, so the grader never
- *     sees a 1-leg open parlay. A valid >=2-leg ticket flips to 'pending'
- *     and from then on follows the existing settlement / reduce-on-void path
- *     unchanged.
+ *   - Settlement (per-leg, as games finish — implemented in
+ *     BetSettlementService::settleMatch):
+ *       * any leg LOSES  → the whole ticket is graded a loss immediately, even
+ *         if still incomplete (no waiting for the remaining legs);
+ *       * a leg WINS     → it banks; the ticket stays open (no payout);
+ *       * a leg PUSHES   (postponed/cancelled → 'void') → it drops from the
+ *         parlay math but does NOT lose the ticket; the slot still counts as
+ *         filled (the player adds no replacement);
+ *       * PAYOUT fires ONLY when every declared slot is filled
+ *         (filledLegs >= targetLegs) AND no leg lost AND none still pending —
+ *         the surviving won legs re-price through the normal parlay roll-up
+ *         (evaluateTicket: product of won-leg odds, SGP haircut, 3xmaxBet cap;
+ *         a void leg already drops out of that product correctly).
+ *     shouldSettleNow() encodes when the grader settles vs leaves a ticket
+ *     open. isGradableOpenTicket() gates which open tickets the grader may
+ *     touch — new-model tickets carrying a valid `targetLegs` only; legacy
+ *     open tickets without it are left untouched, exactly as before.
  *
  *   - Payout recompute + cap (M3/M4): payout is recomputed authoritatively
  *     from the locked legs on every add (under the caller's FOR UPDATE lock)
  *     and the 3xmaxBet parlay payout cap is re-applied each time. Risk is
- *     fixed at OPEN and never changes. acceptedPayout pinning is disabled for
- *     open tickets (the controller never sets it), so the recompute is always
- *     authoritative.
+ *     fixed at OPEN and never changes.
  *
- *   - Freeplay is disallowed on open parlays for v1 (Addition 1).
+ *   - Freeplay is disallowed on open parlays (Addition 1).
  *   - Only plain parlays are eligible — RR/teaser/if_bet/reverse rejected (M7).
  */
 final class OpenParlayService
 {
-    /** A ticket must reach this many legs by close or it's voided + refunded. */
-    public const MIN_LEGS_TO_FINALIZE = 2;
+    /** Declared leg count floor — an open parlay must target at least this many legs. */
+    public const MIN_TARGET_LEGS = 2;
 
-    /** Hard ceiling on legs, mirrors the parlay rule's maxLegs default. */
-    public const MAX_LEGS = 12;
+    /** Hard ceiling on declared / added legs for an open parlay. */
+    public const MAX_LEGS = 8;
 
     private const DEFAULT_MAX_OPEN_PER_USER = 3;
 
@@ -94,38 +105,6 @@ final class OpenParlayService
     }
 
     /**
-     * Earliest leg start across a set of legs, as an ISO-8601 string, or null
-     * when no leg carries a parseable start time. This becomes the ticket's
-     * `closesAt` — the moment the finalizer flips open→pending (or voids).
-     *
-     * @param array<int, array<string, mixed>> $selections each may carry a
-     *                                                      `matchSnapshot` with
-     *                                                      a `startTime`
-     */
-    public static function earliestStart(array $selections): ?string
-    {
-        $minTs = null;
-        foreach ($selections as $sel) {
-            if (!is_array($sel)) {
-                continue;
-            }
-            $snapshot = is_array($sel['matchSnapshot'] ?? null) ? $sel['matchSnapshot'] : [];
-            $startRaw = (string) ($snapshot['startTime'] ?? '');
-            if ($startRaw === '') {
-                continue;
-            }
-            $ts = strtotime($startRaw);
-            if ($ts === false || $ts <= 0) {
-                continue;
-            }
-            if ($minTs === null || $ts < $minTs) {
-                $minTs = $ts;
-            }
-        }
-        return $minTs === null ? null : gmdate(DATE_ATOM, $minTs);
-    }
-
-    /**
      * Authoritatively recompute an open parlay's payout from its locked legs
      * and re-apply the 3xmaxBet parlay payout cap. Risk is fixed; only the
      * payout side moves as legs are added.
@@ -157,206 +136,59 @@ final class OpenParlayService
     }
 
     /**
-     * Finalizer (cron/worker). Find every open parlay whose closesAt has
-     * passed and either:
-     *   - VOID + REFUND the whole ticket when it never reached MIN_LEGS, or
-     *   - flip it open→pending so the normal settlement pipeline can grade it.
+     * May the settlement grader touch this ticket while it is still `open`?
+     * Only NEW-MODEL open parlays — `isOpenParlay` true, status 'open', and a
+     * valid declared `targetLegs` (>= MIN_TARGET_LEGS) — are graded per-leg as
+     * their games finish. Legacy open tickets that predate the declared-count
+     * model carry no `targetLegs`; this returns false for them so the grader
+     * skips them exactly as it did before (no auto-settle, no payout — they
+     * are handled manually).
      *
-     * Each ticket is processed inside its own row-locked transaction; the
-     * status guard (`WHERE status='open'` re-checked under FOR UPDATE) makes
-     * a concurrent finalizer tick a no-op the second time, so this is safe to
-     * run from both the worker and a cron safety-net.
-     *
-     * Freeplay is disallowed on open parlays, so the void refund only ever
-     * touches the real-money portion (riskAmount). Credit accounts held the
-     * stake in pendingBalance only — freeing pending alone restores them;
-     * cash accounts also get the stake back in `balance`.
-     *
-     * @return array{checked:int, flipped:int, voided:int, errors:int, ticketIds:array<int,string>}
+     * @param array<string, mixed> $bet the locked bet row
      */
-    public static function finalizeDueTickets(SqlRepository $db, int $limit = 250, string $finalizedBy = 'open-parlay-finalizer', ?int $nowTs = null): array
+    public static function isGradableOpenTicket(array $bet): bool
     {
-        $now = $nowTs ?? time();
-        $results = ['checked' => 0, 'flipped' => 0, 'voided' => 0, 'errors' => 0, 'ticketIds' => []];
-
-        $candidates = $db->findMany('bets', [
-            'type' => 'parlay',
-            'status' => 'open',
-        ], [
-            'limit' => $limit,
-            'projection' => ['id' => 1, 'closesAt' => 1],
-        ]);
-
-        foreach ($candidates as $candidate) {
-            if (!is_array($candidate)) {
-                continue;
-            }
-            $closesAtRaw = (string) ($candidate['closesAt'] ?? '');
-            $closesTs = $closesAtRaw !== '' ? strtotime($closesAtRaw) : false;
-            // No closesAt (defensive) → treat as due so it can't get stuck open
-            // forever. A real ticket always has one set at create time.
-            if ($closesTs !== false && $closesTs > $now) {
-                continue;
-            }
-            $betId = (string) ($candidate['id'] ?? '');
-            if ($betId === '' || preg_match('/^[a-f0-9]{24}$/i', $betId) !== 1) {
-                continue;
-            }
-            $results['checked']++;
-            try {
-                $outcome = self::finalizeOne($db, $betId, $finalizedBy);
-                if ($outcome === 'void') {
-                    $results['voided']++;
-                    $results['ticketIds'][] = $betId;
-                } elseif ($outcome === 'pending') {
-                    $results['flipped']++;
-                    $results['ticketIds'][] = $betId;
-                }
-            } catch (Throwable $e) {
-                $results['errors']++;
-                Logger::warning('open-parlay finalize failed', [
-                    'betId' => $betId,
-                    'error' => $e->getMessage(),
-                ], 'sportsbook');
-            }
+        if ((string) ($bet['status'] ?? '') !== 'open') {
+            return false;
         }
-
-        return $results;
+        if (!(bool) ($bet['isOpenParlay'] ?? false)) {
+            return false;
+        }
+        return (int) ($bet['targetLegs'] ?? 0) >= self::MIN_TARGET_LEGS;
     }
 
     /**
-     * Finalize a single open parlay under a row lock. Returns 'void',
-     * 'pending', or 'skip' (already finalized by a concurrent tick).
+     * Decide whether an open parlay should SETTLE now, or bank the just-graded
+     * leg and stay open. Pure — drives the gating in settleMatch.
+     *
+     *   - any leg 'lost'                     → settle now (the whole ticket
+     *                                          loses immediately, even if
+     *                                          incomplete or other legs pend);
+     *   - all declared slots filled AND no
+     *     leg still 'pending'                → settle now (win, or all-push
+     *                                          void — evaluateTicket decides);
+     *   - otherwise                          → stay open (no money moves).
+     *
+     * A 'void' (push) leg never forces a settle and never blocks one: it just
+     * occupies a filled slot and drops from the odds math at payout time.
+     *
+     * @param array<int, string> $rowStatuses leg statuses ('won'|'lost'|'void'|'pending')
      */
-    private static function finalizeOne(SqlRepository $db, string $betId, string $finalizedBy): string
+    public static function shouldSettleNow(array $rowStatuses, int $targetLegs, int $filledLegs): bool
     {
-        $db->beginTransaction();
-        try {
-            $bet = $db->findOneForUpdate('bets', ['id' => SqlRepository::id($betId)]);
-            // Re-check under the lock: a concurrent finalizer (or a manual
-            // admin action) may have already flipped/voided this ticket.
-            if ($bet === null || (string) ($bet['status'] ?? '') !== 'open' || (string) ($bet['type'] ?? '') !== 'parlay') {
-                $db->rollback();
-                return 'skip';
-            }
-
-            $now = SqlRepository::nowUtc();
-            $legs = is_array($bet['selections'] ?? null) ? array_values($bet['selections']) : [];
-            $legCount = count($legs);
-
-            if ($legCount >= self::MIN_LEGS_TO_FINALIZE) {
-                // Enough legs — hand the ticket to the normal settlement
-                // pipeline. From here it's an ordinary pending parlay; the
-                // existing reduce-on-void / partial-void behaviour applies.
-                $db->updateOne('bets', ['id' => SqlRepository::id($betId)], [
-                    'status' => 'pending',
-                    'finalizedAt' => $now,
-                    'finalizedBy' => $finalizedBy,
-                    'updatedAt' => $now,
-                ]);
-                $db->commit();
-                return 'pending';
-            }
-
-            // Incomplete at close — VOID + REFUND the whole ticket before it
-            // could ever enter settlement (M2). Freeplay is disallowed on
-            // open parlays, so the entire risk is real money.
-            $userId = (string) ($bet['userId'] ?? '');
-            if ($userId === '' || preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
-                $db->rollback();
-                return 'skip';
-            }
-            $user = $db->findOneForUpdate('users', ['id' => SqlRepository::id($userId)]);
-            if ($user === null) {
-                $db->rollback();
-                return 'skip';
-            }
-
-            $riskAmount = self::num($bet['riskAmount'] ?? ($bet['amount'] ?? 0));
-            $balance = self::num($user['balance'] ?? 0);
-            $pendingBalance = self::num($user['pendingBalance'] ?? 0);
-            $creditLimit = self::num($user['creditLimit'] ?? 0);
-            $role = strtolower((string) ($user['role'] ?? 'user'));
-            $isCreditAccount = $riskAmount > 0 && $role === 'user' && $creditLimit > 0;
-
-            $newPending = max(0.0, $pendingBalance - $riskAmount);
-            $balanceRefund = $isCreditAccount ? 0.0 : $riskAmount;
-
-            $userUpdate = [
-                'pendingBalance' => $newPending,
-                'updatedAt' => $now,
-            ];
-            if ($balanceRefund > 0) {
-                $userUpdate['balance'] = (float) round($balance + $balanceRefund);
-            }
-            $db->updateOne('users', ['id' => SqlRepository::id($userId)], $userUpdate);
-
-            $db->updateOne('bets', ['id' => SqlRepository::id($betId)], [
-                'status' => 'void',
-                'result' => 'void',
-                'settledAt' => $now,
-                'settledBy' => $finalizedBy,
-                'finalizedAt' => $now,
-                'finalizedBy' => $finalizedBy,
-                'voidReason' => 'OPEN_PARLAY_INCOMPLETE',
-                'updatedAt' => $now,
-            ]);
-
-            // Mark every leg row void too so the My Bets per-leg view is
-            // honest (updateMany — a partial open parlay can still hold one
-            // leg row).
-            $db->updateMany('betselections', ['betId' => $betId], [
-                'status' => 'void',
-                'gradeReason' => 'Refund — open parlay never reached 2 legs',
-                'updatedAt' => $now,
-            ]);
-
-            $db->insertOne('transactions', [
-                'userId' => $userId,
-                'amount' => $riskAmount,
-                'type' => 'bet_void',
-                'status' => 'completed',
-                'isFreeplay' => false,
-                'freeplayAmountUsed' => 0.0,
-                'balanceBefore' => $balance,
-                'balanceAfter' => $balanceRefund > 0 ? (float) round($balance + $balanceRefund) : $balance,
-                'referenceType' => 'Bet',
-                'referenceId' => SqlRepository::id($betId),
-                'reason' => 'OPEN_PARLAY_VOID',
-                'description' => 'PARLAY open play voided - never reached 2 legs, wager refunded',
-                'createdAt' => $now,
-                'updatedAt' => $now,
-            ]);
-
-            $db->commit();
-            return 'void';
-        } catch (Throwable $e) {
-            $db->rollback();
-            throw $e;
-        }
-    }
-
-    /**
-     * Numeric coercion mirroring the money parsing used elsewhere — handles
-     * {$numberDecimal}/{value} JSON wrappers and stringified decimals so the
-     * finalizer reads DECIMAL columns without floating-point surprises.
-     */
-    private static function num(mixed $value): float
-    {
-        if (is_int($value) || is_float($value)) {
-            return (float) $value;
-        }
-        if (is_string($value) && $value !== '') {
-            return (float) $value;
-        }
-        if (is_array($value)) {
-            if (isset($value['$numberDecimal'])) {
-                return (float) $value['$numberDecimal'];
-            }
-            if (isset($value['value'])) {
-                return (float) $value['value'];
+        foreach ($rowStatuses as $status) {
+            if ($status === 'lost') {
+                return true; // one losing leg loses the whole parlay, now
             }
         }
-        return 0.0;
+        if ($targetLegs < self::MIN_TARGET_LEGS || $filledLegs < $targetLegs) {
+            return false; // not all declared slots filled yet → stay open
+        }
+        foreach ($rowStatuses as $status) {
+            if ($status === 'pending') {
+                return false; // a filled slot's game hasn't resolved yet → wait
+            }
+        }
+        return true; // every slot filled and resolved, none lost → settle (pay)
     }
 }

@@ -117,17 +117,24 @@ final class BetSettlementService
                     $db->beginTransaction();
 
                     $bet = $db->findOneForUpdate('bets', ['id' => SqlRepository::id($betId)]);
-                    // Only grade tickets that are actually pending. This is
-                    // also the third anti-past-posting layer for OPEN parlays
-                    // (M1.3): a ticket in status='open' is NEVER graded here,
-                    // even if the finalizer hasn't flipped it to 'pending'
-                    // yet. The grader must refuse to touch an open ticket
-                    // regardless — a leg added to an open parlay can carry a
-                    // pending betselection row whose matchId matches this
-                    // settling match, and without this guard the ticket could
-                    // be settled before its earliest leg even closed.
+                    if ($bet === null) {
+                        $db->rollback();
+                        continue;
+                    }
+                    // Grade ordinary pending tickets, PLUS new-model open
+                    // parlays (declared-leg-count "open play"), which are
+                    // graded per-leg as their games finish while the ticket is
+                    // still status='open'. isGradableOpenTicket() only returns
+                    // true for an open parlay carrying a valid targetLegs, so a
+                    // LEGACY open ticket (no targetLegs) is still skipped here,
+                    // exactly as before — it never auto-settles. The per-leg
+                    // open-parlay gating below (shouldSettleNow) keeps an
+                    // incomplete ticket open instead of paying it early; the
+                    // HARD anti-past-posting gate lives at add-leg time, so a
+                    // started game can never have been added to begin with.
                     $betStatus = (string) ($bet['status'] ?? '');
-                    if ($bet === null || $betStatus !== 'pending') {
+                    $isOpenParlayTicket = OpenParlayService::isGradableOpenTicket($bet);
+                    if ($betStatus !== 'pending' && !$isOpenParlayTicket) {
                         $db->rollback();
                         continue;
                     }
@@ -296,6 +303,54 @@ final class BetSettlementService
                         if ($pinnedPayout > 0 && abs($pinnedPayout - $ticketPayout) <= 2.0) {
                             $ticketPayout = $pinnedPayout;
                         }
+                    }
+
+                    // Open parlay (new model): an incomplete ticket does NOT
+                    // settle on a winning or pushing leg — it banks the leg and
+                    // stays open. It settles only when shouldSettleNow() says so:
+                    //   • any leg lost            → grade the loss now (handled
+                    //                               by evaluateTicket → 'lost');
+                    //   • all declared slots filled
+                    //     and none still pending  → pay (won) or refund an
+                    //                               all-push ticket (void).
+                    // Until then we persist the just-graded leg rows and leave
+                    // status='open' with NO money movement. A 'void' (push) leg
+                    // neither loses nor settles the ticket — it occupies a slot
+                    // and drops from the odds math at payout via evaluateTicket.
+                    if ($isOpenParlayTicket) {
+                        $rowStatuses = array_map(
+                            static fn ($r): string => is_array($r) ? (string) ($r['status'] ?? 'pending') : 'pending',
+                            $updatedRows
+                        );
+                        $targetLegs = (int) ($bet['targetLegs'] ?? 0);
+                        $filledLegs = count($updatedRows);
+                        if (!OpenParlayService::shouldSettleNow($rowStatuses, $targetLegs, $filledLegs)) {
+                            $db->updateOne('bets', ['id' => SqlRepository::id($betId)], [
+                                'selections' => $normalizedSelections,
+                                'updatedAt' => $now,
+                            ]);
+                            $db->commit();
+                            // Nudge the player's My Bets so a freshly-banked leg
+                            // shows without waiting for the poll. Best-effort,
+                            // after commit — a failed broadcast never rolls back.
+                            if (class_exists('RealtimeEventBus')) {
+                                try {
+                                    RealtimeEventBus::publish('bet:leg-settled', [
+                                        'userId' => $userId,
+                                        'betId' => $betId,
+                                        'status' => 'open',
+                                        'source' => 'match',
+                                        'time' => $now,
+                                    ]);
+                                } catch (Throwable $_) {
+                                    // Polling fallback covers any missed push.
+                                }
+                            }
+                            continue;
+                        }
+                        // shouldSettleNow → true: fall through to settle. The
+                        // ticket flips open → won/lost/void below, freeing the
+                        // stake from pendingBalance just like a normal parlay.
                     }
 
                     if ($ticketStatus === 'pending') {

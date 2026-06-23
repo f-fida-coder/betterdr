@@ -3,20 +3,25 @@
 declare(strict_types=1);
 
 /**
- * Unit tests for the Open Parlay ("open play") feature — OpenParlayService.
- * No database, no HTTP. A tiny in-memory FakeOpenParlayDb stands in for
- * SqlRepository so the finalizer's flip/void/refund behaviour can be exercised
- * deterministically.
+ * Unit tests for the Open Parlay ("open play") feature — DECLARED-LEG-COUNT
+ * model. No database, no HTTP — pure helpers only.
  *
- * Coverage map (per the implementation brief):
- *   - M1  past-posting: assertLegStartsInFuture rejects started / unparseable legs.
- *   - closesAt:         earliestStart picks the earliest leg's kickoff.
- *   - M3/M4 payout:     recomputePayout recomputes from legs and re-applies the
- *                       3xmaxBet payout cap.
- *   - M2  finalizer:    >=2 legs flips open->pending; <2 legs voids + refunds the
- *                       whole ticket (cash refunds balance; credit frees pending
- *                       only); due-filter skips not-yet-closed tickets; an
- *                       already-void ticket is a no-op (concurrent-tick safe).
+ * Coverage map:
+ *   - M1  past-posting:   assertLegStartsInFuture rejects started / unparseable legs.
+ *   - M3/M4 payout:       recomputePayout combines legs and re-applies the
+ *                         3xmaxBet payout cap.
+ *   - declared count:     MAX_LEGS is 8, MIN_TARGET_LEGS is 2.
+ *   - settle gating:      shouldSettleNow — loss settles now; an incomplete or
+ *                         still-pending ticket stays open; a full+resolved
+ *                         ticket settles; a push neither loses nor blocks.
+ *   - grader admission:   isGradableOpenTicket — only a new-model open parlay
+ *                         (open + isOpenParlay + valid targetLegs) is gradable;
+ *                         a legacy open ticket without targetLegs is skipped.
+ *   - parlay roll-up:     evaluateTicket — one lost leg loses the ticket; a
+ *                         void (push) leg drops from the odds math; an
+ *                         all-push ticket refunds; payout is the product of the
+ *                         WON legs only. (This is the math open-parlay payout
+ *                         reuses, so it's covered here directly.)
  */
 
 // ── Stubs (mirror the other no-DB suites) ────────────────────────────────────
@@ -61,105 +66,6 @@ if (!class_exists('Logger')) {
 require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 require_once __DIR__ . '/../src/OpenParlayService.php';
 
-// ── In-memory fake repository ────────────────────────────────────────────────
-
-final class FakeOpenParlayDb extends SqlRepository
-{
-    /** @var array<string, array<string,mixed>> keyed by id */
-    public array $bets = [];
-    /** @var array<string, array<string,mixed>> keyed by id */
-    public array $users = [];
-    /** @var array<int, array<string,mixed>> */
-    public array $betselections = [];
-    /** @var array<int, array<string,mixed>> */
-    public array $transactions = [];
-    public int $commits = 0;
-    public int $rollbacks = 0;
-
-    public function __construct() {}
-
-    public function beginTransaction(): void {}
-    public function commit(): void { $this->commits++; }
-    public function rollback(): void { $this->rollbacks++; }
-
-    public function findMany(string $collection, array $filter, array $opts = []): array
-    {
-        $out = [];
-        foreach ($this->rows($collection) as $row) {
-            if ($this->matches($row, $filter)) {
-                $out[] = $row;
-            }
-        }
-        return $out;
-    }
-
-    public function findOneForUpdate(string $collection, array $filter): ?array
-    {
-        foreach ($this->rows($collection) as $row) {
-            if ($this->matches($row, $filter)) {
-                return $row;
-            }
-        }
-        return null;
-    }
-
-    public function updateOne(string $collection, array $filter, array $fields): void
-    {
-        if ($collection === 'bets') {
-            foreach ($this->bets as $id => $row) {
-                if ($this->matches($row, $filter)) { $this->bets[$id] = array_merge($row, $fields); return; }
-            }
-        } elseif ($collection === 'users') {
-            foreach ($this->users as $id => $row) {
-                if ($this->matches($row, $filter)) { $this->users[$id] = array_merge($row, $fields); return; }
-            }
-        }
-    }
-
-    public function updateMany(string $collection, array $filter, array $fields): void
-    {
-        if ($collection === 'betselections') {
-            foreach ($this->betselections as $i => $row) {
-                if ($this->matches($row, $filter)) { $this->betselections[$i] = array_merge($row, $fields); }
-            }
-        }
-    }
-
-    public function insertOne(string $collection, array $doc): void
-    {
-        if ($collection === 'transactions') { $this->transactions[] = $doc; }
-    }
-
-    public function countDocuments(string $collection, array $filter): int
-    {
-        $n = 0;
-        foreach ($this->rows($collection) as $row) {
-            if ($this->matches($row, $filter)) { $n++; }
-        }
-        return $n;
-    }
-
-    /** @return array<int, array<string,mixed>> */
-    private function rows(string $name): array
-    {
-        return match ($name) {
-            'bets'          => array_values($this->bets),
-            'users'         => array_values($this->users),
-            'betselections' => $this->betselections,
-            'transactions'  => $this->transactions,
-            default         => [],
-        };
-    }
-
-    private function matches(array $row, array $filter): bool
-    {
-        foreach ($filter as $k => $v) {
-            if (($row[$k] ?? null) !== $v) { return false; }
-        }
-        return true;
-    }
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** A leg shaped like a stored selectionForInsert doc. */
@@ -179,10 +85,22 @@ function iso(int $offsetSeconds): string
     return gmdate(DATE_ATOM, time() + $offsetSeconds);
 }
 
-function hexId(string $suffix): string
+/** Evaluate a plain parlay from per-leg (status, decimal-odds) pairs. */
+function evalParlay_(array $legs, float $risk = 100.0): array
 {
-    // 24-char lowercase hex (the finalizer rejects non-ObjectId ids).
-    return str_pad($suffix, 24, '0', STR_PAD_LEFT);
+    $rows = [];
+    foreach ($legs as $i => [$status, $odds]) {
+        $rows[] = [
+            'status'   => $status,
+            'odds'     => $odds,
+            'matchId'  => 'm' . $i,
+            'legIndex' => $i,
+        ];
+    }
+    return SportsbookBetSupport::evaluateTicket(
+        ['type' => 'parlay', 'riskAmount' => $risk, 'amount' => $risk, 'potentialPayout' => 0.0],
+        $rows
+    );
 }
 
 // ── M1 — anti-past-posting gate ────────────────────────────────────────────────
@@ -190,25 +108,21 @@ function hexId(string $suffix): string
 TestRunner::run('assertLegStartsInFuture — hard time gate', function (): void {
     $now = time();
 
-    // Future leg → allowed (no throw).
     OpenParlayService::assertLegStartsInFuture(['startTime' => iso(3600)], $now);
     TestRunner::assertTrue(true, 'future leg passes the gate');
 
-    // Already-started leg → rejected (409 OPEN_PARLAY_LEG_STARTED).
     TestRunner::assertThrows(
         fn () => OpenParlayService::assertLegStartsInFuture(['startTime' => iso(-60)], $now),
         ApiException::class,
         'leg that already kicked off is rejected'
     );
 
-    // Exactly now → rejected (startTs <= now).
     TestRunner::assertThrows(
         fn () => OpenParlayService::assertLegStartsInFuture(['startTime' => gmdate(DATE_ATOM, $now)], $now),
         ApiException::class,
         'leg starting exactly now is rejected'
     );
 
-    // Missing / unparseable start time → rejected (can't determine kickoff).
     TestRunner::assertThrows(
         fn () => OpenParlayService::assertLegStartsInFuture(['startTime' => ''], $now),
         ApiException::class,
@@ -216,190 +130,149 @@ TestRunner::run('assertLegStartsInFuture — hard time gate', function (): void 
     );
 });
 
-// ── closesAt — earliest leg start ──────────────────────────────────────────────
+// ── declared count constants ────────────────────────────────────────────────────
 
-TestRunner::run('earliestStart — picks the earliest kickoff', function (): void {
-    $early = iso(1800);
-    $late  = iso(7200);
-
-    $legs = [
-        ['matchSnapshot' => ['startTime' => $late]],
-        ['matchSnapshot' => ['startTime' => $early]],
-    ];
-    TestRunner::assertEquals(
-        strtotime($early),
-        strtotime((string) OpenParlayService::earliestStart($legs)),
-        'closesAt is the earliest leg start'
-    );
-
-    // No parseable start times anywhere → null.
-    TestRunner::assertNull(
-        OpenParlayService::earliestStart([['matchSnapshot' => ['startTime' => '']], ['foo' => 'bar']]),
-        'no dated legs → null closesAt'
-    );
+TestRunner::run('declared-count bounds — MAX_LEGS=8, MIN_TARGET_LEGS=2', function (): void {
+    TestRunner::assertEquals(8, OpenParlayService::MAX_LEGS, 'open parlay caps at 8 legs');
+    TestRunner::assertEquals(2, OpenParlayService::MIN_TARGET_LEGS, 'open parlay needs at least 2 declared legs');
 });
 
 // ── M3/M4 — payout recompute + cap ─────────────────────────────────────────────
 
 TestRunner::run('recomputePayout — combines legs and caps at 3x maxBet', function (): void {
-    // Two +100 legs → decimal 2.0 * 2.0 = 4.0. Stake 100 → payout 400.
     $legs = [
         leg_(100, iso(3600), 'm1'),
         leg_(100, iso(7200), 'm2'),
     ];
 
-    // No cap pressure (maxBet large).
     $r = OpenParlayService::recomputePayout(100.0, $legs, [], 10000.0);
     TestRunner::assertEqualsFloat(400.0, $r['potentialPayout'], 'payout = stake * combined decimal');
     TestRunner::assertEqualsFloat(300.0, $r['winAmount'], 'winAmount = payout - stake');
     TestRunner::assertFalse($r['capped'], 'not capped when maxBet is large');
     TestRunner::assertEqualsFloat(4.0, $r['combinedOdds'], 'combinedOdds = payout / risk');
 
-    // Cap bites: maxBet 50 → cap = 150 win. payout clamps to 100 + 150 = 250.
     $capped = OpenParlayService::recomputePayout(100.0, $legs, [], 50.0);
     TestRunner::assertEqualsFloat(250.0, $capped['potentialPayout'], 'payout clamped to stake + 3*maxBet');
     TestRunner::assertEqualsFloat(150.0, $capped['winAmount'], 'winAmount clamped to 3*maxBet');
     TestRunner::assertTrue($capped['capped'], 'capped flag set when cap applied');
 });
 
-// ── M2 — finalizer flips a complete ticket open->pending ───────────────────────
+// ── settle gating — shouldSettleNow ─────────────────────────────────────────────
 
-TestRunner::run('finalizeDueTickets — >=2 legs flips open->pending', function (): void {
-    $db = new FakeOpenParlayDb();
-    $betId = hexId('a1');
-    $db->bets[$betId] = [
-        'id'         => $betId,
-        'type'       => 'parlay',
-        'status'     => 'open',
-        'userId'     => hexId('b1'),
-        'closesAt'   => iso(-60), // due
-        'riskAmount' => 100.0,
-        'selections' => [leg_(100, iso(-60), 'm1'), leg_(120, iso(120), 'm2')],
-    ];
-
-    $res = OpenParlayService::finalizeDueTickets($db, 250, 'test');
-
-    TestRunner::assertEquals(1, $res['checked'], 'one due ticket checked');
-    TestRunner::assertEquals(1, $res['flipped'], 'complete ticket flipped');
-    TestRunner::assertEquals(0, $res['voided'], 'complete ticket not voided');
-    TestRunner::assertEquals('pending', $db->bets[$betId]['status'], 'status now pending');
-    TestRunner::assertEquals('test', $db->bets[$betId]['finalizedBy'], 'finalizedBy stamped');
-    TestRunner::assertEquals(0, count($db->transactions), 'flip writes no money transaction');
+TestRunner::run('shouldSettleNow — a losing leg settles immediately, even incomplete', function (): void {
+    // 1 of 5 slots filled, that leg lost → settle now (loss).
+    TestRunner::assertTrue(
+        OpenParlayService::shouldSettleNow(['lost'], 5, 1),
+        'any lost leg loses the whole parlay right away'
+    );
+    // Loss wins over a still-pending sibling too.
+    TestRunner::assertTrue(
+        OpenParlayService::shouldSettleNow(['lost', 'pending'], 3, 2),
+        'loss settles even with other legs pending'
+    );
 });
 
-// ── M2 — finalizer voids + refunds an incomplete CASH ticket ───────────────────
-
-TestRunner::run('finalizeDueTickets — <2 legs voids + refunds cash account', function (): void {
-    $db = new FakeOpenParlayDb();
-    $betId  = hexId('a2');
-    $userId = hexId('b2');
-    $db->users[$userId] = [
-        'id'             => $userId,
-        'role'           => 'user',
-        'balance'        => 500.0,
-        'pendingBalance' => 100.0,
-        'creditLimit'    => 0.0, // cash account
-    ];
-    $db->bets[$betId] = [
-        'id'         => $betId,
-        'type'       => 'parlay',
-        'status'     => 'open',
-        'userId'     => $userId,
-        'closesAt'   => iso(-60),
-        'riskAmount' => 100.0,
-        'selections' => [leg_(100, iso(-60), 'm1')], // only 1 leg
-    ];
-    $db->betselections[] = ['betId' => $betId, 'status' => 'pending'];
-
-    $res = OpenParlayService::finalizeDueTickets($db, 250, 'test');
-
-    TestRunner::assertEquals(1, $res['voided'], 'incomplete ticket voided');
-    TestRunner::assertEquals(0, $res['flipped'], 'incomplete ticket not flipped');
-    TestRunner::assertEquals('void', $db->bets[$betId]['status'], 'bet marked void');
-    TestRunner::assertEquals('OPEN_PARLAY_INCOMPLETE', $db->bets[$betId]['voidReason'], 'void reason recorded');
-
-    // Money: pending freed, stake refunded to balance (cash).
-    TestRunner::assertEqualsFloat(0.0, (float) $db->users[$userId]['pendingBalance'], 'pendingBalance released');
-    TestRunner::assertEqualsFloat(600.0, (float) $db->users[$userId]['balance'], 'cash stake refunded to balance');
-
-    // Ledger row written, leg row voided.
-    TestRunner::assertEquals(1, count($db->transactions), 'one refund transaction written');
-    TestRunner::assertEquals('OPEN_PARLAY_VOID', $db->transactions[0]['reason'], 'transaction reason');
-    TestRunner::assertEqualsFloat(100.0, (float) $db->transactions[0]['amount'], 'refund amount = risk');
-    TestRunner::assertEquals('void', $db->betselections[0]['status'], 'leg row marked void');
+TestRunner::run('shouldSettleNow — incomplete or unresolved ticket stays open', function (): void {
+    // Banked win but only 1 of 3 slots filled → stay open.
+    TestRunner::assertFalse(
+        OpenParlayService::shouldSettleNow(['won'], 3, 1),
+        'a winning leg banks; ticket waits for the remaining slots'
+    );
+    // All slots filled but one game still pending → wait.
+    TestRunner::assertFalse(
+        OpenParlayService::shouldSettleNow(['won', 'pending'], 2, 2),
+        'full ticket with a pending leg does not settle yet'
+    );
+    // A push on an incomplete ticket does not settle it.
+    TestRunner::assertFalse(
+        OpenParlayService::shouldSettleNow(['void'], 3, 1),
+        'a push on an incomplete ticket keeps it open'
+    );
 });
 
-// ── M2 — incomplete CREDIT ticket frees pending only (no balance refund) ────────
-
-TestRunner::run('finalizeDueTickets — <2 legs on credit account frees pending only', function (): void {
-    $db = new FakeOpenParlayDb();
-    $betId  = hexId('a3');
-    $userId = hexId('b3');
-    $db->users[$userId] = [
-        'id'             => $userId,
-        'role'           => 'user',
-        'balance'        => -50.0,
-        'pendingBalance' => 100.0,
-        'creditLimit'    => 1000.0, // credit account
-    ];
-    $db->bets[$betId] = [
-        'id'         => $betId,
-        'type'       => 'parlay',
-        'status'     => 'open',
-        'userId'     => $userId,
-        'closesAt'   => iso(-60),
-        'riskAmount' => 100.0,
-        'selections' => [leg_(100, iso(-60), 'm1')],
-    ];
-
-    OpenParlayService::finalizeDueTickets($db, 250, 'test');
-
-    TestRunner::assertEqualsFloat(0.0, (float) $db->users[$userId]['pendingBalance'], 'pending released');
-    TestRunner::assertEqualsFloat(-50.0, (float) $db->users[$userId]['balance'], 'credit balance unchanged (no cash refund)');
+TestRunner::run('shouldSettleNow — full + resolved settles; push fills its slot', function (): void {
+    TestRunner::assertTrue(
+        OpenParlayService::shouldSettleNow(['won', 'won'], 2, 2),
+        'all slots filled and won → settle (pay)'
+    );
+    // A pushed leg still counts as a filled slot — no replacement.
+    TestRunner::assertTrue(
+        OpenParlayService::shouldSettleNow(['won', 'void'], 2, 2),
+        'a push occupies its slot; full+resolved ticket settles'
+    );
+    // Defensive: filled >= target also settles.
+    TestRunner::assertTrue(
+        OpenParlayService::shouldSettleNow(['won', 'won', 'won'], 2, 3),
+        'filledLegs >= targetLegs still settles'
+    );
 });
 
-// ── due-filter — a not-yet-closed ticket is left untouched ──────────────────────
-
-TestRunner::run('finalizeDueTickets — future closesAt is not due', function (): void {
-    $db = new FakeOpenParlayDb();
-    $betId = hexId('a4');
-    $db->bets[$betId] = [
-        'id'         => $betId,
-        'type'       => 'parlay',
-        'status'     => 'open',
-        'userId'     => hexId('b4'),
-        'closesAt'   => iso(3600), // not due yet
-        'riskAmount' => 100.0,
-        'selections' => [leg_(100, iso(3600), 'm1')],
-    ];
-
-    $res = OpenParlayService::finalizeDueTickets($db, 250, 'test');
-
-    TestRunner::assertEquals(0, $res['checked'], 'future ticket not checked');
-    TestRunner::assertEquals('open', $db->bets[$betId]['status'], 'still open');
+TestRunner::run('shouldSettleNow — legacy ticket (no targetLegs) never auto-pays', function (): void {
+    // targetLegs < 2 → never reaches the "all filled" pay path …
+    TestRunner::assertFalse(
+        OpenParlayService::shouldSettleNow(['won', 'won'], 0, 2),
+        'no declared target → never auto-pays'
+    );
+    // … but a loss still settles (safe — the player lost a bet they made).
+    TestRunner::assertTrue(
+        OpenParlayService::shouldSettleNow(['lost'], 0, 1),
+        'a loss still settles even without a declared target'
+    );
 });
 
-// ── concurrency — an already-finalized ticket is a no-op (skip) ─────────────────
+// ── grader admission — isGradableOpenTicket ─────────────────────────────────────
 
-TestRunner::run('finalizeDueTickets — already-void ticket is skipped under lock', function (): void {
-    $db = new FakeOpenParlayDb();
-    $betId = hexId('a5');
-    // findMany only returns status='open' candidates, so simulate the race by
-    // putting it 'open' in the listing but flipping it to 'void' before the
-    // row lock — finalizeOne re-checks status under FOR UPDATE and must skip.
-    $db->bets[$betId] = [
-        'id'         => $betId,
-        'type'       => 'parlay',
-        'status'     => 'void', // already settled by a concurrent tick
-        'userId'     => hexId('b5'),
-        'closesAt'   => iso(-60),
-        'riskAmount' => 100.0,
-        'selections' => [leg_(100, iso(-60), 'm1')],
-    ];
+TestRunner::run('isGradableOpenTicket — only new-model open parlays are gradable', function (): void {
+    TestRunner::assertTrue(
+        OpenParlayService::isGradableOpenTicket(['status' => 'open', 'isOpenParlay' => true, 'targetLegs' => 3]),
+        'open + isOpenParlay + valid targetLegs → gradable'
+    );
+    TestRunner::assertFalse(
+        OpenParlayService::isGradableOpenTicket(['status' => 'open', 'isOpenParlay' => true]),
+        'legacy open ticket without targetLegs → skipped'
+    );
+    TestRunner::assertFalse(
+        OpenParlayService::isGradableOpenTicket(['status' => 'open', 'isOpenParlay' => true, 'targetLegs' => 1]),
+        'targetLegs below the minimum → skipped'
+    );
+    TestRunner::assertFalse(
+        OpenParlayService::isGradableOpenTicket(['status' => 'pending', 'isOpenParlay' => true, 'targetLegs' => 3]),
+        'non-open status is graded by the normal path, not this gate'
+    );
+    TestRunner::assertFalse(
+        OpenParlayService::isGradableOpenTicket(['status' => 'open', 'isOpenParlay' => false, 'targetLegs' => 3]),
+        'a plain (non-open-parlay) ticket is never gradable while open'
+    );
+});
 
-    $res = OpenParlayService::finalizeDueTickets($db, 250, 'test');
+// ── parlay roll-up — evaluateTicket (the math open-parlay payout reuses) ─────────
 
-    // Not 'open', so findMany won't list it → nothing processed, no double refund.
-    TestRunner::assertEquals(0, $res['checked'], 'non-open ticket not listed');
-    TestRunner::assertEquals(0, count($db->transactions), 'no refund written for already-settled ticket');
+TestRunner::run('evaluateTicket parlay — one lost leg loses the whole ticket', function (): void {
+    $r = evalParlay_([['won', 2.0], ['lost', 2.0]]);
+    TestRunner::assertEquals('lost', $r['status'], 'any lost leg → ticket lost');
+    TestRunner::assertEqualsFloat(0.0, (float) $r['payout'], 'lost ticket pays nothing');
+});
+
+TestRunner::run('evaluateTicket parlay — all won pays the product of won legs', function (): void {
+    $r = evalParlay_([['won', 2.0], ['won', 2.0]], 100.0);
+    TestRunner::assertEquals('won', $r['status'], 'all legs won → won');
+    TestRunner::assertEqualsFloat(400.0, (float) $r['payout'], 'payout = risk * product of won odds');
+});
+
+TestRunner::run('evaluateTicket parlay — a void (push) leg drops from the odds math', function (): void {
+    // One won @2.0 and one pushed leg @3.0 → re-prices on the won leg only.
+    $r = evalParlay_([['won', 2.0], ['void', 3.0]], 100.0);
+    TestRunner::assertEquals('won', $r['status'], 'a push does not lose the ticket');
+    TestRunner::assertEqualsFloat(200.0, (float) $r['payout'], 'pushed leg drops; payout = risk * won-leg odds only');
+});
+
+TestRunner::run('evaluateTicket parlay — an all-push ticket refunds the stake', function (): void {
+    $r = evalParlay_([['void', 2.0], ['void', 3.0]], 100.0);
+    TestRunner::assertEquals('void', $r['status'], 'every leg pushed → ticket voids');
+    TestRunner::assertEqualsFloat(100.0, (float) $r['payout'], 'all-push refunds the stake');
+});
+
+TestRunner::run('evaluateTicket parlay — a pending leg keeps the ticket pending', function (): void {
+    $r = evalParlay_([['won', 2.0], ['pending', 2.0]]);
+    TestRunner::assertEquals('pending', $r['status'], 'an unresolved leg keeps the ticket pending');
 });

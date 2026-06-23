@@ -925,11 +925,13 @@ final class BetsController
 
     /**
      * Create an Open Parlay ("open play"). Commits a plain parlay in
-     * status='open' with 1+ starting legs, reserving the stake in
-     * pendingBalance exactly like a normal parlay (no new money path). The
-     * player adds more legs via addOpenParlayLeg() before any leg's game
-     * starts; the finalizer flips the ticket open->pending at closesAt, or
-     * voids+refunds it if it never reached 2 legs.
+     * status='open' with a declared target leg count (`targetLegs`, 2..8) and
+     * 1+ starting legs, reserving the FULL stake in pendingBalance exactly like
+     * a normal parlay (no new money path). The player fills the remaining slots
+     * over time via addOpenParlayLeg() — each leg must start in the future, and
+     * adding a leg moves no money. There is no kickoff lock and no expiry: the
+     * ticket stays open until every declared slot is filled, then settles via
+     * the per-leg open-parlay grading in BetSettlementService.
      *
      * Differences from placeBet: type is forced to 'parlay', freeplay is
      * disallowed (v1), a per-player open-ticket cap applies, every leg passes
@@ -977,6 +979,26 @@ final class BetsController
             }
             if (count($selections) > OpenParlayService::MAX_LEGS) {
                 throw new ApiException('An open parlay can hold at most ' . OpenParlayService::MAX_LEGS . ' legs.', 400, ['code' => 'OPEN_PARLAY_TOO_MANY_LEGS']);
+            }
+
+            // Declared leg count (new model): the player picks up front how
+            // many legs this ticket will ultimately have. Min 2, max MAX_LEGS.
+            // The full stake is committed now and slots are filled over time.
+            $targetLegsRaw = $body['targetLegs'] ?? null;
+            $targetLegs = is_numeric($targetLegsRaw) ? (int) $targetLegsRaw : 0;
+            if ($targetLegs < OpenParlayService::MIN_TARGET_LEGS || $targetLegs > OpenParlayService::MAX_LEGS) {
+                throw new ApiException(
+                    'Choose how many legs this open parlay will have (' . OpenParlayService::MIN_TARGET_LEGS . '–' . OpenParlayService::MAX_LEGS . ').',
+                    400,
+                    ['code' => 'OPEN_PARLAY_TARGET_LEGS_INVALID']
+                );
+            }
+            if (count($selections) > $targetLegs) {
+                throw new ApiException(
+                    'You picked more starting legs (' . count($selections) . ') than the declared count (' . $targetLegs . ').',
+                    400,
+                    ['code' => 'OPEN_PARLAY_TOO_MANY_START_LEGS']
+                );
             }
 
             $modeRule = $this->getModeRule($type);
@@ -1145,7 +1167,6 @@ final class BetsController
 
             $ticketId = SportsbookBetSupport::idempotencyDocumentId('open_parlay_ticket', $userId, $requestId);
             $selectionDocs = array_map(fn (array $row): array => $this->selectionForInsert($row), $validatedSelections);
-            $closesAt = OpenParlayService::earliestStart($validatedSelections);
 
             $createdBetIds = [];
             $newBalance = 0.0;
@@ -1207,6 +1228,7 @@ final class BetsController
                     'by' => $userId,
                     'requestId' => $requestId,
                     'legCount' => count($selectionDocs),
+                    'targetLegs' => $targetLegs,
                     'combinedOdds' => $combinedOdds,
                     'potentialPayout' => $potentialPayout,
                 ];
@@ -1220,10 +1242,10 @@ final class BetsController
                     'unitStake' => $betAmount,
                     'type' => 'parlay',
                     'isOpenParlay' => true,
+                    'targetLegs' => $targetLegs,
                     'potentialPayout' => $potentialPayout,
                     'combinedOdds' => $combinedOdds,
                     'status' => 'open',
-                    'closesAt' => $closesAt,
                     'isFreeplay' => false,
                     'freeplayAmountUsed' => 0.0,
                     'ipAddress' => $ipAddress,
@@ -1468,9 +1490,21 @@ final class BetsController
 
                 $existingLegs = is_array($bet['selections'] ?? null) ? array_values($bet['selections']) : [];
                 $legCount = count($existingLegs);
-                if ($legCount >= OpenParlayService::MAX_LEGS) {
+                // Cap at the ticket's declared target (never above MAX_LEGS).
+                // Legacy open tickets without a stored targetLegs fall back to
+                // the hard MAX_LEGS ceiling. Enforced server-side — the UI cap
+                // is advisory only.
+                $targetLegs = (int) ($bet['targetLegs'] ?? 0);
+                $legCap = ($targetLegs >= OpenParlayService::MIN_TARGET_LEGS && $targetLegs <= OpenParlayService::MAX_LEGS)
+                    ? $targetLegs
+                    : OpenParlayService::MAX_LEGS;
+                if ($legCount >= $legCap) {
                     $this->db->rollback();
-                    throw new ApiException('This open parlay already has the maximum ' . OpenParlayService::MAX_LEGS . ' legs.', 400, ['code' => 'OPEN_PARLAY_TOO_MANY_LEGS']);
+                    throw new ApiException(
+                        'This open parlay is already full (' . $legCap . ' leg' . ($legCap === 1 ? '' : 's') . ').',
+                        400,
+                        ['code' => 'OPEN_PARLAY_FULL']
+                    );
                 }
                 // No same-game / duplicate-event leg (mirrors validateTicketComposition).
                 $newMatchId = (string) ($validated['matchId'] ?? '');
@@ -1486,16 +1520,6 @@ final class BetsController
                 $payoutCalc = OpenParlayService::recomputePayout($unitStake, $updatedLegs, $modeRule, $maxBetLimit);
                 $potentialPayout = $payoutCalc['potentialPayout'];
                 $combinedOdds = $payoutCalc['combinedOdds'];
-
-                // closesAt only ever moves EARLIER when the new leg starts sooner.
-                $existingCloses = (string) ($bet['closesAt'] ?? '');
-                $newLegCloses = OpenParlayService::earliestStart([$validated]);
-                $closesAt = $existingCloses !== '' ? $existingCloses : null;
-                if ($newLegCloses !== null) {
-                    if ($closesAt === null || strtotime($newLegCloses) < (int) strtotime($closesAt)) {
-                        $closesAt = $newLegCloses;
-                    }
-                }
 
                 $now = SqlRepository::nowUtc();
                 $events = is_array($bet['openParlayLegEvents'] ?? null) ? array_values($bet['openParlayLegEvents']) : [];
@@ -1520,7 +1544,6 @@ final class BetsController
                     'potentialPayout' => $potentialPayout,
                     'combinedOdds' => $combinedOdds,
                     'odds' => $combinedOdds,
-                    'closesAt' => $closesAt,
                     'description' => SportsbookBetSupport::descriptionForSelections($updatedLegs),
                     'openParlayLegEvents' => $events,
                     'updatedAt' => $now,
