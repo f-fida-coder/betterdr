@@ -2811,7 +2811,11 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 }}>
                     <button
                         type="button"
-                        onClick={() => setDetailOpen((v) => !v)}
+                        // Inert by request (Nicky, 2026-06-23): the "+" panel showed
+                        // redundant markets and opening it fired /props → Rundown
+                        // syncEventFull, burning datapoints. Keep the icon visible but
+                        // do nothing on tap so no detail panel opens and no credits spend.
+                        onClick={() => {}}
                         disabled={blocked}
                         aria-label="Open all markets"
                         title="All game markets"
