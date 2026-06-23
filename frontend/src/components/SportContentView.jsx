@@ -1547,7 +1547,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         if (ladder.length === 0) return null;
                                                         return (
                                                             <div className="odds-cell" key={teamLabel}>
-                                                                {renderColumnLabel({ text: `${teamLabel} Alt S`, onClick: toggleSpreadAlt, active: true, clickable: true, color: '#d32f2f', title: 'Showing alt spreads + alt totals — click for main' })}
+                                                                {renderColumnLabel({ text: `${teamLabel} Alt Sp`, onClick: toggleSpreadAlt, active: true, clickable: true, color: '#d32f2f', title: 'Showing alt spreads + alt totals — click for main' })}
                                                                 <div className="odds-values-group">
                                                                     {ladder.map((rung) => (
                                                                         <React.Fragment key={rung.point}>
@@ -1711,7 +1711,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         const ou = sideLabel === 'Over' ? 'O' : 'U';
                                                         return (
                                                             <div className="odds-cell" key={sideLabel}>
-                                                                {renderColumnLabel({ text: `${sideLabel} Alt T`, onClick: toggleTotalTt, active: true, clickable: hasTeamTotals, color: '#d32f2f', title: hasTeamTotals ? 'Click for team totals' : undefined })}
+                                                                {renderColumnLabel({ text: `${sideLabel} Alt Tot`, onClick: toggleTotalTt, active: true, clickable: hasTeamTotals, color: '#d32f2f', title: hasTeamTotals ? 'Click for team totals' : undefined })}
                                                                 <div className="odds-values-group">
                                                                     {ladder.map((rung) => (
                                                                         <React.Fragment key={rung.point}>
