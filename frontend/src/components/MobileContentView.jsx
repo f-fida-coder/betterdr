@@ -122,6 +122,16 @@ const TOTAL_REGULATION_PERIODS = {
 // The full ladder (every rung, both directions) stays in the "+" sheet.
 const MAX_ALT_SPREAD_RUNGS = 6;
 
+// A "quarter" (Asian split) line — point ending in .25 or .75 (e.g. -0.75,
+// 1.25). Hidden from the board and blocked at placement per product decision;
+// the split-stake settlement grader stays intact so they can be re-enabled.
+const isQuarterLine = (point) => {
+    const n = Number(point);
+    if (!Number.isFinite(n)) return false;
+    const frac = Math.abs(n) % 1;
+    return Math.abs(frac - 0.25) < 1e-6 || Math.abs(frac - 0.75) < 1e-6;
+};
+
 // Build a per-team alt-spread ladder from the `alternate_spreads` extended
 // market: dedupe by point, keep the rungs nearest pick'em (the most-bet
 // band), then read high→low like a sportsbook alt-spread column. Mirrors
@@ -133,7 +143,7 @@ const buildAltSpreadLadder = (outcomes, sideName) => {
     const rows = (Array.isArray(outcomes) ? outcomes : [])
         .filter((o) => norm(o?.name) === target)
         .map((o) => ({ name: String(o?.name || ''), point: Number(o?.point), price: parseOddsNumber(o?.price) }))
-        .filter((o) => Number.isFinite(o.point) && o.price !== null);
+        .filter((o) => Number.isFinite(o.point) && o.price !== null && !isQuarterLine(o.point));
     // Defensive de-dupe by point (the feed already collapses to one
     // house-safe rung per side+point; guard against stragglers).
     const seen = new Set();
@@ -159,7 +169,7 @@ const buildAltTotalLadder = (outcomes, sideName, refPoint) => {
     const rows = (Array.isArray(outcomes) ? outcomes : [])
         .filter((o) => norm(o?.name) === target)
         .map((o) => ({ name: String(o?.name || ''), point: Number(o?.point), price: parseOddsNumber(o?.price) }))
-        .filter((o) => Number.isFinite(o.point) && o.price !== null);
+        .filter((o) => Number.isFinite(o.point) && o.price !== null && !isQuarterLine(o.point));
     const seen = new Set();
     const unique = [];
     for (const r of rows) {
@@ -2845,8 +2855,8 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         renderAltSpreadCell(awayAltLadder)
                     ) : (
                     <OddsCell
-                        empty={match.odds.spreadAwayPrice === null}
-                        disabled={blocked || match.odds.spreadAwayPrice === null}
+                        empty={match.odds.spreadAwayPrice === null || isQuarterLine(match.odds.spreadAwayPoint)}
+                        disabled={blocked || match.odds.spreadAwayPrice === null || isQuarterLine(match.odds.spreadAwayPoint)}
                         selected={isSelected('spreads', match.team1) && !blocked}
                         main={formatSpreadValue(teaserPreview.spread(match.odds.spreadAwayPoint))}
                         juice={formatOdds(match.odds.spreadAwayPrice, oddsFormat)}
@@ -2874,8 +2884,8 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         renderTeamTotalCell('away', match.team1Short || match.team1)
                     ) : (
                     <OddsCell
-                        empty={match.odds.totalOverPrice === null}
-                        disabled={blocked || match.odds.totalOverPrice === null}
+                        empty={match.odds.totalOverPrice === null || isQuarterLine(match.odds.totalPoint)}
+                        disabled={blocked || match.odds.totalOverPrice === null || isQuarterLine(match.odds.totalPoint)}
                         selected={isSelected('totals', 'Over') && !blocked}
                         main={totalsOverDisplay}
                         juice={formatOdds(match.odds.totalOverPrice, oddsFormat)}
@@ -2986,8 +2996,8 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         renderAltSpreadCell(homeAltLadder)
                     ) : (
                     <OddsCell
-                        empty={match.odds.spreadHomePrice === null}
-                        disabled={blocked || match.odds.spreadHomePrice === null}
+                        empty={match.odds.spreadHomePrice === null || isQuarterLine(match.odds.spreadHomePoint)}
+                        disabled={blocked || match.odds.spreadHomePrice === null || isQuarterLine(match.odds.spreadHomePoint)}
                         selected={isSelected('spreads', match.team2) && !blocked}
                         main={formatSpreadValue(teaserPreview.spread(match.odds.spreadHomePoint))}
                         juice={formatOdds(match.odds.spreadHomePrice, oddsFormat)}
@@ -3015,8 +3025,8 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         renderTeamTotalCell('home', match.team2Short || match.team2)
                     ) : (
                     <OddsCell
-                        empty={match.odds.totalUnderPrice === null}
-                        disabled={blocked || match.odds.totalUnderPrice === null}
+                        empty={match.odds.totalUnderPrice === null || isQuarterLine(match.odds.totalPoint)}
+                        disabled={blocked || match.odds.totalUnderPrice === null || isQuarterLine(match.odds.totalPoint)}
                         selected={isSelected('totals', 'Under') && !blocked}
                         main={totalsUnderDisplay}
                         juice={formatOdds(match.odds.totalUnderPrice, oddsFormat)}

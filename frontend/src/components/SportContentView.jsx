@@ -37,6 +37,16 @@ import OddsAge from './OddsAge';
 // card stays compact on mobile.
 const MAX_ALT_SPREAD_RUNGS = 6;
 
+// A "quarter" (Asian split) line — point ending in .25 or .75 (e.g. -0.75,
+// 1.25). Hidden from the board and blocked at placement per product decision;
+// the split-stake settlement grader stays intact so they can be re-enabled.
+const isQuarterLine = (point) => {
+    const n = Number(point);
+    if (!Number.isFinite(n)) return false;
+    const frac = Math.abs(n) % 1;
+    return Math.abs(frac - 0.25) < 1e-6 || Math.abs(frac - 0.75) < 1e-6;
+};
+
 // Faded grey, slightly smaller than the team name — same treatment used
 // across every odds board card so the record always reads as supplemental
 // metadata rather than competing with the team identifier.
@@ -1562,8 +1572,8 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                     <div className="match-odds">
                                         <div className="odds-row">
                                             {showSpread && (() => {
-                                                const awayAvail = match.odds.spread.awayPoint !== null && hasValidOdds(match.odds.spread.awayOdds);
-                                                const homeAvail = match.odds.spread.homePoint !== null && hasValidOdds(match.odds.spread.homeOdds);
+                                                const awayAvail = match.odds.spread.awayPoint !== null && hasValidOdds(match.odds.spread.awayOdds) && !isQuarterLine(match.odds.spread.awayPoint);
+                                                const homeAvail = match.odds.spread.homePoint !== null && hasValidOdds(match.odds.spread.homeOdds) && !isQuarterLine(match.odds.spread.homePoint);
                                                 const matchName = `${match.team1.name} vs ${match.team2.name}`;
                                                 const blockReason = match.rawMatch?.bettingBlockedReason || 'Betting unavailable';
 
@@ -1583,7 +1593,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     const rows = (Array.isArray(altMarket?.outcomes) ? altMarket.outcomes : [])
                                                         .filter((o) => norm(o?.name) === sideName)
                                                         .map((o) => ({ name: o.name, point: Number(o.point), price: parseOddsNumber(o.price) }))
-                                                        .filter((o) => Number.isFinite(o.point) && o.price !== null);
+                                                        .filter((o) => Number.isFinite(o.point) && o.price !== null && !isQuarterLine(o.point));
                                                     // Defensive de-dupe by point (the feed already collapses to one
                                                     // house-safe rung per side+point; guard against stragglers).
                                                     const seen = new Set();
@@ -1725,8 +1735,8 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 const underLabel = isNrfi
                                                     ? `NRFI (${formatOdds(match.odds.total.underOdds, oddsFormat)})`
                                                     : formatTotalDisplay('U', match.odds.total.point, match.odds.total.underOdds, oddsFormat);
-                                                const overAvail  = match.odds.total.point !== null && hasValidOdds(match.odds.total.overOdds);
-                                                const underAvail = match.odds.total.point !== null && hasValidOdds(match.odds.total.underOdds);
+                                                const overAvail  = match.odds.total.point !== null && hasValidOdds(match.odds.total.overOdds) && !isQuarterLine(match.odds.total.point);
+                                                const underAvail = match.odds.total.point !== null && hasValidOdds(match.odds.total.underOdds) && !isQuarterLine(match.odds.total.point);
                                                 const matchName = `${match.team1.name} vs ${match.team2.name}`;
                                                 const blockReason = match.rawMatch?.bettingBlockedReason || 'Betting unavailable';
 
@@ -1752,7 +1762,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     const rows = (Array.isArray(altTotalMarket?.outcomes) ? altTotalMarket.outcomes : [])
                                                         .filter((o) => normTot(o?.name) === sideName)
                                                         .map((o) => ({ name: o.name, point: Number(o.point), price: parseOddsNumber(o.price) }))
-                                                        .filter((o) => Number.isFinite(o.point) && o.price !== null);
+                                                        .filter((o) => Number.isFinite(o.point) && o.price !== null && !isQuarterLine(o.point));
                                                     // Defensive de-dupe by point (feed already collapses to one
                                                     // house-safe rung per side+point; guard against stragglers).
                                                     const seen = new Set();
