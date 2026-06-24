@@ -3300,6 +3300,32 @@ final class BetsController
             $appliedBoughtPoints = $boughtPoints;
         }
 
+        // ── Interim quarter-line (Asian split handicap) placement block ───
+        // Rundown ships soccer Asian handicaps (and some alt totals) as
+        // "quarter" lines whose point ends in .25/.75 (e.g. -0.25, 1.25). A
+        // quarter line settles as HALF the stake on each adjacent half/whole
+        // line, but the live single-line grader (gradeAgainstScore) settles
+        // them as a full win/loss — a real money mis-grade on draw/boundary
+        // results. Until quarter-aware grading ships, refuse to PLACE new
+        // bets on quarter lines for spread/total markets (incl. their
+        // alternate_/period variants and team totals). Half/whole lines
+        // (.0/.5) grade correctly today and stay bettable. Player props use a
+        // different settlement path and are unaffected.
+        if (!$isPropMarket && SportsbookBetSupport::isQuarterPoint($adjustedPoint)) {
+            $quarterBase = strtolower($marketKey);
+            if (str_starts_with($quarterBase, 'alternate_')) {
+                $quarterBase = substr($quarterBase, strlen('alternate_'));
+            }
+            $isSpreadOrTotalFamily = str_contains($quarterBase, 'spread') || str_contains($quarterBase, 'total');
+            if ($isSpreadOrTotalFamily) {
+                throw new ApiException('This line is temporarily unavailable for betting. Please choose a different line.', 409, [
+                    'code' => 'QUARTER_LINE_UNAVAILABLE',
+                    'marketType' => $marketKey,
+                    'point' => $adjustedPoint,
+                ]);
+            }
+        }
+
         // Compare client odds vs official using American integers to avoid
         // decimal floating-point mismatches on the 0.0001 threshold.
         // For Buy Points legs, "official" here means the server's repriced

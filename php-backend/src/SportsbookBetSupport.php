@@ -35,6 +35,21 @@ final class SportsbookBetSupport
     }
 
     /**
+     * True when a spread/total line is an Asian "quarter" (split) handicap —
+     * a point ending in .25 or .75 (e.g. -0.25, +0.75, 1.25, -2.25). These
+     * settle as HALF the stake on each adjacent half/whole line and CANNOT be
+     * graded by the single-line gradeAgainstScore path. Sign-agnostic.
+     */
+    public static function isQuarterPoint(?float $point): bool
+    {
+        if ($point === null || !is_finite($point)) {
+            return false;
+        }
+        $frac = fmod(abs($point), 1.0);
+        return abs($frac - 0.25) < 1e-6 || abs($frac - 0.75) < 1e-6;
+    }
+
+    /**
      * @param array<string, mixed> $rule
      * @param array<int, array<string, mixed>> $validatedSelections
      */
