@@ -42,6 +42,14 @@ echo "==> [2/6] Packaging backend (scripts/package-prod.sh)..."
 bash "$ROOT_DIR/scripts/package-prod.sh" >/dev/null
 echo "    api/ + php-backend/ injected into dist/"
 
+# Non-blocking onboarding guard: warn (never abort) if .env.production sets a key
+# the committed .env.example doesn't document. Keeps the template honest without
+# gating a ship. Key names only — no values are read or printed.
+if [[ -f "$ROOT_DIR/tools/qa/env-example-check.sh" ]]; then
+  bash "$ROOT_DIR/tools/qa/env-example-check.sh" || \
+    echo "    (warning only — build continues)"
+fi
+
 # --- 3. PHP syntax gate ------------------------------------------------------
 echo "==> [3/6] Linting backend PHP (php -l)..."
 lint_fail=0
