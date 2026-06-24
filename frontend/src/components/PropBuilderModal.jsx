@@ -797,31 +797,24 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
                         {renderSide(pair.over, true)}{renderSide(pair.under, false)}
                     </div>
                 ))}
-                {rest.length > 0 && (
-                    <>
-                    <div style={playerHeaderStyle}>{playerName}</div>
-                    <div style={altRowStyle}>
-                        {rest.map((outcome, idx) => {
-                            const selKey = selectionKeyFor(catKey, playerName, outcome);
-                            const selected = selectedKeys.has(selKey);
-                            const text = `${outcome?.name || ''}${outcome?.point != null ? ` ${formatLineValue(outcome.point)}` : ''}`.trim();
-                            return (
-                                <button
-                                    key={`${catKey}-${playerName}-rest-${idx}`}
-                                    style={{ ...altBtnStyle(selected), ...(eligible ? null : disabledBtnStyle) }}
-                                    disabled={!eligible}
-                                    onClick={() => addSelection(catKey, playerName, outcome)}
-                                >
-                                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text || 'Pick'}</div>
-                                    <div style={{ fontSize: 11, marginTop: 4, color: selected ? '#fff' : '#b36a00', fontWeight: 700 }}>
-                                        {formatOdds(outcome.price, oddsFormat)}
-                                    </div>
-                                </button>
-                            );
-                        })}
-                    </div>
-                    </>
-                )}
+                {/* Non-paired outcomes (soccer one-sided "N or more" / Yes-no,
+                    scorer markets, double/triple-double) render in the SAME
+                    compact row as two-sided lines — player name on the left,
+                    button(s) on the right — instead of a banner + grey block, so
+                    every category reads uniformly. Chunked into pairs to fill the
+                    two button columns; extra rungs flow to a follow-on row under
+                    an empty name cell so nothing is dropped or misaligned. */}
+                {rest.length > 0 && Array.from({ length: Math.ceil(rest.length / 2) }, (_, ri) => {
+                    const a = rest[ri * 2];
+                    const b = rest[ri * 2 + 1];
+                    return (
+                        <div key={`${catKey}-${playerName}-rest-${ri}`} style={playerRowStyle}>
+                            <div style={playerNameCellStyle} title={playerName}>{ri === 0 ? playerName : ''}</div>
+                            {renderSide(a, true)}
+                            {b ? renderSide(b, false) : <div />}
+                        </div>
+                    );
+                })}
             </React.Fragment>
         );
     };
