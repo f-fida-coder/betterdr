@@ -3039,6 +3039,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 <div style={{
                     display: 'grid',
                     gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 30px'}`,
+                    columnGap: 4,
                     alignItems: 'stretch',
                     borderTop: '1px solid #f0f1f3',
                 }}>
