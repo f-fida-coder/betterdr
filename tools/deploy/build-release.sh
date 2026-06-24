@@ -30,6 +30,14 @@ cd "$ROOT_DIR"
 
 echo "==> build-release: repo $ROOT_DIR"
 
+# --- 0. Secret-leak gate (hard) ---------------------------------------------
+# Refuse to cut a release if a real .env or a secret signature was committed.
+# Read-only; scans only git-tracked files. Aborts before any build work.
+if [[ -f "$ROOT_DIR/tools/qa/secret-scan.mjs" ]] && command -v node >/dev/null 2>&1; then
+  echo "==> [0] Secret scan (git-tracked files)..."
+  node "$ROOT_DIR/tools/qa/secret-scan.mjs"
+fi
+
 # --- 1. Build frontend -------------------------------------------------------
 echo "==> [1/6] Building frontend (vite)..."
 ( cd "$FRONTEND_DIR" && npx vite build >/dev/null )

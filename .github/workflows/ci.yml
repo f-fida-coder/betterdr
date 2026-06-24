@@ -49,6 +49,23 @@ jobs:
         working-directory: php-backend
         run: php tests/run.php
 
+  security:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Hard gate: fail the build if a real .env file or a secret signature
+      # (Stripe/AWS/Google key, PEM private key, real value in a tracked env
+      # file) was committed. Read-only; scans only git-tracked files.
+      - name: Scan for committed secrets / env files
+        run: node tools/qa/secret-scan.mjs
+
   frontend:
     name: Frontend build
     runs-on: ubuntu-latest
