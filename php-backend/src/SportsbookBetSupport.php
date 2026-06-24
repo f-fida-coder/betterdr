@@ -1179,6 +1179,104 @@ final class SportsbookBetSupport
     }
 
     /**
+     * ── PHASE 2 (NOT WIRED LIVE) ──────────────────────────────────────────
+     * Quarter-aware (Asian split handicap) grading. A quarter line (.25/.75)
+     * settles as HALF the stake on each adjacent half/whole line, graded
+     * independently, results summed. This function is built + unit-tested in
+     * isolation and is NOT called by the live settlement path. Do not wire it
+     * into gradeAgainstScore / payout / parlay roll-up until reviewed.
+     *
+     * Mechanism: for a quarter point P, the lower line is P-0.25 and the upper
+     * line is P+0.25 (both land on .0/.5). Half the stake grades at each via
+     * the existing single-line gradeAgainstScore rules. Because the two lines
+     * are exactly 0.5 apart and scores are integers, the only reachable combos
+     * are: (won,won)=full win, (won,void)/(void,won)=half win, (lost,void)/
+     * (void,lost)=half loss, (lost,lost)=full loss. (won,lost) and (void,void)
+     * are mathematically unreachable for a quarter line.
+     *
+     * Returns fractions of the stake by disposition (won/push/lost), which sum
+     * to 1.0, plus a human label. Returns null when $point is NOT a quarter
+     * line (caller keeps the existing single-line path) or when either half
+     * grades 'pending' (ambiguous → operator settles, never a guessed grade).
+     *
+     * @return array{label:string, wonFraction:float, pushFraction:float, lostFraction:float}|null
+     */
+    public static function gradeQuarterAware(
+        string $baseMarket,
+        string $selectionName,
+        ?float $point,
+        float $scoreHome,
+        float $scoreAway,
+        string $homeTeam,
+        string $awayTeam,
+        ?string $teamSide = null,
+        ?string $side = null
+    ): ?array {
+        if (!self::isQuarterPoint($point)) {
+            return null;
+        }
+        // $point is non-null here (isQuarterPoint rejects null).
+        $lowerLine = $point - 0.25; // e.g. -0.25 -> -0.50 ; +0.25 -> 0.00
+        $upperLine = $point + 0.25; // e.g. -0.25 ->  0.00 ; +0.25 -> 0.50
+
+        $gLower = self::gradeAgainstScore($baseMarket, $selectionName, $lowerLine, $scoreHome, $scoreAway, $homeTeam, $awayTeam, $teamSide, $side);
+        $gUpper = self::gradeAgainstScore($baseMarket, $selectionName, $upperLine, $scoreHome, $scoreAway, $homeTeam, $awayTeam, $teamSide, $side);
+
+        // Any non-gradeable half → don't guess; let an operator settle.
+        $allowed = ['won', 'lost', 'void'];
+        if (!in_array($gLower, $allowed, true) || !in_array($gUpper, $allowed, true)) {
+            return null;
+        }
+
+        $frac = static function (string $g): array {
+            // [won, push, lost] for a single 0.5-stake half.
+            if ($g === 'won') return [0.5, 0.0, 0.0];
+            if ($g === 'void') return [0.0, 0.5, 0.0];
+            return [0.0, 0.0, 0.5]; // lost
+        };
+        [$wL, $pL, $lL] = $frac($gLower);
+        [$wU, $pU, $lU] = $frac($gUpper);
+        $won = $wL + $wU;
+        $push = $pL + $pU;
+        $lost = $lL + $lU;
+
+        if ($won >= 1.0 - 1e-9) {
+            $label = 'win';
+        } elseif ($lost >= 1.0 - 1e-9) {
+            $label = 'loss';
+        } elseif ($won > 1e-9 && $push > 1e-9) {
+            $label = 'half_win';
+        } else { // lost + push
+            $label = 'half_loss';
+        }
+
+        return [
+            'label' => $label,
+            'wonFraction' => $won,
+            'pushFraction' => $push,
+            'lostFraction' => $lost,
+        ];
+    }
+
+    /**
+     * PHASE 2 (NOT WIRED LIVE) — total amount returned to the bettor for a
+     * graded quarter result. Won fraction pays at decimal odds (stake + profit
+     * on that fraction); push fraction is refunded; lost fraction returns 0.
+     * Return = stake*wonFraction*decimalOdds + stake*pushFraction.
+     * Parlay effective decimal multiplier for the leg = return / stake
+     * (i.e. wonFraction*decimalOdds + pushFraction), which composes
+     * multiplicatively in a parlay roll-up exactly like a normal leg's odds.
+     *
+     * @param array{wonFraction:float, pushFraction:float, lostFraction:float} $fractions
+     */
+    public static function quarterReturn(float $stake, float $decimalOdds, array $fractions): float
+    {
+        $won = (float) ($fractions['wonFraction'] ?? 0.0);
+        $push = (float) ($fractions['pushFraction'] ?? 0.0);
+        return $stake * $won * $decimalOdds + $stake * $push;
+    }
+
+    /**
      * Split a stored marketType into the gradeable base market + optional
      * period suffix, or null when the market family is not auto-gradeable.
      *
