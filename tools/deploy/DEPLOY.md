@@ -132,3 +132,6 @@ rename `public_html` → `public_html_bad`, `public_html_old` → `public_html`.
   reference; prefer the scripts above.
 - This runbook does not register any cron and does not change the app, the games
   folder, or any pricing/settlement logic.
+- Standing uptime/error alerting (external service, no cron) is set up per
+  `tools/deploy/MONITORING.md`. `verify-live.sh` is the one-shot post-deploy
+  check; the external monitors are the 24/7 watch.
