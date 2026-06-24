@@ -21,3 +21,7 @@ bundle-stats.html
 # Local odds-analysis spreadsheets — not part of the app (ad-hoc data files)
 Book2.csv
 odds_comparison.xlsx
+
+# Versioned production release snapshots (tools/deploy/build-release.sh).
+# Local build artifacts for rollback only — never source, never committed.
+releases/
