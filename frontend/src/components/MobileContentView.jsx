@@ -3232,11 +3232,17 @@ const SkeletonList = () => (
 );
 
 const OddsCell = ({ disabled, selected, main, juice, onClick, empty = false }) => {
-    // Unavailable market (no line) → render clean empty space that still holds
-    // the grid column, so SPREAD / ML / TOTAL stay aligned across rows but no
-    // dashed blank box shows. Not a button (nothing to tap, nothing to read).
+    // Unavailable market (no line) → a bordered EMPTY box that holds its grid
+    // column with a subtle "—" inside. Keeping the box (not collapsing it) is
+    // what makes every column line up top-to-bottom: each row has a box under
+    // SPREAD / ML / TOTAL whether or not the market is priced, so the borders
+    // read as continuous vertical column separators. Non-interactive.
     if (empty) {
-        return <span aria-hidden="true" style={oddsCellEmptyStyle} />;
+        return (
+            <span aria-hidden="true" style={oddsCellEmptyStyle}>
+                <span style={oddsCellEmptyDashStyle}>—</span>
+            </span>
+        );
     }
     return (
         <button
@@ -3738,12 +3744,20 @@ const oddsCellDisabledStyle = {
     background: '#f9fafb',
 };
 
-// Empty (unavailable-market) cell: occupies the same grid track as a real
-// odds cell so columns stay aligned, but has no box/border/background/content
-// — an unavailable SPREAD/ML/TOTAL reads as clean empty space, not a dash box.
+// Empty (unavailable-market) cell: a bordered box matching a real odds cell so
+// the column stays aligned top-to-bottom and the borders form clean vertical
+// column separators. Non-interactive (no cursor/hover), muted background.
 const oddsCellEmptyStyle = {
-    height: '40px',
-    minWidth: 0,
+    ...oddsCellStyle,
+    cursor: 'default',
+    background: '#f9fafb',
+};
+// The subtle "—" inside an empty cell — faint so the box reads as "no line"
+// without competing with the real prices in adjacent columns.
+const oddsCellEmptyDashStyle = {
+    fontSize: '13px',
+    fontWeight: 600,
+    color: '#c5cad1',
 };
 const oddsCellSelectedStyle = {
     ...oddsCellStyle,

@@ -1201,11 +1201,30 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     </div>
                 );
             }
-            // Whole market unavailable (no line on either side) → clean empty
-            // space that still holds the cell's flex column, instead of an
-            // "Unavailable" box. Mirrors the mobile board's empty-cell
-            // treatment so SPREAD/ML/TOTAL stay aligned with no blank boxes.
-            return <div aria-hidden="true" style={{ minHeight: 26 }} />;
+            // Whole market unavailable (no line on either side) → a bordered
+            // EMPTY box with a subtle "—" that holds the cell's column, so
+            // SPREAD / ML / TOTAL line up top-to-bottom and the boxes read as
+            // clean vertical column separators (mirrors the mobile board).
+            return (
+                <div
+                    aria-hidden="true"
+                    style={{
+                        minHeight: 26,
+                        padding: '4px 8px',
+                        border: '1px solid var(--dash-border)',
+                        borderRadius: 4,
+                        background: '#f8f9fa',
+                        color: '#c5cad1',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}
+                >
+                    —
+                </div>
+            );
         }
         return (
             <button
