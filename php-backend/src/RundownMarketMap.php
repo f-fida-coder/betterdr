@@ -122,8 +122,10 @@ final class RundownMarketMap
         430  => 'player_saves',              // 4+ saves → Over 3.5
         // No box-score ordering data → mapped for DISPLAY only; these settle
         // MANUALLY (the grader returns 'pending' for an unknown stat key).
+        // Last goal scorer (1100) is intentionally NOT offered (competitor
+        // parity); leaving it out of this map means it's never requested or
+        // ingested.
         405  => 'player_first_goal_scorer',
-        1100 => 'player_last_goal_scorer',
     ];
 
     /**

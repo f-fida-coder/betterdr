@@ -411,6 +411,13 @@ final class RundownEventMapper
                         // pending bets are unaffected (settlement grades the line
                         // stored on the bet leg, not the live doc).
                         if ($isProp || $participantType === 'TYPE_PLAYER') {
+                            // Drop generic Rundown result placeholders that leak
+                            // into scorer prop markets as bare "Yes"/"No"
+                            // (TYPE_RESULT, not a player) — meaningless as a
+                            // player bet. The real 0-0 outcome is the NAMED
+                            // "No goal" participant, which is kept.
+                            $pnLower = strtolower(trim($rawParticipantName));
+                            if ($pnLower === 'yes' || $pnLower === 'no') continue;
                             $isSoccer = str_starts_with(strtolower($sportKey), 'soccer_');
                             // US sports ship one is_main_line=true rung per player
                             // per prop — keep only that (a deliberate risk control).

@@ -122,6 +122,11 @@ const CATEGORY_ORDER = [
     'player_triple_double',
 ];
 
+// Prop market keys we never surface (e.g. last goal scorer — not offered, for
+// competitor parity). The backend also stops ingesting these; this hides any
+// already-stored ones immediately. Lowercase keys.
+const HIDDEN_PROP_KEYS = new Set(['player_last_goal_scorer']);
+
 // Mirrors SPORTSBOOK_PREFERRED_BOOKS on the server. Only used when the
 // match doc carries no odds.bookmakers list (the server orders that list
 // by the live env value, which is always the source of truth).
@@ -371,12 +376,15 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
 
         const cats = [];
         outcomesByKey.forEach((outcomes, key) => {
+            if (HIDDEN_PROP_KEYS.has(String(key).toLowerCase())) return;
             const deduped = dedupeByPreferredBook(outcomes, bookRank);
             const grouped = new Map();
             let hasOverUnder = false;
             deduped.forEach((outcome) => {
                 const player = String(outcome?.description || outcome?.name || '').trim();
                 if (!player) return;
+                // Drop the feed's bare "No" result placeholder (keep "No goal").
+                if (/^no$/i.test(player)) return;
                 if (isOverUnderName(outcome?.name)) hasOverUnder = true;
                 if (!grouped.has(player)) grouped.set(player, []);
                 grouped.get(player).push(outcome);

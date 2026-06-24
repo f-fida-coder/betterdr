@@ -1166,6 +1166,17 @@ final class MatchesController
                 && str_starts_with(strtolower($coreKey), 'spreads')) {
                 continue;
             }
+            // Soccer: drop Asian QUARTER lines (.25/.75) from every alt ladder —
+            // the board offers whole/half handicaps and goal totals only. Done
+            // before the cap so it then surfaces the nearest whole/half rungs.
+            if (str_starts_with(strtolower($sportKey), 'soccer') && is_array($m['outcomes'] ?? null)) {
+                $m['outcomes'] = array_values(array_filter($m['outcomes'], static function ($o) {
+                    if (!isset($o['point']) || !is_numeric($o['point'])) return true;
+                    $frac = abs((float) $o['point']) - floor(abs((float) $o['point']));
+                    return abs($frac - 0.25) > 0.001 && abs($frac - 0.75) > 0.001;
+                }));
+                if ($m['outcomes'] === []) continue; // nothing whole/half left → drop
+            }
             $totalsSingleHere = $totalsAltCfg['enabled'] && AltLineCap::isTotalsCoreKey($coreKey);
             $perSide = AltLineCap::perSideLimitForKey($capSettings, $altMarketKey);
             if ($perSide === AltLineCap::UNLIMITED && !$totalsSingleHere) {
