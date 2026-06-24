@@ -3035,19 +3035,19 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     )
                 )}
 
-                {/* 3-way (1X2) ML stack: away → Draw → home, as one cell spanning
-                    both team rows in the ML column. Explicitly placed (column +
-                    rowspan), so CSS grid flows the auto-placed Spread/Total cells
-                    around it into their normal columns — their two-cell alignment
-                    is untouched. space-between pins away ML to the top and home ML
-                    to the bottom (aligned with their Spread/Total rows) with the
-                    Draw box centred between them. Draw shows bare odds — its middle
-                    position signals "Draw". Tagged 'h2h' (NOT 'h2h_3_way') so
-                    settlement grades it draw-aware. */}
+                {/* 3-way (1X2) ML column: away ML on top, home ML on bottom — each
+                    full height, aligned with the Spread/Total rows — and the Draw
+                    in a COMPACT box centered ON the divider between them, overlapping
+                    ~30% into each (like the line box between O/U on a total). One
+                    cell spanning both team rows; CSS grid flows the auto-placed
+                    Spread/Total cells around it so their two-cell alignment is
+                    untouched. Tagged 'h2h' (NOT 'h2h_3_way') so settlement grades it
+                    draw-aware. */}
                 {isThreeWayMl && (
                     <div style={{
                         gridColumn: mlGridColumn,
                         gridRow: '1 / span 2',
+                        position: 'relative',
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'space-between',
@@ -3062,13 +3062,6 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             onClick={() => addIfAllowed(match.id, match.team1, 'h2h', match.odds.moneylineAway, matchName, 'Moneyline', null)}
                         />
                         <OddsCell
-                            disabled={blocked || match.odds.moneylineDraw === null}
-                            selected={isSelected('h2h', 'Draw') && !blocked}
-                            main={formatOdds(match.odds.moneylineDraw, oddsFormat)}
-                            juice=""
-                            onClick={() => addIfAllowed(match.id, 'Draw', 'h2h', match.odds.moneylineDraw, matchName, 'Moneyline', null)}
-                        />
-                        <OddsCell
                             empty={match.odds.moneylineHome === null}
                             disabled={blocked || match.odds.moneylineHome === null}
                             selected={isSelected('h2h', match.team2) && !blocked}
@@ -3076,6 +3069,38 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             juice=""
                             onClick={() => addIfAllowed(match.id, match.team2, 'h2h', match.odds.moneylineHome, matchName, 'Moneyline', null)}
                         />
+                        {match.odds.moneylineDraw != null && (
+                            <div style={{
+                                position: 'absolute',
+                                top: '50%',
+                                left: '50%',
+                                transform: 'translate(-50%, -50%)',
+                                width: '84%',
+                                zIndex: 2,
+                            }}>
+                                <button
+                                    type="button"
+                                    disabled={blocked}
+                                    onClick={() => addIfAllowed(match.id, 'Draw', 'h2h', match.odds.moneylineDraw, matchName, 'Moneyline', null)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '3px 4px',
+                                        background: isSelected('h2h', 'Draw') && !blocked ? '#d0451b' : '#fff',
+                                        color: isSelected('h2h', 'Draw') && !blocked ? '#fff' : '#111827',
+                                        border: '1px solid #d0d5dd',
+                                        borderRadius: 4,
+                                        boxShadow: '0 1px 5px rgba(0, 0, 0, 0.22)',
+                                        fontSize: '12px',
+                                        fontWeight: 700,
+                                        lineHeight: 1.1,
+                                        whiteSpace: 'nowrap',
+                                        cursor: blocked ? 'not-allowed' : 'pointer',
+                                    }}
+                                >
+                                    {formatOdds(match.odds.moneylineDraw, oddsFormat)}
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
