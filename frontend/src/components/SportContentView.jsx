@@ -1676,11 +1676,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                             {showMoneyline && (() => {
                                                 const awayAvail = hasValidOdds(match.odds.moneyline.awayOdds);
                                                 const homeAvail = hasValidOdds(match.odds.moneyline.homeOdds);
-                                                const hasDraw = hasValidOdds(match.odds.moneyline.drawOdds);
                                                 return (
                                                 <div className="odds-cell">
                                                     <span className="odds-label">Moneyline</span>
-                                                    <div className={`odds-values-group${hasDraw ? ' has-draw' : ''}`}>
+                                                    <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: formatOdds(match.odds.moneyline.awayOdds, oddsFormat),
                                                             onClick: () => handleAddToSlip(match.id, match.team1.name, 'h2h', match.odds.moneyline.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline', null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
@@ -1697,24 +1696,18 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                             disabled: match.rawMatch?.isBettable === false,
                                                             reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
                                                         })}
-                                                        {/* 3-way Draw (soccer / 1X2): a COMPACT box centered ON the
-                                                            divider between the two ML cells, overlapping ~30% into
-                                                            each — so home/away ML stay full-height and aligned with
-                                                            Spread/Total, and the Draw reads like the line box between
-                                                            O/U on a total. Tagged 'h2h' so settlement grades it
-                                                            draw-aware. */}
-                                                        {hasDraw && (
-                                                            <div className="ml-draw-overlay">
-                                                                {renderOddsButton({
-                                                                    label: formatOdds(match.odds.moneyline.drawOdds, oddsFormat),
-                                                                    onClick: () => handleAddToSlip(match.id, 'Draw', 'h2h', match.odds.moneyline.drawOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline', null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
-                                                                    available: hasDraw,
-                                                                    peerAvailable: awayAvail || homeAvail,
-                                                                    disabled: match.rawMatch?.isBettable === false,
-                                                                    reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
-                                                                })}
-                                                            </div>
-                                                        )}
+                                                        {/* 3-way Draw (soccer / 1X2): shown only when the feed
+                                                            ships a Draw price. Labeled "Draw" since it's not a
+                                                            positional team button. Tagged 'h2h' (NOT 'h2h_3_way')
+                                                            so settlement grades it draw-aware. */}
+                                                        {hasValidOdds(match.odds.moneyline.drawOdds) && renderOddsButton({
+                                                            label: `Draw ${formatOdds(match.odds.moneyline.drawOdds, oddsFormat)}`,
+                                                            onClick: () => handleAddToSlip(match.id, 'Draw', 'h2h', match.odds.moneyline.drawOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline', null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
+                                                            available: hasValidOdds(match.odds.moneyline.drawOdds),
+                                                            peerAvailable: awayAvail || homeAvail,
+                                                            disabled: match.rawMatch?.isBettable === false,
+                                                            reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
+                                                        })}
                                                     </div>
                                                 </div>
                                                 );
