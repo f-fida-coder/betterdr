@@ -574,11 +574,53 @@ const ticketAmount = (bet) => {
     // and goes back to the FP pool on a void (it's not real money
     // ever leaving the player's balance). Use cashRisk so the
     // "-X" / "Refund X" headline matches what hit pendingBalance.
-    const { cashRisk } = cashRiskOfBet(bet);
+    const { cashRisk, fpUsed } = cashRiskOfBet(bet);
     if (status === 'won') return { text: moneyExactSigned(profit, '+'), theme: 'won' };
-    if (status === 'lost') return { text: moneyExactSigned(cashRisk, '-'), theme: 'lost' };
+    if (status === 'lost') {
+        // Partial-refund loss (e.g. a soccer Asian QUARTER half-loss): the
+        // ticket grades a net loss but some stake came back, so potentialPayout
+        // > 0. Display the player's ACTUAL net loss and surface the returned
+        // amount, instead of a flat "-risk" that overstates what they lost.
+        // Display-only — the grade is still 'lost'. Guard on cash-only tickets
+        // (no freeplay) so the FP split math stays untouched; a full loss
+        // (potential 0) reduces to the original -cashRisk exactly.
+        const returned = Number(bet?.potentialPayout || 0);
+        if (returned > 0 && fpUsed <= 0) {
+            const netLoss = Math.max(0, cashRisk - returned);
+            return { text: moneyExactSigned(netLoss, '-'), theme: 'lost', returned };
+        }
+        return { text: moneyExactSigned(cashRisk, '-'), theme: 'lost' };
+    }
     if (status === 'void') return { text: `Refund ${moneyExact(cashRisk)}`, theme: 'void' };
     return { text: moneyExact(profit), theme: 'pending' };
+};
+
+// Render the Win-column content for a graded ticket. Normally just the headline
+// string from ticketAmount(); when a lost ticket carries a partial return
+// (`returned` > 0 — e.g. a soccer Asian QUARTER half-loss), stack a small
+// "returned $X" annotation beneath the net-loss figure so the player sees the
+// money that came back. Display-only; the grade stays 'lost'.
+const winCellContent = (amount) => {
+    if (!amount || !(Number(amount.returned) > 0)) return amount?.text;
+    return (
+        <span style={{
+            display: 'inline-flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            lineHeight: 1.1,
+            fontVariantNumeric: 'tabular-nums',
+        }}>
+            <span>{amount.text}</span>
+            <span style={{
+                fontSize: '0.7em',
+                color: '#16a34a',
+                fontWeight: 800,
+                letterSpacing: 0.2,
+            }} title={`Stake returned: ${moneyExact(amount.returned)}`}>
+                returned {moneyExact(amount.returned)}
+            </span>
+        </span>
+    );
 };
 
 // Inline cell content for the Risk column. When the bet is a
@@ -912,7 +954,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                 const amount = ticketAmount(bet);
                 const isMulti = isMultiLegBet(bet);
                 const isExpanded = expandedBetId === betId;
-                const winCell = status === 'pending' ? moneyExact(ticketPayout) : amount.text;
+                const winCell = status === 'pending' ? moneyExact(ticketPayout) : winCellContent(amount);
                 const winTheme = status === 'pending' ? 'pending' : amount.theme;
 
                 if (isRoundRobinGroup(bet)) {
@@ -976,7 +1018,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                 const childStatus = normalizeStatus(child?.status);
                                 const childPayout = payoutValue(child);
                                 const childAmount = ticketAmount(child);
-                                const childWinCell = childStatus === 'pending' ? moneyExact(childPayout) : childAmount.text;
+                                const childWinCell = childStatus === 'pending' ? moneyExact(childPayout) : winCellContent(childAmount);
                                 const childWinTheme = childStatus === 'pending' ? 'pending' : childAmount.theme;
                                 const childSelections = Array.isArray(child?.selections) ? child.selections : [];
                                 return (

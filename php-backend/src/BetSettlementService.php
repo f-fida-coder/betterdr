@@ -331,9 +331,24 @@ final class BetSettlementService
                             static fn ($r): string => is_array($r) ? (string) ($r['status'] ?? 'pending') : 'pending',
                             $updatedRows
                         );
+                        // Parallel settleFraction array (same keys as
+                        // $rowStatuses) so a quarter HALF-LOSS leg (status
+                        // 'lost', fraction < 1.0) banks its slot instead of
+                        // settling an incomplete open parlay early. Non-quarter
+                        // legs carry 1.0 → identical to the old binary gating.
+                        $rowFractions = array_map(
+                            static function ($r): float {
+                                if (!is_array($r)) {
+                                    return 1.0;
+                                }
+                                $f = $r['settleFraction'] ?? 1.0;
+                                return is_numeric($f) ? (float) $f : 1.0;
+                            },
+                            $updatedRows
+                        );
                         $targetLegs = (int) ($bet['targetLegs'] ?? 0);
                         $filledLegs = count($updatedRows);
-                        if (!OpenParlayService::shouldSettleNow($rowStatuses, $targetLegs, $filledLegs)) {
+                        if (!OpenParlayService::shouldSettleNow($rowStatuses, $targetLegs, $filledLegs, $rowFractions)) {
                             $db->updateOne('bets', ['id' => SqlRepository::id($betId)], [
                                 'selections' => $normalizedSelections,
                                 'updatedAt' => $now,

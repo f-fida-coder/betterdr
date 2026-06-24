@@ -260,26 +260,25 @@ TestRunner::run('if_bet — binary legs unchanged (regression in-file)', functio
 });
 
 // ── Open parlay — settle-timing gate with a quarter leg ──────────────────────
-// shouldSettleNow reads the BINARY leg status. A quarter half-WIN reports
-// status 'won', so on an INCOMPLETE open parlay it banks the slot and the
-// ticket stays open — clearly correct. The completed (all-slots-filled) ticket
-// then settles and pays the reduced-correct amount via evaluateTicket.
-//
-// NOT asserted here (flagged for review): a quarter HALF-LOSS reports status
-// 'lost', which shouldSettleNow treats as a full loss and would settle an
-// incomplete open parlay early. That timing semantic needs a decision before
-// quarter legs are allowed in OPEN parlays — see the note to Fida.
+// shouldSettleNow reads the BINARY leg status plus a parallel settleFraction
+// array. A quarter half-WIN reports status 'won', so on an INCOMPLETE open
+// parlay it banks the slot and the ticket stays open. A quarter HALF-LOSS
+// reports status 'lost' but with settleFraction < 1.0 (a PARTIAL refund, not a
+// dead leg) — it must NOT short-circuit an incomplete open parlay; only a FULL
+// loss (settleFraction >= 1.0) settles the ticket immediately. The completed
+// (all-slots-filled) ticket then settles and pays the reduced-correct amount
+// via evaluateTicket.
 
 TestRunner::run('open parlay — half-win leg banks a slot and stays open', function (): void {
     // target 3 legs, 2 filled: one full win + one quarter half-win (status 'won').
     // No leg lost, not all slots filled → stay open.
-    $open = OpenParlayService::shouldSettleNow(['won', 'won'], 3, 2);
+    $open = OpenParlayService::shouldSettleNow(['won', 'won'], 3, 2, [1.0, 1.0]);
     TestRunner::assertFalse($open, 'incomplete open parlay with a half-win leg stays open');
 });
 
 TestRunner::run('open parlay — completed ticket with a half-win leg settles + pays reduced', function (): void {
     // All 3 declared slots filled, none lost → settle.
-    $settle = OpenParlayService::shouldSettleNow(['won', 'won', 'won'], 3, 3);
+    $settle = OpenParlayService::shouldSettleNow(['won', 'won', 'won'], 3, 3, [1.0, 1.0, 0.5]);
     TestRunner::assertTrue($settle, 'all slots filled, none lost → settle');
     // Payout when the third is a quarter half-win @2.0: 2 × 2 × 1.5 = 6.0 → 600.
     $bet = qbet_('parlay', 100.0);
@@ -290,4 +289,39 @@ TestRunner::run('open parlay — completed ticket with a half-win leg settles + 
     ]);
     TestRunner::assertEquals('won', $r['status'], 'completed open parlay with half-win → won');
     TestRunner::assertEqualsFloat(600.0, $r['payout'], 'completed open parlay half-win → 600');
+});
+
+TestRunner::run('open parlay — incomplete + HALF-LOSS quarter leg stays open (no early settle)', function (): void {
+    // target 3 legs, 2 filled: one full win + one quarter half-loss (status
+    // 'lost', settleFraction 0.5). A half-loss is a partial refund, not a dead
+    // leg, so it banks its slot like a win/push — the ticket must STAY OPEN and
+    // not settle early. (A full loss, fraction 1.0, would settle immediately.)
+    $open = OpenParlayService::shouldSettleNow(['won', 'lost'], 3, 2, [1.0, 0.5]);
+    TestRunner::assertFalse($open, 'incomplete open parlay with a half-loss leg stays open');
+
+    // Sanity: a FULL loss on the same incomplete ticket DOES settle now.
+    $fullLoss = OpenParlayService::shouldSettleNow(['won', 'lost'], 3, 2, [1.0, 1.0]);
+    TestRunner::assertTrue($fullLoss, 'incomplete open parlay with a FULL loss settles immediately');
+});
+
+TestRunner::run('open parlay — completed ticket with a HALF-LOSS quarter leg settles + pays reduced product', function (): void {
+    // All 3 declared slots filled; the third is a quarter HALF-LOSS (status
+    // 'lost', settleFraction 0.5). Because it is NOT a full loss it does not
+    // zero the ticket — it settles and pays the reduced fractional product.
+    $settle = OpenParlayService::shouldSettleNow(['won', 'won', 'lost'], 3, 3, [1.0, 1.0, 0.5]);
+    TestRunner::assertTrue($settle, 'all slots filled, only a half-loss → settle (not zeroed, not open)');
+
+    // Payout: full win @2.0 × full win @2.0 × half-loss @2.0.
+    // half-loss legMultiplier = wonFraction*odds + pushFraction = 0*2 + 0 = 0?
+    // NO — a quarter half-loss is (lost@lower, void@upper): the lost half
+    // contributes 0, the void half refunds its stake → multiplier 0.5.
+    // 2 × 2 × 0.5 = 2.0 → stake 100 × 2.0 = 200.
+    $bet = qbet_('parlay', 100.0);
+    $r = SportsbookBetSupport::evaluateTicket($bet, [
+        qrow_(2.0, 'won', 1.0, 0),
+        qrow_(2.0, 'won', 1.0, 1),
+        qrow_(2.0, 'lost', 0.5, 2),
+    ]);
+    TestRunner::assertEquals('won', $r['status'], 'completed open parlay with half-loss → won (payout > stake)');
+    TestRunner::assertEqualsFloat(200.0, $r['payout'], 'completed open parlay half-loss → reduced product 200');
 });

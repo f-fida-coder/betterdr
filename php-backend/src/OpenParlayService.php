@@ -161,7 +161,7 @@ final class OpenParlayService
      * Decide whether an open parlay should SETTLE now, or bank the just-graded
      * leg and stay open. Pure — drives the gating in settleMatch.
      *
-     *   - any leg 'lost'                     → settle now (the whole ticket
+     *   - any leg a DECISIVE (full) loss     → settle now (the whole ticket
      *                                          loses immediately, even if
      *                                          incomplete or other legs pend);
      *   - all declared slots filled AND no
@@ -172,13 +172,29 @@ final class OpenParlayService
      * A 'void' (push) leg never forces a settle and never blocks one: it just
      * occupies a filled slot and drops from the odds math at payout time.
      *
+     * A soccer Asian QUARTER HALF-LOSS leg (status 'lost' with settleFraction
+     * < 1.0) is a PARTIAL REFUND, not a dead leg — its parlay multiplier is
+     * 0.5, not 0, so the ticket can still pay. It therefore banks its slot like
+     * a win/push and does NOT settle an incomplete open parlay early; the
+     * player keeps filling their remaining declared legs. Only a FULL loss
+     * (settleFraction >= 1.0) short-circuits. $settleFractions is parallel to
+     * $rowStatuses; when omitted every leg is treated as full (binary), so
+     * existing callers behave exactly as before.
+     *
      * @param array<int, string> $rowStatuses leg statuses ('won'|'lost'|'void'|'pending')
+     * @param array<int, float>  $settleFractions parallel fractions (default 1.0 = full)
      */
-    public static function shouldSettleNow(array $rowStatuses, int $targetLegs, int $filledLegs): bool
+    public static function shouldSettleNow(array $rowStatuses, int $targetLegs, int $filledLegs, array $settleFractions = []): bool
     {
-        foreach ($rowStatuses as $status) {
+        foreach ($rowStatuses as $i => $status) {
             if ($status === 'lost') {
-                return true; // one losing leg loses the whole parlay, now
+                $fraction = isset($settleFractions[$i]) && is_numeric($settleFractions[$i])
+                    ? (float) $settleFractions[$i]
+                    : 1.0;
+                if ($fraction >= 1.0 - 1e-9) {
+                    return true; // a decisive (full) loss loses the whole parlay, now
+                }
+                // half-loss: partial refund, banks its slot — fall through.
             }
         }
         if ($targetLegs < self::MIN_TARGET_LEGS || $filledLegs < $targetLegs) {
@@ -189,6 +205,6 @@ final class OpenParlayService
                 return false; // a filled slot's game hasn't resolved yet → wait
             }
         }
-        return true; // every slot filled and resolved, none lost → settle (pay)
+        return true; // every slot filled and resolved, no full loss → settle (pay)
     }
 }
