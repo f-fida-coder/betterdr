@@ -75,6 +75,7 @@ function UserDashboardShell({
   onTeaserPointsChange,
   onTeaserTypeChange,
   onBetPlaced,
+  onResumeOpenParlay,
 }) {
   // Mirror DashboardHeader's tabs-bar visibility check so the
   // dashboard-content-area's padding-top can collapse from 124px →
@@ -232,7 +233,7 @@ function UserDashboardShell({
           {dashboardView === 'support' && <SupportView />}
           {dashboardView === 'my-bets' && (
             <div style={STYLE_FLEX_SCROLL_TOUCH}>
-              <MyBetsView />
+              <MyBetsView onResumeOpenParlay={onResumeOpenParlay} />
             </div>
           )}
         </Suspense>

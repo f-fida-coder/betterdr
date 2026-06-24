@@ -2,8 +2,10 @@ import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } fr
 import { useNavigate, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import {
+  addOpenParlayLeg,
   bootstrapAuthSession,
   clearAuthBootstrapCache,
+  createRequestId,
   getMe,
   getMatches,
   getPublicBetModeRules,
@@ -23,7 +25,7 @@ import LandingPage from './components/LandingPage';
 import LoadingSpinner from './components/LoadingSpinner';
 import { useToast } from './contexts/ToastContext';
 import { OddsFormatProvider } from './contexts/OddsFormatContext';
-import { normalizeOddsFormat, readStoredOddsFormat, writeStoredOddsFormat } from './utils/odds';
+import { formatLineValue, formatOdds, formatSpreadValue, normalizeOddsFormat, readStoredOddsFormat, writeStoredOddsFormat } from './utils/odds';
 import useWebSocket from './hooks/useWebSocket';
 import useLiveSyncPoll from './hooks/useLiveSyncPoll';
 import useNetworkStatus from './hooks/useNetworkStatus';
@@ -67,6 +69,16 @@ function AppInner() {
   const [selectedSports, setSelectedSports] = useState([]);
   const [betMode, setBetMode] = useState('straight');
   const [slipSelections, setSlipSelections] = useState([]);
+  // Open-parlay RESUME mode. When set, the player tapped "Open N" on a pending
+  // open parlay and is now adding the remaining legs from the board. A board
+  // tap is intercepted (NOT added to the slip) → a confirm dialog → on confirm
+  // the existing addOpenParlayLeg endpoint is called for `betId`.
+  //   resumeOpenParlay: { betId, targetLegs, legsAdded } | null
+  //   resumeConfirmLeg: the tapped board item awaiting confirmation | null
+  //   resumeAddingRef:  in-flight guard so concurrent taps/adds can't race
+  const [resumeOpenParlay, setResumeOpenParlay] = useState(null);
+  const [resumeConfirmLeg, setResumeConfirmLeg] = useState(null);
+  const resumeAddingRef = useRef(false);
   const [wager, setWager] = useState('');
   const [teaserPoints, setTeaserPoints] = useState('');
   // Picked teaser-type id (e.g. 'standard_6_4'). null until the user
@@ -375,6 +387,18 @@ function AppInner() {
     const handleAddToSlip = (e) => {
       const item = e.detail || {};
       if (!item.matchId || !item.selection) return;
+      // RESUME MODE: route the tap to the open-parlay confirm dialog instead of
+      // the slip. Race-safe — ignore the tap while an add is in flight or a
+      // confirm is already open (only the first pending leg is kept), so a
+      // double-tap or second selection can't commit two legs at once.
+      if (resumeOpenParlay) {
+        if (resumeAddingRef.current) {
+          showToast('Still adding your last leg — one sec.', 'info');
+          return;
+        }
+        setResumeConfirmLeg((current) => current || { ...item });
+        return;
+      }
       // Teaser bets price off pregame spreads — real US books reject
       // live legs, and the backend would refuse this ticket at placement
       // anyway. Bounce live selections at the add boundary so the user
@@ -410,7 +434,7 @@ function AppInner() {
 
     window.addEventListener('betslip:add', handleAddToSlip);
     return () => window.removeEventListener('betslip:add', handleAddToSlip);
-  }, [betMode, showToast]);
+  }, [betMode, showToast, resumeOpenParlay]);
 
   const { data: userData, error: userQueryError, refetch: refetchUser } = useQuery({
     queryKey: ['user', token],
@@ -561,6 +585,91 @@ function AppInner() {
     setMobileSidebarOpen(false);
     setMobileResultsActive(false);
   }, []);
+
+  // ── Open-parlay resume ────────────────────────────────────────────────
+  // Enter resume mode for a pending open parlay and jump to the board so the
+  // player can add the remaining legs. Each board tap is confirmed, then sent
+  // to the EXISTING addOpenParlayLeg endpoint — never a new bet/placement.
+  const handleResumeOpenParlay = useCallback((bet) => {
+    const betId = bet?.id || bet?.ticketId;
+    const targetLegs = Number(bet?.targetLegs) || 0;
+    const legsAdded = Array.isArray(bet?.selections) ? bet.selections.length : 0;
+    if (!betId || targetLegs < 2 || legsAdded >= targetLegs) return;
+    setResumeOpenParlay({ betId, targetLegs, legsAdded });
+    setResumeConfirmLeg(null);
+    setDashboardView('dashboard');
+    setMobileSidebarOpen(false);
+    const left = targetLegs - legsAdded;
+    showToast(`Resuming open parlay — tap ${left} more selection${left === 1 ? '' : 's'} to add.`, 'info');
+  }, [showToast]);
+
+  const exitResumeOpenParlay = useCallback(() => {
+    setResumeOpenParlay(null);
+    setResumeConfirmLeg(null);
+    resumeAddingRef.current = false;
+  }, []);
+
+  const cancelResumeConfirm = useCallback(() => {
+    setResumeConfirmLeg(null);
+  }, []);
+
+  // Commit the confirmed leg to the open ticket via addOpenParlayLeg. The
+  // in-flight guard blocks concurrent adds; server-side rules (cap, past-post,
+  // duplicate game, odds-acceptance) are surfaced verbatim as toasts — we do
+  // NOT reimplement or bypass any of them here.
+  const confirmResumeAddLeg = useCallback(async () => {
+    const item = resumeConfirmLeg;
+    const resume = resumeOpenParlay;
+    if (!item || !resume || resumeAddingRef.current) return;
+    resumeAddingRef.current = true;
+    try {
+      const leg = {
+        matchId: item.matchId,
+        selection: item.selection,
+        odds: Number(item.odds),
+        marketType: item.marketType,
+        type: item.marketType,
+        ...(Number.isFinite(Number(item.line)) ? { point: Number(item.line) } : {}),
+        ...(item.selectionFull ? { selectionFull: item.selectionFull } : {}),
+      };
+      await addOpenParlayLeg(resume.betId, leg, token, { requestId: createRequestId() });
+      const nextAdded = resume.legsAdded + 1;
+      // Refresh pending list ("Open N" ticks down) and the header balances.
+      window.dispatchEvent(new CustomEvent('bets:refresh'));
+      window.dispatchEvent(new CustomEvent('user:refresh'));
+      if (nextAdded >= resume.targetLegs) {
+        setResumeOpenParlay(null);
+        showToast('Open parlay complete — all legs added.', 'success');
+      } else {
+        setResumeOpenParlay({ ...resume, legsAdded: nextAdded });
+        showToast(`Leg added — ${resume.targetLegs - nextAdded} to go.`, 'success');
+      }
+    } catch (err) {
+      const code = err?.code || err?.payload?.code;
+      const msg = code === 'ODDS_CHANGED'
+        ? 'Odds moved — tap the selection again to add at the new price.'
+        : (err?.message || 'Could not add that leg to your open parlay.');
+      showToast(msg, 'error');
+    } finally {
+      resumeAddingRef.current = false;
+      setResumeConfirmLeg(null);
+    }
+  }, [resumeConfirmLeg, resumeOpenParlay, token, showToast]);
+
+  // Human label for the confirm dialog, e.g. "Ghana +2 -104".
+  const resumeLegLabel = useCallback((item) => {
+    if (!item) return '';
+    const name = String(item.selectionFull || item.selection || '').trim();
+    const mt = String(item.marketType || '').toLowerCase();
+    let line = '';
+    if (mt === 'spreads' && Number.isFinite(Number(item.line))) {
+      line = ` ${formatSpreadValue(Number(item.line))}`;
+    } else if (mt === 'totals' && Number.isFinite(Number(item.line))) {
+      line = ` ${formatLineValue(Math.abs(Number(item.line)))}`;
+    }
+    const price = formatOdds(item.odds, oddsFormat);
+    return `${name}${line} ${price}`.trim();
+  }, [oddsFormat]);
 
   // Bridge for components that aren't passed `onViewChange` directly
   // (e.g. the Wager Confirmed sheet rendered inside ModeBetPanel) — they
@@ -760,11 +869,177 @@ function AppInner() {
             onTeaserPointsChange={setTeaserPoints}
             onTeaserTypeChange={handleTeaserTypeChange}
             onBetPlaced={handleBetPlaced}
+            onResumeOpenParlay={handleResumeOpenParlay}
           />
+          {resumeOpenParlay && (
+            <ResumeOpenParlayBanner
+              remaining={Math.max(0, resumeOpenParlay.targetLegs - resumeOpenParlay.legsAdded)}
+              onDone={exitResumeOpenParlay}
+            />
+          )}
+          {resumeConfirmLeg && (
+            <ResumeAddLegDialog
+              label={resumeLegLabel(resumeConfirmLeg)}
+              onConfirm={confirmResumeAddLeg}
+              onCancel={cancelResumeConfirm}
+            />
+          )}
         </Suspense>
       )}
       </div>
     </OddsFormatProvider>
+  );
+}
+
+// Sticky banner shown while resuming an open parlay, so the player knows board
+// taps are adding to the existing ticket (not starting a new bet) and can exit.
+// Fixed + full-width with a max content width → reads the same on mobile and
+// desktop. z-index above the board, below toasts/dialogs.
+function ResumeOpenParlayBanner({ remaining, onDone }) {
+  return (
+    <div
+      role="status"
+      style={{
+        position: 'fixed',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 1400,
+        background: '#ff5051',
+        color: '#fff',
+        boxShadow: '0 -2px 10px rgba(0,0,0,0.18)',
+        paddingBottom: 'env(safe-area-inset-bottom)',
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 720,
+          margin: '0 auto',
+          padding: '10px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
+        <span style={{ fontSize: 13, fontWeight: 700, minWidth: 0 }}>
+          <i className="fa-solid fa-layer-group" style={{ marginRight: 8 }} />
+          Adding to your open parlay — {remaining} leg{remaining === 1 ? '' : 's'} left
+        </span>
+        <button
+          type="button"
+          onClick={onDone}
+          style={{
+            flexShrink: 0,
+            padding: '6px 16px',
+            fontSize: 13,
+            fontWeight: 800,
+            color: '#ff5051',
+            background: '#fff',
+            border: 'none',
+            borderRadius: 999,
+            cursor: 'pointer',
+          }}
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Per-tap confirmation before an irreversible open-parlay leg is committed.
+// Centered modal; responsive via max-width + width percentage.
+function ResumeAddLegDialog({ label, onConfirm, onCancel }) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onCancel}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1500,
+        background: 'rgba(15,23,42,0.55)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 20,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: '100%',
+          maxWidth: 360,
+          background: '#fff',
+          borderRadius: 14,
+          padding: '20px 18px 16px',
+          boxShadow: '0 18px 50px rgba(0,0,0,0.3)',
+        }}
+      >
+        <div style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', marginBottom: 6 }}>
+          Add this leg?
+        </div>
+        <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>
+          Add the following to your open parlay:
+        </div>
+        <div
+          style={{
+            fontSize: 15,
+            fontWeight: 800,
+            color: '#0f172a',
+            background: '#f1f5f9',
+            border: '1px solid #e2e8f0',
+            borderRadius: 8,
+            padding: '10px 12px',
+            margin: '8px 0 6px',
+            wordBreak: 'break-word',
+          }}
+        >
+          {label || 'Selection'}
+        </div>
+        <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 14 }}>
+          Open-parlay legs can’t be removed once added.
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              flex: 1,
+              padding: '10px 0',
+              fontSize: 14,
+              fontWeight: 700,
+              color: '#475569',
+              background: '#f1f5f9',
+              border: '1px solid #e2e8f0',
+              borderRadius: 10,
+              cursor: 'pointer',
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            style={{
+              flex: 1,
+              padding: '10px 0',
+              fontSize: 14,
+              fontWeight: 800,
+              color: '#fff',
+              background: '#16a34a',
+              border: 'none',
+              borderRadius: 10,
+              cursor: 'pointer',
+            }}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

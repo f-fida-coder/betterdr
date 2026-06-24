@@ -834,7 +834,7 @@ const WEEK_OPTIONS = [
 // graded ticket renders +$X / -$X regardless of where it appears),
 // so the same row code works for both modes — only header columns
 // and the Risk column visibility change.
-const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTotals = false }) => {
+const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTotals = false, onResumeOpenParlay = null }) => {
     const [expandedBetId, setExpandedBetId] = useState(null);
     // Per-leg drill-down state. Single key (`${betId}::${legIdx}`) — only
     // one leg can be open at a time across the whole list, so opening a
@@ -1026,6 +1026,44 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                 <span className="my-bets-table-col-desc">
                                     {multiLegLabel(bet)}
                                     {(() => {
+                                        // "Open N" resume button — only on an
+                                        // OPEN open-parlay ticket that still has
+                                        // unfilled legs. N = targetLegs − legs
+                                        // added so far. Tapping it resumes the
+                                        // ticket on the board (handled in App);
+                                        // stopPropagation so it doesn't toggle
+                                        // the row's expand/collapse. Hidden once
+                                        // the ticket is full (remaining === 0).
+                                        if (!bet?.isOpenParlay || normalizeStatus(bet?.status) !== 'open') return null;
+                                        if (typeof onResumeOpenParlay !== 'function') return null;
+                                        const target = Number(bet?.targetLegs) || 0;
+                                        const filled = Array.isArray(bet?.selections) ? bet.selections.length : 0;
+                                        const remaining = Math.max(0, target - filled);
+                                        if (remaining <= 0) return null;
+                                        return (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); onResumeOpenParlay(bet); }}
+                                                title={`Add ${remaining} more leg${remaining === 1 ? '' : 's'} to this open parlay`}
+                                                style={{
+                                                    marginLeft: 8,
+                                                    padding: '2px 10px',
+                                                    fontSize: 11,
+                                                    fontWeight: 800,
+                                                    color: '#fff',
+                                                    background: '#ff5051',
+                                                    border: 'none',
+                                                    borderRadius: 999,
+                                                    cursor: 'pointer',
+                                                    verticalAlign: 'middle',
+                                                    whiteSpace: 'nowrap',
+                                                }}
+                                            >
+                                                Open {remaining}
+                                            </button>
+                                        );
+                                    })()}
+                                    {(() => {
                                         // Reduced-teaser note. Renders only
                                         // when one or more legs pushed (tie
                                         // on the adjusted line), so a clean
@@ -1168,7 +1206,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
     );
 };
 
-const MyBetsView = () => {
+const MyBetsView = ({ onResumeOpenParlay = null }) => {
     const { oddsFormat } = useOddsFormat();
     const [bets, setBets] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -1409,6 +1447,7 @@ const MyBetsView = () => {
                         teamLogos={teamLogos}
                         mode="pending"
                         showTotals
+                        onResumeOpenParlay={onResumeOpenParlay}
                     />
                 )}
             </div>
