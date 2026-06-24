@@ -1105,6 +1105,13 @@ final class MatchesController
      * @param array<int,array<string,mixed>> $baseMarkets
      * @return array<int,array<string,mixed>>
      */
+    /** Whether soccer alternate-spread (Asian alt-handicap) ladders are surfaced. */
+    private static function soccerAltSpreadsEnabled(): bool
+    {
+        $v = strtolower(trim((string) (Env::get('SOCCER_ALT_SPREADS_ENABLED', 'false') ?? 'false')));
+        return $v === '1' || $v === 'true' || $v === 'yes' || $v === 'on';
+    }
+
     private function capAlternateLadders(array $extended, array $baseMarkets, string $sportKey = '', ?array $capSettings = null): array
     {
         // Cap is resolved PER MARKET KEY (totals get a wider limit than spreads)
@@ -1146,13 +1153,16 @@ final class MatchesController
             }
             $altMarketKey = (string) ($m['key'] ?? '');
             $coreKey = AltLineCap::coreKeyFor($altMarketKey);
-            // Domain rule: soccer has alternate totals (O/U) but NO alternate
-            // spreads (handicaps). Drop alt spread ladders for soccer entirely
-            // so they never display on the board/match view and can never be
-            // placed (this is the single serve-side chokepoint). Alt totals,
-            // team totals, BTTS, draw-no-bet, etc. are unaffected; the main
-            // spread line (non-alt) is also untouched.
-            if (str_starts_with(strtolower($sportKey), 'soccer')
+            // Soccer alternate spreads (Asian alt-handicap ladders). Historically
+            // dropped here as a product decision ("soccer = O/U alt totals only").
+            // The feed DOES ship them and the rest of the stack already handles
+            // them — placement validates alt legs generically (AltLineCap::
+            // isPointAllowed) and settlement grades soccer handicaps with the
+            // Asian quarter/split-stake grader — so enabling is purely a display
+            // gate. Off by default (preserves prior behavior); set
+            // SOCCER_ALT_SPREADS_ENABLED=true to surface them on the board.
+            if (!self::soccerAltSpreadsEnabled()
+                && str_starts_with(strtolower($sportKey), 'soccer')
                 && str_starts_with(strtolower($coreKey), 'spreads')) {
                 continue;
             }
