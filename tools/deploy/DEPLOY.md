@@ -13,6 +13,39 @@ the ship/verify/rollback wrapper around the existing `dist/` bundle.
 
 ---
 
+## 0. Back up the database FIRST (restore point)
+
+Before any deploy that could migrate or touch data, take a snapshot so you have a
+one-command restore point. The store is MySQL (tables with a JSON `doc` column).
+
+```bash
+php php-backend/scripts/backup-store.php          # core money tables
+php php-backend/scripts/backup-store.php --all     # whole database
+php php-backend/scripts/backup-store.php --dry-run  # list, write nothing
+```
+
+Read-only (only `SHOW`/`SELECT` — it can never affect live bets, balances, or
+settlement). Writes a gzipped SQL dump + `MANIFEST.txt` (row counts + sha256) into
+the git-ignored `backups/` dir, `0600` perms (the file holds PII + money rows),
+keeping the newest 7. Pure PDO — no `mysqldump` binary needed.
+
+**Where to run it:** prod `MYSQL_HOST=127.0.0.1`, so the DB is only reachable
+**from the server**. Run this in a cPanel Terminal / one-off job on the host (the
+script ships inside the bundle at `php-backend/scripts/`), then download the
+`backups/*.sql.gz` locally. If the host offers no shell, use the cPanel/phpMyAdmin
+**Export** (Quick, gzipped) as the equivalent fallback — same restore point, just
+manual.
+
+**Restore (DESTRUCTIVE — into a recovery DB unless you truly mean prod):**
+
+```bash
+gunzip -c backups/<db>__<stamp>.sql.gz | mysql -h HOST -P PORT -u USER -p DBNAME
+```
+
+Verify against the manifest's row counts after restoring.
+
+---
+
 ## 1. Build a versioned release (local, safe)
 
 ```bash

@@ -25,3 +25,7 @@ odds_comparison.xlsx
 # Versioned production release snapshots (tools/deploy/build-release.sh).
 # Local build artifacts for rollback only — never source, never committed.
 releases/
+
+# Pre-deploy DB snapshots (php-backend/scripts/backup-store.php).
+# Gzipped SQL dumps containing PII + money rows — NEVER commit.
+backups/
