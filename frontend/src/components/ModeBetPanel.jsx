@@ -11,7 +11,7 @@ import BetConfirmationModal from './BetConfirmationModal';
 import WagerConfirmedScreen from './WagerConfirmedScreen';
 import TeaserTypePicker from './TeaserTypePicker';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
-import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
+import { prettyPlayerMarketLabel, isPlayerPropMarket, formatPropSelectionTitle } from '../utils/propBuilderMarkets';
 
 // Minimal structural fallbacks — NO hardcoded multipliers.
 // Real values always come from rulesByMode (loaded from DB via /api/betting/rules).
@@ -2825,7 +2825,9 @@ const ModeBetPanel = ({
                                     flexWrap: 'wrap',
                                     gap: 8,
                                 }}>
-                                    <span>{sel.selectionFull || sel.selection}{propMarketLabel ? ` ${propMarketLabel}` : ''}</span>
+                                    <span>{isProp
+                                        ? formatPropSelectionTitle(sel.selectionFull || sel.selection, propMarketLabel)
+                                        : `${sel.selectionFull || sel.selection}${propMarketLabel ? ` ${propMarketLabel}` : ''}`}</span>
                                     {sel.isLive && (
                                         // LIVE BET pill — flagged at add-to-slip
                                         // time from match.isLive, which is true

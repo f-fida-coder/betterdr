@@ -395,12 +395,20 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
             });
             if (byPlayer.size === 0) return;
             const base = prettyMarketLabel(key);
+            // Distinct Over/Under line points across the whole category (sorted
+            // ascending), so every player's rungs align to the same columns —
+            // "Over 0.5" left, "Over 1.5" right, empty cell where a player has no
+            // line at that point. Empty for Yes/No (scorer) categories.
+            const points = Array.from(new Set(
+                deduped.filter((o) => isOverUnderName(o?.name) && o?.point != null).map((o) => Number(o.point))
+            )).filter((p) => Number.isFinite(p)).sort((a, b) => a - b);
             cats.push({
                 key,
                 // Soccer props are one-sided "N or more" buttons, not paired
                 // Over/Under lines — keep the plain market label for them.
                 label: (hasOverUnder && !isSoccer) ? `Over/Under - ${base}` : base,
                 byPlayer,
+                points,
             });
         });
 
@@ -691,6 +699,15 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
         ...playerRowStyle,
         gridTemplateColumns: 'minmax(0, 1fr) 86px',
     };
+    // O/U ladder row: name + one fixed 86px column per category line, so rungs
+    // align vertically across players (Over 0.5 left, Over 1.5 right, …).
+    const ouRowStyle = (n) => ({
+        ...playerRowStyle,
+        gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: Math.max(1, n) }, () => '86px').join(' ')}`,
+    });
+    // Placeholder cell for a line a player doesn't have — holds the column so
+    // the present rungs stay aligned (kept empty, just the column separator).
+    const ouEmptyCellStyle = { borderLeft: '1px solid #e2e2e2' };
     const playerNameCellStyle = {
         display: 'flex',
         alignItems: 'center',
@@ -764,7 +781,7 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
      * anything else (Yes/No doubles, scorer markets) renders as a button
      * grid.
      */
-    const renderPlayerOutcomes = (catKey, playerName, outcomes) => {
+    const renderPlayerOutcomes = (catKey, playerName, outcomes, points = []) => {
         const eligible = isEligible(catKey);
         const { twoSided, rest } = splitOverUnderProps(outcomes, isSoccer);
         // ONE row per player: the player's MAIN two-sided Over/Under line — the
@@ -818,17 +835,35 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
                     every category reads uniformly. Chunked into pairs to fill the
                     two button columns; extra rungs flow to a follow-on row under
                     an empty name cell so nothing is dropped or misaligned. */}
-                {rest.length > 0 && Array.from({ length: Math.ceil(rest.length / 2) }, (_, ri) => {
-                    const a = rest[ri * 2];
-                    const b = rest[ri * 2 + 1];
-                    return (
-                        <div key={`${catKey}-${playerName}-rest-${ri}`} style={b ? playerRowStyle : playerRowOneStyle}>
-                            <div style={playerNameCellStyle} title={playerName}>{ri === 0 ? playerName : ''}</div>
-                            {renderSide(a, true, !b)}
-                            {b ? renderSide(b, false) : null}
-                        </div>
-                    );
-                })}
+                {rest.length > 0 && (points.length > 0 ? (
+                    // O/U ladder (assists / shots / goals): one row, with each
+                    // category line pinned to its own column so "Over 0.5" lines
+                    // up on the left, "Over 1.5" on the right, and a player with
+                    // no line at a point gets an empty cell there.
+                    <div key={`${catKey}-${playerName}-ou`} style={ouRowStyle(points.length)}>
+                        <div style={playerNameCellStyle} title={playerName}>{playerName}</div>
+                        {points.map((pt, i) => {
+                            const oc = rest.find((o) => isOverUnderName(o?.name) && Number(o?.point) === pt);
+                            return oc
+                                ? <React.Fragment key={pt}>{renderSide(oc, i === 0)}</React.Fragment>
+                                : <div key={pt} style={ouEmptyCellStyle} />;
+                        })}
+                    </div>
+                ) : (
+                    // Yes/No props (first/last scorer, to-be-carded): single
+                    // compact button per player, no empty padding cell.
+                    Array.from({ length: Math.ceil(rest.length / 2) }, (_, ri) => {
+                        const a = rest[ri * 2];
+                        const b = rest[ri * 2 + 1];
+                        return (
+                            <div key={`${catKey}-${playerName}-rest-${ri}`} style={b ? playerRowStyle : playerRowOneStyle}>
+                                <div style={playerNameCellStyle} title={playerName}>{ri === 0 ? playerName : ''}</div>
+                                {renderSide(a, true, !b)}
+                                {b ? renderSide(b, false) : null}
+                            </div>
+                        );
+                    })
+                ))}
             </React.Fragment>
         );
     };
@@ -855,7 +890,7 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
                 </div>
                 {isOpen && (
                     <div style={categoryBodyStyle}>
-                        {players.map(([playerName, outcomes]) => renderPlayerOutcomes(cat.key, playerName, outcomes))}
+                        {players.map(([playerName, outcomes]) => renderPlayerOutcomes(cat.key, playerName, outcomes, cat.points))}
                     </div>
                 )}
             </div>

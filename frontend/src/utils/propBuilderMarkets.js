@@ -317,6 +317,21 @@ export const prettyPlayerMarketLabel = (key) => {
 
 export const isOverUnderName = (name) => /^(over|under)$/i.test(String(name || '').trim());
 
+// DISPLAY title for a player-prop bet-slip / pending card. The STORED selection
+// keeps its side word ("Alphonso Davies Yes") so placement can re-match the
+// outcome — this is render-only and never mutates the stored value:
+//   • lone "Yes"/"No" scorer-type props drop the side word (the market label
+//     already says what the bet is): "Alphonso Davies Yes" → "Alphonso Davies"
+//   • the feed's "No goal(scorer)" participant (3-way scorer markets) becomes a
+//     plain phrase with no market label: "No goal Yes" → "No Goals Scored"
+//   • Over/Under props are untouched: "Ali Ahmed Over 0.5" stays as-is
+export const formatPropSelectionTitle = (selectionText, marketLabel = '') => {
+    const raw = String(selectionText || '').trim();
+    if (/^no\s*goal(scorer)?\b/i.test(raw)) return 'No Goals Scored';
+    const cleaned = raw.replace(/\s+(yes|no)\s*$/i, '').trim();
+    return marketLabel ? `${cleaned} ${marketLabel}`.trim() : cleaned;
+};
+
 /**
  * The feed appends one outcome per (book × line × side). The board surfaces a
  * single price per selection (server orders odds.bookmakers by the preferred
