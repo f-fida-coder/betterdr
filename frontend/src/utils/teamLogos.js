@@ -447,6 +447,102 @@ const resolveByContext = (teamName, ctx) => {
     return espnLogoByAbbr(league, abbr);
 };
 
+// ── National-team flags (international soccer) ────────────────────────
+// National teams are never in TEAM_LOGO_MAP and have no ESPN league
+// mapping (only soccer_usa_mls is mapped), so they fall through to the
+// spotty TheSportsDB search and usually render the initials avatar.
+// They are a finite, stable set, so map FIFA country names → flag CDN.
+// Keys are accent-folded normalizeTeamName output. Gated to soccer so a
+// country-named club in another sport can't pick up a flag by accident.
+const FLAG = (code) => `https://flagcdn.com/w80/${code}.png`;
+const foldAccents = (s = '') => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const NATIONAL_TEAM_FLAG = {
+    // UEFA
+    'albania': FLAG('al'), 'andorra': FLAG('ad'), 'armenia': FLAG('am'), 'austria': FLAG('at'),
+    'azerbaijan': FLAG('az'), 'belarus': FLAG('by'), 'belgium': FLAG('be'),
+    'bosnia and herzegovina': FLAG('ba'), 'bosnia herzegovina': FLAG('ba'), 'bosnia': FLAG('ba'),
+    'bulgaria': FLAG('bg'), 'croatia': FLAG('hr'), 'cyprus': FLAG('cy'),
+    'czechia': FLAG('cz'), 'czech republic': FLAG('cz'), 'denmark': FLAG('dk'),
+    'england': FLAG('gb-eng'), 'estonia': FLAG('ee'), 'faroe islands': FLAG('fo'),
+    'finland': FLAG('fi'), 'france': FLAG('fr'), 'georgia': FLAG('ge'), 'germany': FLAG('de'),
+    'gibraltar': FLAG('gi'), 'greece': FLAG('gr'), 'hungary': FLAG('hu'), 'iceland': FLAG('is'),
+    'israel': FLAG('il'), 'italy': FLAG('it'), 'kazakhstan': FLAG('kz'), 'kosovo': FLAG('xk'),
+    'latvia': FLAG('lv'), 'liechtenstein': FLAG('li'), 'lithuania': FLAG('lt'),
+    'luxembourg': FLAG('lu'), 'malta': FLAG('mt'), 'moldova': FLAG('md'), 'montenegro': FLAG('me'),
+    'netherlands': FLAG('nl'), 'north macedonia': FLAG('mk'), 'macedonia': FLAG('mk'),
+    'northern ireland': FLAG('gb-nir'), 'norway': FLAG('no'), 'poland': FLAG('pl'),
+    'portugal': FLAG('pt'), 'republic of ireland': FLAG('ie'), 'ireland': FLAG('ie'),
+    'romania': FLAG('ro'), 'russia': FLAG('ru'), 'san marino': FLAG('sm'),
+    'scotland': FLAG('gb-sct'), 'serbia': FLAG('rs'), 'slovakia': FLAG('sk'),
+    'slovenia': FLAG('si'), 'spain': FLAG('es'), 'sweden': FLAG('se'), 'switzerland': FLAG('ch'),
+    'turkey': FLAG('tr'), 'turkiye': FLAG('tr'), 'ukraine': FLAG('ua'), 'wales': FLAG('gb-wls'),
+    // CONMEBOL
+    'argentina': FLAG('ar'), 'bolivia': FLAG('bo'), 'brazil': FLAG('br'), 'chile': FLAG('cl'),
+    'colombia': FLAG('co'), 'ecuador': FLAG('ec'), 'paraguay': FLAG('py'), 'peru': FLAG('pe'),
+    'uruguay': FLAG('uy'), 'venezuela': FLAG('ve'),
+    // CONCACAF
+    'canada': FLAG('ca'), 'costa rica': FLAG('cr'), 'cuba': FLAG('cu'), 'curacao': FLAG('cw'),
+    'dominican republic': FLAG('do'), 'el salvador': FLAG('sv'), 'guatemala': FLAG('gt'),
+    'haiti': FLAG('ht'), 'honduras': FLAG('hn'), 'jamaica': FLAG('jm'), 'mexico': FLAG('mx'),
+    'panama': FLAG('pa'), 'trinidad and tobago': FLAG('tt'), 'united states': FLAG('us'),
+    'united states of america': FLAG('us'), 'usa': FLAG('us'), 'suriname': FLAG('sr'),
+    'nicaragua': FLAG('ni'), 'belize': FLAG('bz'), 'guadeloupe': FLAG('gp'),
+    'martinique': FLAG('mq'), 'grenada': FLAG('gd'), 'saint lucia': FLAG('lc'),
+    'st lucia': FLAG('lc'), 'antigua and barbuda': FLAG('ag'),
+    'saint kitts and nevis': FLAG('kn'), 'st kitts and nevis': FLAG('kn'),
+    // AFC
+    'australia': FLAG('au'), 'china': FLAG('cn'), 'china pr': FLAG('cn'), 'india': FLAG('in'),
+    'indonesia': FLAG('id'), 'iran': FLAG('ir'), 'iraq': FLAG('iq'), 'japan': FLAG('jp'),
+    'jordan': FLAG('jo'), 'kuwait': FLAG('kw'), 'kyrgyzstan': FLAG('kg'), 'lebanon': FLAG('lb'),
+    'malaysia': FLAG('my'), 'oman': FLAG('om'), 'palestine': FLAG('ps'), 'philippines': FLAG('ph'),
+    'qatar': FLAG('qa'), 'saudi arabia': FLAG('sa'), 'south korea': FLAG('kr'),
+    'korea republic': FLAG('kr'), 'north korea': FLAG('kp'), 'korea dpr': FLAG('kp'),
+    'syria': FLAG('sy'), 'tajikistan': FLAG('tj'), 'thailand': FLAG('th'),
+    'turkmenistan': FLAG('tm'), 'united arab emirates': FLAG('ae'), 'uae': FLAG('ae'),
+    'uzbekistan': FLAG('uz'), 'vietnam': FLAG('vn'), 'bahrain': FLAG('bh'),
+    'bangladesh': FLAG('bd'), 'hong kong': FLAG('hk'), 'myanmar': FLAG('mm'), 'yemen': FLAG('ye'),
+    'afghanistan': FLAG('af'), 'singapore': FLAG('sg'),
+    // CAF
+    'algeria': FLAG('dz'), 'angola': FLAG('ao'), 'benin': FLAG('bj'), 'botswana': FLAG('bw'),
+    'burkina faso': FLAG('bf'), 'burundi': FLAG('bi'), 'cameroon': FLAG('cm'),
+    'cape verde': FLAG('cv'), 'cabo verde': FLAG('cv'), 'central african republic': FLAG('cf'),
+    'chad': FLAG('td'), 'comoros': FLAG('km'), 'congo': FLAG('cg'), 'dr congo': FLAG('cd'),
+    'congo dr': FLAG('cd'), 'democratic republic of the congo': FLAG('cd'),
+    'ivory coast': FLAG('ci'), 'cote d ivoire': FLAG('ci'), 'djibouti': FLAG('dj'),
+    'egypt': FLAG('eg'), 'equatorial guinea': FLAG('gq'), 'eritrea': FLAG('er'),
+    'eswatini': FLAG('sz'), 'ethiopia': FLAG('et'), 'gabon': FLAG('ga'), 'gambia': FLAG('gm'),
+    'ghana': FLAG('gh'), 'guinea': FLAG('gn'), 'guinea bissau': FLAG('gw'), 'kenya': FLAG('ke'),
+    'lesotho': FLAG('ls'), 'liberia': FLAG('lr'), 'libya': FLAG('ly'), 'madagascar': FLAG('mg'),
+    'malawi': FLAG('mw'), 'mali': FLAG('ml'), 'mauritania': FLAG('mr'), 'mauritius': FLAG('mu'),
+    'morocco': FLAG('ma'), 'mozambique': FLAG('mz'), 'namibia': FLAG('na'), 'niger': FLAG('ne'),
+    'nigeria': FLAG('ng'), 'rwanda': FLAG('rw'), 'senegal': FLAG('sn'), 'sierra leone': FLAG('sl'),
+    'somalia': FLAG('so'), 'south africa': FLAG('za'), 'south sudan': FLAG('ss'),
+    'sudan': FLAG('sd'), 'tanzania': FLAG('tz'), 'togo': FLAG('tg'), 'tunisia': FLAG('tn'),
+    'uganda': FLAG('ug'), 'zambia': FLAG('zm'), 'zimbabwe': FLAG('zw'),
+    // OFC
+    'new zealand': FLAG('nz'), 'fiji': FLAG('fj'), 'papua new guinea': FLAG('pg'),
+    'solomon islands': FLAG('sb'), 'tahiti': FLAG('pf'), 'vanuatu': FLAG('vu'),
+    'new caledonia': FLAG('nc'), 'samoa': FLAG('ws'), 'tonga': FLAG('to'), 'cook islands': FLAG('ck'),
+};
+
+const isSoccerContext = (ctx) => {
+    if (!ctx) return false;
+    if (String(ctx.sportKey || '').toLowerCase().startsWith('soccer')) return true;
+    return String(ctx.sport || '').toLowerCase().includes('soccer');
+};
+
+// Returns a flag CDN URL for a national soccer team, else null. Tries the
+// full display name first (feeds sometimes ship "Bosnia and Herzegovina"
+// in fullName but a clipped short name on the row), then the row name.
+const nationalTeamFlagUrl = (teamName = '', ctx = null) => {
+    if (!isSoccerContext(ctx)) return null;
+    const tryKey = (n) => {
+        const k = foldAccents(normalizeTeamName(n));
+        return k && NATIONAL_TEAM_FLAG[k] ? NATIONAL_TEAM_FLAG[k] : null;
+    };
+    return (ctx && ctx.fullName && tryKey(ctx.fullName)) || tryKey(teamName) || null;
+};
+
 const cacheKeyForTeam = (teamName = '', ctx = null) => {
     const normalized = normalizeTeamName(teamName);
     if (!normalized) return '';
@@ -518,6 +614,10 @@ export const logoUrlForTeam = (teamName = '', ctx = null) => {
     // the warm cache so a previously mis-cached TheSportsDB URL can't win.
     const byCtx = resolveByContext(teamName, ctx);
     if (byCtx) return byCtx;
+    // National-team flag (international soccer) — resolved before the warm
+    // cache / TheSportsDB so national teams never sit on the initials avatar.
+    const flag = nationalTeamFlagUrl(teamName, ctx);
+    if (flag) return flag;
     if (!normalized) return null;
     // Warm cache populated by prior async resolutions.
     const cached = getCachedLogo(cacheKey);
@@ -577,6 +677,13 @@ const buildNameVariations = (name) => {
     // Saint vs St (common alias split)
     variants.add(base.replace(/\bSaint\b/gi, 'St'));
     variants.add(base.replace(/\bSt\b\.?/gi, 'Saint'));
+    // National-team name disagreements between feeds: "and" <-> "&", and
+    // dropping a leading "Republic of" / "DR " ("Republic of Ireland" →
+    // "Ireland", "DR Congo" → "Congo").
+    variants.add(base.replace(/\s+and\s+/gi, ' & '));
+    variants.add(base.replace(/\s*&\s*/g, ' and '));
+    variants.add(base.replace(/^Republic of\s+/i, '').trim());
+    variants.add(base.replace(/^DR\s+/i, '').trim());
     // Strip recognisable prefixes/suffixes.
     const prefixStripped = base.replace(PREFIX_STRIP_RE, '').trim();
     if (prefixStripped && prefixStripped !== base) variants.add(prefixStripped);
@@ -664,6 +771,7 @@ export const prewarmTeamBadges = (items = []) => {
         if (fullNorm && TEAM_LOGO_MAP[fullNorm]) continue;
         if (TEAM_LOGO_MAP[normalized]) continue;
         if (resolveByContext(name, ctx)) continue;
+        if (nationalTeamFlagUrl(name, ctx)) continue;
         if (getCachedLogo(cacheKey)) continue;
         unique.push({ name, ctx });
     }
@@ -702,6 +810,12 @@ export const fetchTeamBadgeUrl = async (teamName = '', ctx = null) => {
     const byCtx = resolveByContext(teamName, ctx);
     if (byCtx) return byCtx;
 
+    // National-team flag (international soccer) — short-circuits before any
+    // network call so national teams resolve instantly and never depend on
+    // TheSportsDB's spotty national coverage.
+    const flag = nationalTeamFlagUrl(teamName, ctx);
+    if (flag) return flag;
+
     const cached = getCachedLogo(cacheKey);
     if (cached) {
         return cached.url || createFallbackTeamLogoDataUri(teamName);
@@ -711,22 +825,28 @@ export const fetchTeamBadgeUrl = async (teamName = '', ctx = null) => {
     // only fire one request.
     if (inFlight.has(cacheKey)) return inFlight.get(cacheKey);
 
+    // Sentinel for a transient failure (timeout / abort / network / 429 /
+    // 5xx) — distinct from a valid "found: false" response. Transient
+    // failures must NOT be negative-cached, otherwise one bad request pins
+    // a perfectly resolvable team to the initials avatar for a full 24h.
+    const FETCH_FAILED = Symbol('fetchFailed');
     const fetchJson = async (url) => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
         try {
             const resp = await fetch(url, { signal: controller.signal });
             clearTimeout(timeoutId);
-            if (!resp.ok) return null;
+            if (!resp.ok) return FETCH_FAILED;
             return await resp.json();
         } catch {
             clearTimeout(timeoutId);
-            return null;
+            return FETCH_FAILED;
         }
     };
 
     const promise = (async () => {
         try {
+            let sawTransient = false;
             // 1) Try up to 5 name variations against the team-search proxy.
             //    The backend picks exact-match-or-first and returns a
             //    minimal `{ found, logoUrl }` payload so all team-name
@@ -738,6 +858,7 @@ export const fetchTeamBadgeUrl = async (teamName = '', ctx = null) => {
             const variations = buildNameVariations(searchBase).slice(0, 5);
             for (const variant of variations) {
                 const data = await fetchJson(buildProxyUrl(THE_SPORTS_DB_TEAM_PATH, variant));
+                if (data === FETCH_FAILED) { sawTransient = true; continue; }
                 if (data?.found && typeof data.logoUrl === 'string' && data.logoUrl) {
                     setCachedLogo(cacheKey, data.logoUrl);
                     return data.logoUrl;
@@ -749,16 +870,21 @@ export const fetchTeamBadgeUrl = async (teamName = '', ctx = null) => {
             //    try the original name; player-name variations like "FC"
             //    stripping don't help here.
             const playerData = await fetchJson(buildProxyUrl(THE_SPORTS_DB_PLAYER_PATH, teamName));
-            if (playerData?.found && typeof playerData.logoUrl === 'string' && playerData.logoUrl) {
+            if (playerData === FETCH_FAILED) {
+                sawTransient = true;
+            } else if (playerData?.found && typeof playerData.logoUrl === 'string' && playerData.logoUrl) {
                 setCachedLogo(cacheKey, playerData.logoUrl);
                 return playerData.logoUrl;
             }
 
-            // Nothing matched — negative cache the miss for 24h.
-            setCachedLogo(cacheKey, null);
+            // Nothing matched. Only negative-cache a DEFINITIVE miss (every
+            // request returned a real response). If any lookup failed
+            // transiently, leave the cache untouched so the next render
+            // retries instead of being stuck on initials for 24h.
+            if (!sawTransient) setCachedLogo(cacheKey, null);
             return createFallbackTeamLogoDataUri(teamName);
         } catch {
-            setCachedLogo(cacheKey, null);
+            // Unexpected error — treat as transient, don't poison the cache.
             return createFallbackTeamLogoDataUri(teamName);
         } finally {
             inFlight.delete(cacheKey);
