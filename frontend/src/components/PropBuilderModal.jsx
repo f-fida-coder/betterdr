@@ -684,6 +684,13 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
         background: '#fff',
         borderBottom: '1px solid #e2e2e2',
     };
+    // One-sided props (a single button) use ONE 86px button column instead of
+    // two — so the button stays the same compact size as the paired Over/Under
+    // squares with no blank cell padding out the right side.
+    const playerRowOneStyle = {
+        ...playerRowStyle,
+        gridTemplateColumns: 'minmax(0, 1fr) 86px',
+    };
     const playerNameCellStyle = {
         display: 'flex',
         alignItems: 'center',
@@ -769,19 +776,26 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
         // have nothing else to show). No spanning, no empty "—" cell.
         const lines = twoSided.length > 0 ? [twoSided[0]] : [];
 
-        const renderSide = (outcome, isFirst) => {
+        const renderSide = (outcome, isFirst, lone = false) => {
             const selKey = selectionKeyFor(catKey, playerName, outcome);
             const selected = selectedKeys.has(selKey);
+            // A lone "Yes"/"No" prop (anytime/first/last scorer) drops the side
+            // word — the category + player already say what the bet is — and
+            // shows just the price, so the button reads as a clean odds square.
+            const isYesNo = /^(yes|no)$/i.test(String(outcome?.name || '').trim());
+            const topLabel = (lone && isYesNo)
+                ? ''
+                : `${outcome.name}${outcome?.point != null ? ` ${formatLineValue(outcome.point)}` : ''}`;
             return (
                 <button
                     style={{ ...pairBtnStyle(selected, isFirst), borderRight: 'none', borderLeft: '1px solid #e2e2e2', ...(eligible ? null : disabledBtnStyle) }}
                     disabled={!eligible}
                     onClick={() => addSelection(catKey, playerName, outcome)}
                 >
-                    <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                        {outcome.name}{outcome?.point != null ? ` ${formatLineValue(outcome.point)}` : ''}
-                    </div>
-                    <div style={{ fontSize: 11, marginTop: 2, color: selected ? '#fff' : '#b36a00', fontWeight: 700 }}>
+                    {topLabel ? (
+                        <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>{topLabel}</div>
+                    ) : null}
+                    <div style={{ fontSize: topLabel ? 11 : 14, marginTop: topLabel ? 2 : 0, color: selected ? '#fff' : '#b36a00', fontWeight: 700 }}>
                         {formatOdds(outcome.price, oddsFormat)}
                     </div>
                 </button>
@@ -808,10 +822,10 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
                     const a = rest[ri * 2];
                     const b = rest[ri * 2 + 1];
                     return (
-                        <div key={`${catKey}-${playerName}-rest-${ri}`} style={playerRowStyle}>
+                        <div key={`${catKey}-${playerName}-rest-${ri}`} style={b ? playerRowStyle : playerRowOneStyle}>
                             <div style={playerNameCellStyle} title={playerName}>{ri === 0 ? playerName : ''}</div>
-                            {renderSide(a, true)}
-                            {b ? renderSide(b, false) : <div />}
+                            {renderSide(a, true, !b)}
+                            {b ? renderSide(b, false) : null}
                         </div>
                     );
                 })}
