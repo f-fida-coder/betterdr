@@ -173,3 +173,10 @@ php -r '$b="'"$PWD"'/php-backend";require "$b/src/Autoloader.php";Autoloader::re
 | DB connect | `mysql -h 127.0.0.1 -P 3306 -u <USER> -p <DB>` |
 | Feed off/on | `php php-backend/scripts/feed-switch.php off` / `on` / `status` |
 | Worker log | `tail -n 50 php-backend/logs/odds-worker.stdout.log` |
+Off krne ke liye odds 
+`php php-backend/scripts/feed-switch.php on`
+`php php-backend/scripts/feed-switch.php off`
+Check krne ke liye kiya status hai on ya off    `
+`php php-backend/scripts/feed-switch.php status`
+database mein jane ke liye 
+`mysql -u bettor -p bettorplays247`
