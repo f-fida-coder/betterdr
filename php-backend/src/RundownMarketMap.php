@@ -76,6 +76,13 @@ final class RundownMarketMap
         // (755/761/772/...) are intentionally excluded (different outcome
         // structure than buildPropOutcome handles).
         10  => 'batter_home_runs',
+        // 72 = "to hit a home run" (anytime). Despite line_value_is_participant
+        // it ships O/U-shaped ("Over 0.5"/"Under 0.5", is_main_line=true per
+        // price) exactly like the count props — so it flows through the same
+        // over/under path and the existing batter_home_runs grader (HR ≥ 1).
+        // This is the HR market our books (3/19/28) actually price; the O/U
+        // count market (10) comes back empty from them. Verified live 2026-06-25.
+        72  => 'batter_home_runs',
         11  => 'batter_total_bases',
         12  => 'batter_hits',
         13  => 'batter_doubles',
@@ -95,6 +102,7 @@ final class RundownMarketMap
         980  => 'batter_hits',
         979  => 'batter_rbis',
         1122 => 'pitcher_earned_runs',
+        71   => 'batter_home_runs',   // live variant of 72 (player_home_run_in_play)
 
         // ── Soccer player props (FIFA / UEFA / EPL / La Liga / …) ────────
         // Rundown ships these as TYPE_PLAYER with is_main_line=false and, for
@@ -109,6 +117,12 @@ final class RundownMarketMap
         // 39 (player_assists) is already mapped above and ALSO carries soccer
         // assist over/under lines — it is intentionally shared.
         404  => 'player_assists',            // anytime assist  → Over 0.5 assists
+        // Total shots (NOT on target). Ships O/U-shaped (line_value_is_participant
+        // =false), so it grades like native O/U props (real point, no synthetic
+        // threshold). Settlement already supports player_shots off the box-score
+        // "Shots"/totalShots stat. 97 = prematch, 1144 = its live variant.
+        97   => 'player_shots',
+        1144 => 'player_shots',
         406  => 'player_shots_on_target',    // 1+ shots on target → Over 0.5
         412  => 'player_shots_on_target',    // 2+ shots on target → Over 1.5
         408  => 'player_goals_assists',      // to score or assist → Over 0.5 (G+A)
