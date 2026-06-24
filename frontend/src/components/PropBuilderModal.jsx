@@ -844,13 +844,19 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
                     two button columns; extra rungs flow to a follow-on row under
                     an empty name cell so nothing is dropped or misaligned. */}
                 {rest.length > 0 && (points.length > 0 ? (
-                    // O/U ladder (assists / shots / goals): one row, with each
-                    // category line pinned to its own column so "Over 0.5" lines
-                    // up on the left, "Over 1.5" on the right, and a player with
-                    // no line at a point gets an empty cell there.
-                    <div key={`${catKey}-${playerName}-ou`} style={ouRowStyle(points.length)}>
+                    // O/U ladder (assists / shots / goals): each category line is
+                    // pinned to its own column by POINT value (sorted ascending),
+                    // so the lowest point ALWAYS sits in the left column, the next
+                    // in the right, etc. — never by order of appearance. A player
+                    // missing a line gets an empty cell there. At least TWO columns
+                    // are reserved so a single-line category still left-aligns its
+                    // line (a lone 0.5 stays in the left column with the right one
+                    // empty, instead of drifting into the right "higher line" slot).
+                    <div key={`${catKey}-${playerName}-ou`} style={ouRowStyle(Math.max(2, points.length))}>
                         <div style={playerNameCellStyle} title={playerName}>{playerName}</div>
-                        {points.map((pt, i) => {
+                        {Array.from({ length: Math.max(2, points.length) }, (_, i) => {
+                            const pt = points[i];
+                            if (pt == null) return <div key={`pad-${i}`} style={ouEmptyCellStyle} />;
                             const oc = rest.find((o) => isOverUnderName(o?.name) && Number(o?.point) === pt);
                             return oc
                                 ? <React.Fragment key={pt}>{renderSide(oc, i === 0)}</React.Fragment>
