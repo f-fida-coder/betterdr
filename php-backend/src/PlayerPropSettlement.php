@@ -38,7 +38,7 @@ final class PlayerPropSettlement
         // ── NBA / basketball ────────────────────────────────────────────────
         'player_points'   => ['cat' => null, 'components' => [['points', 'pts']]],
         'player_rebounds' => ['cat' => null, 'components' => [['rebounds', 'reb', 'total rebounds', 'trb', 'tot reb']]],
-        'player_assists'  => ['cat' => null, 'components' => [['assists', 'ast']]],
+        'player_assists'  => ['cat' => null, 'components' => [['assists', 'ast', 'goal assists', 'goalassists']]],
         'player_threes'   => ['cat' => null, 'components' => [['three point field goals made', 'three pointers made', 'three point field goals', 'threes', '3pm', 'fg3m', '3pt made']]],
         'player_blocks'   => ['cat' => null, 'components' => [['blocks', 'blk', 'blocked shots']]],
         'player_turnovers' => ['cat' => null, 'components' => [['turnovers', 'tov', 'to']]],
@@ -66,6 +66,22 @@ final class PlayerPropSettlement
         'pitcher_outs'         => ['cat' => 'pitching', 'components' => [['outs', 'outs recorded']]],
         'pitcher_earned_runs'  => ['cat' => 'pitching', 'components' => [['earned runs', 'er']]],
         'pitcher_walks'        => ['cat' => 'pitching', 'components' => [['walks', 'walk', 'base on balls', 'bb']]],
+
+        // ── Soccer ──────────────────────────────────────────────────────────
+        // Aliases match the Rundown box-score stat names/display-names:
+        //   totalGoals "Total Goals" · goalAssists "Assists" · totalShots "Shots"
+        //   shotsOnTarget "Shots On Goal" · foulsCommitted "Fouls Committed" · saves "Saves"
+        // The "N or more" markets reach here as an Over (N-0.5) leg (see
+        // RundownMarketMap::SOCCER_PROP_THRESHOLDS), so the over/under compare
+        // grades stat ≥ N. First/last goal scorer are deliberately ABSENT (no
+        // box-score ordering data) → they stay 'pending' for manual settlement.
+        'player_goals'          => ['cat' => null, 'components' => [['total goals', 'totalgoals', 'goals', 'tg']]],
+        'player_shots_on_target' => ['cat' => null, 'components' => [['shots on goal', 'shots on target', 'shotsontarget', 'sog']]],
+        'player_shots'          => ['cat' => null, 'components' => [['shots', 'totalshots', 'total shots']]],
+        'player_fouls'          => ['cat' => null, 'components' => [['fouls committed', 'foulscommitted', 'fouls', 'fc']]],
+        'player_saves'          => ['cat' => null, 'components' => [['saves', 'sv']]],
+        // To score OR assist: goals + assists ≥ 1 (each ≥ 0, so the sum is exact).
+        'player_goals_assists'  => ['cat' => null, 'components' => [['total goals', 'totalgoals', 'goals'], ['assists', 'ast', 'goal assists', 'goalassists']]],
     ];
 
     /** Whether this market is a prop we know how to grade (over/under shape). */

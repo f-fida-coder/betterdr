@@ -107,3 +107,54 @@ TestRunner::run('grade — empty/garbage stats response → pending', function (
     TestRunner::assertEquals('pending', PlayerPropSettlement::grade($leg('batter_doubles', 0.5, 'Over', 'p1'), []), 'empty response → pending');
     TestRunner::assertEquals('pending', PlayerPropSettlement::grade($leg('batter_doubles', 0.5, 'Over', 'p1'), ['items' => []]), 'no items → pending');
 });
+
+// ── Soccer ──────────────────────────────────────────────────────────────────
+// Soccer props reach the grader as Over (N-0.5) legs (the "N or more" booking
+// markets are synthesized that way at ingestion), graded off the Rundown box
+// score whose display names are "Total Goals" / "Assists" / "Shots On Goal" /
+// "Fouls Committed" / "Saves". First/last goal scorer have no box-score
+// ordering data and must stay pending (manual settlement).
+TestRunner::run('grade — soccer keys are gradable; scorer-order keys are not', function (): void {
+    TestRunner::assertTrue(PlayerPropSettlement::isGradableProp('player_goals'), 'player_goals');
+    TestRunner::assertTrue(PlayerPropSettlement::isGradableProp('player_shots_on_target'), 'player_shots_on_target');
+    TestRunner::assertTrue(PlayerPropSettlement::isGradableProp('player_fouls'), 'player_fouls');
+    TestRunner::assertTrue(PlayerPropSettlement::isGradableProp('player_saves'), 'player_saves');
+    TestRunner::assertTrue(PlayerPropSettlement::isGradableProp('player_goals_assists'), 'player_goals_assists');
+    TestRunner::assertFalse(PlayerPropSettlement::isGradableProp('player_first_goal_scorer'), 'first scorer → manual');
+    TestRunner::assertFalse(PlayerPropSettlement::isGradableProp('player_last_goal_scorer'), 'last scorer → manual');
+});
+
+TestRunner::run('grade — soccer "N or more" thresholds off box-score stats', function () use ($resp, $leg): void {
+    // Anytime scorer (Over 0.5 Total Goals).
+    $scored = $resp('p1', [['Total Goals', 'G', 1, 'soccer_player']]);
+    $blank  = $resp('p2', [['Total Goals', 'G', 0, 'soccer_player']]);
+    TestRunner::assertEquals('won', PlayerPropSettlement::grade($leg('player_goals', 0.5, 'Over', 'p1'), $scored), '1 goal ≥1 → won');
+    TestRunner::assertEquals('lost', PlayerPropSettlement::grade($leg('player_goals', 0.5, 'Over', 'p2'), $blank), '0 goals → lost');
+    // To score 2+ (Over 1.5) with 1 goal → lost.
+    TestRunner::assertEquals('lost', PlayerPropSettlement::grade($leg('player_goals', 1.5, 'Over', 'p1'), $scored), '1 goal, 2+ → lost');
+
+    // 1+/2+ shots on target — box-score display name is "Shots On Goal".
+    $sot = $resp('p3', [['Shots On Goal', 'SOG', 2, 'soccer_player']]);
+    TestRunner::assertEquals('won', PlayerPropSettlement::grade($leg('player_shots_on_target', 0.5, 'Over', 'p3'), $sot), '2 SoT, 1+ → won');
+    TestRunner::assertEquals('won', PlayerPropSettlement::grade($leg('player_shots_on_target', 1.5, 'Over', 'p3'), $sot), '2 SoT, 2+ → won');
+    TestRunner::assertEquals('lost', PlayerPropSettlement::grade($leg('player_shots_on_target', 2.5, 'Over', 'p3'), $sot), '2 SoT, 3+ → lost');
+
+    // Goalkeeper saves.
+    $keeper = $resp('gk', [['Saves', 'SV', 3, 'soccer_player']]);
+    TestRunner::assertEquals('won', PlayerPropSettlement::grade($leg('player_saves', 2.5, 'Over', 'gk'), $keeper), '3 saves, 3+ → won');
+});
+
+TestRunner::run('grade — soccer "to score or assist" sums goals + assists', function () use ($resp, $leg): void {
+    $assistOnly = $resp('p1', [['Total Goals', 'G', 0, 'soccer_player'], ['Assists', 'A', 1, 'soccer_player']]);
+    $neither    = $resp('p2', [['Total Goals', 'G', 0, 'soccer_player'], ['Assists', 'A', 0, 'soccer_player']]);
+    TestRunner::assertEquals('won', PlayerPropSettlement::grade($leg('player_goals_assists', 0.5, 'Over', 'p1'), $assistOnly), '0G+1A ≥1 → won');
+    TestRunner::assertEquals('lost', PlayerPropSettlement::grade($leg('player_goals_assists', 0.5, 'Over', 'p2'), $neither), '0G+0A → lost');
+    // Missing the assists component → never guess a 0; stay pending.
+    $goalsOnly = $resp('p3', [['Total Goals', 'G', 1, 'soccer_player']]);
+    TestRunner::assertEquals('pending', PlayerPropSettlement::grade($leg('player_goals_assists', 0.5, 'Over', 'p3'), $goalsOnly), 'missing assists → pending');
+});
+
+TestRunner::run('grade — soccer anytime assist matches "Assists" display name', function () use ($resp, $leg): void {
+    $stats = $resp('p1', [['Assists', 'A', 1, 'soccer_player']]);
+    TestRunner::assertEquals('won', PlayerPropSettlement::grade($leg('player_assists', 0.5, 'Over', 'p1'), $stats), '1 assist, 1+ → won');
+});

@@ -148,7 +148,7 @@ const isOverUnderName = (name) => /^(over|under)$/i.test(String(name || '').trim
 // per the display rule a one-sided prop simply isn't shown. `rest` carries
 // non-Over/Under outcomes (markets that aren't O/U-shaped) unchanged.
 // Returns twoSided as [pointKey, {over, under}] sorted by ascending point.
-const splitOverUnderProps = (outcomes) => {
+const splitOverUnderProps = (outcomes, includeSingleSided = false) => {
     const linesByPoint = new Map();
     const rest = [];
     (outcomes || []).forEach((outcome) => {
@@ -160,9 +160,20 @@ const splitOverUnderProps = (outcomes) => {
             rest.push(outcome);
         }
     });
-    const twoSided = Array.from(linesByPoint.entries())
-        .filter(([, pair]) => pair.over && pair.under)
-        .sort(([a], [b]) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
+    const twoSided = [];
+    linesByPoint.forEach((pair, pointKey) => {
+        if (pair.over && pair.under) {
+            twoSided.push([pointKey, pair]);
+        } else if (includeSingleSided) {
+            // Soccer ships its props one-sided (an Over "N or more" with no Under
+            // — e.g. 1+/2+ shots on target, anytime assist). For US sports a
+            // lone side means incomplete data and is dropped; for soccer it IS
+            // the market, so render it as a single button instead of hiding it.
+            if (pair.over) rest.push(pair.over);
+            if (pair.under) rest.push(pair.under);
+        }
+    });
+    twoSided.sort(([a], [b]) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
     return { twoSided, rest };
 };
 
@@ -217,6 +228,9 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
     const homeTeam = match?.homeTeamFull || match?.homeTeam || match?.home_team || 'Home';
     const matchName = `${awayTeam} @ ${homeTeam}`;
     const sportKey = String(match?.sportKey || match?.sport || '').toLowerCase();
+    // Soccer props ship one-sided (an Over "N or more" with no Under). Tell the
+    // O/U splitter to render those single buttons instead of dropping them.
+    const isSoccer = /^soccer_/i.test(sportKey);
     const sport = match?.sport || match?.sportTitle || '';
     // Stable team abbreviations — logo resolution keys on league + abbr (the
     // identity), never the display name, so a city-only label like "Seattle"
@@ -374,7 +388,7 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
             // never shown and never synthesized.
             const byPlayer = new Map();
             grouped.forEach((playerOutcomes, player) => {
-                const { twoSided, rest } = splitOverUnderProps(playerOutcomes);
+                const { twoSided, rest } = splitOverUnderProps(playerOutcomes, isSoccer);
                 if (twoSided.length > 0 || rest.length > 0) {
                     byPlayer.set(player, playerOutcomes);
                 }
@@ -383,7 +397,9 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
             const base = prettyMarketLabel(key);
             cats.push({
                 key,
-                label: hasOverUnder ? `Over/Under - ${base}` : base,
+                // Soccer props are one-sided "N or more" buttons, not paired
+                // Over/Under lines — keep the plain market label for them.
+                label: (hasOverUnder && !isSoccer) ? `Over/Under - ${base}` : base,
                 byPlayer,
             });
         });
@@ -743,7 +759,7 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
      */
     const renderPlayerOutcomes = (catKey, playerName, outcomes) => {
         const eligible = isEligible(catKey);
-        const { twoSided, rest } = splitOverUnderProps(outcomes);
+        const { twoSided, rest } = splitOverUnderProps(outcomes, isSoccer);
         // ONE row per player: the player's MAIN two-sided Over/Under line — the
         // lowest-point line that has BOTH an Over and an Under price (the feed
         // doesn't ship an is_main_line flag, so "both sides priced" is the

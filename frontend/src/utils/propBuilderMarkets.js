@@ -243,6 +243,9 @@ export const PLAYER_MARKET_LABELS = {
     player_to_receive_red_card: 'To Receive a Red Card',
     player_shots_on_target: 'Shots on Target',
     player_shots: 'Shots',
+    player_goals_assists: 'To Score or Assist',
+    player_fouls: 'Fouls Committed',
+    player_saves: 'Goalkeeper Saves',
 };
 
 // Category accordion order — basketball headline markets first; unlisted keys

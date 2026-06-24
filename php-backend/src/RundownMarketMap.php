@@ -95,6 +95,56 @@ final class RundownMarketMap
         980  => 'batter_hits',
         979  => 'batter_rbis',
         1122 => 'pitcher_earned_runs',
+
+        // ── Soccer player props (FIFA / UEFA / EPL / La Liga / …) ────────
+        // Rundown ships these as TYPE_PLAYER with is_main_line=false and, for
+        // the "N or more" booking markets, NO per-line over/under value (one
+        // rung per player). We grade an "N or more" market as an Over (N-0.5)
+        // synthetic line off the box score — see SOCCER_PROP_THRESHOLDS +
+        // RundownEventMapper::buildPropOutcome — so the proven over/under
+        // grader settles them with no new comparison logic. The full-match
+        // box score (totalGoals / goalAssists / shotsOnTarget / totalShots /
+        // foulsCommitted / saves) carries every stat we need.
+        //
+        // 39 (player_assists) is already mapped above and ALSO carries soccer
+        // assist over/under lines — it is intentionally shared.
+        404  => 'player_assists',            // anytime assist  → Over 0.5 assists
+        406  => 'player_shots_on_target',    // 1+ shots on target → Over 0.5
+        412  => 'player_shots_on_target',    // 2+ shots on target → Over 1.5
+        408  => 'player_goals_assists',      // to score or assist → Over 0.5 (G+A)
+        409  => 'player_goals',              // 2+ goals → Over 1.5
+        917  => 'player_goals',              // 3+ goals → Over 2.5
+        415  => 'player_fouls',              // 1+ fouls → Over 0.5
+        423  => 'player_fouls',              // 2+ fouls → Over 1.5
+        435  => 'player_saves',              // 1+ saves → Over 0.5
+        434  => 'player_saves',              // 2+ saves → Over 1.5
+        431  => 'player_saves',              // 3+ saves → Over 2.5
+        430  => 'player_saves',              // 4+ saves → Over 3.5
+        // No box-score ordering data → mapped for DISPLAY only; these settle
+        // MANUALLY (the grader returns 'pending' for an unknown stat key).
+        405  => 'player_first_goal_scorer',
+        1100 => 'player_last_goal_scorer',
+    ];
+
+    /**
+     * @var array<int,float> Soccer "N or more" booking market_id → the Over
+     * line it grades as (N - 0.5). A player with the stat ≥ N is "Over". These
+     * markets ship with no per-line value, so the synthetic point is the ONLY
+     * place the threshold lives — keep it in lockstep with PROP_MARKETS above.
+     */
+    private const SOCCER_PROP_THRESHOLDS = [
+        404 => 0.5,   // anytime assist  (assists ≥ 1)
+        406 => 0.5,   // 1+ shots on target
+        412 => 1.5,   // 2+ shots on target
+        408 => 0.5,   // to score or assist (goals + assists ≥ 1)
+        409 => 1.5,   // 2+ goals
+        917 => 2.5,   // 3+ goals
+        415 => 0.5,   // 1+ fouls
+        423 => 1.5,   // 2+ fouls
+        435 => 0.5,   // 1+ saves
+        434 => 1.5,   // 2+ saves
+        431 => 2.5,   // 3+ saves
+        430 => 3.5,   // 4+ saves
     ];
 
     /**
@@ -293,6 +343,18 @@ final class RundownMarketMap
     public static function propKey(int $marketId): ?string
     {
         return self::PROP_MARKETS[$marketId] ?? null;
+    }
+
+    /**
+     * Synthetic Over line for a soccer "N or more" booking market, or null if
+     * the market isn't one (native over/under props like 39, ordering markets
+     * like first/last scorer, and every non-soccer prop return null). The
+     * mapper stamps this as the leg's `point` with side "Over" so the existing
+     * over/under grader settles "N or more" as stat > (N-0.5).
+     */
+    public static function soccerThresholdPoint(int $marketId): ?float
+    {
+        return self::SOCCER_PROP_THRESHOLDS[$marketId] ?? null;
     }
 
     /** @return list<int> */

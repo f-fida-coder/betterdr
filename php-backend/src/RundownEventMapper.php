@@ -411,14 +411,24 @@ final class RundownEventMapper
                         // pending bets are unaffected (settlement grades the line
                         // stored on the bet leg, not the live doc).
                         if ($isProp || $participantType === 'TYPE_PLAYER') {
-                            if (!$isMain) continue;
+                            $isSoccer = str_starts_with(strtolower($sportKey), 'soccer_');
+                            // US sports ship one is_main_line=true rung per player
+                            // per prop — keep only that (a deliberate risk control).
+                            // Soccer ships EVERY prop as is_main_line=false (one rung
+                            // per player, no ladder), so the same gate would drop the
+                            // whole soccer prop board — bypass it for soccer only.
+                            if (!$isMain && !$isSoccer) continue;
                             $propKey = RundownMarketMap::propKey($marketId) ?? 'player_unknown';
                             // Player id (Rundown participant.id for a TYPE_PLAYER
                             // participant) — carried as `pid` so settlement can
                             // match this leg to the player's box-score stats by a
                             // STABLE id, never by name. Empty → null.
                             $playerId = ($participantTeamKey !== '') ? $participantTeamKey : null;
-                            $propOutcome = self::buildPropOutcome($rawParticipantName, $lineValueRaw, $point, $priceDecimal, $playerId);
+                            // Soccer "N or more" booking markets carry no per-line
+                            // value; grade them as a synthetic Over (N-0.5) so the
+                            // proven over/under grader settles them off the box score.
+                            $thresholdPoint = $isSoccer ? RundownMarketMap::soccerThresholdPoint($marketId) : null;
+                            $propOutcome = self::buildPropOutcome($rawParticipantName, $lineValueRaw, $point, $priceDecimal, $playerId, $thresholdPoint, $isSoccer);
                             if ($propOutcome !== null) {
                                 $propsByKey[$propKey][] = $propOutcome + ['book' => $book['key']];
                             }
@@ -720,7 +730,7 @@ final class RundownEventMapper
      * player to one lineless price. Parse the line value first; fall back to
      * the legacy participant-name prefix and bare-numeric shapes.
      */
-    private static function buildPropOutcome(string $participantName, string $lineValueRaw, ?float $pointNumeric, int|float $price, ?string $playerId = null): ?array
+    private static function buildPropOutcome(string $participantName, string $lineValueRaw, ?float $pointNumeric, int|float $price, ?string $playerId = null, ?float $thresholdPoint = null, bool $soccerYesNo = false): ?array
     {
         if ($participantName === '') return null;
 
@@ -752,6 +762,19 @@ final class RundownEventMapper
             ] + $pid;
         }
 
+        // Soccer "N or more" booking market (no per-line value): synthesize an
+        // Over (N-0.5) leg so the existing over/under grader settles it against
+        // the player's box-score stat (stat > N-0.5 ⟺ stat ≥ N). One-sided —
+        // the feed only offers the "Yes" side, which is exactly this Over.
+        if ($thresholdPoint !== null) {
+            return [
+                'name'        => 'Over',
+                'description' => $participantName,
+                'price'       => $price,
+                'point'       => $thresholdPoint,
+            ] + $pid;
+        }
+
         // Non-O/U side label (e.g. "Yes"/"No" for double-double, scorer
         // buckets): use the label as the side, player as the description.
         if ($lineValue !== '' && !is_numeric($lineValue)) {
@@ -760,6 +783,19 @@ final class RundownEventMapper
                 'description' => $participantName,
                 'price'       => $price,
                 'point'       => $pointNumeric,
+            ] + $pid;
+        }
+
+        // Soccer one-sided market with no threshold (first / last goal scorer):
+        // the side IS "Yes" (this player to do it). Emit "Yes" so the betslip
+        // reads "Lionel Messi Yes", not the player name twice. These have no
+        // box-score ordering data, so settlement leaves them 'pending' (manual).
+        if ($soccerYesNo) {
+            return [
+                'name'        => 'Yes',
+                'description' => $participantName,
+                'price'       => $price,
+                'point'       => null,
             ] + $pid;
         }
 
