@@ -1688,23 +1688,25 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                             disabled: match.rawMatch?.isBettable === false,
                                                             reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
                                                         })}
+                                                        {/* 3-way Draw (soccer / 1X2): shown only when the feed
+                                                            ships a Draw price. Rendered as the MIDDLE box of the
+                                                            ML stack (away → Draw → home) to match the competitor's
+                                                            3-way ML layout; position alone signals "Draw" so the
+                                                            box shows bare odds. Tagged 'h2h' (NOT 'h2h_3_way') so
+                                                            settlement grades it draw-aware. */}
+                                                        {hasValidOdds(match.odds.moneyline.drawOdds) && renderOddsButton({
+                                                            label: formatOdds(match.odds.moneyline.drawOdds, oddsFormat),
+                                                            onClick: () => handleAddToSlip(match.id, 'Draw', 'h2h', match.odds.moneyline.drawOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline', null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
+                                                            available: hasValidOdds(match.odds.moneyline.drawOdds),
+                                                            peerAvailable: awayAvail || homeAvail,
+                                                            disabled: match.rawMatch?.isBettable === false,
+                                                            reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
+                                                        })}
                                                         {renderOddsButton({
                                                             label: formatOdds(match.odds.moneyline.homeOdds, oddsFormat),
                                                             onClick: () => handleAddToSlip(match.id, match.team2.name, 'h2h', match.odds.moneyline.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline', null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
                                                             available: homeAvail,
                                                             peerAvailable: awayAvail,
-                                                            disabled: match.rawMatch?.isBettable === false,
-                                                            reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
-                                                        })}
-                                                        {/* 3-way Draw (soccer / 1X2): shown only when the feed
-                                                            ships a Draw price. Labeled "Draw" since it's not a
-                                                            positional team button. Tagged 'h2h' (NOT 'h2h_3_way')
-                                                            so settlement grades it draw-aware. */}
-                                                        {hasValidOdds(match.odds.moneyline.drawOdds) && renderOddsButton({
-                                                            label: `Draw ${formatOdds(match.odds.moneyline.drawOdds, oddsFormat)}`,
-                                                            onClick: () => handleAddToSlip(match.id, 'Draw', 'h2h', match.odds.moneyline.drawOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline', null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
-                                                            available: hasValidOdds(match.odds.moneyline.drawOdds),
-                                                            peerAvailable: awayAvail || homeAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
                                                             reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
                                                         })}

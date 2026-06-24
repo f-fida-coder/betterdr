@@ -2376,6 +2376,13 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const blocked = match.isBettable === false;
     const rotationAway = match.rotation?.away;
     const rotationHome = match.rotation?.home;
+    // 3-way (1X2) soccer: the ML column carries a middle Draw box, so it becomes
+    // a 3-item stack (away → Draw → home) spanning both team rows, while
+    // Spread/Total keep their two cells. mlGridColumn: col 1 is the team name,
+    // then markets in order spread, ML, total — so ML sits at col 2 (+1 when the
+    // spread column is shown).
+    const isThreeWayMl = visibleMarkets.showMoneyline && match.odds?.moneylineDraw != null;
+    const mlGridColumn = 1 + (visibleMarkets.showSpread ? 1 : 0) + 1;
     const blockedReason = blocked
         ? (match.bettingBlockedReason || 'Betting is temporarily unavailable for this event.')
         : null;
@@ -2857,7 +2864,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     />
                     )
                 )}
-                {visibleMarkets.showMoneyline && (
+                {visibleMarkets.showMoneyline && !isThreeWayMl && (
                     <OddsCell
                         empty={match.odds.moneylineAway === null}
                         disabled={blocked || match.odds.moneylineAway === null}
@@ -2998,7 +3005,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     />
                     )
                 )}
-                {visibleMarkets.showMoneyline && (
+                {visibleMarkets.showMoneyline && !isThreeWayMl && (
                     <OddsCell
                         empty={match.odds.moneylineHome === null}
                         disabled={blocked || match.odds.moneylineHome === null}
@@ -3027,35 +3034,51 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     />
                     )
                 )}
-            </div>
 
-            {/* 3-way moneyline Draw row (soccer / 1X2). Renders only when the
-                feed shipped a Draw price, so 2-way US sports never get an empty
-                row. A separate grid with the SAME column template as the team
-                rows above, so the Draw price lines up under the ML column.
-                Tagged 'h2h' (NOT 'h2h_3_way') so settlement grades it
-                draw-aware. */}
-            {visibleMarkets.showMoneyline && match.odds.moneylineDraw != null && (
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 30px'}`,
-                    columnGap: 4,
-                    alignItems: 'stretch',
-                    borderTop: '1px solid #f0f1f3',
-                }}>
-                    <span style={{ ...teamNameStyle, display: 'flex', alignItems: 'center', color: '#64748b', fontWeight: 600 }}>Draw</span>
-                    {visibleMarkets.showSpread && <span />}
-                    <OddsCell
-                        disabled={blocked || match.odds.moneylineDraw === null}
-                        selected={isSelected('h2h', 'Draw') && !blocked}
-                        main={formatOdds(match.odds.moneylineDraw, oddsFormat)}
-                        juice=""
-                        onClick={() => addIfAllowed(match.id, 'Draw', 'h2h', match.odds.moneylineDraw, matchName, 'Moneyline', null)}
-                    />
-                    {visibleMarkets.showTotals && <span />}
-                    {!isTeaserMode && <span />}
-                </div>
-            )}
+                {/* 3-way (1X2) ML stack: away → Draw → home, as one cell spanning
+                    both team rows in the ML column. Explicitly placed (column +
+                    rowspan), so CSS grid flows the auto-placed Spread/Total cells
+                    around it into their normal columns — their two-cell alignment
+                    is untouched. space-between pins away ML to the top and home ML
+                    to the bottom (aligned with their Spread/Total rows) with the
+                    Draw box centred between them. Draw shows bare odds — its middle
+                    position signals "Draw". Tagged 'h2h' (NOT 'h2h_3_way') so
+                    settlement grades it draw-aware. */}
+                {isThreeWayMl && (
+                    <div style={{
+                        gridColumn: mlGridColumn,
+                        gridRow: '1 / span 2',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        gap: 4,
+                    }}>
+                        <OddsCell
+                            empty={match.odds.moneylineAway === null}
+                            disabled={blocked || match.odds.moneylineAway === null}
+                            selected={isSelected('h2h', match.team1) && !blocked}
+                            main={formatOdds(match.odds.moneylineAway, oddsFormat)}
+                            juice=""
+                            onClick={() => addIfAllowed(match.id, match.team1, 'h2h', match.odds.moneylineAway, matchName, 'Moneyline', null)}
+                        />
+                        <OddsCell
+                            disabled={blocked || match.odds.moneylineDraw === null}
+                            selected={isSelected('h2h', 'Draw') && !blocked}
+                            main={formatOdds(match.odds.moneylineDraw, oddsFormat)}
+                            juice=""
+                            onClick={() => addIfAllowed(match.id, 'Draw', 'h2h', match.odds.moneylineDraw, matchName, 'Moneyline', null)}
+                        />
+                        <OddsCell
+                            empty={match.odds.moneylineHome === null}
+                            disabled={blocked || match.odds.moneylineHome === null}
+                            selected={isSelected('h2h', match.team2) && !blocked}
+                            main={formatOdds(match.odds.moneylineHome, oddsFormat)}
+                            juice=""
+                            onClick={() => addIfAllowed(match.id, match.team2, 'h2h', match.odds.moneylineHome, matchName, 'Moneyline', null)}
+                        />
+                    </div>
+                )}
+            </div>
 
             {showPitchers && (() => {
                 const renderSide = (side, pitcher, isAway) => {
