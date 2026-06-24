@@ -959,10 +959,33 @@ final class SportsbookBetSupport
 
     public static function selectionResult(array $match, array $selection, ?string $manualWinner = null, ?array $playerStats = null): string
     {
+        return self::selectionResultDetailed($match, $selection, $manualWinner, $playerStats)['status'];
+    }
+
+    /**
+     * Fraction-aware sibling of selectionResult(). Returns the SAME binary leg
+     * status (won/lost/void/pending) — so every existing status consumer keeps
+     * working unchanged — PLUS a settleFraction in (0,1].
+     *
+     * settleFraction is 1.0 for every normal half/whole-line leg, so the pair
+     * (status, settleFraction) reproduces the old binary disposition exactly. A
+     * soccer Asian QUARTER line (.25/.75) that lands on its boundary integer
+     * splits the stake across the two adjacent half/whole lines: such a leg
+     * reports status 'won' + settleFraction 0.5 (half win) or status 'lost' +
+     * settleFraction 0.5 (half loss). The settlement payout reads
+     * (status, settleFraction) via legMultiplier() to pay/refund the correct
+     * partial; the transactions ledger, agent 95/5 commission and summary
+     * totals stay correct because they read the resulting DOLLAR payout, never
+     * the fraction.
+     *
+     * @return array{status:string, settleFraction:float}
+     */
+    public static function selectionResultDetailed(array $match, array $selection, ?string $manualWinner = null, ?array $playerStats = null): array
+    {
         $effectiveStatus = SportsMatchStatus::effectiveStatus($match);
         if ($manualWinner !== null) {
             $selectionName = (string) ($selection['selection'] ?? '');
-            return $selectionName === $manualWinner ? 'won' : 'lost';
+            return self::detailedBinary($selectionName === $manualWinner ? 'won' : 'lost');
         }
 
         // Only an explicit cancel signal (operator action OR upstream
@@ -975,11 +998,11 @@ final class SportsbookBetSupport
         // money moves. See SportsMatchStatus::effectiveStatus for how
         // 'expired' is produced.
         if ($effectiveStatus === 'canceled') {
-            return 'void';
+            return self::detailedBinary('void');
         }
 
         if ($effectiveStatus !== 'finished') {
-            return 'pending';
+            return self::detailedBinary('pending');
         }
 
         // MLB listed-pitcher rule: a team-vs-team baseball leg (moneyline,
@@ -990,7 +1013,7 @@ final class SportsbookBetSupport
         // the game finished. Money-safe: only voids on a positively-confirmed
         // different starter (see listedPitcherVoid).
         if (self::listedPitcherVoid($match, $selection)) {
-            return 'void';
+            return self::detailedBinary('void');
         }
 
         $marketType = strtolower((string) ($selection['marketType'] ?? ''));
@@ -1001,9 +1024,9 @@ final class SportsbookBetSupport
         // without it (flag off, no stats, or a pre-player-id leg) the prop stays
         // 'pending' — never a guessed grade.
         if (PlayerPropSettlement::isGradableProp($marketType)) {
-            return $playerStats !== null
+            return self::detailedBinary($playerStats !== null
                 ? PlayerPropSettlement::grade($selection, $playerStats)
-                : 'pending';
+                : 'pending');
         }
 
         $selectionName = (string) ($selection['selection'] ?? '');
@@ -1026,7 +1049,7 @@ final class SportsbookBetSupport
         // own `point`, so alt grading is identical to the base market.
         $parsed = self::parseGradableMarket($marketType);
         if ($parsed === null) {
-            return 'pending';
+            return self::detailedBinary('pending');
         }
         $baseMarket = $parsed['base'];     // 'h2h' | 'spreads' | 'totals'
         $periodSuffix = $parsed['suffix']; // null (full game) or 'q1','h1','p2','1st_5_innings', ...
@@ -1043,10 +1066,10 @@ final class SportsbookBetSupport
             // sufficiency check via periodScorePair.
             $officialGame = self::baseballOfficialGameStatus($match);
             if ($officialGame === 'short') {
-                return 'void';
+                return self::detailedBinary('void');
             }
             if ($officialGame === 'unknown') {
-                return 'pending';
+                return self::detailedBinary('pending');
             }
 
             // Full-game grading. Moneyline uses score_home/score_away as-is
@@ -1059,7 +1082,7 @@ final class SportsbookBetSupport
             } else {
                 $st = self::spreadTotalScores($match);
                 if ($st === null) {
-                    return 'pending';
+                    return self::detailedBinary('pending');
                 }
                 [$scoreHome, $scoreAway] = $st;
             }
@@ -1081,12 +1104,60 @@ final class SportsbookBetSupport
                 // un-gradeable and auto-void it (stake refunded via the standard
                 // void path) rather than tying up player money indefinitely.
                 // effectiveStatus is already 'finished' here (checked above).
-                return self::periodGraceExpired($match) ? 'void' : 'pending';
+                return self::detailedBinary(self::periodGraceExpired($match) ? 'void' : 'pending');
             }
             [$scoreHome, $scoreAway] = $ps;
         }
 
-        return self::gradeAgainstScore($baseMarket, $selectionName, $point, $scoreHome, $scoreAway, $homeTeam, $awayTeam, $teamSide, $side);
+        return self::detailedFromGrade($baseMarket, $selectionName, $point, $scoreHome, $scoreAway, $homeTeam, $awayTeam, $teamSide, $side);
+    }
+
+    /**
+     * Wrap a binary grade as a fraction-aware result (settleFraction 1.0).
+     *
+     * @return array{status:string, settleFraction:float}
+     */
+    private static function detailedBinary(string $status): array
+    {
+        return ['status' => $status, 'settleFraction' => 1.0];
+    }
+
+    /**
+     * Final grading step shared by full-game and period legs. Routes soccer
+     * Asian QUARTER lines (.25/.75 on spreads/totals/team_totals) through the
+     * split-stake grader and maps the disposition to (status, settleFraction);
+     * everything else grades single-line exactly as before (settleFraction
+     * 1.0). When the quarter grader returns null (e.g. a half graded pending,
+     * or a non-quarter point) we fall back to the single-line grade so a leg
+     * is never lost.
+     *
+     * @return array{status:string, settleFraction:float}
+     */
+    private static function detailedFromGrade(
+        string $baseMarket,
+        string $selectionName,
+        ?float $point,
+        float $scoreHome,
+        float $scoreAway,
+        string $homeTeam,
+        string $awayTeam,
+        ?string $teamSide = null,
+        ?string $side = null
+    ): array {
+        if (self::isQuarterPoint($point)
+            && in_array($baseMarket, ['spreads', 'totals', 'team_totals'], true)) {
+            $q = self::gradeQuarterAware($baseMarket, $selectionName, $point, $scoreHome, $scoreAway, $homeTeam, $awayTeam, $teamSide, $side);
+            if ($q !== null) {
+                return match ($q['label']) {
+                    'win'       => ['status' => 'won',  'settleFraction' => 1.0],
+                    'half_win'  => ['status' => 'won',  'settleFraction' => 0.5],
+                    'half_loss' => ['status' => 'lost', 'settleFraction' => 0.5],
+                    'loss'      => ['status' => 'lost', 'settleFraction' => 1.0],
+                    default     => self::detailedBinary(self::gradeAgainstScore($baseMarket, $selectionName, $point, $scoreHome, $scoreAway, $homeTeam, $awayTeam, $teamSide, $side)),
+                };
+            }
+        }
+        return self::detailedBinary(self::gradeAgainstScore($baseMarket, $selectionName, $point, $scoreHome, $scoreAway, $homeTeam, $awayTeam, $teamSide, $side));
     }
 
     /**
@@ -1626,22 +1697,34 @@ final class SportsbookBetSupport
 
         if ($type === 'parlay') {
             $statuses = array_map(static fn (array $row): string => (string) ($row['status'] ?? 'pending'), $rows);
-            if (in_array('lost', $statuses, true)) {
-                return ['status' => 'lost', 'payout' => 0.0];
-            }
             if (in_array('pending', $statuses, true)) {
                 return ['status' => 'pending', 'payout' => self::num($bet['potentialPayout'] ?? 0)];
             }
 
-            $wonRows = array_values(array_filter($rows, static fn (array $row): bool => (string) ($row['status'] ?? '') === 'won'));
-            if ($wonRows === []) {
-                return ['status' => 'void', 'payout' => $riskAmount];
+            // Unified roll-up: multiply every leg's effective multiplier. For
+            // binary legs this is identical to the old "any loss ⇒ 0, else
+            // product of WON odds (voids drop to ×1)" behaviour, because a
+            // normal won→odds, void→1, lost→0. A soccer quarter half-win leg
+            // multiplies by f·odds+(1−f) and a half-loss leg by (1−f)=0.5 —
+            // neither is dropped (risk #5) and neither short-circuits the
+            // parlay to zero the way a FULL loss (×0) does (risk #4).
+            $combined = 1.0;
+            foreach ($rows as $row) {
+                $combined *= self::legMultiplier($row);
+            }
+            if ($combined <= 1e-9) {
+                // A fully-lost leg zeroed the product → no payout.
+                return ['status' => 'lost', 'payout' => 0.0];
             }
 
-            $combined = 1.0;
-            foreach ($wonRows as $row) {
-                $combined *= self::num($row['odds'] ?? 0);
-            }
+            // SGP correlation haircut detection stays keyed off the binary WON
+            // legs so every existing parlay haircuts byte-identically. A
+            // quarter half-win leg (status 'won') participates; a half-loss
+            // (status 'lost') or push (void) leg does not. When no leg won
+            // outright the surviving legs are all pushes/half-loss refunds,
+            // sameGameHaircutFraction([]) returns 0 (no haircut) and the
+            // combined refund multiplier flows through unchanged.
+            $wonRows = array_values(array_filter($rows, static fn (array $row): bool => (string) ($row['status'] ?? '') === 'won'));
             // SGP correlation haircut — IDENTICAL detection + math as placement
             // (calculatePotentialPayout). Re-runs same-game detection on the
             // REMAINING WON legs: if a void dropped a leg so the survivors no
@@ -1657,7 +1740,12 @@ final class SportsbookBetSupport
                     self::num($bet['sgpPropHaircutPct'] ?? 0)
                 )
             );
-            return ['status' => 'won', 'payout' => round($riskAmount * $combined)];
+            // Net classification on the whole-dollar payout: combined>1 ⇒ won,
+            // ==1 (all-push refund) ⇒ void, <1 (half-loss legs dragged the
+            // product below stake) ⇒ lost. Binary parlays only ever land on
+            // combined>1 (a win) or ==1 (all-void refund) — a loss already
+            // returned above — so this reproduces the old result exactly.
+            return self::classifyByNet(round($riskAmount * $combined), $riskAmount);
         }
 
         if ($type === 'teaser') {
@@ -1827,6 +1915,14 @@ final class SportsbookBetSupport
             'basePoint' => isset($selection['basePoint']) && is_numeric($selection['basePoint']) ? (float) $selection['basePoint'] : null,
             'teaserAdjustment' => isset($selection['teaserAdjustment']) && is_numeric($selection['teaserAdjustment']) ? (float) $selection['teaserAdjustment'] : null,
             'status' => $selection['status'] ?? 'pending',
+            // Soccer Asian quarter split: 1.0 for a normal leg, 0.5 for a
+            // half-win/half-loss. Display/payout audit only — the binary
+            // `status` above still drives every existing consumer; this lets
+            // My Bets show a "half stake" note and the payout math reproduce
+            // the correct partial on re-grade.
+            'settleFraction' => isset($selection['settleFraction']) && is_numeric($selection['settleFraction'])
+                ? (float) $selection['settleFraction']
+                : 1.0,
             'matchSnapshot' => $selection['matchSnapshot'] ?? new stdClass(),
             // Final scores (populated by BetSettlementService when the match
             // finishes) so the per-leg drill-down can render "Lost (99 — 105)"
@@ -1898,13 +1994,70 @@ final class SportsbookBetSupport
         if ($status === 'pending') {
             return ['status' => 'pending', 'payout' => 0.0];
         }
+        // Unified return: stake × legMultiplier reproduces the old binary
+        // payouts exactly (won→stake·odds, void→stake, lost→0, since a normal
+        // leg's settleFraction is 1.0) and additionally pays the partial on a
+        // soccer quarter half-win / half-loss leg. Ticket status follows the
+        // approved net rule (payout>stake won / ==stake void/push / <stake lost).
+        return self::classifyByNet($stake * self::legMultiplier($selection), $stake);
+    }
+
+    /**
+     * Effective decimal multiplier of a settled leg, derived from its binary
+     * status and settleFraction. Stake × multiplier = the dollars returned for
+     * that leg; the multiplier also composes multiplicatively in a parlay
+     * roll-up exactly like a normal leg's odds.
+     *
+     *   void        → 1.0                     (full stake refunded)
+     *   won  (f)    → f·odds + (1−f)          (f=1 ⇒ odds; f=0.5 ⇒ half-win)
+     *   lost (f)    → (1−f)                    (f=1 ⇒ 0; f=0.5 ⇒ half-loss refund)
+     *
+     * f (settleFraction) defaults to 1.0 for every normal leg, so binary legs
+     * reduce to won→odds, void→1, lost→0. A 'pending' leg has no defined
+     * multiplier; callers gate pending before reaching here (it returns 0.0
+     * defensively, never silently paying).
+     *
+     * @param array<string, mixed> $row
+     */
+    private static function legMultiplier(array $row): float
+    {
+        $status = (string) ($row['status'] ?? 'pending');
+        $odds = self::num($row['odds'] ?? 0);
+        $rawFraction = $row['settleFraction'] ?? null;
+        $f = is_numeric($rawFraction) ? (float) $rawFraction : 1.0;
+        if ($f <= 0.0 || $f > 1.0) {
+            $f = 1.0; // guard legacy/garbage → treat as a full (binary) leg
+        }
         if ($status === 'void') {
-            return ['status' => 'void', 'payout' => $stake];
+            return 1.0;
         }
         if ($status === 'won') {
-            return ['status' => 'won', 'payout' => $stake * self::num($selection['odds'] ?? 0)];
+            return $f * $odds + (1.0 - $f);
         }
-        return ['status' => 'lost', 'payout' => 0.0];
+        if ($status === 'lost') {
+            return 1.0 - $f; // 0 for a full loss; 0.5 refund for a half-loss
+        }
+        return 0.0; // pending — unreachable in practice
+    }
+
+    /**
+     * Classify a settled wager by NET return (approved rule, shared by straight
+     * and if-bet/reverse legs): payout > stake ⇒ won, payout == stake ⇒ void
+     * (push/refund), payout < stake ⇒ lost — including a partial 0 < payout <
+     * stake (a quarter half-loss returns money but is a net loss). Dollars are
+     * correct regardless of this label; the label is the My Bets headline only.
+     *
+     * @return array{status:string, payout:float}
+     */
+    private static function classifyByNet(float $payout, float $stake): array
+    {
+        if (abs($payout - $stake) <= 1e-9) {
+            return ['status' => 'void', 'payout' => $payout];
+        }
+        if ($payout > $stake) {
+            return ['status' => 'won', 'payout' => $payout];
+        }
+        return ['status' => 'lost', 'payout' => $payout];
     }
 
     /**
@@ -1919,28 +2072,35 @@ final class SportsbookBetSupport
             return ['status' => 'pending', 'payout' => 0.0];
         }
 
-        $firstOutcome = self::settleStraightLeg($first, $stake);
-        if ($firstOutcome['status'] === 'pending') {
+        $firstStatus = (string) ($first['status'] ?? 'pending');
+        if ($firstStatus === 'pending') {
             return ['status' => 'pending', 'payout' => 0.0];
         }
-        if ($firstOutcome['status'] === 'lost') {
+        if ($firstStatus === 'lost') {
+            // First leg lost → the action never reaches the second leg.
             return ['status' => 'lost', 'payout' => 0.0];
         }
-        if ($firstOutcome['status'] === 'void') {
+        if ($firstStatus === 'void') {
+            // First leg pushed → the full stake rolls to the second leg alone.
             return self::settleStraightLeg($second, $stake);
         }
 
+        // First leg won (or quarter half-win) → the rolled action plays on the
+        // second leg.
         $secondStatus = (string) ($second['status'] ?? 'pending');
         if ($secondStatus === 'pending') {
             return ['status' => 'pending', 'payout' => 0.0];
         }
         if ($secondStatus === 'lost') {
+            // Second leg lost → the rolled action loses; nothing is returned.
             return ['status' => 'lost', 'payout' => 0.0];
         }
-        if ($secondStatus === 'void') {
-            return ['status' => 'won', 'payout' => $stake * self::num($first['odds'] ?? 0)];
-        }
-        return ['status' => 'won', 'payout' => $stake * self::num($first['odds'] ?? 0) * self::num($second['odds'] ?? 0)];
+        // stake × M(first) × M(second): a second-leg push (M=1) collapses to
+        // just the first leg's return, a second-leg win compounds. Reproduces
+        // the old binary amounts exactly (won→odds, void→1) and additionally
+        // pays a quarter half-win leg its correct partial multiplier.
+        $payout = $stake * self::legMultiplier($first) * self::legMultiplier($second);
+        return self::classifyByNet($payout, $stake);
     }
 
     /**

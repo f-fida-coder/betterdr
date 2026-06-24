@@ -171,12 +171,19 @@ final class BetSettlementService
                             ) {
                                 $playerStats = self::fetchPlayerStatsForMatch($match);
                             }
-                            $resolvedStatus = SportsbookBetSupport::selectionResult(
+                            $resolvedDetailed = SportsbookBetSupport::selectionResultDetailed(
                                 $match,
                                 $row,
                                 self::isH2HMarket((string) ($row['marketType'] ?? '')) ? $manualWinner : null,
                                 is_array($playerStats) ? $playerStats : null
                             );
+                            $resolvedStatus = (string) $resolvedDetailed['status'];
+                            // settleFraction: 1.0 for every normal leg, 0.5 for a
+                            // soccer Asian quarter half-win/half-loss. Persisted on
+                            // the row so the parlay/straight payout (legMultiplier)
+                            // pays the correct partial — including on a later
+                            // settlement pass that re-reads the stored row.
+                            $resolvedFraction = (float) ($resolvedDetailed['settleFraction'] ?? 1.0);
 
                             // Diagnostics for silently-stuck player props: a prop
                             // leg on a FINISHED match that still won't grade. Logs
@@ -205,6 +212,7 @@ final class BetSettlementService
 
                             if ($resolvedStatus !== $rowStatus) {
                                 $row['status'] = $resolvedStatus;
+                                $row['settleFraction'] = $resolvedFraction;
                                 $row['updatedAt'] = $now;
                                 if ($resolvedStatus !== 'pending') {
                                     $row['settledAt'] = $now;
@@ -251,6 +259,7 @@ final class BetSettlementService
                                 }
                                 $db->updateOne('betselections', ['id' => SqlRepository::id((string) ($row['id'] ?? ''))], [
                                     'status' => $resolvedStatus,
+                                    'settleFraction' => $resolvedFraction,
                                     'updatedAt' => $row['updatedAt'],
                                     'settledAt' => $row['settledAt'] ?? null,
                                     'finalHomeScore' => $row['finalHomeScore'] ?? null,
