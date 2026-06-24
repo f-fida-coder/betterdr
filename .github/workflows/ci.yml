@@ -66,6 +66,9 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Board / bet-mode drift check
+        run: node tools/qa/board-parity.mjs
+
       - name: Build
         working-directory: frontend
         run: npm run build
