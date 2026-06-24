@@ -35,14 +35,9 @@ const MOBILE = read('frontend/src/components/MobileContentView.jsx');
 // Documented, accepted divergences. Key format: "<mode>:<market>".
 // Remove an entry once the underlying source is brought back into parity.
 const KNOWN_DIVERGENCES = new Set([
-  // open_parlay tab exists in both bars + the mobile board shows columns, but
-  // the desktop board's show* whitelists (SportContentView ~L1109-1111) were
-  // never updated to include 'open_parlay', so desktop renders no odds columns
-  // in open-parlay mode. Tracked separately; delete these once the desktop
-  // whitelists include 'open_parlay'.
-  'open_parlay:showSpread',
-  'open_parlay:showMoneyline',
-  'open_parlay:showTotals',
+  // (empty) — no accepted divergences. Any board/tab drift fails the check.
+  // Add an entry "<mode>:<market>" with a comment only to temporarily accept a
+  // documented, separately-tracked gap.
 ]);
 
 let failures = 0;
