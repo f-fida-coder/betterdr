@@ -207,7 +207,7 @@ export const PLAYER_MARKET_LABELS = {
     player_last_td: 'Last TD Scorer',
     player_anytime_td: 'Anytime TD Scorer',
     player_tds_over: 'Total TDs O/U',
-    player_goals: 'Goals (At Least)',
+    player_goals: 'Goals',
     player_power_play_points: 'Power-Play Points',
     player_blocked_shots: 'Blocked Shots',
     player_shots_on_goal: 'Shots on Goal',
