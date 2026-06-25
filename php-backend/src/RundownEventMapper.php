@@ -437,7 +437,17 @@ final class RundownEventMapper
                             $thresholdPoint = $isSoccer ? RundownMarketMap::soccerThresholdPoint($marketId) : null;
                             $propOutcome = self::buildPropOutcome($rawParticipantName, $lineValueRaw, $point, $priceDecimal, $playerId, $thresholdPoint, $isSoccer);
                             if ($propOutcome !== null) {
-                                $propsByKey[$propKey][] = $propOutcome + ['book' => $book['key']];
+                                // HR is OVER 0.5 ONLY by design (Nicky): the Under 0.5
+                                // side hits ~85-95% (HR is a low-probability event), so
+                                // offering it invites a "parlay all the Unders" near-lock
+                                // exploit. Drop the Under side at ingestion so it's never
+                                // stored, displayed, or bettable — prematch (72) AND live
+                                // (71) both reach here via the same path. Do NOT re-add.
+                                $isHrUnder = $propKey === 'batter_home_runs'
+                                    && strtolower((string) ($propOutcome['name'] ?? '')) === 'under';
+                                if (!$isHrUnder) {
+                                    $propsByKey[$propKey][] = $propOutcome + ['book' => $book['key']];
+                                }
                             }
                             continue;
                         }

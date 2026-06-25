@@ -75,13 +75,16 @@ final class RundownMarketMap
         // markets are over/under shaped — the yes/no "to record X" markets
         // (755/761/772/...) are intentionally excluded (different outcome
         // structure than buildPropOutcome handles).
-        10  => 'batter_home_runs',
         // 72 = "to hit a home run" (anytime). Despite line_value_is_participant
         // it ships O/U-shaped ("Over 0.5"/"Under 0.5", is_main_line=true per
         // price) exactly like the count props — so it flows through the same
         // over/under path and the existing batter_home_runs grader (HR ≥ 1).
         // This is the HR market our books (3/19/28) actually price; the O/U
-        // count market (10) comes back empty from them. Verified live 2026-06-25.
+        // count market (10) comes back EMPTY from them. We deliberately do NOT
+        // map 10: it's a count ladder (Over 0.5/1.5/2.5…) and HR is offered as
+        // Over 0.5 ONLY by design (see the HR Under-drop in RundownEventMapper),
+        // so mapping 10 would only re-introduce the alt-line risk if a book ever
+        // starts pricing it. Verified 10 unpriced live 2026-06-25.
         72  => 'batter_home_runs',
         11  => 'batter_total_bases',
         12  => 'batter_hits',

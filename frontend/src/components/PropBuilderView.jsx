@@ -13,6 +13,7 @@ import {
     prettyPlayerMarketLabel,
     isOverUnderName,
     dedupeByPreferredBook,
+    isSingleSidedOverMarket,
 } from '../utils/propBuilderMarkets';
 
 /**
@@ -256,7 +257,7 @@ const PropBuilderView = () => {
             });
             if (byPlayer.size === 0) return;
             const base = prettyPlayerMarketLabel(key);
-            cats.push({ key, label: hasOverUnder ? `Over/Under - ${base}` : base, shortLabel: base, byPlayer });
+            cats.push({ key, label: (hasOverUnder && !isSingleSidedOverMarket(key)) ? `Over/Under - ${base}` : base, shortLabel: base, byPlayer });
         });
 
         cats.sort((a, b) => {
@@ -588,7 +589,13 @@ const PropBuilderView = () => {
                     <div key={`${catKey}-${playerName}-${pk}`} style={playerRowStyle}>
                         <div style={playerNameCellStyle} title={playerName}>{playerName}</div>
                         {side(pair.over, true)}
-                        {side(pair.under, false)}
+                        {/* HR (and any single-sided-over market) ships Over only —
+                            the Under is dropped at ingestion. Render a blank cell,
+                            not the "—" missing-side placeholder, so the lone Over
+                            reads as a clean single selection. */}
+                        {(!pair.under && isSingleSidedOverMarket(catKey))
+                            ? <div style={{ borderLeft: '1px solid #e2e2e2' }} />
+                            : side(pair.under, false)}
                     </div>
                 ))}
                 {rest.length > 0 && (

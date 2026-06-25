@@ -5,6 +5,7 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
 import { isMarketEligibleForMode } from '../utils/teaserAdjustment';
+import { isSingleSidedOverMarket } from '../utils/propBuilderMarkets';
 
 const MARKET_LABELS = {
     player_points: 'Points',
@@ -145,6 +146,11 @@ const prettyMarketLabel = (key) => {
 };
 
 const isOverUnderName = (name) => /^(over|under)$/i.test(String(name || '').trim());
+
+// Render a lone Over for single-sided-over markets (HR is "Over 0.5" only by
+// design — see isSingleSidedOverMarket) the way soccer's one-sided props
+// render, instead of dropping it as US-sport "incomplete data".
+const allowSingleSided = (marketKey, isSoccer) => isSoccer || isSingleSidedOverMarket(marketKey);
 
 // Split a player's outcomes into two-sided Over/Under lines and the rest.
 // A line (a single `point`) is "two-sided" only when BOTH an Over and an
@@ -396,7 +402,7 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
             // never shown and never synthesized.
             const byPlayer = new Map();
             grouped.forEach((playerOutcomes, player) => {
-                const { twoSided, rest } = splitOverUnderProps(playerOutcomes, isSoccer);
+                const { twoSided, rest } = splitOverUnderProps(playerOutcomes, allowSingleSided(key, isSoccer));
                 if (twoSided.length > 0 || rest.length > 0) {
                     byPlayer.set(player, playerOutcomes);
                 }
@@ -414,7 +420,7 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
                 key,
                 // Soccer props are one-sided "N or more" buttons, not paired
                 // Over/Under lines — keep the plain market label for them.
-                label: (hasOverUnder && !isSoccer) ? `Over/Under - ${base}` : base,
+                label: (hasOverUnder && !isSoccer && !isSingleSidedOverMarket(key)) ? `Over/Under - ${base}` : base,
                 byPlayer,
                 points,
             });
@@ -791,7 +797,7 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
      */
     const renderPlayerOutcomes = (catKey, playerName, outcomes, points = []) => {
         const eligible = isEligible(catKey);
-        const { twoSided, rest } = splitOverUnderProps(outcomes, isSoccer);
+        const { twoSided, rest } = splitOverUnderProps(outcomes, allowSingleSided(catKey, isSoccer));
         // ONE row per player: the player's MAIN two-sided Over/Under line — the
         // lowest-point line that has BOTH an Over and an Under price (the feed
         // doesn't ship an is_main_line flag, so "both sides priced" is the

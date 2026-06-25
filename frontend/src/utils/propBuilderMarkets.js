@@ -286,6 +286,15 @@ export const PLAYER_CATEGORY_ORDER = [
 // odds.bookmakers list (the server orders that list, always source of truth).
 export const FALLBACK_BOOK_PRIORITY = ['pinnacle', 'draftkings', 'fanduel', 'betmgm', 'bovada'];
 
+// Player-prop market keys we offer as a single OVER side only (no Under).
+// HR is "Over 0.5" only by design (Nicky): the Under 0.5 side hits ~85-95%
+// (HR is a low-probability event) and invites a "parlay all the Unders"
+// near-lock exploit, so the backend drops the Under at ingestion. The
+// surviving lone Over must still render — US-sport single-sided lines are
+// otherwise hidden — so these are treated like soccer's one-sided props.
+export const SINGLE_SIDED_OVER_MARKETS = new Set(['batter_home_runs']);
+export const isSingleSidedOverMarket = (marketKey) => SINGLE_SIDED_OVER_MARKETS.has(String(marketKey || ''));
+
 // True for a player-prop market key (player_/batter_/pitcher_ family). Lets
 // callers decide whether to surface the friendly stat label — game markets
 // (h2h/spreads/totals and their period variants) get their own labels.
