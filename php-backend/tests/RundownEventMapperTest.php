@@ -564,3 +564,82 @@ TestRunner::run('soccer spread: stays quarter when NO clean rung exists (blank f
     // Nothing to promote to → quarter left intact (board blanks, never fabricated).
     TestRunner::assertTrue(in_array(-2.25, $pts, true) || in_array(2.25, $pts, true), 'quarter left intact as last-resort fallback');
 });
+
+// ── Soccer quarter-TOTAL promotion (O/U) — mirror of the spread case ──────
+// Pinnacle prices soccer totals on a QUARTER grid and marks a .25 rung main
+// (Ivory Coast O/U 3.25); DraftKings/HardRock mark a clean half main (3.5). The
+// mapper must promote the clean rung, keeping Over AND Under pinned to the SAME
+// total (never O 3.5 / U 3.25). Mirrors live feed 2026-06-25.
+function rmtSoccerTotalEvent(bool $allQuarter = false): array
+{
+    $pr = static fn (int $price, bool $main, int $id): array =>
+        ['price' => $price, 'is_main_line' => $main, 'id' => $id, 'updated_at' => '2026-06-25T02:00:00Z'];
+    if ($allQuarter) {
+        $overLines  = [['value' => '3.25', 'prices' => ['3' => $pr(-353, true, 1), '19' => $pr(-150, true, 2)]]];
+        $underLines = [['value' => '3.25', 'prices' => ['3' => $pr(260, true, 3),  '19' => $pr(120, true, 4)]]];
+    } else {
+        $overLines = [
+            ['value' => '3.25', 'prices' => ['3'  => $pr(-353, true, 1)]],            // Pinnacle quarter main
+            ['value' => '3.5',  'prices' => ['19' => $pr(105, true, 2), '28' => $pr(100, true, 3), '3' => $pr(-110, false, 4)]],
+        ];
+        $underLines = [
+            ['value' => '3.25', 'prices' => ['3'  => $pr(260, true, 5)]],
+            ['value' => '3.5',  'prices' => ['19' => $pr(-135, true, 6), '28' => $pr(-130, true, 7), '3' => $pr(-110, false, 8)]],
+        ];
+    }
+    return [
+        'event_id' => 'synthetic-soccer-total',
+        'sport_id' => 18,
+        'teams' => [
+            ['name' => 'Ivory Coast', 'team_id' => 100, 'is_home' => true],
+            ['name' => 'Curacao',     'team_id' => 101, 'is_away' => true],
+        ],
+        'score' => ['event_status' => 'STATUS_SCHEDULED'],
+        'schedule' => ['event_name' => 'Curacao at Ivory Coast'],
+        'markets' => [[
+            'market_id' => 3,
+            'period_id' => 0,
+            'participants' => [
+                ['name' => 'Over',  'type' => 'TYPE_RESULT', 'id' => 200, 'lines' => $overLines],
+                ['name' => 'Under', 'type' => 'TYPE_RESULT', 'id' => 201, 'lines' => $underLines],
+            ],
+        ]],
+    ];
+}
+
+// Collect (side, point) pairs for the totals market across all books.
+function rmtAllTotalRungs(array $doc): array
+{
+    $out = [];
+    foreach (($doc['odds']['bookmakers'] ?? []) as $bm) {
+        foreach (($bm['markets'] ?? []) as $m) {
+            if (($m['key'] ?? '') !== 'totals') continue;
+            foreach (($m['outcomes'] ?? []) as $o) {
+                if (isset($o['point']) && is_numeric($o['point'])) {
+                    $out[] = [strtolower((string) ($o['name'] ?? '')), (float) $o['point']];
+                }
+            }
+        }
+    }
+    return $out;
+}
+
+TestRunner::run('soccer total: quarter main promoted to the clean half rung the feed prices', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtSoccerTotalEvent(false), 'soccer_fifa_world_cup');
+    TestRunner::assertNotNull($doc, 'event mapped');
+    $rungs = rmtAllTotalRungs($doc);
+    TestRunner::assertTrue($rungs !== [], 'totals present');
+    $pts = array_map(static fn ($r) => $r[1], $rungs);
+    $quarters = array_filter($pts, static fn ($p) => abs((abs($p) - floor(abs($p))) - 0.25) < 1e-6 || abs((abs($p) - floor(abs($p))) - 0.75) < 1e-6);
+    TestRunner::assertEquals(0, count($quarters), 'no quarter total on the board');
+    TestRunner::assertFalse(in_array(3.25, $pts, true), 'quarter 3.25 no longer displayed');
+    // Over AND Under both promoted to the SAME clean point 3.5 (coherent, no split).
+    TestRunner::assertTrue(in_array(['over', 3.5], $rungs, false), 'Over promoted to 3.5');
+    TestRunner::assertTrue(in_array(['under', 3.5], $rungs, false), 'Under promoted to 3.5');
+});
+
+TestRunner::run('soccer total: stays quarter when NO clean rung exists (blank fallback preserved)', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtSoccerTotalEvent(true), 'soccer_fifa_world_cup');
+    $pts = array_map(static fn ($r) => $r[1], rmtAllTotalRungs($doc));
+    TestRunner::assertTrue(in_array(3.25, $pts, true), 'quarter total left intact as last-resort fallback');
+});
