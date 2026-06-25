@@ -129,8 +129,16 @@ final class RundownMarketMap
         406  => 'player_shots_on_target',    // 1+ shots on target → Over 0.5
         412  => 'player_shots_on_target',    // 2+ shots on target → Over 1.5
         408  => 'player_goals_assists',      // to score or assist → Over 0.5 (G+A)
-        409  => 'player_goals',              // 2+ goals → Over 1.5
-        917  => 'player_goals',              // 3+ goals → Over 2.5
+        // 410 = "to_score" (anytime goalscorer, score ≥ 1). This is the ONLY
+        // goals rung our affiliate books (3/19/28) actually price — verified
+        // live 2026-06-25 across 6/6 FIFA WC events. One-sided (no per-line
+        // value), so it grades as a synthetic Over 0.5 (= 1+) via the same path
+        // as 404/408. 409 (2+) and 917 (3+) below are catalog-defined but come
+        // back EMPTY from our books — kept mapped (harmless) but they surface
+        // nothing until/unless those books ever price them. Do NOT synthesize.
+        410  => 'player_goals',              // anytime goalscorer (1+) → Over 0.5
+        409  => 'player_goals',              // 2+ goals → Over 1.5 (unpriced by our books)
+        917  => 'player_goals',              // 3+ goals → Over 2.5 (unpriced by our books)
         415  => 'player_fouls',              // 1+ fouls → Over 0.5
         423  => 'player_fouls',              // 2+ fouls → Over 1.5
         435  => 'player_saves',              // 1+ saves → Over 0.5
@@ -156,6 +164,7 @@ final class RundownMarketMap
         406 => 0.5,   // 1+ shots on target
         412 => 1.5,   // 2+ shots on target
         408 => 0.5,   // to score or assist (goals + assists ≥ 1)
+        410 => 0.5,   // anytime goalscorer / "to score" (goals ≥ 1)
         409 => 1.5,   // 2+ goals
         917 => 2.5,   // 3+ goals
         415 => 0.5,   // 1+ fouls
