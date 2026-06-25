@@ -419,13 +419,20 @@ final class RundownEventMapper
                             $pnLower = strtolower(trim($rawParticipantName));
                             if ($pnLower === 'yes' || $pnLower === 'no') continue;
                             $isSoccer = str_starts_with(strtolower($sportKey), 'soccer_');
+                            $propKey = RundownMarketMap::propKey($marketId) ?? 'player_unknown';
                             // US sports ship one is_main_line=true rung per player
                             // per prop — keep only that (a deliberate risk control).
                             // Soccer ships EVERY prop as is_main_line=false (one rung
                             // per player, no ladder), so the same gate would drop the
                             // whole soccer prop board — bypass it for soccer only.
-                            if (!$isMain && !$isSoccer) continue;
-                            $propKey = RundownMarketMap::propKey($marketId) ?? 'player_unknown';
+                            // EXCEPTION (Nicky): HR is an OVER-ONLY 1+/2+ ladder to
+                            // match BettorJuice. Over 0.5 + Over 1.5 ride market 72 as
+                            // is_main_line=false rungs, so admit batter_home_runs OVER
+                            // rungs with point <= 1.5 (Over 0.5/1.5 only; Over 2.5+
+                            // rejected; the Under-drop below still kills every Under).
+                            // The 2+ rung is single-book (DraftKings) so expect gaps —
+                            // never synthesize a price to fill them.
+                            if (!$isMain && !$isSoccer && !self::isHrOverLadderRung($propKey, $lineValueRaw)) continue;
                             // Player id (Rundown participant.id for a TYPE_PLAYER
                             // participant) — carried as `pid` so settlement can
                             // match this leg to the player's box-score stats by a
@@ -719,6 +726,25 @@ final class RundownEventMapper
         usort($valid, static fn ($a, $b): int => ((float) $a['price']) <=> ((float) $b['price']));
         // Lower-middle index → house-safe on even counts (lower decimal = lower payout).
         return $valid[intdiv(count($valid) - 1, 2)];
+    }
+
+    /**
+     * True for a non-main HR rung we deliberately admit past the main-line
+     * gate: batter_home_runs, side OVER, point <= 1.5 (Over 0.5 / Over 1.5).
+     * Everything else — Over 2.5+, any Under, any other prop — stays gated.
+     * This keeps the Over-only 1+/2+ HR ladder (Nicky) without reopening
+     * alt-line ladders for any other US prop. The line value carries the side
+     * and point together ("Over 1.5"), exactly as market 72 ships it.
+     */
+    private static function isHrOverLadderRung(string $propKey, string $lineValueRaw): bool
+    {
+        if ($propKey !== 'batter_home_runs') {
+            return false;
+        }
+        if (preg_match('/^over\s+([0-9]+(?:\.[0-9]+)?)$/i', trim($lineValueRaw), $m) !== 1) {
+            return false;
+        }
+        return ((float) $m[1]) <= 1.5;
     }
 
     /**

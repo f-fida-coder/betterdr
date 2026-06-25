@@ -422,3 +422,64 @@ TestRunner::run('team totals: non-main rung stored under alternate_team_totals, 
     TestRunner::assertEquals('over', $alt[0]['side'], 'alternate rung keeps structured side');
     TestRunner::assertEquals('home', $alt[0]['teamSide'], 'alternate rung keeps teamSide');
 });
+
+// ── HR props: Over-only 1+/2+ ladder (Nicky) ─────────────────────────────
+// Market 72 (player_home_run) ships Over 0.5 (main), Over 1.5 / Over 2.5
+// (non-main, DraftKings-only) and Under 0.5 (main). The mapper must admit the
+// Over 0.5 + Over 1.5 rungs PAST the main-line gate (so we offer 1+/2+), keep
+// the Over 2.5+ rungs gated out (cap at 1.5), and NEVER store any Under — for
+// prematch (72) and live (71) alike. Mirrors the real feed shape verified
+// live 2026-06-25.
+function rmtHrEvent(int $marketId): array
+{
+    return [
+        'event_id' => 'synthetic-hr',
+        'sport_id' => 3,
+        'teams' => [
+            ['name' => 'Detroit', 'team_id' => 53, 'is_home' => true],
+            ['name' => 'Los Angeles', 'team_id' => 57, 'is_away' => true],
+        ],
+        'score' => ['event_status' => 'STATUS_SCHEDULED'],
+        'schedule' => ['event_name' => 'Los Angeles at Detroit'],
+        'markets' => [[
+            'market_id' => $marketId,
+            'period_id' => 0,
+            'participants' => [
+                ['name' => 'Riley Greene', 'type' => 'TYPE_PLAYER', 'id' => 900123, 'lines' => [
+                    ['value' => 'Over 0.5',  'prices' => ['3'  => ['price' => 520,   'is_main_line' => true,  'id' => 8001, 'updated_at' => '2026-06-25T02:00:00Z']]],
+                    ['value' => 'Over 1.5',  'prices' => ['19' => ['price' => 2500,  'is_main_line' => false, 'id' => 8002, 'updated_at' => '2026-06-25T02:00:00Z']]],
+                    ['value' => 'Over 2.5',  'prices' => ['19' => ['price' => 9000,  'is_main_line' => false, 'id' => 8003, 'updated_at' => '2026-06-25T02:00:00Z']]],
+                    ['value' => 'Under 0.5', 'prices' => ['3'  => ['price' => -900,  'is_main_line' => true,  'id' => 8004, 'updated_at' => '2026-06-25T02:00:00Z']]],
+                ]],
+            ],
+        ]],
+    ];
+}
+
+// Collect "side point" tokens for the batter_home_runs prop key.
+function rmtHrRungs(array $doc): array
+{
+    $out = [];
+    foreach (($doc['playerProps'] ?? []) as $m) {
+        if (($m['key'] ?? '') !== 'batter_home_runs') continue;
+        foreach (($m['outcomes'] ?? []) as $o) {
+            $out[] = strtolower((string) ($o['name'] ?? '')) . ' ' . (string) (0 + (float) ($o['point'] ?? 0));
+        }
+    }
+    sort($out);
+    return $out;
+}
+
+foreach ([72 => 'prematch', 71 => 'live'] as $hrMarketId => $label) {
+    TestRunner::run("HR ($label market $hrMarketId): Over 0.5 + Over 1.5 admitted, Over 2.5 capped, Under dropped", function () use ($hrMarketId): void {
+        $doc = RundownEventMapper::toMatchDoc(rmtHrEvent($hrMarketId), 'baseball_mlb');
+        TestRunner::assertNotNull($doc, 'event mapped');
+        $rungs = rmtHrRungs($doc);
+        // Exactly the two Over rungs we offer — nothing else.
+        TestRunner::assertEquals(2, count($rungs), 'exactly two HR rungs stored');
+        TestRunner::assertTrue(in_array('over 0.5', $rungs, true), 'Over 0.5 admitted');
+        TestRunner::assertTrue(in_array('over 1.5', $rungs, true), 'Over 1.5 admitted (past main-line gate)');
+        TestRunner::assertFalse(in_array('over 2.5', $rungs, true), 'Over 2.5 capped out');
+        TestRunner::assertFalse(in_array('under 0.5', $rungs, true), 'Under 0.5 never stored');
+    });
+}
