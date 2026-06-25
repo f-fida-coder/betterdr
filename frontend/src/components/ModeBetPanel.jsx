@@ -950,6 +950,18 @@ const ModeBetPanel = ({
     // as `amount` and doubles back to total risk.
     const effectiveCombinedRisk = useMemo(() => {
         if (normalizedMode === 'straight') return 0;
+        // Nicky's rule: "a parlay always risks the base amount they choose."
+        // For parlay (and open parlay → normalizedMode === 'parlay') the typed
+        // number IS the risk — never the Bet-mode To-Win anchor, which grossed
+        // up the stake on minus odds (typed $1,000 → risk $1,040 at ~-104) and
+        // both displayed AND debited that inflated number. Risk-anchor here so
+        // the typed base is exactly what's charged, regardless of the Bet/Risk/
+        // Win pill, and To-Win is derived downstream (risk × combined decimal).
+        // Other combined modes (teaser/if_bet/reverse) keep their To-Win
+        // conversion unchanged.
+        if (normalizedMode === 'parlay') {
+            return Number.isFinite(wagerAmount) && wagerAmount > 0 ? wagerAmount : 0;
+        }
         const sourceWager = normalizedMode === 'reverse' ? wagerAmount / 2 : wagerAmount;
         const { risk } = resolveStake(stakeMode, sourceWager, ticketDecimalOdds);
         return Number.isFinite(risk) && risk > 0 ? risk : 0;
@@ -1354,7 +1366,12 @@ const ModeBetPanel = ({
         // full declared parlay (real legs + -110 placeholders) — never a
         // typed Win, since the odds aren't final while legs are still being
         // filled. So bypass the Win-mode pin for open parlays.
-        if (!isOpenParlay && summarySmartMode === 'win' && wagerAmount > 0 && legCount > 0 && normalizedMode !== 'straight') {
+        // Parlays risk-anchor (Nicky's rule): the typed number is the RISK, so
+        // To-Win is always the derived payout (risk × combined odds − risk),
+        // never the typed value. Open parlay is already excluded via
+        // !isOpenParlay; excluding normalizedMode 'parlay' also covers closed
+        // parlays. Teaser/if_bet/reverse keep typed-Win pinning.
+        if (!isOpenParlay && normalizedMode !== 'parlay' && summarySmartMode === 'win' && wagerAmount > 0 && legCount > 0 && normalizedMode !== 'straight') {
             rawWin = wagerAmount;
         } else {
             rawWin = Math.max(0, potentialPayout - totalRisk);
@@ -1846,9 +1863,13 @@ const ModeBetPanel = ({
             // only when the resolved interpretation IS win avoids over-
             // pinning a plus-money parlay's payout (which the backend
             // already computes cleanly from risk × decimal).
-            const combinedSmartMode = stakeMode === 'bet'
-                ? resolveBetSmartMode(ticketDecimalOdds)
-                : stakeMode;
+            // Parlays risk-anchor (Nicky's rule): the typed number is the RISK,
+            // not a To-Win target, so never pin requestedWin for them — let the
+            // backend back-compute payout from risk × combined decimal odds.
+            // Other combined modes keep Bet/Win To-Win pinning.
+            const combinedSmartMode = normalizedMode === 'parlay'
+                ? 'risk'
+                : (stakeMode === 'bet' ? resolveBetSmartMode(ticketDecimalOdds) : stakeMode);
             const combinedRequestedWin = combinedSmartMode === 'win' && Number.isFinite(Number(wager)) && Number(wager) > 0
                 ? Math.round(Number(wager))
                 : 0;
