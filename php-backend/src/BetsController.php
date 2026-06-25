@@ -3079,11 +3079,27 @@ final class BetsController
                 ]);
             }
             if (!is_array($rungMatch)) {
-                throw new ApiException('Line ' . $selection . ' is no longer offered', 409, [
-                    'code' => 'LINE_NOT_OFFERED',
-                ]);
+                // Defense-in-depth: the open-parlay resume flow historically
+                // over-sent a `point` on MAIN lines (App.jsx confirmResumeAddLeg),
+                // forcing them into this strict alt-rung lookup and hard-rejecting
+                // valid main-line placements ("Line X is no longer offered"). For a
+                // CORE main market (spreads/totals main — NOT an alt key) with no
+                // bought points, fall through to the lenient name-match +
+                // team-reconciliation path below — the same path normal straight
+                // placement already uses — instead of rejecting. Genuine alt
+                // markets and Buy Points still REQUIRE an exact rung (the ladder
+                // holds many same-name rungs), so they keep the strict rejection.
+                $isAltMarketKey = AltLineCap::isAltKey(strtolower((string) ($market['key'] ?? '')));
+                if ($isAltMarketKey || abs($boughtPoints) > 1e-9) {
+                    throw new ApiException('Line ' . $selection . ' is no longer offered', 409, [
+                        'code' => 'LINE_NOT_OFFERED',
+                    ]);
+                }
+                // Core main line, no bought points → leave $outcome null so the
+                // lenient match loop below resolves it. The alt risk-cap block
+                // just below is a no-op here (it only runs for alt keys).
             }
-            $outcome = $rungMatch;
+            $outcome = is_array($rungMatch) ? $rungMatch : null;
 
             // House risk cap — reject rungs beyond the configured
             // nearest-to-main limit, by exact point, using the SAME AltLineCap

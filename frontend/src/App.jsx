@@ -629,7 +629,14 @@ function AppInner() {
         odds: Number(item.odds),
         marketType: item.marketType,
         type: item.marketType,
-        ...(Number.isFinite(Number(item.line)) ? { point: Number(item.line) } : {}),
+        // Send `point` EXACTLY like the normal betslip placement does
+        // (ModeBetPanel keys off sel.point, not the always-present sel.line):
+        // only genuine alt-rung / point-carrying selections include a point, so
+        // a MAIN-line spread/total/ML sends none and takes the lenient
+        // name-match path at validation — the same path a straight bet uses.
+        // Using item.line here forced every main line through the strict
+        // alt-line authentication and rejected it ("Line X is no longer offered").
+        ...(Number.isFinite(Number(item.point)) ? { point: Number(item.point) } : {}),
         ...(item.selectionFull ? { selectionFull: item.selectionFull } : {}),
       };
       await addOpenParlayLeg(resume.betId, leg, token, { requestId: createRequestId() });
