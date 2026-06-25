@@ -599,16 +599,28 @@ final class BetSettlementService
         if (preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
             return ['matchesChecked' => 0, 'matchesSettled' => 0, 'betsSettled' => 0, 'errors' => 0, 'matchIds' => []];
         }
-        $pendingBets = $db->findMany('bets', [
+        // Discover match IDs from BOTH ordinary pending tickets AND the user's
+        // still-OPEN parlays (open play, status='open'). An open parlay's legs
+        // are graded per-leg as their games finish (settleMatch +
+        // OpenParlayService::isGradableOpenTicket) while the ticket stays open
+        // — but those tickets are status='open', not 'pending', so a
+        // pending-only discovery never swept their leg matches. The player then
+        // saw a finished, winning leg with no "W" until the background worker
+        // happened to grade it. Including 'open' here gives open-parlay legs the
+        // same on-read grade + stuck-match heal every pending bet already gets
+        // (the worker sweep already covers them via the per-leg betselections
+        // query). No money math changes: an incomplete open parlay still only
+        // grades its legs and never pays early (shouldSettleNow gates payout).
+        $activeBets = $db->findMany('bets', [
             'userId' => SqlRepository::id($userId),
-            'status' => 'pending',
+            'status' => ['$in' => ['pending', 'open']],
         ], [
             'projection' => ['id' => 1, 'matchId' => 1, 'selections' => 1],
             'limit' => 200,
         ]);
 
         $matchIds = [];
-        foreach ($pendingBets as $bet) {
+        foreach ($activeBets as $bet) {
             // Straight: top-level matchId.
             $mid = (string) ($bet['matchId'] ?? '');
             if ($mid !== '' && preg_match('/^[a-f0-9]{24}$/i', $mid) === 1) {
