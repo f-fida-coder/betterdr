@@ -483,3 +483,84 @@ foreach ([72 => 'prematch', 71 => 'live'] as $hrMarketId => $label) {
         TestRunner::assertFalse(in_array('under 0.5', $rungs, true), 'Under 0.5 never stored');
     });
 }
+
+// ── Soccer quarter-spread promotion (Asian handicap) ─────────────────────
+// Pinnacle prices soccer spreads on a QUARTER grid and marks a .25 rung as
+// is_main_line (Ivory Coast -2.25); DraftKings/HardRock mark a clean HALF main
+// (-2.5) on the same event. The mapper must promote the clean rung so the board
+// shows a real, priced, bettable -2.5 (not blank). Mirrors live feed 2026-06-25.
+function rmtSoccerSpreadEvent(bool $allQuarter = false): array
+{
+    $pr = static fn (int $price, bool $main, int $id): array =>
+        ['price' => $price, 'is_main_line' => $main, 'id' => $id, 'updated_at' => '2026-06-25T02:00:00Z'];
+    if ($allQuarter) {
+        // No book prices a non-quarter spread → fallback: stays quarter (blank).
+        $homeLines = [['value' => '-2.25', 'prices' => ['3' => $pr(104, true, 1), '19' => $pr(120, true, 2)]]];
+        $awayLines = [['value' => '2.25',  'prices' => ['3' => $pr(-114, true, 3), '19' => $pr(-150, true, 4)]]];
+    } else {
+        $homeLines = [
+            ['value' => '-2.25', 'prices' => ['3'  => $pr(104, true, 1)]],            // Pinnacle quarter main
+            ['value' => '-2.5',  'prices' => ['19' => $pr(120, true, 2), '28' => $pr(130, true, 3), '3' => $pr(-147, false, 4)]],
+            ['value' => '-2.0',  'prices' => ['3'  => $pr(-135, false, 5)]],
+        ];
+        $awayLines = [
+            ['value' => '2.25',  'prices' => ['3'  => $pr(-114, true, 6)]],
+            ['value' => '2.5',   'prices' => ['19' => $pr(-150, true, 7), '28' => $pr(-160, true, 8), '3' => $pr(-147, false, 9)]],
+            ['value' => '2.0',   'prices' => ['3'  => $pr(118, false, 10)]],
+        ];
+    }
+    return [
+        'event_id' => 'synthetic-soccer-hc',
+        'sport_id' => 18,
+        'teams' => [
+            ['name' => 'Ivory Coast', 'team_id' => 100, 'is_home' => true],
+            ['name' => 'Curacao',     'team_id' => 101, 'is_away' => true],
+        ],
+        'score' => ['event_status' => 'STATUS_SCHEDULED'],
+        'schedule' => ['event_name' => 'Curacao at Ivory Coast'],
+        'markets' => [[
+            'market_id' => 2,
+            'period_id' => 0,
+            'participants' => [
+                ['name' => 'Ivory Coast', 'type' => 'TYPE_TEAM', 'id' => 100, 'lines' => $homeLines],
+                ['name' => 'Curacao',     'type' => 'TYPE_TEAM', 'id' => 101, 'lines' => $awayLines],
+            ],
+        ]],
+    ];
+}
+
+// Collect every spread point across all books in the doc.
+function rmtAllSpreadPoints(array $doc): array
+{
+    $pts = [];
+    foreach (($doc['odds']['bookmakers'] ?? []) as $bm) {
+        foreach (($bm['markets'] ?? []) as $m) {
+            if (($m['key'] ?? '') !== 'spreads') continue;
+            foreach (($m['outcomes'] ?? []) as $o) {
+                if (isset($o['point']) && is_numeric($o['point'])) $pts[] = (float) $o['point'];
+            }
+        }
+    }
+    return $pts;
+}
+
+TestRunner::run('soccer spread: quarter main promoted to the clean half rung the feed prices', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtSoccerSpreadEvent(false), 'soccer_fifa_world_cup');
+    TestRunner::assertNotNull($doc, 'event mapped');
+    $pts = rmtAllSpreadPoints($doc);
+    TestRunner::assertTrue($pts !== [], 'spreads present');
+    // No quarter survives on the displayed/bettable spread.
+    $quarters = array_filter($pts, static fn ($p) => abs((abs($p) - floor(abs($p))) - 0.25) < 1e-6 || abs((abs($p) - floor(abs($p))) - 0.75) < 1e-6);
+    TestRunner::assertEquals(0, count($quarters), 'no quarter spread on the board');
+    // Promoted to the real -2.5 / +2.5 clean rung; -2.25 is gone.
+    TestRunner::assertTrue(in_array(-2.5, $pts, true), 'home spread promoted to -2.5');
+    TestRunner::assertTrue(in_array(2.5, $pts, true), 'away spread promoted to +2.5');
+    TestRunner::assertFalse(in_array(-2.25, $pts, true), 'quarter -2.25 no longer displayed');
+});
+
+TestRunner::run('soccer spread: stays quarter when NO clean rung exists (blank fallback preserved)', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtSoccerSpreadEvent(true), 'soccer_fifa_world_cup');
+    $pts = rmtAllSpreadPoints($doc);
+    // Nothing to promote to → quarter left intact (board blanks, never fabricated).
+    TestRunner::assertTrue(in_array(-2.25, $pts, true) || in_array(2.25, $pts, true), 'quarter left intact as last-resort fallback');
+});

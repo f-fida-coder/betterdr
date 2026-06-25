@@ -541,8 +541,20 @@ final class RundownEventMapper
             }
         }
 
+        $bookmakers = self::materializeBookmakers($bookmakersById);
+        // Soccer Asian-handicap main lines: some books (e.g. Pinnacle) price the
+        // spread on a QUARTER grid and mark a .25/.75 rung as is_main_line, while
+        // others (DraftKings/HardRock) mark a clean whole/half/PK main on the SAME
+        // event. Quarter lines are hidden + placement-blocked (interim policy), so
+        // a quarter main would blank the spread cell even though a real priced
+        // whole/half line exists. Promote the cleanest priced rung so the board
+        // shows a clean line that is genuinely bettable + settleable.
+        if (str_starts_with(strtolower($sportKey), 'soccer_')) {
+            $bookmakers = self::promoteSoccerSpreadCleanRung($bookmakers);
+        }
+
         return [
-            'bookmakers'      => self::materializeBookmakers($bookmakersById),
+            'bookmakers'      => $bookmakers,
             // Collapse alt-spread / alt-total / period LADDERS to one rung per
             // (side, point) at the house-safe price — Rundown sends one outcome
             // per book per rung, which otherwise shows "Germany -4.5" once per
@@ -596,6 +608,69 @@ final class RundownEventMapper
             usort($out, static fn (array $a, array $b): int => $rank($a) <=> $rank($b));
         }
         return $out;
+    }
+
+    /**
+     * Soccer spreads only: replace any book's QUARTER (.25/.75) main-line spread
+     * with the cleanest available whole/half/PK spread the feed actually prices
+     * for the same event.
+     *
+     * WHY: both the board (MatchesController::selectMarketsFromBookmakers builds
+     * odds.markets) and placement (BetsController::collectMatchMarkets →
+     * selectMarketsFromBookmakers) select the spread from THESE stored
+     * bookmakers. A quarter main is hidden on the board and blocked at placement
+     * (interim quarter-line policy), so it would blank the cell. Other books
+     * mark a clean main on the same event (e.g. Pinnacle -2.25 main, DraftKings
+     * /HardRock -2.5 main), so a real, priced, two-sided-coherent line exists.
+     *
+     * HOW: pick the first book (preferred order) whose spreads main is FULLY
+     * non-quarter as the reference, then overwrite every book whose spreads main
+     * contains a quarter with that reference. Because every reader picks from the
+     * same stored bookmakers, the promoted line is what is shown, bet, AND graded
+     * — display == stored == bettable == settled. We copy a REAL priced outcome;
+     * nothing is fabricated or rounded. If NO book prices a non-quarter spread
+     * for the event, leave it untouched (board blanks — last-resort fallback).
+     * The quarter HIDE + placement BLOCK stay fully intact for every other path.
+     *
+     * @param list<array<string,mixed>> $bookmakers
+     * @return list<array<string,mixed>>
+     */
+    private static function promoteSoccerSpreadCleanRung(array $bookmakers): array
+    {
+        $spreadHasQuarter = static function (array $market): bool {
+            foreach (($market['outcomes'] ?? []) as $o) {
+                $pt = is_array($o) ? ($o['point'] ?? null) : null;
+                if (is_numeric($pt) && SportsbookBetSupport::isQuarterPoint((float) $pt)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        // Reference = first book (already preferred-ordered) whose spreads main
+        // is fully non-quarter and actually priced.
+        $clean = null;
+        foreach ($bookmakers as $bm) {
+            foreach ((is_array($bm['markets'] ?? null) ? $bm['markets'] : []) as $m) {
+                if (!is_array($m) || strtolower((string) ($m['key'] ?? '')) !== 'spreads') continue;
+                $outs = is_array($m['outcomes'] ?? null) ? $m['outcomes'] : [];
+                if ($outs === []) continue;
+                if (!$spreadHasQuarter($m)) { $clean = $outs; break 2; }
+            }
+        }
+        if ($clean === null) {
+            return $bookmakers; // no clean spread anywhere → leave (blank fallback)
+        }
+
+        foreach ($bookmakers as $bi => $bm) {
+            foreach ((is_array($bm['markets'] ?? null) ? $bm['markets'] : []) as $mi => $m) {
+                if (!is_array($m) || strtolower((string) ($m['key'] ?? '')) !== 'spreads') continue;
+                if ($spreadHasQuarter($m)) {
+                    $bookmakers[$bi]['markets'][$mi]['outcomes'] = $clean;
+                }
+            }
+        }
+        return $bookmakers;
     }
 
     /**
