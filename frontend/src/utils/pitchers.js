@@ -11,12 +11,16 @@ export function isSoccerSportKey(sportKey) {
     return String(sportKey || '').toLowerCase().startsWith('soccer');
 }
 
-// WNBA sport-key predicate. WNBA alternate spreads were dropped from ingestion
-// (Nicky), so the board must not offer the Spread⇄Alt toggle for WNBA even when
-// residual/stale alt-spread rungs are still stored on a match. Scoped to WNBA
-// only — NBA and other basketball alt spreads are unaffected.
-export function isWnbaSportKey(sportKey) {
-    return String(sportKey || '').toLowerCase() === 'basketball_wnba';
+// Sports where the board hides the Spread⇄Alt toggle entirely. Bettors move the
+// line with Buy Points instead of pre-priced alt-spread ladders.
+//   - WNBA (basketball_wnba): alt spreads dropped at ingestion (Nicky); residual
+//     stale rungs may still be stored, so suppress by sport.
+//   - Football (americanfootball_*: NFL + NCAAF): use Buy Points, not alt
+//     ladders (Nicky). Requires BUY_POINTS_ENABLED_SPORTS to include the key.
+// Team totals (the Total⇄TT toggle) are unaffected for all of these.
+export function isAltSpreadSuppressedSport(sportKey) {
+    const k = String(sportKey || '').toLowerCase();
+    return k === 'basketball_wnba' || k.startsWith('americanfootball');
 }
 
 // "Sandy Alcantara" -> "S Alcantara" (matches the listed-pitcher convention

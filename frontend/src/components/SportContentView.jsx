@@ -6,7 +6,7 @@ import { useToast } from '../contexts/ToastContext';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import { teaserSportGroup } from '../utils/teaserAdjustment';
 import { resolveBroadcast } from '../utils/broadcast';
-import { isMlbSportKey, isWnbaSportKey, formatPitcherLabel, hasListedPitchers, MLB_LISTED_PITCHER_POLICY } from '../utils/pitchers';
+import { isMlbSportKey, isAltSpreadSuppressedSport, formatPitcherLabel, hasListedPitchers, MLB_LISTED_PITCHER_POLICY } from '../utils/pitchers';
 import { TERMINAL_MATCH_STATUSES, isLiveLikeMatch } from '../utils/liveStatus';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
@@ -1614,12 +1614,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 };
                                                 const awayLadder = buildLadder(awayName);
                                                 const homeLadder = buildLadder(homeName);
-                                                // WNBA: never offer the Spread⇄Alt toggle — alt spreads
-                                                // were dropped for WNBA at ingestion, but residual/stale
-                                                // rungs may still be stored. Gate the toggle off by sport
-                                                // so the Spread column stays a static label. Team totals
-                                                // (Total⇄TT) are unaffected. Scoped to WNBA only.
-                                                const hasAltSpreads = !isWnbaSportKey(match.sportKey) && (awayLadder.length > 0 || homeLadder.length > 0);
+                                                // Some sports hide the Spread⇄Alt toggle and use Buy
+                                                // Points instead (WNBA: alt spreads dropped at ingestion;
+                                                // football: Buy Points, not alt ladders). Gate the toggle
+                                                // off by sport so the Spread column stays a static label.
+                                                // Team totals (Total⇄TT) are unaffected.
+                                                const hasAltSpreads = !isAltSpreadSuppressedSport(match.sportKey) && (awayLadder.length > 0 || homeLadder.length > 0);
                                                 const altOn = hasAltSpreads && !!altSpreadByMatch[match.id];
 
                                                 // The "Spread" header text IS the toggle — no separate pill.
