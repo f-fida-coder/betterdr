@@ -11,6 +11,14 @@ export function isSoccerSportKey(sportKey) {
     return String(sportKey || '').toLowerCase().startsWith('soccer');
 }
 
+// WNBA sport-key predicate. WNBA alternate spreads were dropped from ingestion
+// (Nicky), so the board must not offer the Spread⇄Alt toggle for WNBA even when
+// residual/stale alt-spread rungs are still stored on a match. Scoped to WNBA
+// only — NBA and other basketball alt spreads are unaffected.
+export function isWnbaSportKey(sportKey) {
+    return String(sportKey || '').toLowerCase() === 'basketball_wnba';
+}
+
 // "Sandy Alcantara" -> "S Alcantara" (matches the listed-pitcher convention
 // real books use on the board). One-word names pass through unchanged.
 export function abbreviatePitcherName(name) {

@@ -19,7 +19,7 @@ import { resolveBroadcast } from '../utils/broadcast';
 import { isLiveLikeMatch } from '../utils/liveStatus';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
-import { isMlbSportKey, isSoccerSportKey, formatPitcherLabel, MLB_LISTED_PITCHER_POLICY } from '../utils/pitchers';
+import { isMlbSportKey, isWnbaSportKey, formatPitcherLabel, MLB_LISTED_PITCHER_POLICY } from '../utils/pitchers';
 import {
     FULL_PERIOD,
     getPeriodsForSportKey,
@@ -2419,7 +2419,11 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const altSpreads = match.odds?.altSpreads || {};
     const awayAltLadder = Array.isArray(altSpreads.away) ? altSpreads.away : [];
     const homeAltLadder = Array.isArray(altSpreads.home) ? altSpreads.home : [];
-    const hasAltSpreads = !isTeaserMode && (awayAltLadder.length > 0 || homeAltLadder.length > 0);
+    // WNBA: never offer the Spread⇄Alt toggle — alt spreads were dropped for
+    // WNBA at ingestion, but residual/stale rungs may still be stored. Gate the
+    // toggle off by sport so the Spread column stays a static label. Team totals
+    // (the Total⇄TT toggle) are unaffected. Scoped to WNBA only.
+    const hasAltSpreads = !isTeaserMode && !isWnbaSportKey(match?.sportKey || match?.sport) && (awayAltLadder.length > 0 || homeAltLadder.length > 0);
     const [altOn, setAltOn] = React.useState(false);
     const altSpreadsActive = hasAltSpreads && altOn;
     // Alternate-total ladders (Over / Under), built in extractOdds from the
