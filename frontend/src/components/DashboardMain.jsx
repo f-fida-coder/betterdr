@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import SportContentView from './SportContentView';
 import OutrightsView from './OutrightsView';
 import ErrorBoundary from './ErrorBoundary';
-import { findSportItemById } from '../data/sportsData';
+import { findSportItemById, OUTRIGHTS_ENABLED } from '../data/sportsData';
 
 const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
     const isDefault = selectedSports.length === 0;
@@ -92,7 +92,10 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
 
     // Special-view dispatch happens AFTER all hooks above have run so we
     // never violate Rules of Hooks when switching to/from these branches.
-    if (selectedItem && selectedItem.type === 'futures') {
+    // TEMP: outrights hidden (see OUTRIGHTS_ENABLED) — guard the OutrightsView
+    // render so a stale persisted FUTURES selection can't surface inflated
+    // outright cards. Re-enable with the backend kill-switch removal.
+    if (OUTRIGHTS_ENABLED && selectedItem && selectedItem.type === 'futures') {
         const futuresSportKey = Array.isArray(selectedItem.sportKeys) && selectedItem.sportKeys.length > 0
             ? selectedItem.sportKeys[0]
             : '';

@@ -14,6 +14,14 @@
  * DashboardMain instead of the regular match list.
  */
 
+// TEMP: outrights hidden — odds inflation (price stored American, read as
+// decimal — decimalToAmericanInt(450) = 44900). Backend already 409-blocks
+// placement (OUTRIGHTS_TEMPORARILY_UNAVAILABLE); this flag hides the FUTURES
+// tab + outright cards on the frontend. Single-point revert: flip to true and
+// remove the backend kill-switch, after the ingester stores decimal odds +
+// existing outright rows are corrected.
+export const OUTRIGHTS_ENABLED = false;
+
 export const sportsData = [
     {
         id: 'up-next',
@@ -361,10 +369,14 @@ const prettifyLeagueSuffix = (suffix) => String(suffix || '')
  * Pure: never mutates the passed-in sportsData. Returns a new array.
  */
 export const buildMergedSportsTree = (liveSet) => {
-    const baseTree = sportsData.map((sport) => ({
-        ...sport,
-        children: Array.isArray(sport.children) ? [...sport.children] : sport.children,
-    }));
+    const baseTree = sportsData
+        // TEMP: drop the FUTURES tab while outrights are hidden (see
+        // OUTRIGHTS_ENABLED). Re-enable with the backend kill-switch removal.
+        .filter((sport) => OUTRIGHTS_ENABLED || sport.type !== 'futures')
+        .map((sport) => ({
+            ...sport,
+            children: Array.isArray(sport.children) ? [...sport.children] : sport.children,
+        }));
 
     if (!liveSet || liveSet.size === 0) return baseTree;
 
