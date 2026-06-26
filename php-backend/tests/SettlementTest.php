@@ -548,6 +548,30 @@ TestRunner::run('evaluateTicket — parlay', function (): void {
     $result = SportsbookBetSupport::evaluateTicket($bet, [row_(2.0, 'void', 0), row_(2.0, 'void', 1)]);
     TestRunner::assertEquals('void', $result['status'], 'parlay all void → void');
     TestRunner::assertEqualsFloat(100.0, $result['payout'], 'parlay void returns stake');
+
+    // DECISIVE-LOSS short-circuit: a full loss + a still-pending leg must
+    // settle 'lost' NOW (not wait for the pending leg). Regression for the
+    // bug where the pending check ran before any lost check.
+    $result = SportsbookBetSupport::evaluateTicket($bet, [row_(2.0, 'lost', 0), row_(2.0, 'pending', 1)]);
+    TestRunner::assertEquals('lost', $result['status'], 'parlay decisive lost + pending → lost now');
+    TestRunner::assertEqualsFloat(0.0, $result['payout'], 'parlay decisive lost + pending payout = 0');
+
+    // order-independent: pending leg first, decisive loss second.
+    $result = SportsbookBetSupport::evaluateTicket($bet, [row_(2.0, 'pending', 0), row_(2.0, 'lost', 1)]);
+    TestRunner::assertEquals('lost', $result['status'], 'parlay pending + decisive lost → lost now');
+
+    // explicit settleFraction 1.0 is also decisive.
+    $fullLoss = ['odds' => 2.0, 'status' => 'lost', 'settleFraction' => 1.0, 'selectionOrder' => 0];
+    $result = SportsbookBetSupport::evaluateTicket($bet, [$fullLoss, row_(2.0, 'pending', 1)]);
+    TestRunner::assertEquals('lost', $result['status'], 'parlay full-loss (fraction 1.0) + pending → lost');
+
+    // HALF-loss (settleFraction 0.5) is NOT decisive: a soccer Asian quarter
+    // half-loss banks its 0.5 refund slot and must NOT short-circuit — with a
+    // still-pending leg the ticket stays 'pending' (continues), matching
+    // OpenParlayService::shouldSettleNow.
+    $halfLoss = ['odds' => 2.0, 'status' => 'lost', 'settleFraction' => 0.5, 'selectionOrder' => 0];
+    $result = SportsbookBetSupport::evaluateTicket($bet, [$halfLoss, row_(2.0, 'pending', 1)]);
+    TestRunner::assertEquals('pending', $result['status'], 'parlay half-loss + pending → still pending (no force-lost)');
 });
 
 // ── evaluateTicket — teaser ──────────────────────────────────────────────────

@@ -1724,6 +1724,24 @@ final class SportsbookBetSupport
         }
 
         if ($type === 'parlay') {
+            // Decisive-loss short-circuit (mirrors the teaser branch ordering
+            // and OpenParlayService::shouldSettleNow): a single FULL loss kills
+            // the whole parlay immediately — settle 'lost' now, without waiting
+            // for the remaining legs to resolve. CRITICAL: this is gated on a
+            // DECISIVE loss only (status 'lost' AND settleFraction >= 1.0). A
+            // soccer Asian quarter HALF-loss (settleFraction 0.5) is a partial
+            // refund that banks its slot (legMultiplier 0.5) and must NOT
+            // short-circuit — it falls through to the unified roll-up below,
+            // exactly as shouldSettleNow already encodes. Without this, the
+            // pending check below returned 'pending' for a dead ticket holding
+            // a lost leg + an unresolved leg, leaving it (and its reserved
+            // risk) stuck for both closed and open parlays.
+            foreach ($rows as $row) {
+                if (self::isDecisiveLoss($row)) {
+                    return ['status' => 'lost', 'payout' => 0.0];
+                }
+            }
+
             $statuses = array_map(static fn (array $row): string => (string) ($row['status'] ?? 'pending'), $rows);
             if (in_array('pending', $statuses, true)) {
                 return ['status' => 'pending', 'payout' => self::num($bet['potentialPayout'] ?? 0)];
@@ -2028,6 +2046,27 @@ final class SportsbookBetSupport
         // soccer quarter half-win / half-loss leg. Ticket status follows the
         // approved net rule (payout>stake won / ==stake void/push / <stake lost).
         return self::classifyByNet($stake * self::legMultiplier($selection), $stake);
+    }
+
+    /**
+     * Is this leg a DECISIVE (full) loss — the disposition that kills an entire
+     * parlay immediately? True iff status is 'lost' AND settleFraction >= 1.0.
+     * A soccer Asian quarter HALF-loss (status 'lost', settleFraction 0.5) is a
+     * partial refund, NOT decisive, so this returns false for it. The numeric
+     * test (default 1.0, >= 1.0 - 1e-9) is identical to
+     * OpenParlayService::shouldSettleNow so the parlay roll-up and the
+     * open-parlay settle-timing gate always agree.
+     *
+     * @param array<string, mixed> $row
+     */
+    private static function isDecisiveLoss(array $row): bool
+    {
+        if ((string) ($row['status'] ?? '') !== 'lost') {
+            return false;
+        }
+        $rawFraction = $row['settleFraction'] ?? null;
+        $fraction = is_numeric($rawFraction) ? (float) $rawFraction : 1.0;
+        return $fraction >= 1.0 - 1e-9;
     }
 
     /**
