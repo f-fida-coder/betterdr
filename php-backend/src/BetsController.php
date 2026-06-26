@@ -2845,14 +2845,17 @@ final class BetsController
             ]);
         }
 
-        // Same odds-snapping pipeline as match bets — keep American integer
-        // canonical, derive exact decimal from it for clean Risk/Win math.
-        $snappedOdds = SportsbookBetSupport::snapDecimalOdds($outcome['price']);
-        $officialAmericanInt = SportsbookBetSupport::decimalToAmericanInt($snappedOdds);
+        // The `outrights` table's `price` is the feed's AMERICAN odds (e.g.
+        // 450 = +450), NOT decimal like the matches board — see the CONTRACT
+        // note on outrightPriceToOdds(). Treating it as decimal inflated odds
+        // ~100x (decimalToAmericanInt(450) = 44900). Locked by
+        // OutrightOddsConversionTest.
+        $official = SportsbookBetSupport::outrightPriceToOdds($outcome['price']);
+        $officialAmericanInt = $official['american'];
         if ($officialAmericanInt === 0) {
             throw new ApiException('Invalid odds for selection ' . $selection, 409, ['code' => 'INVALID_ODDS']);
         }
-        $officialOdds = SportsbookBetSupport::americanToDecimalExact($officialAmericanInt);
+        $officialOdds = $official['decimal'];
         if (!is_finite($officialOdds) || $officialOdds <= 1.0) {
             throw new ApiException('Invalid odds for selection ' . $selection, 409, ['code' => 'INVALID_ODDS']);
         }

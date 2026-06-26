@@ -1,9 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
-import { formatOdds } from '../utils/odds';
+import { formatOdds, americanToDecimal } from '../utils/odds';
 import { getOutrights } from '../api';
 import { getSiteTimezone } from '../utils/timezone';
 
+// CONTRACT: the `outrights` table's `price` field stores the feed's AMERICAN
+// odds (e.g. 450 = +450), UNLIKE the matches board which stores decimal. Every
+// reader here converts American -> decimal at the boundary so the rest of the
+// app (betslip, payout, settlement) keeps its app-wide DECIMAL convention. If a
+// writer is ever changed to store DECIMAL in `price`, REMOVE these
+// americanToDecimal() conversions together with the backend kill-switch — do
+// NOT keep both, or you re-introduce a double-conversion bug.
 const dispatchAddToSlip = (event, outcome) => {
     // Reuses the existing 'betslip:add' event the slip already listens to.
     // matchId carries the outright row id (24-hex ObjectId) so the backend
@@ -14,7 +21,8 @@ const dispatchAddToSlip = (event, outcome) => {
         outrightId: event.id || event.eventId,
         marketType: 'outrights',
         selection: outcome.name,
-        odds: outcome.price,
+        // price is AMERICAN — hand the slip the decimal it expects.
+        odds: americanToDecimal(outcome.price),
         sportKey: event.sportKey,
         eventName: event.eventName,
         homeTeam: event.eventName,            // slip uses these for label
@@ -230,7 +238,9 @@ const OutrightsView = ({ sportKey = '', title = 'Futures' }) => {
                                                             {o.name}
                                                         </span>
                                                         <span style={oddsPillStyle}>
-                                                            {formatOdds(o.price, oddsFormat)}
+                                                            {/* price is AMERICAN (see CONTRACT note up top) — convert to
+                                                                decimal so formatOdds renders the real +450 / 5.50, not +44900. */}
+                                                            {formatOdds(americanToDecimal(o.price), oddsFormat)}
                                                         </span>
                                                     </button>
                                                 </li>

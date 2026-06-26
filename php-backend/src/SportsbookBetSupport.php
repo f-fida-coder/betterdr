@@ -158,6 +158,34 @@ final class SportsbookBetSupport
     }
 
     /**
+     * Convert an `outrights` table price into the canonical
+     * {american:int, decimal:float} pair a bet leg stores.
+     *
+     * CONTRACT: the `outrights` table's `price` field holds the feed's AMERICAN
+     * odds (e.g. 450 = +450), NOT decimal like the matches board. Running the
+     * decimal pipeline on it — snapDecimalOdds() then decimalToAmericanInt() —
+     * treats the American number as decimal and inflates it ~100x:
+     * decimalToAmericanInt(450) = 44900, americanToDecimalExact(44900) = 450.0,
+     * so a $100 ticket would pay ~$45,000. That was the live bug. Take `price`
+     * as the canonical American integer and derive the exact decimal from it.
+     *
+     * If a writer is ever changed to store DECIMAL in `price`, this helper AND
+     * the frontend americanToDecimal() conversions must be reverted together —
+     * never keep both, or the double-conversion bug returns. The
+     * OutrightOddsConversionTest locks this interpretation.
+     *
+     * @return array{american:int, decimal:float}
+     */
+    public static function outrightPriceToOdds(mixed $price): array
+    {
+        $american = (int) round((float) $price);
+        return [
+            'american' => $american,
+            'decimal' => $american === 0 ? 0.0 : self::americanToDecimalExact($american),
+        ];
+    }
+
+    /**
      * Odds-acceptance policy — default + bounds in one place so the place-bet
      * validators, the settings endpoint, and the tests share a single source
      * of truth. 'band' is the recommended default (real sportsbooks auto-
