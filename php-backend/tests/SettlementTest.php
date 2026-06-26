@@ -574,6 +574,34 @@ TestRunner::run('evaluateTicket — parlay', function (): void {
     TestRunner::assertEquals('pending', $result['status'], 'parlay half-loss + pending → still pending (no force-lost)');
 });
 
+TestRunner::run('evaluateTicket — parlay rounds win payout to American line (Nicky)', function (): void {
+    // Binary fully-won parlay: settlement pays the rounded-American To-Win, the
+    // SAME basis stored at placement. Phillies -175 (1.5714286) + Pirates -190
+    // (1.5263158): combined 2.398496 → +140 → 2.40 → 1000 × 2.40 = 2400, NOT
+    // the exact $2,398. Display == stored == settlement.
+    $bet = bet_('parlay', 1000.0, 2400.0);
+    $result = SportsbookBetSupport::evaluateTicket($bet, [row_(1.5714286, 'won', 0), row_(1.5263158, 'won', 1)]);
+    TestRunner::assertEquals('won', $result['status'], 'binary parlay won');
+    TestRunner::assertEqualsFloat(2400.0, $result['payout'], 'binary parlay win snaps to +140 → $2,400');
+
+    // QUARTER half-WIN leg present → fractional path PRESERVED EXACT, never
+    // American-rounded. Leg A won 1.5714286 (×1.5714286), leg B half-win
+    // (odds 2.0, fraction 0.5 → ×1.5): combined 2.357143 → EXACT 1000 × 2.357143
+    // = 2357. (A wrong American snap would give +136 → 2.36 → 2360.)
+    $halfWin = ['odds' => 2.0, 'status' => 'won', 'settleFraction' => 0.5, 'selectionOrder' => 1];
+    $result = SportsbookBetSupport::evaluateTicket($bet, [row_(1.5714286, 'won', 0), $halfWin]);
+    TestRunner::assertEquals('won', $result['status'], 'parlay with half-win leg → won');
+    TestRunner::assertEqualsFloat(2357.0, $result['payout'], 'half-win parlay pays EXACT (no American snap) → $2,357');
+
+    // QUARTER half-LOSS leg present → also exact: leg A won 3.0 (×3.0), leg B
+    // half-loss (fraction 0.5 → ×0.5): combined 1.5 → 100 × 1.5 = 150, a net
+    // win that banks the half-loss leg's 0.5 partial refund exactly.
+    $bet100 = bet_('parlay', 100.0, 300.0);
+    $halfLossLeg = ['odds' => 2.0, 'status' => 'lost', 'settleFraction' => 0.5, 'selectionOrder' => 1];
+    $result = SportsbookBetSupport::evaluateTicket($bet100, [row_(3.0, 'won', 0), $halfLossLeg]);
+    TestRunner::assertEqualsFloat(150.0, $result['payout'], 'half-loss parlay pays EXACT partial → $150');
+});
+
 // ── evaluateTicket — teaser ──────────────────────────────────────────────────
 
 TestRunner::run('evaluateTicket — teaser', function (): void {

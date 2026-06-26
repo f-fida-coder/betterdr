@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { placeBet, createOpenParlay, normalizeBetMode, createRequestId } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
-import { formatOdds, decimalToAmerican, americanToDecimal } from '../utils/odds';
+import { formatOdds, decimalToAmerican, americanToDecimal, roundCombinedToAmericanDecimal } from '../utils/odds';
 import { computeMidQuickStakes } from '../utils/money';
 import { formatSiteDateTime } from '../utils/timezone';
 import { isMlbSportKey, formatPitcherLabel } from '../utils/pitchers';
@@ -1290,14 +1290,20 @@ const ModeBetPanel = ({
             // / settlement. The preview intentionally starts high and shrinks
             // toward the true odds as real (often favored) legs replace
             // placeholders; displayWinAmount clamps it to the 3×maxBet cap.
+            // Lock the combined to the rounded American line — the SAME basis
+            // the backend stores (calculatePotentialPayout) and settles at, so
+            // the slip's To-Win, stored potentialPayout, and payout never
+            // diverge (Nicky's convention: $1,400, not $1,398.50). Applied to
+            // the placeholder-inclusive open-parlay preview too so placement
+            // and pending display stay on one number.
             if (isOpenParlay) {
                 const placeholderCount = Math.max(0, openParlayTargetLegs - legCount);
                 const combined = placeholderCount > 0
                     ? realCombined * Math.pow(americanToDecimal(OPEN_PARLAY_PLACEHOLDER_AMERICAN), placeholderCount)
                     : realCombined;
-                return effectiveCombinedRisk * combined;
+                return effectiveCombinedRisk * roundCombinedToAmericanDecimal(combined);
             }
-            return effectiveCombinedRisk * realCombined;
+            return effectiveCombinedRisk * roundCombinedToAmericanDecimal(realCombined);
         }
         if (normalizedMode === 'teaser') {
             return effectiveCombinedRisk * getTeaserMultiplier(rule, legCount, selectedTeaserType);

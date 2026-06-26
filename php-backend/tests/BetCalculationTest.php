@@ -105,6 +105,23 @@ TestRunner::run('calculatePotentialPayout — parlay', function (): void {
     TestRunner::assertEqualsFloat(0.0,   SportsbookBetSupport::calculatePotentialPayout('parlay', 0.0, [sel(2.0)], $rule), 'zero stake');
 });
 
+TestRunner::run('calculatePotentialPayout — parlay rounds combined to American line (Nicky)', function (): void {
+    $rule = [];
+    // Phillies -175 (1.5714286) + Pirates -190 (1.5263158): exact combined
+    // 2.398496 → +140 → 2.40 → 1000 × 2.40 = 2400 (To-Win $1,400), NOT the
+    // exact-decimal $2,398.50. Display == stored == settlement all on +140.
+    $combined = SportsbookBetSupport::calculatePotentialPayout('parlay', 1000.0, [sel(1.5714286), sel(1.5263158)], $rule);
+    TestRunner::assertEqualsFloat(2400.0, $combined, 'parlay payout snaps to +140 line → $2,400');
+
+    // Clean American lines are unchanged by the round-trip (regression guard):
+    // 2.0×1.5 = 3.0 → +200 → 3.0 (no drift).
+    TestRunner::assertEqualsFloat(300.0, SportsbookBetSupport::calculatePotentialPayout('parlay', 100.0, [sel(2.0), sel(1.5)], $rule), 'clean line unchanged');
+
+    // if_bet shares the branch but must NOT round (settles via sequential roll):
+    // 1.5714286 × 1.5263158 = 2.398496 → 1000 × 2.398496 = 2398 (exact, no snap).
+    TestRunner::assertEqualsFloat(2398.0, SportsbookBetSupport::calculatePotentialPayout('if_bet', 1000.0, [sel(1.5714286), sel(1.5263158)], $rule), 'if_bet stays exact (no American snap)');
+});
+
 TestRunner::run('calculatePotentialPayout — teaser', function (): void {
     // 2-leg teaser: multiplier 1.8
     $rule = teaserRule(['2' => 1.8, '3' => 2.6, '4' => 4.0, '5' => 6.5, '6' => 9.5]);

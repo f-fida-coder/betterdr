@@ -79,6 +79,26 @@ export const americanToDecimal = (value) => {
     return 1 + (100 / Math.abs(americanOdds));
 };
 
+// Lock a combined PARLAY decimal to its rounded American line, then back to
+// decimal — the SINGLE payout basis shared with the backend
+// (SportsbookBetSupport::roundCombinedToAmericanDecimal). Keeps the slip's
+// To-Win, the stored potentialPayout, and settlement all on one rounded number
+// (Nicky's convention: Phillies -175 + Pirates -190 → 2.3985 → +140 → 2.40 →
+// $1,400 on $1,000, not $1,398.50). A combined <= 1 (push/loss basis) is
+// returned untouched.
+export const roundCombinedToAmericanDecimal = (combinedDecimal) => {
+    const d = Number(combinedDecimal);
+    if (!Number.isFinite(d) || d <= 1) {
+        return d;
+    }
+    const american = decimalToAmerican(d);
+    if (american === null) {
+        return d;
+    }
+    const rounded = americanToDecimal(american);
+    return Number.isFinite(rounded) && rounded > 1 ? rounded : d;
+};
+
 export const formatOdds = (value, oddsFormat = DEFAULT_ODDS_FORMAT, fallback = '-') => {
     const decimalOdds = parseOddsNumber(value);
     if (decimalOdds === null) {

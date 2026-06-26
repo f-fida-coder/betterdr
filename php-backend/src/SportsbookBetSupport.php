@@ -93,6 +93,14 @@ final class SportsbookBetSupport
                 $combined,
                 self::sameGameHaircutFraction($validatedSelections, $sgpHaircutPct, $sgpPropHaircutPct)
             );
+            // PARLAY ONLY: lock the combined to the rounded American line so the
+            // stored potentialPayout matches the slip's displayed To-Win and the
+            // win paid at settlement (single source of truth). if_bet is excluded
+            // — it settles via a sequential roll (evaluateIfBet), so rounding the
+            // combined here would diverge placement from settlement.
+            if ($betType === 'parlay') {
+                $combined = self::roundCombinedToAmericanDecimal($combined);
+            }
             return round($unitStake * $combined);
         }
 
@@ -155,6 +163,27 @@ final class SportsbookBetSupport
             return 1.0 + ($american / 100.0);
         }
         return 1.0 + (100.0 / (float) abs($american));
+    }
+
+    /**
+     * Lock a combined PARLAY decimal to its rounded American line: snap the
+     * exact combined to the nearest whole American number, then convert back to
+     * decimal. This is the SINGLE payout basis the slip's To-Win, the stored
+     * potentialPayout, and settlement all share (Nicky's convention: Phillies
+     * -175 + Pirates -190 → 2.398496 → +140 → 2.40 → $1,400 on $1,000, not
+     * $1,398.50). A combined <= 1 (push/loss basis) is returned untouched. The
+     * JS twin is utils/odds.js::roundCombinedToAmericanDecimal.
+     */
+    public static function roundCombinedToAmericanDecimal(float $combined): float
+    {
+        if (!is_finite($combined) || $combined <= 1.0) {
+            return $combined;
+        }
+        $american = self::decimalToAmericanInt($combined);
+        if ($american === 0) {
+            return $combined;
+        }
+        return self::americanToDecimalExact($american);
     }
 
     /**
@@ -1786,6 +1815,15 @@ final class SportsbookBetSupport
                     self::num($bet['sgpPropHaircutPct'] ?? 0)
                 )
             );
+            // Lock the WIN payout to the rounded American line so settlement pays
+            // exactly the To-Win shown on the slip and stored at placement (single
+            // source of truth). GATED to all-binary parlays: if ANY leg settled
+            // fractionally (soccer Asian quarter half-win/half-loss), the exact
+            // per-leg split-stake product is preserved untouched — American
+            // rounding only applies to the whole-line combined.
+            if (!self::hasFractionalLeg($rows)) {
+                $combined = self::roundCombinedToAmericanDecimal($combined);
+            }
             // Net classification on the whole-dollar payout: combined>1 ⇒ won,
             // ==1 (all-push refund) ⇒ void, <1 (half-loss legs dragged the
             // product below stake) ⇒ lost. Binary parlays only ever land on
@@ -2067,6 +2105,29 @@ final class SportsbookBetSupport
         $rawFraction = $row['settleFraction'] ?? null;
         $fraction = is_numeric($rawFraction) ? (float) $rawFraction : 1.0;
         return $fraction >= 1.0 - 1e-9;
+    }
+
+    /**
+     * Does any leg carry a FRACTIONAL settlement (settleFraction strictly
+     * between 0 and 1)? True only for soccer Asian quarter half-win/half-loss
+     * legs. When true, evaluateTicket keeps the exact per-leg split-stake
+     * product and does NOT American-round the combined — the rounded-line
+     * convention is for whole-line parlays only.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     */
+    private static function hasFractionalLeg(array $rows): bool
+    {
+        foreach ($rows as $row) {
+            $raw = is_array($row) ? ($row['settleFraction'] ?? null) : null;
+            if (is_numeric($raw)) {
+                $f = (float) $raw;
+                if ($f > 1e-9 && $f < 1.0 - 1e-9) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
