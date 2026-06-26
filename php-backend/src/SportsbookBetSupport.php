@@ -2097,7 +2097,7 @@ final class SportsbookBetSupport
      *
      * @param array<string, mixed> $row
      */
-    private static function isDecisiveLoss(array $row): bool
+    public static function isDecisiveLoss(array $row): bool
     {
         if ((string) ($row['status'] ?? '') !== 'lost') {
             return false;

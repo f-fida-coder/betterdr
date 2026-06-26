@@ -709,6 +709,19 @@ final class BetSettlementService
                 $summary['errors']++;
             }
         }
+
+        // Lose-settle THIS user's dead parlays (decisive-lost leg + unfinished
+        // sibling) so a player loading My Bets heals stranded tickets the same
+        // way the background sweep does. Scoped to the user; bounded query.
+        try {
+            $deadParlays = self::settleDecisiveLossParlays($db, 200, $settledBy, $userId);
+            $summary['decisiveLossChecked'] = $deadParlays['betsChecked'];
+            $summary['decisiveLossSettled'] = $deadParlays['betsSettled'];
+            $summary['betsSettled'] += $deadParlays['betsSettled'];
+            $summary['errors'] += $deadParlays['errors'];
+        } catch (Throwable $e) {
+            $summary['errors']++;
+        }
         return $summary;
     }
 
@@ -978,7 +991,271 @@ final class BetSettlementService
             }
         }
 
+        // Sweep dead parlays: a decisively-lost leg + an unfinished sibling leg.
+        // The match loop above only routes matches with PENDING legs, so these
+        // tickets would otherwise sit open forever with their risk stuck in
+        // pendingBalance. Lose-settle them now (evaluateTicket short-circuits to
+        // 'lost'). Failures are counted, never fatal to the sweep summary.
+        try {
+            $deadParlays = self::settleDecisiveLossParlays($db, $limit, $settledBy);
+            $summary['decisiveLossChecked'] = $deadParlays['betsChecked'];
+            $summary['decisiveLossSettled'] = $deadParlays['betsSettled'];
+            $summary['betsSettled'] += $deadParlays['betsSettled'];
+            $summary['errors'] += $deadParlays['errors'];
+        } catch (Throwable $e) {
+            $summary['errors']++;
+        }
+
         return $summary;
+    }
+
+    /**
+     * Discovery + settle pass for "zombie" parlays: a parlay (or open parlay)
+     * that is already DEAD — it holds a decisively-lost leg (status 'lost',
+     * settleFraction >= 1.0) — but still sits status pending/open because a
+     * SIBLING leg's game has not finished yet. settlePendingMatches /
+     * settlePendingMatchesForUser discover work from PENDING betselections and
+     * route through settleMatch, which only grades a match's pending legs; the
+     * dead parlay's lost leg is not pending and its surviving leg's match is not
+     * finished, so the ticket would never be re-evaluated and stays open forever
+     * with its risk stuck in pendingBalance. This pass finds those tickets
+     * directly and lose-settles them now — evaluateTicket's decisive-loss
+     * short-circuit already returns 'lost', so no further legs need to resolve.
+     *
+     * Scope: type 'parlay' only (covers ordinary parlays AND open parlays, which
+     * are stored type='parlay' status='open'). Straight bets settle on their own
+     * match; teaser/if_bet/reverse settle via different paths and are
+     * intentionally untouched. A HALF-loss (settleFraction < 1.0, soccer Asian
+     * quarter) is NOT decisive (SportsbookBetSupport::isDecisiveLoss) and is
+     * never force-settled here.
+     *
+     * Money safety: a decisive-loss ticket always evaluates to 'lost' (payout
+     * $0) — no payout, no balance credit. Settlement only releases the losing
+     * stake reservation from pendingBalance (and debits a credit account's
+     * balance to record the debt), mirroring settleMatch's LOSS branch. Each
+     * ticket is locked FOR UPDATE and re-checked still pending/open before any
+     * write, so a ticket already settled by the match path or a concurrent run
+     * is skipped — never double-settled, never double-released.
+     *
+     * @return array<string, mixed>
+     */
+    public static function settleDecisiveLossParlays(SqlRepository $db, int $limit = 250, string $settledBy = 'system', ?string $userId = null): array
+    {
+        $summary = ['betsChecked' => 0, 'betsSettled' => 0, 'errors' => 0];
+
+        $criteria = ['status' => ['$in' => ['pending', 'open']], 'type' => 'parlay'];
+        if ($userId !== null) {
+            if (preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
+                return $summary;
+            }
+            $criteria['userId'] = SqlRepository::id($userId);
+        }
+
+        $candidates = $db->findMany('bets', $criteria, [
+            'projection' => ['id' => 1],
+            'limit' => max(1, $limit),
+        ]);
+
+        $teaserRule = self::getTeaserRule($db);
+        foreach ($candidates as $candidate) {
+            $betId = (string) ($candidate['id'] ?? '');
+            if ($betId === '' || preg_match('/^[a-f0-9]{24}$/i', $betId) !== 1) {
+                continue;
+            }
+            $summary['betsChecked']++;
+            try {
+                if (self::settleDecisivelyLostParlay($db, $betId, $teaserRule, $settledBy)) {
+                    $summary['betsSettled']++;
+                }
+            } catch (Throwable $e) {
+                $summary['errors']++;
+            }
+        }
+
+        return $summary;
+    }
+
+    /**
+     * Lose-settle a single dead parlay (see settleDecisiveLossParlays). Returns
+     * true only when the ticket was actually settled this call. All money
+     * movement mirrors the LOSS branch of settleMatch and must stay in lockstep
+     * with it — if that branch changes, change this too.
+     */
+    private static function settleDecisivelyLostParlay(SqlRepository $db, string $betId, array $teaserRule, string $settledBy): bool
+    {
+        $db->beginTransaction();
+        try {
+            $bet = $db->findOneForUpdate('bets', ['id' => SqlRepository::id($betId)]);
+            if ($bet === null) {
+                $db->rollback();
+                return false;
+            }
+            // Idempotency / terminal guard, re-checked AFTER the row lock: only an
+            // open/pending ticket can settle. A ticket the normal match path (or
+            // a concurrent sweep) already settled is skipped — no double-settle.
+            $betStatus = (string) ($bet['status'] ?? '');
+            $isOpenParlayTicket = OpenParlayService::isGradableOpenTicket($bet);
+            if ($betStatus !== 'pending' && !$isOpenParlayTicket) {
+                $db->rollback();
+                return false;
+            }
+            if ((string) ($bet['type'] ?? '') !== 'parlay') {
+                $db->rollback();
+                return false;
+            }
+
+            $userId = (string) ($bet['userId'] ?? '');
+            if ($userId === '' || preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
+                $db->rollback();
+                return false;
+            }
+            $user = $db->findOneForUpdate('users', ['id' => SqlRepository::id($userId)]);
+            if ($user === null) {
+                $db->rollback();
+                return false;
+            }
+
+            $selectionRows = SportsbookBetSupport::ensureSelectionRowsForBet($db, $bet);
+
+            // Must actually carry a DECISIVE loss — otherwise this is not a dead
+            // ticket and money must not move. Half-loss (fraction < 1.0) is not
+            // decisive and never triggers here.
+            $hasDecisiveLoss = false;
+            foreach ($selectionRows as $row) {
+                if (is_array($row) && SportsbookBetSupport::isDecisiveLoss($row)) {
+                    $hasDecisiveLoss = true;
+                    break;
+                }
+            }
+            if (!$hasDecisiveLoss) {
+                $db->rollback();
+                return false;
+            }
+
+            $normalizedSelections = SportsbookBetSupport::selectionRowsToBetSelections($bet, $selectionRows);
+            $evaluation = SportsbookBetSupport::evaluateTicket(
+                array_merge($bet, ['selections' => $normalizedSelections]),
+                $selectionRows,
+                $teaserRule
+            );
+            // Hard safety gate: only settle a CONFIRMED loss. evaluateTicket's
+            // decisive-loss short-circuit returns 'lost' for a dead parlay; if it
+            // returns anything else, leave the ticket alone — money never moves
+            // on a guess.
+            if ((string) ($evaluation['status'] ?? '') !== 'lost') {
+                $db->rollback();
+                return false;
+            }
+
+            $now = SqlRepository::nowUtc();
+            $ticketPayout = 0.0; // a decisive loss pays nothing
+
+            // ── LOSS settlement — mirrors settleMatch's loss branch ──────────────
+            $riskAmount      = SportsbookBetSupport::riskAmount($bet);
+            $isFreeplay      = (bool) ($bet['isFreeplay'] ?? false);
+            $freeplayUsed    = self::num($bet['freeplayAmountUsed'] ?? ($isFreeplay ? $riskAmount : 0));
+            $freeplayUsed    = max(0.0, min($freeplayUsed, $riskAmount));
+            $realPortion     = (float) max(0.0, $riskAmount - $freeplayUsed);
+            $balance         = self::num($user['balance'] ?? 0);
+            $pendingBalance  = self::num($user['pendingBalance'] ?? 0);
+            $freeplayBalance = self::num($user['freeplayBalance'] ?? 0);
+            $acceptedPayout  = self::num($bet['acceptedPayout'] ?? ($bet['potentialPayout'] ?? 0));
+
+            $creditLimit     = self::num($user['creditLimit'] ?? 0);
+            $userRole        = strtolower((string) ($user['role'] ?? 'user'));
+            $isCreditAccount = $realPortion > 0 && $userRole === 'user' && $creditLimit > 0;
+
+            // Only the real-balance portion was held in pendingBalance at
+            // placement; the freeplay portion never touched pending.
+            $newPendingBalance = max(0.0, $pendingBalance - $realPortion);
+
+            $db->updateOne('bets', ['id' => SqlRepository::id($betId)], [
+                'selections'      => $normalizedSelections,
+                'status'          => 'lost',
+                'result'          => 'lost',
+                'settledAt'       => $now,
+                'settledBy'       => $settledBy,
+                'acceptedPayout'  => $acceptedPayout > 0 ? $acceptedPayout : $ticketPayout,
+                'potentialPayout' => $ticketPayout,
+                'combinedOdds'    => SportsbookBetSupport::combinedOdds($riskAmount, $ticketPayout),
+                'updatedAt'       => $now,
+            ]);
+
+            $userUpdate        = ['pendingBalance' => $newPendingBalance, 'updatedAt' => $now];
+            $transactionType   = $isFreeplay ? 'fp_bet_lost' : 'bet_lost';
+            $transactionAmount = $riskAmount;
+            $balanceBefore     = $isFreeplay ? $freeplayBalance : $balance;
+            $balanceAfter      = $isFreeplay ? $freeplayBalance : $balance; // default: no change
+            $description       = strtoupper((string) ($bet['type'] ?? 'parlay')) . ($isFreeplay ? ' freeplay' : '') . ' bet lost';
+
+            // Cash accounts already debited the real stake at placement → no-op.
+            // Credit accounts held the real stake in pending only and must now
+            // debit balance to record the debt. Mirrors settleMatch line ~496.
+            if ($isCreditAccount && $realPortion > 0) {
+                $balanceBefore = $balance;
+                $balanceAfter  = (float) round($balance - $realPortion);
+                $userUpdate['balance'] = $balanceAfter;
+                $description = strtoupper((string) ($bet['type'] ?? 'parlay')) . ' bet lost - balance debited (credit account)';
+            }
+
+            $db->updateOne('users', ['id' => SqlRepository::id($userId)], $userUpdate);
+            $db->insertOne('transactions', [
+                'userId'        => SqlRepository::id($userId),
+                'amount'        => $transactionAmount,
+                'type'          => $transactionType,
+                'status'        => 'completed',
+                'isFreeplay'    => $isFreeplay,
+                'balanceBefore' => $balanceBefore,
+                'balanceAfter'  => $balanceAfter,
+                'referenceType' => 'Bet',
+                'referenceId'   => SqlRepository::id($betId),
+                'reason'        => strtoupper($transactionType),
+                'description'   => $description,
+                'createdAt'     => $now,
+                'updatedAt'     => $now,
+            ]);
+
+            $db->commit();
+
+            // Free the pendingBalance from APCu immediately. After commit —
+            // best-effort, never rolls back the money write.
+            if (function_exists('apcu_delete')) {
+                @apcu_delete('ua:users:' . $userId);
+            }
+
+            // Realtime push so My Bets flips open/pending → lost without waiting
+            // for the poll. After commit — a failed broadcast never rolls back.
+            if (class_exists('RealtimeEventBus')) {
+                try {
+                    RealtimeEventBus::publish('bet:settled', [
+                        'userId' => $userId,
+                        'betId' => $betId,
+                        'status' => 'lost',
+                        'source' => 'decisive-loss',
+                        'time' => $now,
+                    ]);
+                } catch (Throwable $_) {
+                    // Polling fallback covers any missed push.
+                }
+            }
+
+            // Keep a Round Robin parent's aggregate status in sync, like the
+            // match settle path. Outside the committed write — a recompute
+            // failure must not roll back a durable settlement.
+            $parentGroupId = (string) ($bet['parentGroupId'] ?? '');
+            if ($parentGroupId !== '' && class_exists('RoundRobinService')) {
+                try {
+                    RoundRobinService::recomputeGroupStatus($db, $parentGroupId);
+                } catch (Throwable $rrErr) {
+                    // Non-fatal — the child status is already correct.
+                }
+            }
+
+            return true;
+        } catch (Throwable $e) {
+            $db->rollback();
+            throw $e;
+        }
     }
 
     private static function assertValidMatchId(string $matchId): void

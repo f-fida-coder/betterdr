@@ -574,6 +574,55 @@ TestRunner::run('evaluateTicket — parlay', function (): void {
     TestRunner::assertEquals('pending', $result['status'], 'parlay half-loss + pending → still pending (no force-lost)');
 });
 
+TestRunner::run('decisive-loss discovery predicate — isDecisiveLoss drives the zombie-parlay sweep', function (): void {
+    // BetSettlementService::settleDecisiveLossParlays discovers a still-open
+    // parlay as DEAD iff any leg passes SportsbookBetSupport::isDecisiveLoss
+    // (status 'lost' AND settleFraction >= 1.0), then evaluateTicket lose-settles
+    // it without waiting for the unfinished sibling leg. These assertions pin the
+    // exact predicate the sweep uses so the two layers can never drift.
+
+    // A full loss (default fraction) is decisive → ticket is picked up.
+    TestRunner::assertTrue(
+        SportsbookBetSupport::isDecisiveLoss(['status' => 'lost']),
+        'lost leg, no fraction (defaults 1.0) → decisive → discovered'
+    );
+    TestRunner::assertTrue(
+        SportsbookBetSupport::isDecisiveLoss(['status' => 'lost', 'settleFraction' => 1.0]),
+        'lost leg, explicit fraction 1.0 → decisive → discovered'
+    );
+
+    // A soccer Asian quarter HALF-loss is NOT decisive → ticket is NOT picked up.
+    TestRunner::assertFalse(
+        SportsbookBetSupport::isDecisiveLoss(['status' => 'lost', 'settleFraction' => 0.5]),
+        'half-loss (fraction 0.5) → NOT decisive → not discovered'
+    );
+
+    // Non-loss legs never trigger discovery.
+    TestRunner::assertFalse(SportsbookBetSupport::isDecisiveLoss(['status' => 'pending']), 'pending leg not decisive');
+    TestRunner::assertFalse(SportsbookBetSupport::isDecisiveLoss(['status' => 'won']), 'won leg not decisive');
+    TestRunner::assertFalse(SportsbookBetSupport::isDecisiveLoss(['status' => 'void']), 'void leg not decisive');
+
+    // End-to-end on the SAME rows the sweep evaluates: a [decisive-lost, pending]
+    // parlay settles 'lost' immediately; a [half-loss, pending] parlay stays
+    // pending and is left for normal settlement.
+    $bet = bet_('parlay', 100.0);
+    $deadRows = [['odds' => 2.0, 'status' => 'lost', 'settleFraction' => 1.0, 'selectionOrder' => 0], row_(2.0, 'pending', 1)];
+    $hasDecisive = false;
+    foreach ($deadRows as $r) {
+        if (SportsbookBetSupport::isDecisiveLoss($r)) { $hasDecisive = true; break; }
+    }
+    TestRunner::assertTrue($hasDecisive, 'sweep scan finds the decisive-lost leg');
+    TestRunner::assertEquals('lost', SportsbookBetSupport::evaluateTicket($bet, $deadRows)['status'], 'discovered dead parlay → lost');
+
+    $aliveRows = [['odds' => 2.0, 'status' => 'lost', 'settleFraction' => 0.5, 'selectionOrder' => 0], row_(2.0, 'pending', 1)];
+    $hasDecisiveAlive = false;
+    foreach ($aliveRows as $r) {
+        if (SportsbookBetSupport::isDecisiveLoss($r)) { $hasDecisiveAlive = true; break; }
+    }
+    TestRunner::assertFalse($hasDecisiveAlive, 'sweep scan ignores a half-loss leg');
+    TestRunner::assertEquals('pending', SportsbookBetSupport::evaluateTicket($bet, $aliveRows)['status'], 'half-loss parlay still pending');
+});
+
 TestRunner::run('evaluateTicket — parlay rounds win payout to American line (Nicky)', function (): void {
     // Binary fully-won parlay: settlement pays the rounded-American To-Win, the
     // SAME basis stored at placement. Phillies -175 (1.5714286) + Pirates -190
