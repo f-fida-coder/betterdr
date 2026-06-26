@@ -233,7 +233,7 @@ function UserDashboardShell({
           {dashboardView === 'support' && <SupportView />}
           {dashboardView === 'my-bets' && (
             <div style={STYLE_FLEX_SCROLL_TOUCH}>
-              <MyBetsView onResumeOpenParlay={onResumeOpenParlay} />
+              <MyBetsView onResumeOpenParlay={onResumeOpenParlay} maxBet={user?.maxBet ?? null} />
             </div>
           )}
         </Suspense>

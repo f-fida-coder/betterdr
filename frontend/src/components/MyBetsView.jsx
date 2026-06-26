@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getMyBets, getUserFigures, getUserTransactions, getRoundRobinChildren, regradeStuckBets } from '../api';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
-import { formatLineValue, formatOdds, formatSpreadValue } from '../utils/odds';
+import { formatLineValue, formatOdds, formatSpreadValue, americanToDecimal } from '../utils/odds';
 import { formatSiteDateTime } from '../utils/timezone';
 import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri, mascotName } from '../utils/teamLogos';
 import '../mybets.css';
@@ -564,8 +564,55 @@ const cashRiskOfBet = (bet) => {
     };
 };
 
-const ticketAmount = (bet) => {
+// Display-only -110 placeholder priced for each unfilled declared leg of an
+// OPEN, still-filling parlay. Mirrors ModeBetPanel.jsx's
+// OPEN_PARLAY_PLACEHOLDER_AMERICAN so the Pending row shows the same
+// placeholder-inclusive To-Win the placement screen showed. PREVIEW ONLY — this
+// never touches stored potentialPayout or any settlement math, which stay
+// real-legs-only and authoritative server-side. (Can't share the source
+// constant without importing from ModeBetPanel, which is off-limits here, so it
+// is redeclared with the same value and a back-reference.)
+const OPEN_PARLAY_PLACEHOLDER_AMERICAN = -110;
+
+// True only while an open parlay still has unfilled declared legs. The
+// placeholder-inclusive preview applies to exactly this case; a fully-filled
+// open parlay, a closed parlay, and non-parlays all keep the stored figure.
+const isOpenParlayStillFilling = (bet) => {
+    if (!bet?.isOpenParlay || normalizeStatus(bet?.status) !== 'open') return false;
+    const filled = Array.isArray(bet?.selections) ? bet.selections.length : 0;
+    return (Number(bet?.targetLegs) || 0) - filled > 0;
+};
+
+// Display-only To-Win (profit) for an open, still-filling parlay: price the real
+// filled legs at their stored decimal odds (leg.odds) and each unfilled declared
+// slot at a -110 placeholder, mirroring ModeBetPanel.jsx:1293-1298, then clamp to
+// the same 3×maxBet cap the placement preview applies so the two screens match.
+// Returns profit (payout − risk). Cosmetic only.
+const openParlayPreviewProfit = (bet, maxBet) => {
+    const risk = Number(bet?.riskAmount || bet?.amount || 0);
+    const legs = Array.isArray(bet?.selections) ? bet.selections : [];
+    const placeholderCount = Math.max(0, (Number(bet?.targetLegs) || 0) - legs.length);
+    const realCombined = legs.reduce((acc, leg) => {
+        const d = Number(leg?.odds);
+        return acc * (Number.isFinite(d) && d > 0 ? d : 1);
+    }, 1);
+    const combined = placeholderCount > 0
+        ? realCombined * Math.pow(americanToDecimal(OPEN_PARLAY_PLACEHOLDER_AMERICAN), placeholderCount)
+        : realCombined;
+    let win = Math.max(0, risk * combined - risk);
+    const cap = Number(maxBet);
+    if (Number.isFinite(cap) && cap > 0 && win > cap * 3) win = cap * 3;
+    return win;
+};
+
+const ticketAmount = (bet, maxBet) => {
     const status = normalizeStatus(bet?.status);
+    // OPEN, still-filling parlay: surface the placeholder-inclusive preview
+    // To-Win (matches the placement screen) instead of the real-legs-only
+    // stored figure. Display-only; fully-filled / graded tickets fall through.
+    if (isOpenParlayStillFilling(bet)) {
+        return { text: moneyExact(openParlayPreviewProfit(bet, maxBet)), theme: 'pending' };
+    }
     const risk = Number(bet?.riskAmount || bet?.amount || 0);
     const potential = Number(bet?.potentialPayout || 0);
     const profit = Math.max(0, potential - risk);
@@ -661,8 +708,12 @@ const payoutLabel = (status) => {
     return 'Win';
 };
 
-const payoutValue = (bet) => {
+const payoutValue = (bet, maxBet) => {
     const status = normalizeStatus(bet?.status);
+    // OPEN, still-filling parlay: same placeholder-inclusive preview profit as
+    // ticketAmount, so any consumer reading payoutValue stays in sync with the
+    // displayed To-Win. Display-only — stored payout / settlement untouched.
+    if (isOpenParlayStillFilling(bet)) return openParlayPreviewProfit(bet, maxBet);
     const risk = Number(bet?.riskAmount || bet?.amount || 0);
     const potential = Number(bet?.potentialPayout || 0);
     const profit = Math.max(0, potential - risk);
@@ -876,7 +927,7 @@ const WEEK_OPTIONS = [
 // graded ticket renders +$X / -$X regardless of where it appears),
 // so the same row code works for both modes — only header columns
 // and the Risk column visibility change.
-const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTotals = false, onResumeOpenParlay = null }) => {
+const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTotals = false, onResumeOpenParlay = null, maxBet = null }) => {
     const [expandedBetId, setExpandedBetId] = useState(null);
     // Per-leg drill-down state. Single key (`${betId}::${legIdx}`) — only
     // one leg can be open at a time across the whole list, so opening a
@@ -950,8 +1001,8 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                 const selections = Array.isArray(bet.selections) ? bet.selections : [];
                 const risk = Number(bet.riskAmount || bet.amount || 0);
                 const status = normalizeStatus(bet.status);
-                const ticketPayout = payoutValue(bet);
-                const amount = ticketAmount(bet);
+                const ticketPayout = payoutValue(bet, maxBet);
+                const amount = ticketAmount(bet, maxBet);
                 const isMulti = isMultiLegBet(bet);
                 const isExpanded = expandedBetId === betId;
                 const winCell = status === 'pending' ? moneyExact(ticketPayout) : winCellContent(amount);
@@ -1016,8 +1067,8 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                             {isExpanded && childrenState === 'ready' && children.map((child, ci) => {
                                 const childRisk = Number(child?.riskAmount || child?.amount || 0);
                                 const childStatus = normalizeStatus(child?.status);
-                                const childPayout = payoutValue(child);
-                                const childAmount = ticketAmount(child);
+                                const childPayout = payoutValue(child, maxBet);
+                                const childAmount = ticketAmount(child, maxBet);
                                 const childWinCell = childStatus === 'pending' ? moneyExact(childPayout) : winCellContent(childAmount);
                                 const childWinTheme = childStatus === 'pending' ? 'pending' : childAmount.theme;
                                 const childSelections = Array.isArray(child?.selections) ? child.selections : [];
@@ -1233,8 +1284,17 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                 bets.forEach((b) => {
                     const { cashRisk, totalRisk } = cashRiskOfBet(b);
                     totalCashRisk += cashRisk;
-                    const potential = Number(b?.potentialPayout || 0);
-                    totalWin += Math.max(0, potential - totalRisk);
+                    if (isOpenParlayStillFilling(b)) {
+                        // Foot the column: an open still-filling parlay row now
+                        // displays the placeholder-inclusive preview To-Win, so
+                        // its contribution to the total must use the SAME helper
+                        // the per-row getter uses. Display-only; every other row
+                        // keeps the existing stored-potentialPayout contribution.
+                        totalWin += openParlayPreviewProfit(b, maxBet);
+                    } else {
+                        const potential = Number(b?.potentialPayout || 0);
+                        totalWin += Math.max(0, potential - totalRisk);
+                    }
                 });
                 return (
                     <div className="my-bets-table-totals">
@@ -1248,7 +1308,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
     );
 };
 
-const MyBetsView = ({ onResumeOpenParlay = null }) => {
+const MyBetsView = ({ onResumeOpenParlay = null, maxBet = null }) => {
     const { oddsFormat } = useOddsFormat();
     const [bets, setBets] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -1490,6 +1550,7 @@ const MyBetsView = ({ onResumeOpenParlay = null }) => {
                         mode="pending"
                         showTotals
                         onResumeOpenParlay={onResumeOpenParlay}
+                        maxBet={maxBet}
                     />
                 )}
             </div>
