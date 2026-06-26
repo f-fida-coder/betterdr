@@ -2404,7 +2404,12 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const teamTotals = match.odds?.teamTotals || {};
     const ttSideAvail = (leg) => !!leg && leg.point !== null && leg.price !== null;
     const teamHasTT = (teamSide) => ttSideAvail(teamTotals[teamSide]?.over) || ttSideAvail(teamTotals[teamSide]?.under);
-    const hasTeamTotals = (isMlbSportKey(match?.sportKey || match?.sport) || isSoccerSportKey(match?.sportKey || match?.sport)) && (teamHasTT('away') || teamHasTT('home'));
+    // Data-driven gate: show team totals for ANY sport whose feed actually
+    // prices them. teamHasTT is the real guard (priced over/under with a
+    // non-null point), so an event without priced team totals still yields
+    // false → static Total label, no toggle. (Was a hardcoded MLB/soccer
+    // allow-list, which hid WNBA's priced team totals.)
+    const hasTeamTotals = teamHasTT('away') || teamHasTT('home');
     // Spread ⇄ Alt toggle. The "Spread" pill flips the board into ALT mode:
     // the away/home rows render the alt-spread ladders here AND the alt-total
     // ladders in the Total column (both keyed off altOn), so a single "Spread"

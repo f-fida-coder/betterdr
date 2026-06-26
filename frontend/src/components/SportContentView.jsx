@@ -1752,7 +1752,13 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 const tt = match.odds.teamTotals || {};
                                                 const sideAvail = (leg) => !!leg && leg.point !== null && hasValidOdds(leg.price);
                                                 const teamHasTT = (teamSide) => sideAvail(tt[teamSide]?.over) || sideAvail(tt[teamSide]?.under);
-                                                const hasTeamTotals = (isMlbSportKey(match.sportKey) || isSoccerSportKey(match.sportKey)) && (teamHasTT('away') || teamHasTT('home'));
+                                                // Data-driven gate: show team totals for ANY sport whose
+                                                // feed actually prices them. sideAvail/teamHasTT is the real
+                                                // guard (priced over/under with a non-null point), so an
+                                                // event without priced team totals still yields false →
+                                                // static Total label, no toggle. (Was a hardcoded MLB/soccer
+                                                // allow-list, which hid WNBA's priced team totals.)
+                                                const hasTeamTotals = teamHasTT('away') || teamHasTT('home');
 
                                                 // Alternate-total ladder. Suppressed in teaser mode (teaser
                                                 // legs price off the main total) — matching the alt-spread gate.
