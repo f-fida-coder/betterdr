@@ -342,7 +342,11 @@ final class OddsMarketCatalog
         // on 2026-05-20. All NBA extended + prop keys accepted.
         'basketball_wnba' => [
             'extended' => [
-                'alternate_spreads', 'alternate_totals',
+                // WNBA only: alt SPREAD rungs removed (Nicky) — alternate_spreads
+                // and its period variants are intentionally NOT fetched. Core
+                // spreads (market 3 main line) still ingest; alt totals, team
+                // totals, and alt team totals are kept as-is.
+                'alternate_totals',
                 'team_totals', 'alternate_team_totals',
                 'h2h_3_way',
                 'h2h_q1', 'h2h_q2', 'h2h_q3', 'h2h_q4',
@@ -351,9 +355,6 @@ final class OddsMarketCatalog
                 'h2h_3_way_h1', 'h2h_3_way_h2',
                 'spreads_q1', 'spreads_q2', 'spreads_q3', 'spreads_q4',
                 'spreads_h1', 'spreads_h2',
-                'alternate_spreads_q1', 'alternate_spreads_q2',
-                'alternate_spreads_q3', 'alternate_spreads_q4',
-                'alternate_spreads_h1', 'alternate_spreads_h2',
                 'totals_q1', 'totals_q2', 'totals_q3', 'totals_q4',
                 'totals_h1', 'totals_h2',
                 'alternate_totals_q1', 'alternate_totals_q2',
