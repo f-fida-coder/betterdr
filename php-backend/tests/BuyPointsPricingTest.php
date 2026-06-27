@@ -166,12 +166,19 @@ $amer = static function (float $decimal): int {
 };
 
 // Enable the sports under test for the feed-anchored block. Restored at the end.
+// tennis_atp is the feed-anchored VEHICLE for the generic feed-mechanic tests
+// (gap-omit, dedup, ML floor, matches-feed, no-synth): it is 2-way, tie-possible,
+// not a run/puck line and not flat-cents — i.e. the pure feed path — now that
+// football and basketball SPREADS are priced by the flat-cents model. Selection
+// names in those tests are arbitrary; only same-name matching matters.
 $prevEnabled = $_ENV['BUY_POINTS_ENABLED_SPORTS'] ?? null;
-$_ENV['BUY_POINTS_ENABLED_SPORTS'] = 'americanfootball_nfl,americanfootball_ncaaf,baseball_mlb,basketball_nba,icehockey_nhl,soccer_epl';
+$_ENV['BUY_POINTS_ENABLED_SPORTS'] = 'americanfootball_nfl,americanfootball_ncaaf,baseball_mlb,basketball_nba,icehockey_nhl,soccer_epl,tennis_atp';
 
-TestRunner::run('ladderFromFeed — NFL favorite priced from feed; gap omits one rung, keeps higher', function () use ($mkPool, $amer): void {
-    // Chiefs -3.5 favorite. Feed prices -3.0/-2.5/-2.0 and -1.0, but NOT -1.5.
-    // All rungs stay below pick'em (line < 0) so the ML floor never binds.
+TestRunner::run('ladderFromFeed — feed sport favorite priced from feed; gap omits one rung, keeps higher', function () use ($mkPool, $amer): void {
+    // tennis (feed vehicle) -3.5 favorite. Feed prices -3.0/-2.5/-2.0 and -1.0,
+    // but NOT -1.5. All rungs stay below pick'em (line < 0) so the ML floor never
+    // binds. (Football spreads are now flat-cents, so this exercises the feed path
+    // on a still-feed-anchored sport.)
     $pool = $mkPool([
         'spreads'           => [['name' => 'Chiefs', 'point' => -3.5, 'price' => 1.91]],
         'h2h'               => [['name' => 'Chiefs', 'price' => 1.50]],
@@ -183,7 +190,7 @@ TestRunner::run('ladderFromFeed — NFL favorite priced from feed; gap omits one
             ['name' => 'Chiefs', 'point' => -1.0, 'price' => 1.55, 'book' => 'pinnacle'],
         ],
     ]);
-    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Chiefs', -3.5, $pool);
+    $ladder = BuyPointsPricing::ladderFromFeed('tennis_atp', 'spreads', 'Chiefs', -3.5, $pool);
 
     TestRunner::assertEquals(4, count($ladder), '4 priced rungs (-1.5 gap omitted)');
     TestRunner::assertEqualsFloat(0.5, $ladder[0]['points'], 'rung1 points', 1e-9);
@@ -293,32 +300,32 @@ TestRunner::run('ladderFromFeed — NHL puck line OMITS the ±0.5 win zone (no m
     TestRunner::assertEquals($amer(1.55), $ladder[0]['american'], '-1.0 from feed');
 });
 
-TestRunner::run('ladderFromFeed — NCAAF small spread reaches the win zone (no-tie: win-the-game = ML)', function () use ($mkPool, $amer): void {
-    // A near-even NBA game: Celtics -1.5, ML -130 (1.7692). Basketball never
-    // ties (OT decides), so the same win-zone-as-ML collapse applies. Buying
-    // points reaches -1.0 (feed), the win-the-game half-point (ML), and +1.0.
+TestRunner::run('ladderFromFeed — NCAAF (flat, no-tie) small spread: flat rungs + win-the-game = ML', function () use ($mkPool, $amer): void {
+    // Celtics -1.5, ML -130 (1.7692). NCAAF spreads are flat-cents (key-number
+    // aware) AND no-tie, so: the -1.0 rung is flat-priced off the base (-105 →
+    // +10c = -115), and the win-the-game half-point (-0.5) still collapses to the
+    // ML via fillNoTieWinZone. Capped at 2.0 points, so +1.0 (2.5 pts away) is
+    // never reached. Feed alts are overridden by the flat model.
     $pool = $mkPool([
-        'spreads'           => [['name' => 'Celtics', 'point' => -1.5, 'price' => 1.95]],
+        'spreads'           => [['name' => 'Celtics', 'point' => -1.5, 'price' => 1.95]], // -105
         'h2h'               => [['name' => 'Celtics', 'price' => 1.7692]], // -130
         'alternate_spreads' => [
-            ['name' => 'Celtics', 'point' => -1.5, 'price' => 2.40],
-            ['name' => 'Celtics', 'point' => -1.0, 'price' => 2.05],
-            ['name' => 'Celtics', 'point' => -0.5, 'price' => 1.80], // ignored — win zone uses ML
+            ['name' => 'Celtics', 'point' => -1.5, 'price' => 2.40], // ignored (flat)
+            ['name' => 'Celtics', 'point' => -1.0, 'price' => 2.05], // ignored (flat)
+            ['name' => 'Celtics', 'point' => -0.5, 'price' => 1.80], // ignored — win zone = ML
             ['name' => 'Celtics', 'point' =>  1.0, 'price' => 1.55],
         ],
     ]);
-    // Re-pointed to NCAAF: basketball is now flat-cents (no win-zone synthesis);
-    // the win-zone-as-ML collapse is exercised here on a no-tie FEED sport.
     $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_ncaaf', 'spreads', 'Celtics', -1.5, $pool);
     $byLine = [];
     foreach ($ladder as $r) { $byLine[number_format($r['line'], 1)] = $r; }
     $lines = array_map(static fn ($r) => $r['line'], $ladder);
-    TestRunner::assertEquals([-1.0, -0.5, 1.0], $lines, 'NBA: -1.0, win-the-game(-0.5), +1.0');
-    TestRunner::assertEquals($amer(1.7692), $byLine['-0.5']['american'], 'win-the-game at the ML (no-tie applies to NBA)');
+    TestRunner::assertEquals([-1.0, -0.5], $lines, 'flat -1.0 + win-the-game(-0.5); +1.0 beyond the 2-pt cap');
+    TestRunner::assertEquals(-115, $byLine['-1.0']['american'], '-1.0 flat off base (-105 +10c), not feed 2.05');
+    TestRunner::assertEquals($amer(1.7692), $byLine['-0.5']['american'], 'win-the-game at the ML (no-tie)');
     TestRunner::assertTrue(
-        $byLine['-1.0']['decimal'] >= $byLine['-0.5']['decimal'] - 1e-9
-            && $byLine['-0.5']['decimal'] >= $byLine['1.0']['decimal'] - 1e-9,
-        'monotonic -1.0 → -0.5 → +1.0'
+        $byLine['-1.0']['decimal'] >= $byLine['-0.5']['decimal'] - 1e-9,
+        'monotonic -1.0 → -0.5'
     );
 });
 
@@ -345,26 +352,26 @@ TestRunner::run('ladderFromFeed — run/puck-line sports drop ±0.5; continuous-
     TestRunner::assertEquals([-1.0, -0.5], $build('americanfootball_ncaaf'), 'NCAAF keeps ±0.5 (win-the-game = ML)');
 });
 
-TestRunner::run('ladderFromFeed — NFL keeps real win-zone lines (tie-possible: NO ML collapse)', function () use ($mkPool, $amer): void {
+TestRunner::run('ladderFromFeed — NFL (flat, tie-possible) keeps distinct win-zone lines, no ML collapse', function () use ($mkPool, $amer): void {
     // Pro football CAN tie, so -0.5/0/+0.5 are distinct lose/push/win bets and
-    // must NOT collapse to one ML rung. Patriots -1.5; the feed win-zone rungs
-    // survive at their OWN feed prices (subject only to the ML floor), and no
-    // synthetic win-the-game/ML rung is injected.
+    // must NOT collapse to one ML rung. NFL spreads are flat-cents: each rung is
+    // priced off the base (-105) at +10c/half (no key number in this window), and
+    // bettor-favorable lines (>= 0) are ML-floored but still surfaced here.
     $pool = $mkPool([
-        'spreads'           => [['name' => 'Patriots', 'point' => -1.5, 'price' => 1.95]],
+        'spreads'           => [['name' => 'Patriots', 'point' => -1.5, 'price' => 1.95]], // -105
         'h2h'               => [['name' => 'Patriots', 'price' => 1.7692]], // -130
         'alternate_spreads' => [
-            ['name' => 'Patriots', 'point' => -1.0, 'price' => 1.85],
-            ['name' => 'Patriots', 'point' => -0.5, 'price' => 1.74],
+            ['name' => 'Patriots', 'point' => -1.0, 'price' => 1.85], // ignored (flat)
+            ['name' => 'Patriots', 'point' => -0.5, 'price' => 1.74], // ignored (flat)
         ],
     ]);
     $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Patriots', -1.5, $pool);
     $byLine = [];
     foreach ($ladder as $r) { $byLine[number_format($r['line'], 1)] = $r; }
     $lines = array_map(static fn ($r) => $r['line'], $ladder);
-    TestRunner::assertEquals([-1.0, -0.5], $lines, 'NFL keeps feed -1.0 and the real -0.5 line');
-    TestRunner::assertEquals($amer(1.85), $byLine['-1.0']['american'], '-1.0 from feed');
-    TestRunner::assertEquals($amer(1.74), $byLine['-0.5']['american'], '-0.5 from FEED, not the ML (no win-zone collapse for NFL)');
+    TestRunner::assertEquals([-1.0, -0.5, 0.0, 0.5], $lines, 'NFL keeps distinct win-zone lines (no collapse)');
+    TestRunner::assertEquals(-115, $byLine['-1.0']['american'], '-1.0 flat off base (-105 +10c)');
+    TestRunner::assertEquals(-125, $byLine['-0.5']['american'], '-0.5 flat off base (-105 +20c), not the ML');
 });
 
 TestRunner::run('ladderFromFeed — NCAAF is no-tie (win-the-game = ML) but NFL is not', function () use ($mkPool, $amer): void {
@@ -385,12 +392,14 @@ TestRunner::run('ladderFromFeed — NCAAF is no-tie (win-the-game = ML) but NFL 
     foreach ($ncaaf as $r) { $ncaafByLine[number_format($r['line'], 1)] = $r; }
     $nflByLine = [];
     foreach ($nfl as $r) { $nflByLine[number_format($r['line'], 1)] = $r; }
-    // College: -0.5 collapses to the ML. Pro: -0.5 stays the feed price.
+    // College: -0.5 collapses to the ML (no-tie). Pro NFL: -0.5 is flat-priced
+    // off the base (-105 +20c = -125) — distinct from the ML, no collapse.
     TestRunner::assertEquals($amer(1.7692), $ncaafByLine['-0.5']['american'], 'NCAAF win-the-game = ML');
-    TestRunner::assertEquals($amer(1.80), $nflByLine['-0.5']['american'], 'NFL -0.5 stays the FEED price');
+    TestRunner::assertEquals(-125, $nflByLine['-0.5']['american'], 'NFL -0.5 flat off base (no ML collapse)');
 });
 
-TestRunner::run('ladderFromFeed — NFL spread matches feed exactly (no ML floor below pick\'em)', function () use ($mkPool, $amer): void {
+TestRunner::run('ladderFromFeed — feed sport spread matches feed exactly (no ML floor below pick\'em)', function () use ($mkPool, $amer): void {
+    // tennis (feed vehicle): every below-pick'em rung comes straight from the feed.
     $pool = $mkPool([
         'spreads'           => [['name' => 'Celtics', 'point' => -5.5, 'price' => 1.91]],
         'h2h'               => [['name' => 'Celtics', 'price' => 1.40]],
@@ -402,7 +411,7 @@ TestRunner::run('ladderFromFeed — NFL spread matches feed exactly (no ML floor
             ['name' => 'Celtics', 'point' => -3.0, 'price' => 1.55],
         ],
     ]);
-    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Celtics', -5.5, $pool);
+    $ladder = BuyPointsPricing::ladderFromFeed('tennis_atp', 'spreads', 'Celtics', -5.5, $pool);
     TestRunner::assertEquals(5, count($ladder), '5 rungs, all feed-priced');
     TestRunner::assertEquals($amer(1.83), $ladder[0]['american'], 'rung1 from feed');
     TestRunner::assertEquals($amer(1.55), $ladder[4]['american'], 'rung5 from feed');
@@ -456,7 +465,7 @@ TestRunner::run('ladderFromFeed — ML floor omits a bettor-favorable rung price
             ['name' => 'Jets', 'point' => 4.0, 'price' => 2.10],
         ],
     ]);
-    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Jets', 2.5, $pool);
+    $ladder = BuyPointsPricing::ladderFromFeed('tennis_atp', 'spreads', 'Jets', 2.5, $pool);
     $lines = array_map(static fn ($r) => $r['line'], $ladder);
     TestRunner::assertEquals([3.0, 4.0], $lines, '+3.5 omitted (> ML); +3.0 and +4.0 kept');
 });
@@ -471,7 +480,7 @@ TestRunner::run('ladderFromFeed — missing moneyline fails safe for bettor-favo
             ['name' => 'Jets', 'point' => 4.0, 'price' => 2.10],
         ],
     ]);
-    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Jets', 2.5, $pool);
+    $ladder = BuyPointsPricing::ladderFromFeed('tennis_atp', 'spreads', 'Jets', 2.5, $pool);
     TestRunner::assertEquals(0, count($ladder), 'no ML → all line>=0 rungs omitted (fail safe)');
 });
 
@@ -485,17 +494,20 @@ TestRunner::run('ladderFromFeed — duplicate feed rows keep the LOWEST payout (
             ['name' => 'Chiefs', 'point' => -3.0, 'price' => 1.83, 'book' => 'pinnacle'],
         ],
     ]);
-    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Chiefs', -3.5, $pool);
+    $ladder = BuyPointsPricing::ladderFromFeed('tennis_atp', 'spreads', 'Chiefs', -3.5, $pool);
     TestRunner::assertEquals(1, count($ladder), 'one rung');
     TestRunner::assertEquals($amer(1.83), $ladder[0]['american'], 'kept the lower-payout 1.83, not 1.95');
 });
 
-TestRunner::run('ladderFromFeed — no alt market → empty (no synthesis)', function () use ($mkPool): void {
+TestRunner::run('ladderFromFeed — feed sport: no alt market → empty (no synthesis)', function () use ($mkPool): void {
+    // A pure feed-anchored sport (tennis) with no alt ladder → nothing. (Football
+    // spreads are flat-cents and DO build from the base price — see the NFL flat
+    // tests — so this "never guess" rule is now exercised on tennis.)
     $pool = $mkPool([
         'spreads' => [['name' => 'Chiefs', 'point' => -3.5, 'price' => 1.91]],
         'h2h'     => [['name' => 'Chiefs', 'price' => 1.50]],
     ]);
-    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Chiefs', -3.5, $pool);
+    $ladder = BuyPointsPricing::ladderFromFeed('tennis_atp', 'spreads', 'Chiefs', -3.5, $pool);
     TestRunner::assertEquals(0, count($ladder), 'no alternate_spreads → []');
 });
 
@@ -520,8 +532,8 @@ TestRunner::run('ladderFromFeed — disabled sport (not in env) → empty', func
         'h2h'               => [['name' => 'Team', 'price' => 1.50]],
         'alternate_spreads' => [['name' => 'Team', 'point' => -3.0, 'price' => 1.83]],
     ]);
-    // tennis is not in the enabled list.
-    $ladder = BuyPointsPricing::ladderFromFeed('tennis_atp', 'spreads', 'Team', -3.5, $pool);
+    // cricket is not in the enabled list.
+    $ladder = BuyPointsPricing::ladderFromFeed('cricket_test', 'spreads', 'Team', -3.5, $pool);
     TestRunner::assertEquals(0, count($ladder), 'sport not enabled → []');
 });
 
@@ -586,13 +598,15 @@ TestRunner::run('ladderFromFeed — basketball flat-cents OVERRIDES feed alts (i
     TestRunner::assertEquals(-150, $ladder[3]['american'], '2.0 -> -150');
 });
 
-TestRunner::run('ladderFromFeed — non-basketball with NO feed alts stays empty (no synthesis)', function () use ($mkPool): void {
-    // The "never guess a price" rule still holds for every non-synth sport.
+TestRunner::run('ladderFromFeed — feed-only sports with NO feed alts stay empty (no synthesis)', function () use ($mkPool): void {
+    // The "never guess a price" rule still holds for every feed-anchored, non-flat
+    // sport. (Basketball synthesizes; football spreads build flat off the base —
+    // both covered elsewhere — so neither belongs in this list.)
     $pool = $mkPool([
         'spreads' => [['name' => 'Chiefs', 'point' => -3.5, 'price' => 1.909]],
         'h2h'     => [['name' => 'Chiefs', 'price' => 1.50]],
     ]);
-    foreach (['americanfootball_nfl', 'baseball_mlb', 'icehockey_nhl'] as $sport) {
+    foreach (['baseball_mlb', 'icehockey_nhl', 'tennis_atp'] as $sport) {
         $ladder = BuyPointsPricing::ladderFromFeed($sport, 'spreads', 'Chiefs', -3.5, $pool);
         TestRunner::assertEquals(0, count($ladder), "$sport: no feed alts → no synthesis");
     }
@@ -690,6 +704,103 @@ TestRunner::run('flat-cents ladder — basketball spread: +10c/half, cap 2 pts, 
     TestRunner::assertTrue($beyond === null, '2.5 points beyond the 2.0 cap -> rejected');
 });
 
+// ── football flat-cents (KEY-NUMBER aware): 25c on the 3/7, 10c elsewhere ─────
+
+TestRunner::run('flat-cents ladder — NFL spread key-number aware: 25c on the 3, 10c elsewhere (Nicky target curve)', function () use ($mkPool): void {
+    // Rams -3.5 at -110 (the reported screenshot). Buying DOWN crosses the key
+    // number 3 (steps onto -3 and off it), each +25c; the rest +10c, cumulative
+    // off the base: -3 -135, -2.5 -160, -2 -170, -1.5 -180. The feed's irregular
+    // alts (which leaked -3.5 and -2.5 both at -110) are OVERRIDDEN.
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Rams', 'point' => -3.5, 'price' => 1.9090909]], // -110
+        'h2h'               => [['name' => 'Rams', 'price' => 1.5]],
+        'alternate_spreads' => [
+            ['name' => 'Rams', 'point' => -3.0, 'price' => 1.87],  // ignored (feed leak)
+            ['name' => 'Rams', 'point' => -2.5, 'price' => 1.91],  // ignored (feed leak: same -110)
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Rams', -3.5, $pool);
+    TestRunner::assertEquals(4, count($ladder), '4 rungs (cap 2.0 points)');
+    $byPoints = [];
+    foreach ($ladder as $r) { $byPoints[(string) $r['points']] = $r; }
+    TestRunner::assertEqualsFloat(-3.0, $byPoints['0.5']['line'], '0.5 -> -3.0 line', 1e-9);
+    TestRunner::assertEquals(-135, $byPoints['0.5']['american'], '-3.0 -135 (+25c onto the key 3)');
+    TestRunner::assertEquals(-160, $byPoints['1']['american'],   '-2.5 -160 (+25c off the key 3)');
+    TestRunner::assertEquals(-170, $byPoints['1.5']['american'], '-2.0 -170 (+10c, clear of key)');
+    TestRunner::assertEquals(-180, $byPoints['2']['american'],   '-1.5 -180 (+10c, clear of key)');
+    // Display == placement; beyond the 2-pt cap is rejected.
+    $place = BuyPointsPricing::priceBoughtPointFromFeed('americanfootball_nfl', 'spreads', 'Rams', -3.5, 1.0, $pool);
+    TestRunner::assertEquals(-160, $place['american'] ?? 0, 'placement 1.0 -> -160 == display');
+    $beyond = BuyPointsPricing::priceBoughtPointFromFeed('americanfootball_nfl', 'spreads', 'Rams', -3.5, 2.5, $pool);
+    TestRunner::assertTrue($beyond === null, '2.5 pts beyond the 2.0 cap -> rejected');
+});
+
+TestRunner::run('flat-cents ladder — NFL spread prices off the base with NO feed alts', function () use ($mkPool): void {
+    // The key value-add: clean key-number juice even when the feed ships no alts.
+    $pool = $mkPool([
+        'spreads' => [['name' => 'Rams', 'point' => -3.5, 'price' => 1.9090909]], // -110
+        'h2h'     => [['name' => 'Rams', 'price' => 1.5]],
+        // no alternate_spreads
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Rams', -3.5, $pool);
+    TestRunner::assertEquals(4, count($ladder), 'flat ladder built from base price alone');
+    TestRunner::assertEquals(-135, $ladder[0]['american'], 'first rung -3.0 -135');
+    TestRunner::assertEquals(-180, $ladder[3]['american'], 'last rung -1.5 -180');
+});
+
+TestRunner::run('flat-cents ladder — NFL spread: key number 7 also priced at 25c/half', function () use ($mkPool): void {
+    $pool = $mkPool([
+        'spreads' => [['name' => 'Rams', 'point' => -7.5, 'price' => 1.9090909]], // -110
+        'h2h'     => [['name' => 'Rams', 'price' => 1.3]],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Rams', -7.5, $pool);
+    $byPoints = [];
+    foreach ($ladder as $r) { $byPoints[(string) $r['points']] = $r; }
+    TestRunner::assertEquals(-135, $byPoints['0.5']['american'], '-7.0 -135 (+25c onto the key 7)');
+    TestRunner::assertEquals(-160, $byPoints['1']['american'],   '-6.5 -160 (+25c off the key 7)');
+    TestRunner::assertEquals(-170, $byPoints['1.5']['american'], '-6.0 -170 (+10c)');
+    TestRunner::assertEquals(-180, $byPoints['2']['american'],   '-5.5 -180 (+10c)');
+});
+
+TestRunner::run('flat-cents ladder — NFL spread clear of key numbers is a flat 10c/half', function () use ($mkPool): void {
+    // -5.5 down to -3.5 never lands on 3 or 7, so every step is the base 10c.
+    $pool = $mkPool([
+        'spreads' => [['name' => 'Rams', 'point' => -5.5, 'price' => 1.9090909]], // -110
+        'h2h'     => [['name' => 'Rams', 'price' => 1.4]],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Rams', -5.5, $pool);
+    $am = array_map(static fn ($r) => $r['american'], $ladder);
+    TestRunner::assertEquals([-120, -130, -140, -150], $am, 'flat 10c/half, no key-number premium');
+});
+
+TestRunner::run('flat-cents ladder — NFL spread: premium kicks in only at the 3 mid-ladder', function () use ($mkPool): void {
+    // -4.5 → -4 -120, -3.5 -130 (both 10c), then -3 -155, -2.5 -180 (25c each on
+    // the key 3). Cumulative off the base.
+    $pool = $mkPool([
+        'spreads' => [['name' => 'Rams', 'point' => -4.5, 'price' => 1.9090909]], // -110
+        'h2h'     => [['name' => 'Rams', 'price' => 1.45]],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Rams', -4.5, $pool);
+    $am = array_map(static fn ($r) => $r['american'], $ladder);
+    TestRunner::assertEquals([-120, -130, -155, -180], $am, '10c until the 3, then 25c onto/off it');
+});
+
+TestRunner::run('flat-cents — NFL TOTALS stay feed-anchored (not flat key-number)', function () use ($mkPool, $amer): void {
+    // The key-number model is SPREADS-only. Football totals still come straight
+    // from the feed's alternate_totals (key numbers 3/7 are margin numbers and
+    // don't apply to totals).
+    $pool = $mkPool([
+        'totals'           => [['name' => 'Over', 'point' => 47.5, 'price' => 1.91]],
+        'alternate_totals' => [
+            ['name' => 'Over', 'point' => 47.0, 'price' => 1.83],
+            ['name' => 'Over', 'point' => 46.5, 'price' => 1.77],
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'totals', 'Over', 47.5, $pool);
+    TestRunner::assertEquals(2, count($ladder), 'totals priced from the feed (only the 2 alts)');
+    TestRunner::assertEquals($amer(1.83), $ladder[0]['american'], 'over 47.0 from feed, not a flat step');
+});
+
 TestRunner::run('worsenAmericanByCents continuity — +120 worsened crosses even to -110 (no flat-cents for MLB)', function () use ($mkPool): void {
     // Underdog +120 base, flat-cents football: +120 -> +110 -> EVEN -> -110 -> -120.
     $pool = $mkPool([
@@ -777,7 +888,7 @@ TestRunner::run('priceBoughtPointFromFeed — returns the feed rung for a priced
         'h2h'               => [['name' => 'Chiefs', 'price' => 1.50]],
         'alternate_spreads' => [['name' => 'Chiefs', 'point' => -3.0, 'price' => 1.83]],
     ]);
-    $rung = BuyPointsPricing::priceBoughtPointFromFeed('americanfootball_nfl', 'spreads', 'Chiefs', -3.5, 0.5, $pool);
+    $rung = BuyPointsPricing::priceBoughtPointFromFeed('tennis_atp', 'spreads', 'Chiefs', -3.5, 0.5, $pool);
     TestRunner::assertTrue($rung !== null, 'rung found for 0.5-pt buy');
     TestRunner::assertEqualsFloat(-3.0, $rung['line'], 'rung line -3.0', 1e-9);
     TestRunner::assertEquals($amer(1.83), $rung['american'], 'rung american from feed');
@@ -790,7 +901,7 @@ TestRunner::run('priceBoughtPointFromFeed — null when the feed never priced th
         'h2h'               => [['name' => 'Chiefs', 'price' => 1.50]],
         'alternate_spreads' => [['name' => 'Chiefs', 'point' => -3.0, 'price' => 1.83]],
     ]);
-    $rung = BuyPointsPricing::priceBoughtPointFromFeed('americanfootball_nfl', 'spreads', 'Chiefs', -3.5, 2.0, $pool);
+    $rung = BuyPointsPricing::priceBoughtPointFromFeed('tennis_atp', 'spreads', 'Chiefs', -3.5, 2.0, $pool);
     TestRunner::assertTrue($rung === null, 'no feed price → null (placement rejects)');
 });
 
@@ -804,8 +915,8 @@ TestRunner::run('priceBoughtPointFromFeed — null for an ML-floor-omitted (over
             ['name' => 'Jets', 'point' => 3.5, 'price' => 2.60],
         ],
     ]);
-    $kept = BuyPointsPricing::priceBoughtPointFromFeed('americanfootball_nfl', 'spreads', 'Jets', 2.5, 0.5, $pool);
-    $omitted = BuyPointsPricing::priceBoughtPointFromFeed('americanfootball_nfl', 'spreads', 'Jets', 2.5, 1.0, $pool);
+    $kept = BuyPointsPricing::priceBoughtPointFromFeed('tennis_atp', 'spreads', 'Jets', 2.5, 0.5, $pool);
+    $omitted = BuyPointsPricing::priceBoughtPointFromFeed('tennis_atp', 'spreads', 'Jets', 2.5, 1.0, $pool);
     TestRunner::assertTrue($kept !== null, '+3.0 (≤ ML) priced');
     TestRunner::assertTrue($omitted === null, '+3.5 (> ML) rejected at placement');
 });

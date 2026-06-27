@@ -47,18 +47,33 @@ final class BuyPointsPricing
     private const SYNTH_MAX_PROB = 0.97;           // payout floor; beyond this a buy is meaningless
 
     // ── Flat-cents buy-points model (competitor parity) ─────────────────────
-    // BASKETBALL ONLY: every ½-point bought costs a FLAT +10 American cents of
-    // juice, capped at 2 points — matching the competitor (-4 -110 → -3½ -120 →
-    // -3 -130 → -2½ -140 → -2 -150). This REPLACES the feed-anchored / synthetic
-    // pricing for basketball (buy DOWN only). It is deliberately NOT used for
-    // KEY-NUMBER sports — football (3/7) and run/puck lines (baseball/hockey ±1.5
-    // sit near the moneyline) — where a point is worth far more than 10 cents,
-    // so a flat charge would under-price and bleed the house. Those stay
-    // feed-anchored. Basketball margins are near-continuous, so flat 10c/½ is
-    // house-safe there (and is exactly what the competitor charges).
-    private const FLAT_CENTS_SPORT_PREFIXES = ['basketball_'];
-    private const FLAT_CENTS_PER_HALF = 10; // American cents of juice added per ½ point
-    private const FLAT_MAX_HALF_STEPS = 4;  // cap at 2.0 points (4 half-steps)
+    // The dropdown is priced off the BASE line's own price with a fixed per-½
+    // juice cost, capped at 2 points, instead of the feed's irregular alt
+    // prices (which leak free points — e.g. -3½ and -2½ both at -110). Two
+    // flavours:
+    //
+    //   BASKETBALL (spreads + totals): a FLAT +10 American cents per ½-point —
+    //     matching the competitor (-4 -110 → -3½ -120 → -3 -130 → -2½ -140 →
+    //     -2 -150). Basketball margins are near-continuous (no key numbers), so a
+    //     flat charge is house-safe.
+    //
+    //   FOOTBALL (spreads only): KEY-NUMBER-AWARE. A ½-point step that lands on
+    //     or leaves a key number (|line| == 3, secondarily 7) costs +25 cents;
+    //     every other ½-step costs +10 cents; charged CUMULATIVELY off the base
+    //     price. So -3½ -110 → -3 -135 → -2½ -160 → -2 -170 → -1½ -180. A flat
+    //     rate would either under-price the 3 (the most common NFL margin — a
+    //     value leak that bleeds the house) or over-charge below it; the
+    //     key-number step prices the 3/7 at what they're actually worth.
+    //
+    // Both REPLACE the feed-anchored alt prices (buy DOWN only). Football TOTALS
+    // and run/puck lines (baseball/hockey ±1.5) stay feed-anchored — their key
+    // numbers differ and a spread-style flat charge wouldn't fit.
+    private const FLAT_CENTS_PER_HALF = 10;      // base American cents per ½ point
+    private const FLAT_MAX_HALF_STEPS = 4;       // cap at 2.0 points (4 half-steps)
+    // Football key numbers: a ½-step touching one of these costs the premium rate.
+    private const KEY_NUMBER_CENTS_SPORT_PREFIXES = ['americanfootball_'];
+    private const KEY_NUMBERS = [3.0, 7.0];
+    private const KEY_NUMBER_CENTS_PER_HALF = 25; // premium American cents on/adjacent a key number
 
     // Run/puck-line "reference lines" cap. On baseball/hockey the meaningful
     // run/puck lines cluster near pick'em (±1, ±1.5, ±2, ±2.5); deeper alts
@@ -295,14 +310,14 @@ final class BuyPointsPricing
         $altOutcomes = self::outcomesForKey($pool, 'alternate_' . $m);
         $priceByPoint = $altOutcomes === [] ? [] : self::feedPriceByPoint($altOutcomes, $m, $selection);
 
-        // Flat-cents sports (basketball, football): price every ½-point at a
-        // fixed +10 American cents off the base line's OWN price, capped at 2
-        // points (competitor parity) — uniform -110/-120/-130/-140/-150 steps
-        // instead of the feed's irregular alts, and it works even with no alt
-        // feed. NOT used for run/puck-line sports (a point there sits near the
-        // moneyline, worth far more than 10c). Every house-safety guard in the
-        // loop below (no-tie skip, ML floor) STILL applies.
-        $flat = self::isFlatCentsSport($sportKey);
+        // Flat-cents pricing (basketball spreads+totals, football spreads):
+        // price every ½-point off the base line's OWN price with a fixed cumulative
+        // juice cost — +10c/½ flat for basketball, key-number-aware (+25c/½ on the
+        // 3/7, +10c/½ elsewhere) for football — capped at 2 points, instead of the
+        // feed's irregular alts, and it works even with no alt feed. NOT used for
+        // football totals or run/puck-line sports (those stay feed-anchored). Every
+        // house-safety guard in the loop below (no-tie skip, ML floor) STILL applies.
+        $flat = self::usesFlatCents($sportKey, $m);
         $baseDecimal = ($flat || $priceByPoint === []) ? self::baseLineDecimal($pool, $m, $selection, $basePoint) : null;
 
         if (!$flat && $priceByPoint === []) {
@@ -345,8 +360,11 @@ final class BuyPointsPricing
             }
 
             if ($flat) {
-                // +10 American cents of juice per ½-point, off the base price.
-                $american = self::worsenAmericanByCents($baseAmerican, $steps * self::FLAT_CENTS_PER_HALF);
+                // Cumulative juice off the base price: +10c/½ (basketball, and
+                // football ½-steps clear of a key number) or +25c/½ on a step
+                // that touches a football key number (|line| 3/7).
+                $cents = self::cumulativeFlatCents($sportKey, $m, $selection, $basePoint, $steps);
+                $american = self::worsenAmericanByCents($baseAmerican, $cents);
                 if ($american === 0) {
                     continue;
                 }
@@ -793,16 +811,73 @@ final class BuyPointsPricing
         return false;
     }
 
-    /** Sports priced by the flat +10c/½ competitor model (basketball, football). */
-    private static function isFlatCentsSport(string $sportKey): bool
+    /**
+     * Whether this (sport, market) is priced by the flat-cents model off the
+     * base line instead of the feed's alt ladder. Basketball uses it for spreads
+     * AND totals (continuous margins); football uses it for SPREADS ONLY (the
+     * key-number-aware variant) — football totals and every other sport stay
+     * feed-anchored.
+     */
+    private static function usesFlatCents(string $sportKey, string $marketType): bool
     {
         $k = strtolower(trim($sportKey));
-        foreach (self::FLAT_CENTS_SPORT_PREFIXES as $prefix) {
+        if (str_starts_with($k, 'basketball_')) {
+            return true;
+        }
+        if (str_starts_with($k, 'americanfootball_')) {
+            return strtolower(trim($marketType)) === 'spreads';
+        }
+        return false;
+    }
+
+    /** Whether this sport prices key-number ½-steps at the premium rate (football). */
+    private static function isKeyNumberSport(string $sportKey): bool
+    {
+        $k = strtolower(trim($sportKey));
+        foreach (self::KEY_NUMBER_CENTS_SPORT_PREFIXES as $prefix) {
             if (str_starts_with($k, $prefix)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** Whether a line sits exactly on a key number (|line| ∈ KEY_NUMBERS). */
+    private static function touchesKeyNumber(float $line): bool
+    {
+        $abs = abs($line);
+        foreach (self::KEY_NUMBERS as $k) {
+            if (abs($abs - $k) < 1e-9) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Cumulative American cents of juice for buying `steps` half-points off the
+     * base line, walking each ½-step from the base in the buy direction. Each
+     * step costs FLAT_CENTS_PER_HALF, except — on key-number sports (football) —
+     * a step whose FROM or TO line sits on a key number (3/7), which costs the
+     * KEY_NUMBER_CENTS_PER_HALF premium. Non-key sports (basketball) reduce to a
+     * flat steps × FLAT_CENTS_PER_HALF.
+     */
+    private static function cumulativeFlatCents(string $sportKey, string $marketType, string $selection, float $basePoint, int $steps): int
+    {
+        $keySport = self::isKeyNumberSport($sportKey);
+        $cents = 0;
+        for ($s = 1; $s <= $steps; $s++) {
+            $perStep = self::FLAT_CENTS_PER_HALF;
+            if ($keySport) {
+                $from = round($basePoint + self::signedPointDelta($marketType, $selection, ($s - 1) * self::HALF_POINT), 2);
+                $to = round($basePoint + self::signedPointDelta($marketType, $selection, $s * self::HALF_POINT), 2);
+                if (self::touchesKeyNumber($from) || self::touchesKeyNumber($to)) {
+                    $perStep = self::KEY_NUMBER_CENTS_PER_HALF;
+                }
+            }
+            $cents += $perStep;
+        }
+        return $cents;
     }
 
     /**
