@@ -2527,9 +2527,17 @@ final class BetsController
                 $reconcileKey = 'pendrec:' . $userId;
                 $recent = SharedFileCache::get($throttleNs, $reconcileKey, 60);
                 if ($recent === null) {
+                    // Live tickets that still hold a stake reservation: straight/
+                    // simple bets sit in 'pending'; multi-leg parlays sit in
+                    // 'open' until the whole ticket resolves. BOTH reserved their
+                    // full real stake in pendingBalance at placement, so BOTH must
+                    // be summed here. Excluding 'open' zeroed the reservation for
+                    // any user whose only live risk was an open parlay — the
+                    // reconciler itself overwrote a correct pendingBalance with 0,
+                    // inflating available balance (money drift).
                     $pendingBets = $this->db->findMany('bets', [
                         'userId' => SqlRepository::id($userId),
-                        'status' => 'pending',
+                        'status' => ['$in' => ['pending', 'open']],
                     ], ['projection' => ['riskAmount' => 1, 'amount' => 1, 'freeplayAmountUsed' => 1, 'isFreeplay' => 1]]);
                     $expectedPending = 0.0;
                     foreach ($pendingBets as $pb) {

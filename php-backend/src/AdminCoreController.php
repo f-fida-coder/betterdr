@@ -11209,7 +11209,14 @@ final class AdminCoreController
                 $betQuery['type'] = $typeQ;
             }
             if ($statusQ !== '' && $statusQ !== 'all-statuses' && $statusQ !== 'all') {
-                $betQuery['status'] = $statusQ;
+                // "pending" means a live/unsettled ticket. Straight bets settle
+                // from 'pending'; multi-leg parlays sit in 'open' until the whole
+                // ticket resolves. Treat a pending filter as pending+open so the
+                // admin Pending Bets panel surfaces open parlays — previously the
+                // exact-match 'pending' filter hid every live parlay from admins.
+                $betQuery['status'] = $statusQ === 'pending'
+                    ? ['$in' => ['pending', 'open']]
+                    : $statusQ;
             }
             $startDate = $this->getStartDateFromPeriod($timeQ);
             if ($startDate !== null) {
@@ -11929,7 +11936,8 @@ final class AdminCoreController
                     $agentStats[$aid]['wins']++;
                 } elseif (($bet['status'] ?? '') === 'lost') {
                     $agentStats[$aid]['losses']++;
-                } elseif (($bet['status'] ?? '') === 'pending') {
+                } elseif (in_array(($bet['status'] ?? ''), ['pending', 'open'], true)) {
+                    // 'open' = a live multi-leg parlay (counts as a pending ticket).
                     $agentStats[$aid]['pending']++;
                 }
                 $createdAt = (string) ($bet['createdAt'] ?? '');
