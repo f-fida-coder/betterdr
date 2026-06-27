@@ -57,15 +57,15 @@ final class BuyPointsPricing
     //     -2 -150). Basketball margins are near-continuous (no key numbers), so a
     //     flat charge is house-safe.
     //
-    //   FOOTBALL (spreads only): KEY-NUMBER-AWARE, two tiers. A ½-point step that
-    //     lands on or leaves a PRIMARY key number (3, 7) costs +15 cents (default,
-    //     competitor bettorjuice365 parity); a SECONDARY key number (6, 10, 14)
-    //     costs +12 cents ("a little more"); every other ½-step costs +10 cents;
-    //     charged CUMULATIVELY off the base price. Both premiums env-tunable
-    //     (BUY_POINTS_KEY_NUMBER_CENTS / BUY_POINTS_KEY_NUMBER_CENTS_SECONDARY).
-    //     So -3½ -110 → -3 -125 → -2½ -140 → -2 -150 → -1½ -160. A FLAT rate would
-    //     under-price the 3/7 (the most common NFL margins — a value leak) or
-    //     over-charge below them; the key-number step prices each at its worth.
+    //   FOOTBALL (spreads only): KEY-NUMBER-AWARE — EXACT bettorjuice365 algorithm.
+    //     +10 cents per ½-step normally; a ½-step that lands on or leaves a key
+    //     number (3 or 7) costs +15 cents instead; charged CUMULATIVELY off the
+    //     base price. So -3½ -110 → -3 -125 → -2½ -140 → -2 -150 → -1½ -160, and
+    //     -7½ → -7 -125 → -6½ -140 → -6 -150 → -5½ -160 (matches the competitor's
+    //     ladders exactly; they premium ONLY 3/7, not 6/10/14). The premium is
+    //     env-tunable (BUY_POINTS_KEY_NUMBER_CENTS); an optional textbook SECONDARY
+    //     tier (6/10/14) is OFF by default — enable via
+    //     BUY_POINTS_KEY_NUMBER_CENTS_SECONDARY > 10.
     //
     // Both REPLACE the feed-anchored alt prices (buy DOWN only). Football TOTALS
     // and run/puck lines (baseball/hockey ±1.5) stay feed-anchored — their key
@@ -77,12 +77,13 @@ final class BuyPointsPricing
     private const KEY_NUMBERS_PRIMARY = [3.0, 7.0];          // most common NFL margins
     private const KEY_NUMBERS_SECONDARY = [6.0, 10.0, 14.0]; // minor key numbers
     // Premium American cents on/adjacent a key number. Primary (3/7) default 15 =
-    // competitor parity; secondary (6/10/14) default 12 ("a little more" than the
-    // flat 10c). Both env-tunable (BUY_POINTS_KEY_NUMBER_CENTS /
-    // BUY_POINTS_KEY_NUMBER_CENTS_SECONDARY), clamped to [base, 50] so a key step
-    // is never cheaper than a normal one and can't be set absurdly high.
+    // EXACT bettorjuice365 parity. Secondary (6/10/14) defaults to 10 = OFF (the
+    // competitor only premiums 3/7); set BUY_POINTS_KEY_NUMBER_CENTS_SECONDARY > 10
+    // (e.g. 12) to switch on the textbook secondary tier. Primary is env-tunable
+    // via BUY_POINTS_KEY_NUMBER_CENTS. Both clamped to [base, 50] so a key step is
+    // never cheaper than a normal one and can't be set absurdly high.
     private const DEFAULT_KEY_NUMBER_CENTS_PER_HALF = 15;
-    private const DEFAULT_KEY_NUMBER_CENTS_SECONDARY = 12;
+    private const DEFAULT_KEY_NUMBER_CENTS_SECONDARY = 10; // 10 = off (competitor parity)
     private const MAX_KEY_NUMBER_CENTS_PER_HALF = 50;
 
     // Run/puck-line "reference lines" cap. On baseball/hockey the meaningful
@@ -372,8 +373,8 @@ final class BuyPointsPricing
             if ($flat) {
                 // Cumulative juice off the base price: +10c/½ (basketball, and
                 // football ½-steps clear of a key number), or the football
-                // key-number premium on a step touching one — primary 3/7
-                // (default +15c) / secondary 6/10/14 (default +12c), env-tunable.
+                // key-number premium on a step touching 3/7 (default +15c,
+                // competitor-exact); optional secondary 6/10/14 tier off by default.
                 $cents = self::cumulativeFlatCents($sportKey, $m, $selection, $basePoint, $steps);
                 $american = self::worsenAmericanByCents($baseAmerican, $cents);
                 if ($american === 0) {
