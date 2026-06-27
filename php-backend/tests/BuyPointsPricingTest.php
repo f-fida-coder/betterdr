@@ -748,8 +748,10 @@ TestRunner::run('flat-cents ladder — NFL spread prices off the base with NO fe
     TestRunner::assertEquals(-160, $ladder[3]['american'], 'last rung -1.5 -160');
 });
 
-TestRunner::run('flat-cents ladder — NFL spread: key number 7 priced at 15c/half (matches competitor -7½ ladder)', function () use ($mkPool): void {
-    // Mirrors the bettorjuice365 Jaguars -7½ screenshot exactly.
+TestRunner::run('flat-cents ladder — NFL spread: primary 7 (15c) then secondary 6 (12c)', function () use ($mkPool): void {
+    // Jaguars -7½: 7 is a PRIMARY key (15c onto/off), 6 is SECONDARY (12c). The
+    // -7/-6.5 rungs match the competitor; -6/-5.5 are a touch steeper since we
+    // also premium the 6 (textbook key number) — the competitor does not.
     $pool = $mkPool([
         'spreads' => [['name' => 'Rams', 'point' => -7.5, 'price' => 1.9090909]], // -110
         'h2h'     => [['name' => 'Rams', 'price' => 1.3]],
@@ -757,10 +759,36 @@ TestRunner::run('flat-cents ladder — NFL spread: key number 7 priced at 15c/ha
     $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Rams', -7.5, $pool);
     $byPoints = [];
     foreach ($ladder as $r) { $byPoints[(string) $r['points']] = $r; }
-    TestRunner::assertEquals(-125, $byPoints['0.5']['american'], '-7.0 -125 (+15c onto the key 7)');
-    TestRunner::assertEquals(-140, $byPoints['1']['american'],   '-6.5 -140 (+15c off the key 7)');
-    TestRunner::assertEquals(-150, $byPoints['1.5']['american'], '-6.0 -150 (+10c)');
-    TestRunner::assertEquals(-160, $byPoints['2']['american'],   '-5.5 -160 (+10c)');
+    TestRunner::assertEquals(-125, $byPoints['0.5']['american'], '-7.0 -125 (+15c onto the primary 7)');
+    TestRunner::assertEquals(-140, $byPoints['1']['american'],   '-6.5 -140 (+15c off the primary 7)');
+    TestRunner::assertEquals(-152, $byPoints['1.5']['american'], '-6.0 -152 (+12c onto the secondary 6)');
+    TestRunner::assertEquals(-164, $byPoints['2']['american'],   '-5.5 -164 (+12c off the secondary 6)');
+});
+
+TestRunner::run('flat-cents ladder — NFL secondary key numbers (6/10/14) priced at 12c/half', function () use ($mkPool): void {
+    // Base -6.5 crosses the secondary key 6: a little more than the flat 10c
+    // (ChatGPT: "-6 to -5.5 crossing 6 costs a little more").
+    $pool = $mkPool([
+        'spreads' => [['name' => 'Rams', 'point' => -6.5, 'price' => 1.9090909]], // -110
+        'h2h'     => [['name' => 'Rams', 'price' => 1.35]],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Rams', -6.5, $pool);
+    $am = array_map(static fn ($r) => $r['american'], $ladder);
+    TestRunner::assertEquals([-122, -134, -144, -154], $am, '12c onto/off the 6, then 10c (vs flat -120/-130)');
+
+    // The secondary premium is env-tunable too; set to 10 → collapses to flat.
+    $prev = $_ENV['BUY_POINTS_KEY_NUMBER_CENTS_SECONDARY'] ?? null;
+    $_ENV['BUY_POINTS_KEY_NUMBER_CENTS_SECONDARY'] = '10';
+    $am2 = array_map(
+        static fn ($r) => $r['american'],
+        BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Rams', -6.5, $pool)
+    );
+    TestRunner::assertEquals([-120, -130, -140, -150], $am2, 'secondary set to 10c -> flat ladder');
+    if ($prev === null) {
+        unset($_ENV['BUY_POINTS_KEY_NUMBER_CENTS_SECONDARY']);
+    } else {
+        $_ENV['BUY_POINTS_KEY_NUMBER_CENTS_SECONDARY'] = $prev;
+    }
 });
 
 TestRunner::run('flat-cents ladder — NFL spread clear of key numbers is a flat 10c/half', function () use ($mkPool): void {

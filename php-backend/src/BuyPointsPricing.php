@@ -57,29 +57,32 @@ final class BuyPointsPricing
     //     -2 -150). Basketball margins are near-continuous (no key numbers), so a
     //     flat charge is house-safe.
     //
-    //   FOOTBALL (spreads only): KEY-NUMBER-AWARE. A ½-point step that lands on
-    //     or leaves a key number (|line| == 3, secondarily 7) costs the PREMIUM
-    //     rate (default +15 cents, competitor bettorjuice365 parity — tunable via
-    //     env BUY_POINTS_KEY_NUMBER_CENTS); every other ½-step costs +10 cents;
-    //     charged CUMULATIVELY off the base price. So at 15c: -3½ -110 → -3 -125
-    //     → -2½ -140 → -2 -150 → -1½ -160; a -7½ → -7 -125 → -6½ -140 → -6 -150
-    //     → -5½ -160 (matches the competitor's -7½ ladder exactly). A FLAT rate
-    //     would either under-price the 3/7 (the most common NFL margins — a value
-    //     leak) or over-charge below them; the key-number step prices the 3/7 at
-    //     what they're actually worth.
+    //   FOOTBALL (spreads only): KEY-NUMBER-AWARE, two tiers. A ½-point step that
+    //     lands on or leaves a PRIMARY key number (3, 7) costs +15 cents (default,
+    //     competitor bettorjuice365 parity); a SECONDARY key number (6, 10, 14)
+    //     costs +12 cents ("a little more"); every other ½-step costs +10 cents;
+    //     charged CUMULATIVELY off the base price. Both premiums env-tunable
+    //     (BUY_POINTS_KEY_NUMBER_CENTS / BUY_POINTS_KEY_NUMBER_CENTS_SECONDARY).
+    //     So -3½ -110 → -3 -125 → -2½ -140 → -2 -150 → -1½ -160. A FLAT rate would
+    //     under-price the 3/7 (the most common NFL margins — a value leak) or
+    //     over-charge below them; the key-number step prices each at its worth.
     //
     // Both REPLACE the feed-anchored alt prices (buy DOWN only). Football TOTALS
     // and run/puck lines (baseball/hockey ±1.5) stay feed-anchored — their key
     // numbers differ and a spread-style flat charge wouldn't fit.
     private const FLAT_CENTS_PER_HALF = 10;      // base American cents per ½ point
     private const FLAT_MAX_HALF_STEPS = 4;       // cap at 2.0 points (4 half-steps)
-    // Football key numbers: a ½-step touching one of these costs the premium rate.
+    // Football key numbers (two tiers): a ½-step touching one costs a premium.
     private const KEY_NUMBER_CENTS_SPORT_PREFIXES = ['americanfootball_'];
-    private const KEY_NUMBERS = [3.0, 7.0];
-    // Premium American cents on/adjacent a key number. Default 15 = competitor
-    // parity; env-tunable (BUY_POINTS_KEY_NUMBER_CENTS), clamped to [base, 50] so
-    // a key step is never cheaper than a normal one and can't be set absurdly high.
+    private const KEY_NUMBERS_PRIMARY = [3.0, 7.0];          // most common NFL margins
+    private const KEY_NUMBERS_SECONDARY = [6.0, 10.0, 14.0]; // minor key numbers
+    // Premium American cents on/adjacent a key number. Primary (3/7) default 15 =
+    // competitor parity; secondary (6/10/14) default 12 ("a little more" than the
+    // flat 10c). Both env-tunable (BUY_POINTS_KEY_NUMBER_CENTS /
+    // BUY_POINTS_KEY_NUMBER_CENTS_SECONDARY), clamped to [base, 50] so a key step
+    // is never cheaper than a normal one and can't be set absurdly high.
     private const DEFAULT_KEY_NUMBER_CENTS_PER_HALF = 15;
+    private const DEFAULT_KEY_NUMBER_CENTS_SECONDARY = 12;
     private const MAX_KEY_NUMBER_CENTS_PER_HALF = 50;
 
     // Run/puck-line "reference lines" cap. On baseball/hockey the meaningful
@@ -368,9 +371,9 @@ final class BuyPointsPricing
 
             if ($flat) {
                 // Cumulative juice off the base price: +10c/½ (basketball, and
-                // football ½-steps clear of a key number) or the key-number
-                // premium (default +15c/½, env-tunable) on a step that touches a
-                // football key number (|line| 3/7).
+                // football ½-steps clear of a key number), or the football
+                // key-number premium on a step touching one — primary 3/7
+                // (default +15c) / secondary 6/10/14 (default +12c), env-tunable.
                 $cents = self::cumulativeFlatCents($sportKey, $m, $selection, $basePoint, $steps);
                 $american = self::worsenAmericanByCents($baseAmerican, $cents);
                 if ($american === 0) {
@@ -850,11 +853,11 @@ final class BuyPointsPricing
         return false;
     }
 
-    /** Whether a line sits exactly on a key number (|line| ∈ KEY_NUMBERS). */
-    private static function touchesKeyNumber(float $line): bool
+    /** Whether a line sits exactly on one of the given key numbers (|line| ∈ $set). */
+    private static function touchesKey(float $line, array $set): bool
     {
         $abs = abs($line);
-        foreach (self::KEY_NUMBERS as $k) {
+        foreach ($set as $k) {
             if (abs($abs - $k) < 1e-9) {
                 return true;
             }
@@ -870,8 +873,23 @@ final class BuyPointsPricing
      */
     private static function keyNumberCentsPerHalf(): int
     {
-        $raw = Env::get('BUY_POINTS_KEY_NUMBER_CENTS', '');
-        $v = is_numeric($raw) ? (int) round((float) $raw) : self::DEFAULT_KEY_NUMBER_CENTS_PER_HALF;
+        return self::clampKeyCents(Env::get('BUY_POINTS_KEY_NUMBER_CENTS', ''), self::DEFAULT_KEY_NUMBER_CENTS_PER_HALF);
+    }
+
+    /**
+     * Secondary key-number premium (6/10/14). Default 12 ("a little more" than
+     * the flat 10c); env-tunable via BUY_POINTS_KEY_NUMBER_CENTS_SECONDARY, same
+     * clamp as the primary premium.
+     */
+    private static function secondaryKeyCentsPerHalf(): int
+    {
+        return self::clampKeyCents(Env::get('BUY_POINTS_KEY_NUMBER_CENTS_SECONDARY', ''), self::DEFAULT_KEY_NUMBER_CENTS_SECONDARY);
+    }
+
+    /** Parse a key-cents env value, falling back to $default, clamped to [base, MAX]. */
+    private static function clampKeyCents(?string $raw, int $default): int
+    {
+        $v = is_numeric($raw) ? (int) round((float) $raw) : $default;
         if ($v < self::FLAT_CENTS_PER_HALF) {
             $v = self::FLAT_CENTS_PER_HALF;
         }
@@ -898,8 +916,10 @@ final class BuyPointsPricing
             if ($keySport) {
                 $from = round($basePoint + self::signedPointDelta($marketType, $selection, ($s - 1) * self::HALF_POINT), 2);
                 $to = round($basePoint + self::signedPointDelta($marketType, $selection, $s * self::HALF_POINT), 2);
-                if (self::touchesKeyNumber($from) || self::touchesKeyNumber($to)) {
-                    $perStep = self::keyNumberCentsPerHalf();
+                if (self::touchesKey($from, self::KEY_NUMBERS_PRIMARY) || self::touchesKey($to, self::KEY_NUMBERS_PRIMARY)) {
+                    $perStep = self::keyNumberCentsPerHalf();           // primary (3/7)
+                } elseif (self::touchesKey($from, self::KEY_NUMBERS_SECONDARY) || self::touchesKey($to, self::KEY_NUMBERS_SECONDARY)) {
+                    $perStep = self::secondaryKeyCentsPerHalf();        // secondary (6/10/14)
                 }
             }
             $cents += $perStep;
