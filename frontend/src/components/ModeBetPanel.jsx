@@ -381,10 +381,13 @@ const buildBuyPointsOptions = (sel) => {
             if (!Number.isFinite(altLine) || !Number.isFinite(altDec) || altDec <= 1) return;
             const delta = altLine - baseLine;
             if (Math.abs(delta) < 1e-9) return; // skip the base line (already added)
-            // Show BOTH directions — buying (easier/cheaper) AND selling
-            // (harder line for a better payout). The server already vetted and
-            // priced every rung (feed-anchored or house-safe synthetic), so we
-            // surface them all within the ±3.0 window.
+            // BUY-ONLY (Nicky): surface only rungs in the BUY direction (easier
+            // line, more juice) — never sells (harder line for a better payout).
+            // The backend already sends a buy-only ladder; this is a belt-and-
+            // suspenders guard so a sell can't render even if a stray rung slips
+            // into alternateLines. lineStep encodes the buy direction (spreads
+            // +0.5; totals Over -0.5 / Under +0.5).
+            if (Math.sign(delta) !== Math.sign(lineStep)) return;
             if (Math.abs(delta) > 3.0 + 1e-6) return;
             const altAmerican = decimalToAmerican(altDec);
             if (!Number.isFinite(altAmerican)) return;

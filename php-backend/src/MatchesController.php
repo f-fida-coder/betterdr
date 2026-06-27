@@ -1296,7 +1296,12 @@ final class MatchesController
                 if (!is_numeric($pointRaw)) {
                     continue;
                 }
-                $ladder = BuyPointsPricing::fullLadderFromFeed(
+                // BUY-ONLY policy (Nicky): the dropdown offers only buying points
+                // DOWN (easier line, more juice) — never selling points up for a
+                // better payout. ladderFromFeed = buys; sellLadderFromFeed is no
+                // longer surfaced. Placement (priceBoughtPointFromFeed) uses the
+                // same buy-only ladder, so a sell can't be placed either.
+                $ladder = BuyPointsPricing::ladderFromFeed(
                     $sportKey,
                     $marketKey,
                     (string) ($outcome['name'] ?? ''),

@@ -293,7 +293,7 @@ TestRunner::run('ladderFromFeed — NHL puck line OMITS the ±0.5 win zone (no m
     TestRunner::assertEquals($amer(1.55), $ladder[0]['american'], '-1.0 from feed');
 });
 
-TestRunner::run('ladderFromFeed — NBA small spread reaches the win zone (no-tie: win-the-game = ML)', function () use ($mkPool, $amer): void {
+TestRunner::run('ladderFromFeed — NCAAF small spread reaches the win zone (no-tie: win-the-game = ML)', function () use ($mkPool, $amer): void {
     // A near-even NBA game: Celtics -1.5, ML -130 (1.7692). Basketball never
     // ties (OT decides), so the same win-zone-as-ML collapse applies. Buying
     // points reaches -1.0 (feed), the win-the-game half-point (ML), and +1.0.
@@ -307,7 +307,9 @@ TestRunner::run('ladderFromFeed — NBA small spread reaches the win zone (no-ti
             ['name' => 'Celtics', 'point' =>  1.0, 'price' => 1.55],
         ],
     ]);
-    $ladder = BuyPointsPricing::ladderFromFeed('basketball_nba', 'spreads', 'Celtics', -1.5, $pool);
+    // Re-pointed to NCAAF: basketball is now flat-cents (no win-zone synthesis);
+    // the win-zone-as-ML collapse is exercised here on a no-tie FEED sport.
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_ncaaf', 'spreads', 'Celtics', -1.5, $pool);
     $byLine = [];
     foreach ($ladder as $r) { $byLine[number_format($r['line'], 1)] = $r; }
     $lines = array_map(static fn ($r) => $r['line'], $ladder);
@@ -388,7 +390,7 @@ TestRunner::run('ladderFromFeed — NCAAF is no-tie (win-the-game = ML) but NFL 
     TestRunner::assertEquals($amer(1.80), $nflByLine['-0.5']['american'], 'NFL -0.5 stays the FEED price');
 });
 
-TestRunner::run('ladderFromFeed — NBA spread matches feed exactly (no ML floor below pick\'em)', function () use ($mkPool, $amer): void {
+TestRunner::run('ladderFromFeed — NFL spread matches feed exactly (no ML floor below pick\'em)', function () use ($mkPool, $amer): void {
     $pool = $mkPool([
         'spreads'           => [['name' => 'Celtics', 'point' => -5.5, 'price' => 1.91]],
         'h2h'               => [['name' => 'Celtics', 'price' => 1.40]],
@@ -400,7 +402,7 @@ TestRunner::run('ladderFromFeed — NBA spread matches feed exactly (no ML floor
             ['name' => 'Celtics', 'point' => -3.0, 'price' => 1.55],
         ],
     ]);
-    $ladder = BuyPointsPricing::ladderFromFeed('basketball_nba', 'spreads', 'Celtics', -5.5, $pool);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'spreads', 'Celtics', -5.5, $pool);
     TestRunner::assertEquals(5, count($ladder), '5 rungs, all feed-priced');
     TestRunner::assertEquals($amer(1.83), $ladder[0]['american'], 'rung1 from feed');
     TestRunner::assertEquals($amer(1.55), $ladder[4]['american'], 'rung5 from feed');
@@ -418,7 +420,7 @@ TestRunner::run('ladderFromFeed — totals Over priced from feed; line shrinks',
             ['name' => 'Over', 'point' => 218.0, 'price' => 1.57],
         ],
     ]);
-    $ladder = BuyPointsPricing::ladderFromFeed('basketball_nba', 'totals', 'Over', 220.5, $pool);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'totals', 'Over', 220.5, $pool);
     TestRunner::assertEquals(5, count($ladder), '5 total rungs');
     TestRunner::assertEqualsFloat(220.0, $ladder[0]['line'], 'over rung1 shrinks to 220.0', 1e-9);
     TestRunner::assertEqualsFloat(218.0, $ladder[4]['line'], 'over rung5 shrinks to 218.0', 1e-9);
@@ -568,17 +570,20 @@ TestRunner::run('ladderFromFeed — basketball total Over with NO feed alts synt
     }
 });
 
-TestRunner::run('ladderFromFeed — feed alts WIN over synthesis when present (basketball)', function () use ($mkPool, $amer): void {
-    // When the feed DOES ship a basketball alt ladder, use it verbatim — never
-    // synthesize. Below pick'em so the ML floor never binds.
+TestRunner::run('ladderFromFeed — basketball flat-cents OVERRIDES feed alts (ignores feed price)', function () use ($mkPool): void {
+    // Basketball is flat-cents: even when the feed ships an alt ladder, the
+    // dropdown uses clean +10c/half steps off the BASE price, not the feed's
+    // alt prices. Celtics -5.5 at -110 → -5 -120, -4.5 -130, -4 -140, -3.5 -150.
     $pool = $mkPool([
-        'spreads'           => [['name' => 'Celtics', 'point' => -5.5, 'price' => 1.91]],
+        'spreads'           => [['name' => 'Celtics', 'point' => -5.5, 'price' => 1.9090909]], // -110
         'h2h'               => [['name' => 'Celtics', 'price' => 1.40]],
-        'alternate_spreads' => [['name' => 'Celtics', 'point' => -5.0, 'price' => 1.83]],
+        'alternate_spreads' => [['name' => 'Celtics', 'point' => -5.0, 'price' => 1.83]],        // ignored
     ]);
     $ladder = BuyPointsPricing::ladderFromFeed('basketball_nba', 'spreads', 'Celtics', -5.5, $pool);
-    TestRunner::assertEquals(1, count($ladder), 'one FEED rung (not synthesized)');
-    TestRunner::assertEquals($amer(1.83), $ladder[0]['american'], 'used the feed price, not a synthetic one');
+    TestRunner::assertEquals(4, count($ladder), '4 flat rungs (cap 2.0 pts), feed alt ignored');
+    TestRunner::assertEqualsFloat(-5.0, $ladder[0]['line'], '0.5 -> -5.0 line', 1e-9);
+    TestRunner::assertEquals(-120, $ladder[0]['american'], '-5.0 priced flat -120, not feed 1.83');
+    TestRunner::assertEquals(-150, $ladder[3]['american'], '2.0 -> -150');
 });
 
 TestRunner::run('ladderFromFeed — non-basketball with NO feed alts stays empty (no synthesis)', function () use ($mkPool): void {
@@ -657,6 +662,48 @@ TestRunner::run('sellLadderFromFeed — MLB run line surfaces harder feed rungs 
     TestRunner::assertEquals($amer(2.18), $byLine['-2.0']['american'], '-2.0 priced from feed');
 });
 
+TestRunner::run('flat-cents ladder — basketball spread: +10c/half, cap 2 pts, overrides feed (competitor parity)', function () use ($mkPool): void {
+    // Mystics -4 at -110. Buy DOWN: -3.5 -120, -3 -130, -2.5 -140, -2 -150.
+    // A feed alt ladder is present but flat-cents OVERRIDES it (clean steps).
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Mystics', 'point' => -4.0, 'price' => 1.9090909]], // -110
+        'h2h'               => [['name' => 'Mystics', 'price' => 1.5]],
+        'alternate_spreads' => [
+            ['name' => 'Mystics', 'point' => -3.5, 'price' => 2.05],   // ignored
+            ['name' => 'Mystics', 'point' => -3.0, 'price' => 2.20],   // ignored
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('basketball_nba', 'spreads', 'Mystics', -4.0, $pool);
+    TestRunner::assertEquals(4, count($ladder), '4 rungs (capped at 2.0 points)');
+    $byPoints = [];
+    foreach ($ladder as $r) { $byPoints[(string) $r['points']] = $r; }
+    TestRunner::assertEqualsFloat(-3.5, $byPoints['0.5']['line'], '0.5 -> -3.5 line', 1e-9);
+    TestRunner::assertEquals(-120, $byPoints['0.5']['american'], '0.5 -> -120 (feed -129 ignored)');
+    TestRunner::assertEquals(-130, $byPoints['1']['american'],   '1.0 -> -130');
+    TestRunner::assertEquals(-140, $byPoints['1.5']['american'], '1.5 -> -140');
+    TestRunner::assertEqualsFloat(-2.0, $byPoints['2']['line'], '2.0 -> -2.0 line', 1e-9);
+    TestRunner::assertEquals(-150, $byPoints['2']['american'],   '2.0 -> -150');
+    // Placement prices the SAME rung as display; beyond the 2-pt cap is rejected.
+    $place = BuyPointsPricing::priceBoughtPointFromFeed('basketball_nba', 'spreads', 'Mystics', -4.0, 1.0, $pool);
+    TestRunner::assertEquals(-130, $place['american'] ?? 0, 'placement 1.0 -> -130 == display');
+    $beyond = BuyPointsPricing::priceBoughtPointFromFeed('basketball_nba', 'spreads', 'Mystics', -4.0, 2.5, $pool);
+    TestRunner::assertTrue($beyond === null, '2.5 points beyond the 2.0 cap -> rejected');
+});
+
+TestRunner::run('worsenAmericanByCents continuity — +120 worsened crosses even to -110 (no flat-cents for MLB)', function () use ($mkPool): void {
+    // Underdog +120 base, flat-cents football: +120 -> +110 -> EVEN -> -110 -> -120.
+    $pool = $mkPool([
+        'spreads' => [['name' => 'Jets', 'point' => 3.0, 'price' => 2.20]], // +120
+        'h2h'     => [['name' => 'Jets', 'price' => 2.40]],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('basketball_nba', 'spreads', 'Jets', 3.0, $pool);
+    $byPoints = [];
+    foreach ($ladder as $r) { $byPoints[(string) $r['points']] = $r; }
+    TestRunner::assertEquals(110,  $byPoints['0.5']['american'], '0.5 -> +110');
+    TestRunner::assertEquals(-110, $byPoints['1.5']['american'], '1.5 -> -110 (crossed even)');
+    TestRunner::assertEquals(-120, $byPoints['2']['american'],   '2.0 -> -120');
+});
+
 TestRunner::run('fullLadderFromFeed — MLB -1.5 shows BOTH the -2.5 sell and the +1.5 buy (Nicky)', function () use ($mkPool): void {
     $pool = $mkPool([
         'spreads'           => [['name' => 'Tigers', 'point' => -1.5, 'price' => 1.95]],
@@ -678,7 +725,7 @@ TestRunner::run('fullLadderFromFeed — MLB -1.5 shows BOTH the -2.5 sell and th
     TestRunner::assertFalse(in_array(-0.5, $lines, true), 'still no ±0.5 win-zone rung on a run line');
 });
 
-TestRunner::run('priceBoughtPointFromFeed — places a SELL rung via negative boughtPoints', function () use ($mkPool): void {
+TestRunner::run('priceBoughtPointFromFeed — BUY-ONLY: rejects a sell, still prices a buy', function () use ($mkPool): void {
     $pool = $mkPool([
         'spreads'           => [['name' => 'Tigers', 'point' => -1.5, 'price' => 1.95]],
         'h2h'               => [['name' => 'Tigers', 'price' => 1.625]],
@@ -687,9 +734,13 @@ TestRunner::run('priceBoughtPointFromFeed — places a SELL rung via negative bo
             ['name' => 'Tigers', 'point' =>  1.5, 'price' => 1.244],
         ],
     ]);
+    // Buy-only policy (Nicky): selling points (negative boughtPoints → a harder
+    // line for a better payout) is no longer offered. priceBoughtPointFromFeed
+    // reads the buy-only ladder, so -1.0 matches no rung → null → the caller
+    // rejects placement (BUY_POINTS_NO_FEED_PRICE). A sell can never be placed.
     $sell = BuyPointsPricing::priceBoughtPointFromFeed('baseball_mlb', 'spreads', 'Tigers', -1.5, -1.0, $pool);
-    TestRunner::assertTrue($sell !== null, 'sell rung priced for boughtPoints = -1.0');
-    TestRunner::assertEqualsFloat(-2.5, $sell['line'], 'sell line -2.5', 1e-9);
+    TestRunner::assertTrue($sell === null, 'sell rung rejected under buy-only policy');
+    // Buying points DOWN still prices: +3.0 moves -1.5 → +1.5 (an easier line).
     $buy = BuyPointsPricing::priceBoughtPointFromFeed('baseball_mlb', 'spreads', 'Tigers', -1.5, 3.0, $pool);
     TestRunner::assertTrue($buy !== null, 'buy rung priced for boughtPoints = +3.0');
     TestRunner::assertEqualsFloat(1.5, $buy['line'], 'buy line +1.5', 1e-9);

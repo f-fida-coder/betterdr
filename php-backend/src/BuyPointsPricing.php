@@ -46,6 +46,20 @@ final class BuyPointsPricing
     private const DEFAULT_SYNTH_PROB_STEP = 0.022; // win-prob added per half-point
     private const SYNTH_MAX_PROB = 0.97;           // payout floor; beyond this a buy is meaningless
 
+    // ── Flat-cents buy-points model (competitor parity) ─────────────────────
+    // BASKETBALL ONLY: every ½-point bought costs a FLAT +10 American cents of
+    // juice, capped at 2 points — matching the competitor (-4 -110 → -3½ -120 →
+    // -3 -130 → -2½ -140 → -2 -150). This REPLACES the feed-anchored / synthetic
+    // pricing for basketball (buy DOWN only). It is deliberately NOT used for
+    // KEY-NUMBER sports — football (3/7) and run/puck lines (baseball/hockey ±1.5
+    // sit near the moneyline) — where a point is worth far more than 10 cents,
+    // so a flat charge would under-price and bleed the house. Those stay
+    // feed-anchored. Basketball margins are near-continuous, so flat 10c/½ is
+    // house-safe there (and is exactly what the competitor charges).
+    private const FLAT_CENTS_SPORT_PREFIXES = ['basketball_'];
+    private const FLAT_CENTS_PER_HALF = 10; // American cents of juice added per ½ point
+    private const FLAT_MAX_HALF_STEPS = 4;  // cap at 2.0 points (4 half-steps)
+
     // Run/puck-line "reference lines" cap. On baseball/hockey the meaningful
     // run/puck lines cluster near pick'em (±1, ±1.5, ±2, ±2.5); deeper alts
     // (+3, +3.5, +4 …) are noise that clutters the buy-points dropdown. For
@@ -277,23 +291,35 @@ final class BuyPointsPricing
             return [];
         }
         $m = strtolower(trim($marketType));
+
         $altOutcomes = self::outcomesForKey($pool, 'alternate_' . $m);
         $priceByPoint = $altOutcomes === [] ? [] : self::feedPriceByPoint($altOutcomes, $m, $selection);
 
-        if ($priceByPoint === []) {
-            // No feed alt ladder for this selection. For configured no-alt-feed
-            // sports (basketball), synthesize a house-safe ladder from the base
-            // line's own price so buy-points still works; otherwise no ladder
-            // (the feed-anchored "never guess a price" rule still holds for
-            // every other sport).
-            if (self::isSynthSport($sportKey)) {
-                $baseDecimal = self::baseLineDecimal($pool, $m, $selection, $basePoint);
-                if ($baseDecimal !== null) {
-                    return self::synthesizeLadder($m, $selection, $basePoint, $baseDecimal);
-                }
+        // Flat-cents sports (basketball, football): price every ½-point at a
+        // fixed +10 American cents off the base line's OWN price, capped at 2
+        // points (competitor parity) — uniform -110/-120/-130/-140/-150 steps
+        // instead of the feed's irregular alts, and it works even with no alt
+        // feed. NOT used for run/puck-line sports (a point there sits near the
+        // moneyline, worth far more than 10c). Every house-safety guard in the
+        // loop below (no-tie skip, ML floor) STILL applies.
+        $flat = self::isFlatCentsSport($sportKey);
+        $baseDecimal = ($flat || $priceByPoint === []) ? self::baseLineDecimal($pool, $m, $selection, $basePoint) : null;
+
+        if (!$flat && $priceByPoint === []) {
+            // No feed alt ladder for this selection. Configured no-alt-feed
+            // sports synthesize a house-safe ladder from the base line's own
+            // price; every other sport gets nothing (the "never guess a price"
+            // rule). (Basketball is also a flat-cents sport, so it never reaches
+            // here — this stays for any future synth-only, non-flat sport.)
+            if (self::isSynthSport($sportKey) && $baseDecimal !== null) {
+                return self::synthesizeLadder($m, $selection, $basePoint, $baseDecimal);
             }
             return [];
         }
+        if ($flat && $baseDecimal === null) {
+            return []; // no base-line price → can't anchor the flat ladder
+        }
+        $baseAmerican = $flat ? SportsbookBetSupport::decimalToAmericanInt($baseDecimal) : 0;
 
         $isSpread = $m === 'spreads';
         $noTie = self::isNoTieSport($sportKey);
@@ -301,8 +327,9 @@ final class BuyPointsPricing
         // line may not beat. Null when absent → such rungs fail safe (omitted).
         $mlDecimal = $isSpread ? self::sideMoneylineDecimal($pool, $selection) : null;
 
+        $maxSteps = $flat ? self::FLAT_MAX_HALF_STEPS : self::MAX_HALF_STEPS;
         $ladder = [];
-        for ($steps = 1; $steps <= self::MAX_HALF_STEPS; $steps++) {
+        for ($steps = 1; $steps <= $maxSteps; $steps++) {
             $points = $steps * self::HALF_POINT;
             $delta = self::signedPointDelta($m, $selection, $points);
             $line = round($basePoint + $delta, 2);
@@ -317,14 +344,22 @@ final class BuyPointsPricing
                 continue;
             }
 
-            $key = self::pointKey($line);
-            if (!array_key_exists($key, $priceByPoint)) {
-                continue; // D1: no feed price → no rung.
-            }
-            $decimal = SportsbookBetSupport::snapDecimalOdds($priceByPoint[$key]);
-            $american = SportsbookBetSupport::decimalToAmericanInt($decimal);
-            if ($american === 0) {
-                continue;
+            if ($flat) {
+                // +10 American cents of juice per ½-point, off the base price.
+                $american = self::worsenAmericanByCents($baseAmerican, $steps * self::FLAT_CENTS_PER_HALF);
+                if ($american === 0) {
+                    continue;
+                }
+            } else {
+                $key = self::pointKey($line);
+                if (!array_key_exists($key, $priceByPoint)) {
+                    continue; // D1: no feed price → no rung.
+                }
+                $decimal = SportsbookBetSupport::snapDecimalOdds($priceByPoint[$key]);
+                $american = SportsbookBetSupport::decimalToAmericanInt($decimal);
+                if ($american === 0) {
+                    continue;
+                }
             }
             $exactDecimal = SportsbookBetSupport::americanToDecimalExact($american);
             if (!is_finite($exactDecimal) || $exactDecimal <= 1.0) {
@@ -624,7 +659,12 @@ final class BuyPointsPricing
      */
     public static function priceBoughtPointFromFeed(string $sportKey, string $marketType, string $selection, float $basePoint, float $boughtPoints, array $pool): ?array
     {
-        $ladder = self::fullLadderFromFeed($sportKey, $marketType, $selection, $basePoint, $pool);
+        // BUY-ONLY policy (Nicky): price only buy-down rungs. The buy ladder
+        // contains positive boughtPoints only, so a sell (negative boughtPoints)
+        // matches no rung and returns null → caller rejects with
+        // BUY_POINTS_NO_FEED_PRICE. Mirrors attachBuyPointsLadders' display
+        // ladder exactly (display == placed == settled).
+        $ladder = self::ladderFromFeed($sportKey, $marketType, $selection, $basePoint, $pool);
         foreach ($ladder as $rung) {
             if (abs($rung['points'] - $boughtPoints) < 1e-6) {
                 return $rung;
@@ -751,6 +791,38 @@ final class BuyPointsPricing
             }
         }
         return false;
+    }
+
+    /** Sports priced by the flat +10c/½ competitor model (basketball, football). */
+    private static function isFlatCentsSport(string $sportKey): bool
+    {
+        $k = strtolower(trim($sportKey));
+        foreach (self::FLAT_CENTS_SPORT_PREFIXES as $prefix) {
+            if (str_starts_with($k, $prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Make an American line WORSE for the bettor by $cents American cents. Works
+     * continuously across even money (+100 == -100) so e.g. +120 worsened by 30
+     * → +110 → even → -110. Positive juice direction = more negative for a
+     * favorite. Returns 0 for an invalid base.
+     */
+    private static function worsenAmericanByCents(int $american, int $cents): int
+    {
+        if ($american === 0) {
+            return 0;
+        }
+        // Map to a single continuous "juice" scale where higher = worse for the
+        // bettor and even money is 0: favorites (a<=-100) → -100-a (positive),
+        // dogs (a>=+100) → 100-a (negative).
+        $j = $american <= -100 ? (-100 - $american) : (100 - $american);
+        $j += $cents;
+        // Map back: j>=0 → favorite side (-100-j), j<0 → dog side (100-j).
+        return $j >= 0 ? (-100 - $j) : (100 - $j);
     }
 
     /**
