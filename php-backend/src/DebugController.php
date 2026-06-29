@@ -302,10 +302,13 @@ final class DebugController
     }
 
     /**
-     * Outright / futures sync — Rundown doesn't have a dedicated outrights
-     * endpoint; tournament-winner markets surface inside the regular events
-     * feed with participant_type=player. We re-pull the sport's prematch
-     * window with the player participant filter and forward what came back.
+     * Outright / futures sync — Rundown has no dedicated outrights endpoint;
+     * futures live in the `tournament_winner` market (id 1141) inside the
+     * regular events feed. We pull that market for the sport's date window and
+     * persist any winner boards via OutrightIngestService. NOTE: as of
+     * 2026-06-29 this market is defined in Rundown's catalog but NOT active for
+     * any of our 33 sports, so this typically ingests nothing — it's wired so
+     * futures populate automatically if/when the feed starts serving them.
      */
     private function syncOutrights(string $sportKey): void
     {
@@ -318,19 +321,33 @@ final class DebugController
             }
             $offsetMin = (int) Env::get('RUNDOWN_DATE_OFFSET_MINUTES', '300');
             $date = (string) ($_GET['date'] ?? gmdate('Y-m-d', time() - $offsetMin * 60));
+            // tournament_winner market (1141) — Rundown's only futures market.
+            // No participant_type filter: contenders may be players or teams.
             $resp = RundownClient::getEventsForSport($sportId, $date, [
-                'participant_type' => 'player',
-                'hide_no_markets'  => 'true',
-                'offset'           => $offsetMin,
+                'market_ids'      => (string) Env::get('SPORTSBOOK_OUTRIGHTS_MARKET_IDS', '1141'),
+                'hide_no_markets' => 'true',
+                'offset'          => $offsetMin,
             ]);
             $events = is_array($resp['events'] ?? null) ? $resp['events'] : [];
+
+            // Persist what came back into the `outrights` table so the public
+            // /api/outrights endpoint + OutrightsView have data to render and
+            // the placement validator has a row to price against. Idempotent +
+            // terminal-safe (see OutrightIngestService). Touches no money
+            // columns. preferredBooks ranks which book's price wins per
+            // contender when several post (same source-of-truth as match odds).
+            $preferredBooks = RundownAffiliateMap::affiliateIdsFromKeyList(
+                (string) Env::get('SPORTSBOOK_PREFERRED_BOOKS', '')
+            );
+            $ingest = OutrightIngestService::ingestSport($this->db, $sportKey, $events, $preferredBooks);
+
             Response::json([
                 'ok' => true,
                 'sportKey' => $sportKey,
                 'sportId'  => $sportId,
                 'date'     => $date,
                 'outrightCount' => count($events),
-                'events'   => $events,
+                'ingest'   => $ingest,
             ]);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);

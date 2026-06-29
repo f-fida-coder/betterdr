@@ -14,12 +14,16 @@
  * DashboardMain instead of the regular match list.
  */
 
-// TEMP: outrights hidden — odds inflation (price stored American, read as
-// decimal — decimalToAmericanInt(450) = 44900). Backend already 409-blocks
-// placement (OUTRIGHTS_TEMPORARILY_UNAVAILABLE); this flag hides the FUTURES
-// tab + outright cards on the frontend. Single-point revert: flip to true and
-// remove the backend kill-switch, after the ingester stores decimal odds +
-// existing outright rows are corrected.
+// Futures / outrights surface visibility.
+//
+// Kept OFF because Rundown — our only odds feed — does not currently serve any
+// futures: the `tournament_winner` market (id 1141) is in their catalog but is
+// NOT active for any of our 33 sports (verified live 2026-06-29). Enabling this
+// would show players a permanently-empty "Futures" tab. The full pipeline
+// (OutrightIngestService → outrights table → this view) is built and tested, so
+// flip this to true the moment a real source populates the table — Rundown
+// turning 1141 on, or an admin/DGS price feed. Real-money placement is also
+// gated server-side by SPORTSBOOK_OUTRIGHTS_BETTING_ENABLED (default off).
 export const OUTRIGHTS_ENABLED = false;
 
 export const sportsData = [

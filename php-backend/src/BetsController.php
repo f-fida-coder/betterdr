@@ -2790,18 +2790,38 @@ final class BetsController
         }
     }
 
+    /**
+     * Master gate for real-money futures/outright placement. Default OFF so the
+     * code ships inert on every environment; an operator turns futures betting
+     * on by setting SPORTSBOOK_OUTRIGHTS_BETTING_ENABLED=true (after verifying
+     * the `outrights` table is populated with correctly-priced rows on prod).
+     */
+    private static function outrightsBettingEnabled(): bool
+    {
+        $flag = strtolower(trim((string) (Env::get('SPORTSBOOK_OUTRIGHTS_BETTING_ENABLED', 'false') ?? 'false')));
+        return $flag === 'true' || $flag === '1';
+    }
+
     private function validateOutrightSelection(string $outrightId, string $selection, mixed $odds, string $acceptancePolicy = 'exact', int $acceptanceBandCents = 0): array
     {
-        // TEMP KILL-SWITCH: outright odds inflation (price stored as American,
-        // read as decimal — decimalToAmericanInt(450) = 44900). Outright legs
-        // would settle and pay the inflated odds, so reject ALL new outright /
-        // futures placement here. This is the single placement chokepoint for
-        // outrights (the open-parlay paths already reject outright legs before
-        // reaching this method). Remove only after the ingester is fixed to
-        // store decimal odds and existing outright rows are corrected.
-        throw new ApiException('Futures betting is temporarily unavailable.', 409, [
-            'code' => 'OUTRIGHTS_TEMPORARILY_UNAVAILABLE',
-        ]);
+        // KILL-SWITCH: futures betting is OFF until an operator opts in via
+        // SPORTSBOOK_OUTRIGHTS_BETTING_ENABLED. This is the single placement
+        // chokepoint for outrights (the open-parlay paths already reject
+        // outright legs before reaching this method), so the flag gates ALL
+        // real-money futures placement.
+        //
+        // The historical odds-inflation bug (price stored American, read as
+        // decimal → decimalToAmericanInt(450)=44900) is FIXED: the price below
+        // is read as American via SportsbookBetSupport::outrightPriceToOdds()
+        // and locked by OutrightOddsConversionTest, and the ingester
+        // (OutrightIngestService) writes prices in that same RAW American form.
+        // The flag stays default-OFF so the feature only goes live after data
+        // is verified on prod — flip SPORTSBOOK_OUTRIGHTS_BETTING_ENABLED=true.
+        if (!self::outrightsBettingEnabled()) {
+            throw new ApiException('Futures betting is temporarily unavailable.', 409, [
+                'code' => 'OUTRIGHTS_TEMPORARILY_UNAVAILABLE',
+            ]);
+        }
 
         if (preg_match('/^[a-f0-9]{24}$/i', $outrightId) !== 1) {
             throw new ApiException('Outright not found: ' . $outrightId, 404);

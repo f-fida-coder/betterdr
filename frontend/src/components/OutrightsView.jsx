@@ -64,6 +64,52 @@ const sportFamilyFromKey = (sportKey) => {
 };
 
 /**
+ * Map a sport key to the LEAGUE-level category that nests under the division —
+ * e.g. `americanfootball_nfl_*` → "NFL FUTURES" (the heading the screenshot
+ * wants under FOOTBALL). Known leagues get a curated label; anything else is
+ * derived from the key so a new league never renders blank. Returned `id` is a
+ * stable grouping key; `label` is the heading the player sees.
+ */
+const LEAGUE_LABELS = {
+    americanfootball_nfl: 'NFL', americanfootball_ncaaf: 'NCAAF',
+    americanfootball_cfl: 'CFL', americanfootball_ufl: 'UFL',
+    basketball_nba: 'NBA', basketball_wnba: 'WNBA', basketball_ncaab: 'NCAA',
+    basketball_euroleague: 'EUROLEAGUE',
+    baseball_mlb: 'MLB', baseball_npb: 'NPB', baseball_kbo: 'KBO',
+    icehockey_nhl: 'NHL',
+    soccer_epl: 'PREMIER LEAGUE', soccer_uefa_champs_league: 'UEFA CHAMPIONS LEAGUE',
+    soccer_uefa_europa_league: 'UEFA EUROPA LEAGUE', soccer_uefa_euro: 'EURO',
+    soccer_fifa_world_cup: 'WORLD CUP', soccer_spain_la_liga: 'LA LIGA',
+    soccer_italy_serie_a: 'SERIE A', soccer_germany_bundesliga: 'BUNDESLIGA',
+    soccer_france_ligue_one: 'LIGUE 1',
+    golf_pga: 'PGA', golf_masters: 'THE MASTERS', golf_us_open: 'U.S. OPEN',
+    golf_the_open: 'THE OPEN', golf_pga_championship: 'PGA CHAMPIONSHIP',
+    tennis_atp: 'ATP', tennis_wta: 'WTA',
+};
+
+const leagueCategoryFromKey = (sportKey, familyLabel) => {
+    const k = String(sportKey || '').toLowerCase();
+    // Longest-prefix match wins so `golf_pga_championship` beats `golf_pga`.
+    let bestKey = '';
+    for (const prefix of Object.keys(LEAGUE_LABELS)) {
+        if (k.startsWith(prefix) && prefix.length > bestKey.length) bestKey = prefix;
+    }
+    if (bestKey) {
+        return { id: bestKey, label: `${LEAGUE_LABELS[bestKey]} FUTURES` };
+    }
+    // Fallback: drop the leading family token, drop trailing winner/championship
+    // noise, title-case what's left. e.g. `cricket_ipl_winner` → "IPL FUTURES".
+    const parts = k.split('_').filter(Boolean);
+    if (parts.length > 1) parts.shift();
+    const cleaned = parts
+        .filter((p) => !['winner', 'championship', 'tournament', 'outright', 'outrights'].includes(p))
+        .join(' ')
+        .trim();
+    const label = cleaned ? cleaned.toUpperCase() : String(familyLabel || 'FUTURES');
+    return { id: k || 'unknown', label: `${label} FUTURES` };
+};
+
+/**
  * Pick the first bookmaker's `outrights` market outcomes, sorted by price
  * (lowest decimal = strongest favorite first). Outright responses sometimes
  * also expose `outrights_lay`; we ignore those for display.
@@ -121,21 +167,34 @@ const OutrightsView = ({ sportKey = '', title = 'Futures' }) => {
         return () => { cancelled = true; };
     }, [sportKey]);
 
-    // Group rows by sport DIVISION (Football, Baseball, Basketball, …),
-    // not by raw sport key. Two NFL + NCAAF futures should sit
-    // under one "FOOTBALL" heading; NBA + WNBA under "BASKETBALL"; the
-    // three golf majors under "GOLF"; etc.
+    // Two-level grouping: DIVISION (Football, Basketball, …) → LEAGUE CATEGORY
+    // ("NFL FUTURES", "NCAAF FUTURES", …) → individual market cards. This mirrors
+    // the competitor layout: under the FOOTBALL division sits an "NFL Futures"
+    // category, and each future (To Win Super Bowl, MVP, …) is a card under it.
     const groups = useMemo(() => {
         const byFamily = new Map();
         for (const row of rows) {
             const sk = row.sportKey || 'unknown';
             const family = sportFamilyFromKey(sk);
             if (!byFamily.has(family.id)) {
-                byFamily.set(family.id, { ...family, events: [] });
+                byFamily.set(family.id, { ...family, categories: new Map() });
             }
-            byFamily.get(family.id).events.push(row);
+            const cats = byFamily.get(family.id).categories;
+            const cat = leagueCategoryFromKey(sk, family.label);
+            if (!cats.has(cat.id)) {
+                cats.set(cat.id, { ...cat, events: [] });
+            }
+            cats.get(cat.id).events.push(row);
         }
-        const ordered = [...byFamily.values()];
+
+        const ordered = [...byFamily.values()].map((fam) => ({
+            id: fam.id,
+            label: fam.label,
+            emoji: fam.emoji,
+            // Categories alphabetical within a division for a stable order.
+            categories: [...fam.categories.values()].sort((a, b) => a.label.localeCompare(b.label)),
+        }));
+
         // Stable, opinionated division order — major US team sports first,
         // then global/niche. Anything unmapped (e.g. cricket, rugby) falls
         // to the end alphabetically.
@@ -200,56 +259,61 @@ const OutrightsView = ({ sportKey = '', title = 'Futures' }) => {
                                 {group.label}
                             </div>
                         )}
-                        {group.events.map((event) => {
-                            const outcomes = extractOutcomes(event.primaryBookmaker);
-                            return (
-                                <article key={event.id || event.eventId} style={cardStyle}>
-                                    <header style={cardHeaderStyle}>
-                                        <div style={cardTitleStyle}>{event.eventName || event.sportKey}</div>
-                                        <div style={cardMetaStyle}>
-                                            {formatStartTime(event.commenceTime)}
-                                            {event.bookmakerCount > 0 && (
-                                                <span style={{ marginLeft: 8 }}>
-                                                    {event.bookmakerCount} book{event.bookmakerCount === 1 ? '' : 's'}
-                                                </span>
+                        {group.categories.map((category) => (
+                            <div key={category.id} style={{ marginBottom: 14 }}>
+                                <div style={categoryHeadingStyle}>{category.label}</div>
+                                {category.events.map((event) => {
+                                    const outcomes = extractOutcomes(event.primaryBookmaker);
+                                    return (
+                                        <article key={event.id || event.eventId} style={cardStyle}>
+                                            <header style={cardHeaderStyle}>
+                                                <div style={cardTitleStyle}>{event.eventName || event.sportKey}</div>
+                                                <div style={cardMetaStyle}>
+                                                    {formatStartTime(event.commenceTime)}
+                                                    {event.bookmakerCount > 0 && (
+                                                        <span style={{ marginLeft: 8 }}>
+                                                            {event.bookmakerCount} book{event.bookmakerCount === 1 ? '' : 's'}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </header>
+                                            {outcomes.length === 0 ? (
+                                                <div style={{ padding: 12, color: '#64748b', fontSize: 12 }}>
+                                                    No prices posted yet.
+                                                </div>
+                                            ) : (
+                                                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                                                    {outcomes.map((o, i) => (
+                                                        <li
+                                                            key={`${event.id}-${o.name}-${i}`}
+                                                            style={{ borderTop: i === 0 ? 'none' : '1px solid #f1f5f9' }}
+                                                        >
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => dispatchAddToSlip(event, o)}
+                                                                style={outcomeButtonStyle}
+                                                            >
+                                                                <span style={outcomeNameStyle}>
+                                                                    {i < 3 && (
+                                                                        <span style={rankBadgeStyle(i)}>{i + 1}</span>
+                                                                    )}
+                                                                    {o.name}
+                                                                </span>
+                                                                <span style={oddsPillStyle}>
+                                                                    {/* price is AMERICAN (see CONTRACT note up top) — convert to
+                                                                        decimal so formatOdds renders the real +450 / 5.50, not +44900. */}
+                                                                    {formatOdds(americanToDecimal(o.price), oddsFormat)}
+                                                                </span>
+                                                            </button>
+                                                        </li>
+                                                    ))}
+                                                </ul>
                                             )}
-                                        </div>
-                                    </header>
-                                    {outcomes.length === 0 ? (
-                                        <div style={{ padding: 12, color: '#64748b', fontSize: 12 }}>
-                                            No prices posted yet.
-                                        </div>
-                                    ) : (
-                                        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                                            {outcomes.map((o, i) => (
-                                                <li
-                                                    key={`${event.id}-${o.name}-${i}`}
-                                                    style={{ borderTop: i === 0 ? 'none' : '1px solid #f1f5f9' }}
-                                                >
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => dispatchAddToSlip(event, o)}
-                                                        style={outcomeButtonStyle}
-                                                    >
-                                                        <span style={outcomeNameStyle}>
-                                                            {i < 3 && (
-                                                                <span style={rankBadgeStyle(i)}>{i + 1}</span>
-                                                            )}
-                                                            {o.name}
-                                                        </span>
-                                                        <span style={oddsPillStyle}>
-                                                            {/* price is AMERICAN (see CONTRACT note up top) — convert to
-                                                                decimal so formatOdds renders the real +450 / 5.50, not +44900. */}
-                                                            {formatOdds(americanToDecimal(o.price), oddsFormat)}
-                                                        </span>
-                                                    </button>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    )}
-                                </article>
-                            );
-                        })}
+                                        </article>
+                                    );
+                                })}
+                            </div>
+                        ))}
                     </section>
                 ))}
             </div>
@@ -311,6 +375,17 @@ const divisionHeadingStyle = {
     background: 'linear-gradient(180deg, #fef3c7 0%, #fde68a 100%)',
     borderLeft: '4px solid #ff5051',
     borderRadius: 6,
+    display: 'flex',
+    alignItems: 'center',
+};
+
+const categoryHeadingStyle = {
+    fontSize: 12,
+    fontWeight: 800,
+    color: '#334155',
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    padding: '4px 2px 8px',
     display: 'flex',
     alignItems: 'center',
 };
