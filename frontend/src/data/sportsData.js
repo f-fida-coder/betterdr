@@ -285,6 +285,7 @@ export const sportLabelForKey = (sportKey) => {
     if (!key) return '';
     if (_sportKeyToLabel === null) _sportKeyToLabel = buildSportKeyToLabel();
     if (_sportKeyToLabel[key]) return _sportKeyToLabel[key];
+    if (SUPPLEMENTAL_LEAGUE_LABELS[key]) return SUPPLEMENTAL_LEAGUE_LABELS[key];
     // Fallback for auto-discovered sports not in the static tree: title-case
     // the suffix after the family prefix. E.g. tennis_atp_madrid_open →
     // "ATP Madrid Open"; soccer_korea_kleague1 → "Korea Kleague1".
@@ -315,6 +316,36 @@ export const findSportItemById = (id) => {
         return null;
     };
     return search(sportsData);
+};
+
+// Curated labels for backend-discovered leagues that are NOT in the static
+// tree — The Odds API supplemental soccer set. Single source of truth for
+// the sidebar, mobile league tabs, board headers, and search labels; keys
+// and names MUST match php-backend OddsApiEventMapper::SPORT_DISPLAY_NAMES.
+// Also consulted by buildMergedSportsTree's family-variant dedupe: a key in
+// this map is a REAL league, never a tournament-flavour variant, so it must
+// not be swallowed by the two-segment family match (soccer_spain_segunda_
+// division vs soccer_spain_la_liga, soccer_italy_serie_b vs _serie_a, etc.).
+export const SUPPLEMENTAL_LEAGUE_LABELS = {
+    soccer_efl_champ: 'EFL Championship',
+    soccer_england_league1: 'EFL League One',
+    soccer_england_league2: 'EFL League Two',
+    soccer_fa_cup: 'FA Cup',
+    soccer_england_efl_cup: 'EFL Cup',
+    soccer_spain_segunda_division: 'La Liga 2',
+    soccer_italy_serie_b: 'Serie B',
+    soccer_germany_bundesliga2: '2. Bundesliga',
+    soccer_france_ligue_two: 'Ligue 2',
+    soccer_netherlands_eredivisie: 'Eredivisie',
+    soccer_portugal_primeira_liga: 'Primeira Liga',
+    soccer_spl: 'Scottish Premiership',
+    soccer_mexico_ligamx: 'Liga MX',
+    soccer_brazil_campeonato: 'Brazil Serie A',
+    soccer_brazil_serie_b: 'Brazil Serie B',
+    soccer_argentina_primera_division: 'Argentina Primera',
+    soccer_uefa_europa_conference_league: 'UEFA Conference League',
+    soccer_conmebol_copa_libertadores: 'Copa Libertadores',
+    soccer_conmebol_copa_sudamericana: 'Copa Sudamericana',
 };
 
 /**
@@ -430,8 +461,16 @@ export const buildMergedSportsTree = (liveSet) => {
         if (covered.has(key)) return;
         // Tournament-variant of an already-covered family (tennis_atp_*,
         // soccer_epl_* etc.) — the static child already represents this.
+        // Curated supplemental leagues are exempt: soccer_spain_segunda_
+        // division shares the soccer_spain family with static La Liga but
+        // is a distinct, real league — swallowing it left five leagues
+        // with no sidebar entry at all.
         const parts = key.split('_');
-        if (parts.length >= 2 && familyPrefixes.has(`${parts[0]}_${parts[1]}`)) return;
+        if (
+            parts.length >= 2
+            && !SUPPLEMENTAL_LEAGUE_LABELS[key]
+            && familyPrefixes.has(`${parts[0]}_${parts[1]}`)
+        ) return;
 
         const prefix = parts[0];
         const parentId = PREFIX_TO_PARENT_ID[prefix];
@@ -454,7 +493,7 @@ export const buildMergedSportsTree = (liveSet) => {
 
         parent.children.push({
             id: childId,
-            label: prettifyLeagueSuffix(suffix),
+            label: SUPPLEMENTAL_LEAGUE_LABELS[key] || prettifyLeagueSuffix(suffix),
             selectable: true,
             sportKeys: [key],
         });
