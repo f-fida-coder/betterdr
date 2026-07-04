@@ -94,8 +94,9 @@ export default class LocalScene extends Phaser.Scene {
         if (!this._pendingBetRequestId || incomingRequestId !== this._pendingBetRequestId) return;
         this._pendingBetRequestId = '';
         this._serverError = msg.error || 'Bet failed';
+        // clearBet() first (it resets roundState to idle), THEN show the error state
+        try { this.clearBet(); } catch (e) { console.warn('clearBet after betError failed', e); }
         this._setRoundState('error', this._serverError);
-        try { this.clearBets(); } catch (e) { console.warn('clearBets after betError failed', e); }
         this._requestBalanceSync();
         if (this._betResolve) { this._betResolve(null); this._betResolve = null; }
       }
@@ -715,8 +716,9 @@ export default class LocalScene extends Phaser.Scene {
       if (!serverData) {
         // Bet failed/timed out. Re-sync balance from server authority.
         this._pendingBetRequestId = '';
+        // clearBet() first (it resets roundState to idle), THEN show the error state
+        try { this.clearBet(); } catch (e) { console.warn('clearBet after timeout failed', e); }
         this._setRoundState('error', this._serverError || 'No server response');
-        try { this.clearBets(); } catch (e) { console.warn('clearBets after timeout failed', e); }
         this._requestBalanceSync();
         this.isDealing = false;
         this.playing = false;

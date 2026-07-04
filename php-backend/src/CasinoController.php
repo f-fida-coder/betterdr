@@ -6522,8 +6522,10 @@ final class CasinoController
             }
         } elseif ($result === 'Banker') {
             if ($bankerBet > 0) {
-                $totalReturn += $bankerBet * 1.95;
-                $profit += $bankerBet * 0.95;
+                // floor() so whole-dollar rounding can never erase the 5% commission
+                $bankerReturn = floor($bankerBet * 1.95);
+                $totalReturn += $bankerReturn;
+                $profit += $bankerReturn - $bankerBet;
             }
         } else {
             if ($tieBet > 0) {
