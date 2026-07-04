@@ -496,9 +496,13 @@ final class MatchesController
             // (applyBettingAvailability → matchStaleAfterSeconds).
             $annotated = array_map(static function (array $match) use ($now, $prematchSoftAge): array {
                 $f = self::freshnessFor($match);
+                // theoddsapi rows poll on a minutes cadence — widened soft
+                // window (capped 900s) so they don't badge stale between
+                // polls. Rundown rows get $prematchSoftAge back unchanged.
+                $softAge = OddsApiEventMapper::prematchSoftFreshnessSeconds($match, $prematchSoftAge);
                 $match['oddsAgeSeconds'] = $f['ageSeconds'];
-                $match['oddsDelayed'] = $f['ageSeconds'] >= (int) ($prematchSoftAge / 2);
-                $match['oddsStale']   = $f['ageSeconds'] >= $prematchSoftAge;
+                $match['oddsDelayed'] = $f['ageSeconds'] >= (int) ($softAge / 2);
+                $match['oddsStale']   = $f['ageSeconds'] >= $softAge;
                 return $match;
             }, $annotated);
         } elseif ($desiredStatus === 'live') {
@@ -537,6 +541,12 @@ final class MatchesController
                     // else passes the freshness check below.
                     $source = strtolower((string) ($match['oddsSource'] ?? ''));
                     if ($source === 'oddsapi') return false;
+                    // The Odds API supplemental rows are PREMATCH-ONLY (no
+                    // live signal, minutes-scale cadence) — never auto-
+                    // promote one into Live Now, even inside the freshness
+                    // window right after kickoff. Placement is already
+                    // hard-suspended (SportsbookHealth::applyBettingAvailability).
+                    if ($source === 'theoddsapi') return false;
                     $startTime = (string) ($match['startTime'] ?? '');
                     $startTs = $startTime !== '' ? strtotime($startTime) : false;
                     if ($startTs === false || $startTs > $now) return false;

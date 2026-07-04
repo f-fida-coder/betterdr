@@ -26,6 +26,10 @@ final class Logger
         'error'      => 'api-errors.log',
         'sportsbook' => 'sportsbook-ops.log',
         'casino'     => 'casino-audit.log',
+        // The Odds API supplemental feed (oddsapi-worker + sync services) —
+        // separate file so its ops noise never mixes into the Rundown
+        // sportsbook channel (failure-isolation requirement).
+        'oddsapi'    => 'oddsapi.log',
     ];
 
     private const DEFAULT_FILE = 'api-access.log';

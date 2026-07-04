@@ -604,6 +604,20 @@ final class SportsbookHealth
             $annotated['bettingBlockedReason'] = 'MMA/UFC betting is currently unavailable.';
         }
 
+        // The Odds API supplemental rows are PREMATCH-ONLY: that feed has no
+        // live status/score signal and polls on a minutes cadence, so once
+        // kickoff passes the stored price is a blind in-play line. Hard-
+        // suspend at commence time — an ACTIVE close (staleness ageout alone
+        // would leave a post-kickoff window at the last prematch price).
+        // isPastKickoff() is provider-gated: always false for Rundown rows,
+        // which flip to a real live status with live prices. Only ever flips
+        // isBettable true→false, never the reverse.
+        if (OddsApiEventMapper::isPastKickoff($annotated)) {
+            $annotated['isBettable'] = false;
+            $annotated['isStale'] = true;
+            $annotated['bettingBlockedReason'] = 'This match has started. In-play betting is not available for this competition.';
+        }
+
         return $annotated;
     }
 
