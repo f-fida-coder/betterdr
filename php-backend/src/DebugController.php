@@ -56,14 +56,11 @@ final class DebugController
             $this->syncParticipants((string) $m[1]);
             return true;
         }
-        if ($method === 'POST' && preg_match('#^/api/admin/odds/outrights/([a-z][a-z0-9_]{1,79})$#', $path, $m) === 1) {
-            $this->syncOutrights((string) $m[1]);
-            return true;
-        }
-        if ($method === 'GET' && $path === '/api/admin/odds/outright-sports') {
-            $this->listOutrightSports();
-            return true;
-        }
+        // NOTE: the Rundown outrights sync endpoints (/api/admin/odds/outrights/
+        // {sportKey} + /api/admin/odds/outright-sports) were retired 2026-07-05
+        // with the rest of the Rundown futures pipeline — The Odds API is the
+        // sole futures source (OddsApiSyncService::syncOutrights). The
+        // provider-agnostic settle/void routes below are unchanged.
         if ($method === 'GET' && $path === '/api/admin/rundown-catalog-audit') {
             $this->rundownCatalogAudit();
             return true;
@@ -296,89 +293,6 @@ final class DebugController
                 'sportId'  => $sportId,
                 'teamCount' => count($teams),
             ]);
-        } catch (Throwable $e) {
-            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
-        }
-    }
-
-    /**
-     * Outright / futures sync — Rundown has no dedicated outrights endpoint;
-     * futures live in the `tournament_winner` market (id 1141) inside the
-     * regular events feed. We pull that market for the sport's date window and
-     * persist any winner boards via OutrightIngestService. NOTE: as of
-     * 2026-06-29 this market is defined in Rundown's catalog but NOT active for
-     * any of our 33 sports, so this typically ingests nothing — it's wired so
-     * futures populate automatically if/when the feed starts serving them.
-     */
-    private function syncOutrights(string $sportKey): void
-    {
-        try {
-            if ($this->protectAdminOnly() === null) return;
-            $sportId = RundownSportMap::sportKeyToSportId($sportKey);
-            if ($sportId === null) {
-                Response::json(['ok' => false, 'error' => 'unmapped_sport_key'], 400);
-                return;
-            }
-            $offsetMin = (int) Env::get('RUNDOWN_DATE_OFFSET_MINUTES', '300');
-            $date = (string) ($_GET['date'] ?? gmdate('Y-m-d', time() - $offsetMin * 60));
-            // tournament_winner market (1141) — Rundown's only futures market.
-            // No participant_type filter: contenders may be players or teams.
-            $resp = RundownClient::getEventsForSport($sportId, $date, [
-                'market_ids'      => (string) Env::get('SPORTSBOOK_OUTRIGHTS_MARKET_IDS', '1141'),
-                'hide_no_markets' => 'true',
-                'offset'          => $offsetMin,
-            ]);
-            $events = is_array($resp['events'] ?? null) ? $resp['events'] : [];
-
-            // Persist what came back into the `outrights` table so the public
-            // /api/outrights endpoint + OutrightsView have data to render and
-            // the placement validator has a row to price against. Idempotent +
-            // terminal-safe (see OutrightIngestService). Touches no money
-            // columns. preferredBooks ranks which book's price wins per
-            // contender when several post (same source-of-truth as match odds).
-            $preferredBooks = RundownAffiliateMap::affiliateIdsFromKeyList(
-                (string) Env::get('SPORTSBOOK_PREFERRED_BOOKS', '')
-            );
-            $ingest = OutrightIngestService::ingestSport($this->db, $sportKey, $events, $preferredBooks);
-
-            Response::json([
-                'ok' => true,
-                'sportKey' => $sportKey,
-                'sportId'  => $sportId,
-                'date'     => $date,
-                'outrightCount' => count($events),
-                'ingest'   => $ingest,
-            ]);
-        } catch (Throwable $e) {
-            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
-        }
-    }
-
-    /**
-     * List sport keys we'd consider for outright sync. Rundown carries
-     * tournament futures inside the regular events feed for the relevant
-     * sports (soccer / golf when in season / tennis grand slams), so this
-     * is simply the intersection of "configured sports" and "sports that
-     * commonly post futures".
-     */
-    private function listOutrightSports(): void
-    {
-        try {
-            if ($this->protectAdminOnly() === null) return;
-            $futuresEligible = [
-                'soccer_epl', 'soccer_uefa_champs_league', 'soccer_uefa_europa_league',
-                'soccer_uefa_euro', 'soccer_fifa_world_cup',
-                'tennis_atp', 'tennis_atp_french_open', 'tennis_atp_us_open',
-                'tennis_atp_wimbledon', 'tennis_atp_aus_open',
-                'tennis_wta', 'tennis_wta_french_open', 'tennis_wta_us_open',
-                'tennis_wta_wimbledon', 'tennis_wta_aus_open',
-                'mma_mixed_martial_arts',
-                'basketball_nba_playoffs', 'americanfootball_nfl_playoffs',
-            ];
-            $configured = explode(',', (string) Env::get('ODDS_TIER1_SPORTS', '') . ',' . (string) Env::get('ODDS_TIER2_SPORTS', ''));
-            $configured = array_filter(array_map('trim', $configured));
-            $sports = array_values(array_intersect($futuresEligible, $configured));
-            Response::json(['ok' => true, 'sports' => $sports]);
         } catch (Throwable $e) {
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }

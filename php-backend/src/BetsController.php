@@ -2814,7 +2814,8 @@ final class BetsController
         // decimal → decimalToAmericanInt(450)=44900) is FIXED: the price below
         // is read as American via SportsbookBetSupport::outrightPriceToOdds()
         // and locked by OutrightOddsConversionTest, and the ingester
-        // (OutrightIngestService) writes prices in that same RAW American form.
+        // (OddsApiSyncService::buildOutrightDoc — The Odds API is the sole
+        // futures source) writes prices in that same RAW American form.
         // The flag stays default-OFF so the feature only goes live after data
         // is verified on prod — flip SPORTSBOOK_OUTRIGHTS_BETTING_ENABLED=true.
         if (!self::outrightsBettingEnabled()) {

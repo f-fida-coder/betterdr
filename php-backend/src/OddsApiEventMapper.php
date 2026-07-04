@@ -385,8 +385,14 @@ final class OddsApiEventMapper
         return $bookmakers;
     }
 
-    /** @return list<string> SPORTSBOOK_PREFERRED_BOOKS keys, lowercased. */
-    private static function preferredBookOrder(): array
+    /**
+     * SPORTSBOOK_PREFERRED_BOOKS keys, lowercased. Public: the outright
+     * builder (OddsApiSyncService::buildOutrightDoc) ranks books by the same
+     * order when picking one price per contender.
+     *
+     * @return list<string>
+     */
+    public static function preferredBookOrder(): array
     {
         $raw = trim((string) Env::get('SPORTSBOOK_PREFERRED_BOOKS', ''));
         if ($raw === '') {
