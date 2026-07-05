@@ -191,6 +191,18 @@ final class BetsController
                         // Buy Points (spread/total only). Optional — legacy
                         // clients omit it and behave exactly as before.
                         'boughtPoints' => $first['boughtPoints'] ?? null,
+                        // Exact alt rung point. This rebuild is a WHITELIST —
+                        // omitting the field here silently disabled rung-pinning
+                        // for every STRAIGHT alt-line bet (cards, alt spreads/
+                        // totals) → SELECTION_UNAVAILABLE at placement while the
+                        // board happily displayed the rung (found 2026-07-05 via
+                        // the WC cards money test; parlays never lost it because
+                        // the multi-leg path passes selections through raw).
+                        'point' => $first['point'] ?? null,
+                        // MLB listed-pitcher Action waiver — same whitelist drop:
+                        // straights silently reverted to void-on-scratch even
+                        // when the player checked Action.
+                        'pitcherAction' => $first['pitcherAction'] ?? null,
                     ]];
                 } elseif ($matchId !== '' && $selection !== '') {
                     $selectionInputs = [[
@@ -199,6 +211,8 @@ final class BetsController
                         'odds' => $odds,
                         'type' => $marketType !== '' ? $marketType : $type,
                         'boughtPoints' => $body['boughtPoints'] ?? null,
+                        'point' => $body['point'] ?? null,
+                        'pitcherAction' => $body['pitcherAction'] ?? null,
                     ]];
                 } else {
                     throw new ApiException('Straight bet requires one selection', 400);
