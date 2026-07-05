@@ -105,6 +105,14 @@ final class DebugController
             $this->placeAdminManualBet();
             return true;
         }
+        if ($method === 'GET' && $path === '/api/admin/manual-bets') {
+            $this->listAdminManualBets();
+            return true;
+        }
+        if ($method === 'POST' && preg_match('#^/api/admin/manual-bets/([a-f0-9]{24})/grade$#', $path, $m) === 1) {
+            $this->gradeAdminManualBet((string) $m[1]);
+            return true;
+        }
         return false;
     }
 
@@ -250,6 +258,46 @@ final class DebugController
             Response::json($result, $status);
         } catch (Throwable $e) {
             Logger::exception($e, 'placeAdminManualBet failed');
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Pending write-in bets — the operator's grading inbox. Manual bets NEVER
+     * auto-grade (no matchId, no feed market), so this list is the only route
+     * to settlement. UNLIKE the card-bets list, this one is STRICT admin —
+     * the whole manual-bets feature is invisible to agent tokens by ruling
+     * (2026-07-06), viewing included.
+     */
+    private function listAdminManualBets(): void
+    {
+        try {
+            if ($this->protectAdminOnly(true) === null) return;
+            Response::json(['ok' => true] + ManualBetGradingService::listPendingManualBets($this->db));
+        } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function gradeAdminManualBet(string $betId): void
+    {
+        try {
+            // Strict: grading a write-in moves money — full admin role only,
+            // never an agent token (same rule as card grading).
+            $actor = $this->protectAdminOnly(true);
+            if ($actor === null) return;
+            $body = Http::jsonBody();
+            $decision = is_array($body) ? strtolower(trim((string) ($body['decision'] ?? ''))) : '';
+            if (!in_array($decision, ['won', 'lost', 'void'], true)) {
+                Response::json(['ok' => false, 'error' => 'missing_or_invalid_decision'], 400);
+                return;
+            }
+            $gradedBy = (string) ($actor['id'] ?? 'admin');
+            Response::json(ManualBetGradingService::gradeBet($this->db, $betId, $decision, $gradedBy));
+        } catch (RuntimeException $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            Logger::exception($e, 'gradeAdminManualBet failed');
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
     }
