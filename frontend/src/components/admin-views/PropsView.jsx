@@ -307,6 +307,7 @@ function PropsView() {
                   <option value="straight">Straight</option>
                   <option value="parlay">Parlay</option>
                   <option value="teaser">Teaser</option>
+                  <option value="manual">Manual (Write-in)</option>
                 </select>
               </div>
             </div>

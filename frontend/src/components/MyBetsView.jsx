@@ -66,6 +66,11 @@ const legPickLabel = (leg) => {
             line: line ? `${line}${bpSuffix}` : bpSuffix.trim(),
         };
     }
+    // Admin write-ins — free-text market, manual-graded, straight-only;
+    // the selection IS the whole description, never a team + line.
+    if (market === 'manual') {
+        return { label: 'Manual', pick: selection, line: '' };
+    }
     // Soccer card markets — manual-graded, straight-only; without these
     // mappings a card leg would render as a bogus "ML".
     if (market === 'alternate_spreads_cards') {
@@ -170,6 +175,11 @@ const ticketSummary = (bet) => {
     const market = String(leg?.marketType || '').toLowerCase();
     const point = Number.isFinite(Number(leg?.point)) ? Number(leg.point) : null;
     const selection = String(leg?.selection || '').trim();
+    // Admin write-in: the description IS the summary — no team/line grammar,
+    // and no trailing "ML" (the fallback below would bolt one on).
+    if (market === 'manual') {
+        return String(leg?.selectionFull || '').trim() || selection || 'Write-in';
+    }
     if (market === 'spreads') {
         const line = point === null ? '' : formatSpreadValue(point);
         const team = String(leg?.selectionFull || '').trim() || selection;
@@ -213,6 +223,13 @@ const legDescription = (leg, oddsFormat) => {
         const team = mascotName(snap.homeTeamFull, snap.homeTeam);
         const ou = isUnder ? 'Under' : 'Over';
         return [team, ou, line, odds].filter(Boolean).join(' ');
+    }
+    // Admin write-in: render the FULL free-text description + odds. The
+    // moneyline fallback below would mascot-shorten it to its last word
+    // ("…to win the Masters outright" → "outright"), which is nonsense here.
+    if (market === 'manual') {
+        const text = String(leg?.selectionFull || '').trim() || selection || 'Write-in';
+        return [text, odds].filter(Boolean).join(' ');
     }
     // Player props: keep the full selection (player + side + line) and append
     // the friendly stat label — "Osuna Over 0.5 Runs Scored -110".
@@ -443,6 +460,11 @@ const legTeamForLogo = (leg) => {
     const market = String(leg?.marketType || '').toLowerCase();
     if (market === 'totals') {
         return String(leg?.matchSnapshot?.homeTeam || '').trim() || null;
+    }
+    // Admin write-in: no team behind it — initials-of-the-description would
+    // render a meaningless crest, so show no logo at all.
+    if (market === 'manual') {
+        return null;
     }
     return String(leg?.selection || '').trim() || null;
 };
@@ -779,6 +801,7 @@ const ticketTypeLabel = (bet) => {
     if (type === 'teaser') return 'Teaser';
     if (type === 'if_bet') return 'If Bet';
     if (type === 'reverse') return 'Reverse';
+    if (type === 'manual') return 'Manual (Write-in)';
     return 'Straight';
 };
 
@@ -894,6 +917,13 @@ const BetDetailsPanel = ({ bet, oddsFormat }) => {
     // thinking it applies to the whole ticket.
     if (gameTimeLabel) rows.push(['Game Time', gameTimeLabel]);
     rows.push(['Type', ticketTypeLabel(bet) + (isFreeplay ? ' (Freeplay)' : '')]);
+    // Write-ins carry a free-text description that the collapsed row may
+    // ellipsize — surface it in full here so the player can always read
+    // exactly what was booked for them.
+    if (String(bet?.type || '').toLowerCase() === 'manual') {
+        const manualDesc = String(bet?.description || firstLeg?.selectionFull || '').trim();
+        if (manualDesc) rows.push(['Description', manualDesc]);
+    }
     rows.push(['Odds', odds]);
     rows.push(['Placed', placedAt]);
     if (settledAt) rows.push(['Settled', settledAt]);
@@ -1252,6 +1282,9 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                 const straightBadge = resolveStatusBadge({ status: straightStatus, gradeReason: leg?.gradeReason });
                 const straightStatusLetter = straightBadge?.label || '';
                 const straightLive = isStraightBetLive(bet);
+                // Admin write-in: labeled so it's never invisible money —
+                // the player sees exactly which rows were booked for them.
+                const isManualBet = String(bet?.type || '').toLowerCase() === 'manual';
                 return (
                     <React.Fragment key={betId}>
                         <div
@@ -1264,6 +1297,9 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                             <span className="my-bets-table-col-desc">
                                 <MyBetsLegLogo leg={leg} teamLogos={teamLogos} />
                                 <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                {isManualBet && (
+                                    <span className="my-bet-type" title="Booked by the house on your behalf">MANUAL</span>
+                                )}
                                 {straightLive && (
                                     <span className="my-bets-table-live-badge" aria-label="Live game">{straightBadgeLabel(bet)}</span>
                                 )}
