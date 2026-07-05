@@ -410,25 +410,36 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
         fontWeight: 700,
         cursor: 'pointer',
     };
-    const bodyStyle = { flex: 1, overflowY: 'auto', padding: '0 0 24px', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', scrollPaddingTop: SECTION_HEADER_HEIGHT };
+    const bodyStyle = { flex: 1, overflowY: 'auto', padding: '6px 0 24px', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', scrollPaddingTop: SECTION_HEADER_HEIGHT };
+    // Section bars mirror PropBuilderModal's categoryHeaderStyle exactly —
+    // the P+ and + panels must read as ONE visual family (red bar, white
+    // title-case label, count on the right, rotating chevron, thin white
+    // gaps). Keep the two in sync if either changes.
     const sectionHeaderStyle = {
-        position: 'sticky',
-        top: 0,
-        zIndex: 5,
-        minHeight: SECTION_HEADER_HEIGHT,
-        boxSizing: 'border-box',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '12px 14px',
-        background: '#000',
-        borderBottom: '1px solid #1c1c1c',
+        gap: 8,
+        padding: '13px 14px',
+        background: '#e0584a',
+        borderRadius: 4,
+        margin: '0 6px 5px',
         cursor: 'pointer',
-        fontSize: 12,
-        fontWeight: 700,
-        letterSpacing: 0.6,
-        textTransform: 'uppercase',
+        fontSize: 13,
+        fontWeight: 600,
+        color: '#fff',
+        minHeight: SECTION_HEADER_HEIGHT,
+        boxSizing: 'border-box',
     };
+    const sectionChevronStyle = (isOpen) => ({
+        fontSize: 16,
+        fontWeight: 700,
+        lineHeight: 1,
+        flexShrink: 0,
+        display: 'inline-block',
+        transform: isOpen ? 'rotate(90deg)' : 'none',
+        transition: 'transform 0.12s ease',
+    });
     const oddsPairStyle = {
         display: 'grid',
         gridTemplateColumns: '1fr 1fr',
@@ -685,14 +696,22 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
                     )}
                     {!loading && !error && availableSections.map((section) => {
                         const isOpen = !!expanded[section.key];
+                        const lineCount = (marketsByKey[section.key.toLowerCase()]?.outcomes || []).length;
                         return (
                             <div key={section.key} style={{ scrollMarginTop: SECTION_HEADER_HEIGHT }}>
                                 <div
-                                    style={embedded ? { ...sectionHeaderStyle, position: 'static' } : sectionHeaderStyle}
+                                    style={sectionHeaderStyle}
                                     onClick={() => setExpanded((prev) => ({ ...prev, [section.key]: !prev[section.key] }))}
                                 >
-                                    <span>{section.label}</span>
-                                    <span style={{ fontSize: 16, fontWeight: 700 }}>{isOpen ? '−' : '+'}</span>
+                                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{section.label}</span>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                                        {lineCount > 0 && (
+                                            <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.9 }}>
+                                                {lineCount} {lineCount === 1 ? 'line' : 'lines'}
+                                            </span>
+                                        )}
+                                        <span style={sectionChevronStyle(isOpen)}>›</span>
+                                    </span>
                                 </div>
                                 {isOpen && renderSectionBody(section)}
                             </div>
@@ -711,7 +730,7 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
                         {allOpen ? 'Close All' : 'Open All'}
                     </button>
                 </div>
-                {sectionsBody}
+                <div style={{ paddingTop: 6 }}>{sectionsBody}</div>
             </div>
         );
     }
