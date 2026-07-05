@@ -21,6 +21,7 @@ require_once __DIR__ . '/TestRunner.php';
 const ISOLATED_SUITES = [
     'BaccaratPayoutTest.php',       // mocks CasinoController deps to test calculateBaccaratPayout sans DB
     'JurassicRunMathTest.php',      // mocks Response/SqlRepository to test CasinoController::spin sans DB
+    'ManualBetPlacementTest.php',   // needs an INSTANCE-method SqlRepository double for the placement money block
     'OddsApiCardMarketsTest.php',   // needs an INSTANCE-method SqlRepository double (shared-process stub is static-only)
     'SqlRepositoryMergeTest.php',   // loads the REAL SqlRepository (would fatal-redeclare against shared-process stubs)
 ];

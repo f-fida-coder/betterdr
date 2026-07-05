@@ -564,6 +564,22 @@ final class SportsbookBetSupport
      */
     public static function validateTicketComposition(string $betType, array $validatedSelections, array $sgpConfig = []): void
     {
+        // Manual (write-in) legs are ADMIN-CREATED ONLY (ManualBetService) and
+        // never valid on a player ticket of ANY type — validateSelection can't
+        // produce one (there is no matches row behind them), so seeing one
+        // here means a crafted payload. Checked BEFORE the straight
+        // early-return: a player-placed "straight" manual leg is just as
+        // forged as a parlay one. Literal on purpose (like the '_cards'
+        // suffix rule) so this file has no ManualBetService load-order
+        // dependency; keep in sync with ManualBetService::MARKET_TYPE.
+        foreach ($validatedSelections as $selection) {
+            if (strtolower((string) ($selection['marketType'] ?? '')) === 'manual') {
+                throw new ApiException('Manual bets can only be written by an operator.', 400, [
+                    'code' => 'MANUAL_ADMIN_ONLY',
+                ]);
+            }
+        }
+
         if ($betType === 'straight') {
             return;
         }

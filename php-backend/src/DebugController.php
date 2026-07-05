@@ -101,6 +101,10 @@ final class DebugController
             $this->gradeAdminCardBet((string) $m[1]);
             return true;
         }
+        if ($method === 'POST' && $path === '/api/admin/manual-bets') {
+            $this->placeAdminManualBet();
+            return true;
+        }
         return false;
     }
 
@@ -212,6 +216,40 @@ final class DebugController
             Response::json(['ok' => false, 'error' => $e->getMessage()], 400);
         } catch (Throwable $e) {
             Logger::exception($e, 'gradeAdminCardBet failed');
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Book a manual/write-in bet on a player's account (ManualBetService).
+     * Strict admin only — this both writes a bet AND moves the player's money
+     * (pending hold), so agents can never reach it, same rule as card grading
+     * and outright settle/void. The service enforces requestId idempotency;
+     * clients must send a fresh requestId per confirmed placement.
+     */
+    private function placeAdminManualBet(): void
+    {
+        try {
+            $actor = $this->protectAdminOnly(true);
+            if ($actor === null) return;
+            $body = Http::jsonBody();
+            if (!is_array($body)) {
+                Response::json(['ok' => false, 'error' => 'invalid_body'], 400);
+                return;
+            }
+            $result = ManualBetService::placeBet($this->db, [
+                'id' => (string) ($actor['id'] ?? 'admin'),
+                'role' => (string) ($actor['role'] ?? 'admin'),
+                'username' => (string) ($actor['username'] ?? ''),
+            ], $body, [
+                'ipAddress' => IpUtils::clientIp(),
+                'userAgent' => Http::header('user-agent'),
+            ]);
+            $status = (int) ($result['status'] ?? (!empty($result['ok']) ? 201 : 400));
+            unset($result['status']);
+            Response::json($result, $status);
+        } catch (Throwable $e) {
+            Logger::exception($e, 'placeAdminManualBet failed');
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
     }
