@@ -101,7 +101,11 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
             : '';
         return (
             <ErrorBoundary>
-                <OutrightsView sportKey={futuresSportKey} title={selectedItem.label || 'Futures'} />
+                <OutrightsView
+                    sportKey={futuresSportKey}
+                    family={selectedItem.family || ''}
+                    title={selectedItem.label || 'Futures'}
+                />
             </ErrorBoundary>
         );
     }

@@ -57,6 +57,7 @@ export const sportsData = [
             { id: 'nba',             label: 'NBA',             selectable: true, sportKeys: ['basketball_nba'] },
             { id: 'wnba',            label: 'WNBA',            selectable: true, sportKeys: ['basketball_wnba'] },
             { id: 'ncaa-basketball', label: 'NCAA Basketball', selectable: true, sportKeys: ['basketball_ncaab'] },
+            { id: 'basketball-futures', label: 'Basketball Futures', selectable: true, type: 'futures', family: 'basketball' },
         ],
     },
     // ── BASEBALL ──────────────────────────────────────────────
@@ -67,6 +68,7 @@ export const sportsData = [
         selectable: false,
         children: [
             { id: 'mlb', label: 'MLB', selectable: true, sportKeys: ['baseball_mlb'] },
+            { id: 'baseball-futures', label: 'Baseball Futures', selectable: true, type: 'futures', family: 'baseball' },
         ],
     },
     // ── HOCKEY ────────────────────────────────────────────────
@@ -77,6 +79,7 @@ export const sportsData = [
         selectable: false,
         children: [
             { id: 'nhl', label: 'NHL', selectable: true, sportKeys: ['icehockey_nhl'] },
+            { id: 'hockey-futures', label: 'Hockey Futures', selectable: true, type: 'futures', family: 'hockey' },
         ],
     },
     // ── FOOTBALL ──────────────────────────────────────────────
@@ -89,6 +92,7 @@ export const sportsData = [
             { id: 'nfl',           label: 'NFL',           selectable: true, sportKeys: ['americanfootball_nfl'] },
             { id: 'ncaa-football', label: 'NCAA Football', selectable: true, sportKeys: ['americanfootball_ncaaf'] },
             { id: 'cfl',           label: 'CFL',           selectable: true, sportKeys: ['americanfootball_cfl'] },
+            { id: 'football-futures', label: 'Football Futures', selectable: true, type: 'futures', family: 'football' },
         ],
     },
     // ── SOCCER ────────────────────────────────────────────────
@@ -109,6 +113,23 @@ export const sportsData = [
             { id: 'uefa-euro',        label: 'UEFA Euro',              selectable: true, sportKeys: ['soccer_uefa_euro'] },
             { id: 'fifa-world-cup',   label: 'FIFA World Cup',         selectable: true, sportKeys: ['soccer_fifa_world_cup'] },
             { id: 'j-league',         label: 'J-League',               selectable: true, sportKeys: ['soccer_japan_j_league'] },
+            { id: 'soccer-futures',   label: 'Soccer Futures',         selectable: true, type: 'futures', family: 'soccer' },
+        ],
+    },
+    // ── GOLF ──────────────────────────────────────────────────
+    // Futures-only sport: neither feed carries golf MATCH rows — the only
+    // golf product is tournament-winner boards (The Open, Masters, …), so
+    // this parent exists purely to give golf a home in the sidebar. Marked
+    // futuresOnly so buildMergedSportsTree drops the whole parent when
+    // OUTRIGHTS_ENABLED is off (an empty GOLF entry would confuse players).
+    {
+        id: 'golf',
+        label: 'GOLF',
+        icon: 'fa-solid fa-golf-ball-tee',
+        selectable: false,
+        futuresOnly: true,
+        children: [
+            { id: 'golf-futures', label: 'Golf Futures', selectable: true, type: 'futures', family: 'golf' },
         ],
     },
     // ── CRICKET ───────────────────────────────────────────────
@@ -405,12 +426,15 @@ const prettifyLeagueSuffix = (suffix) => String(suffix || '')
  */
 export const buildMergedSportsTree = (liveSet) => {
     const baseTree = sportsData
-        // TEMP: drop the FUTURES tab while outrights are hidden (see
-        // OUTRIGHTS_ENABLED). Re-enable with the backend kill-switch removal.
-        .filter((sport) => OUTRIGHTS_ENABLED || sport.type !== 'futures')
+        // OUTRIGHTS_ENABLED=false hides ALL futures surfaces: the top-level
+        // FUTURES tab, per-sport futures children, and futures-only parents
+        // (GOLF, which has no match rows to fall back to).
+        .filter((sport) => OUTRIGHTS_ENABLED || (sport.type !== 'futures' && !sport.futuresOnly))
         .map((sport) => ({
             ...sport,
-            children: Array.isArray(sport.children) ? [...sport.children] : sport.children,
+            children: Array.isArray(sport.children)
+                ? sport.children.filter((c) => OUTRIGHTS_ENABLED || c.type !== 'futures')
+                : sport.children,
         }));
 
     if (!liveSet || liveSet.size === 0) return baseTree;
