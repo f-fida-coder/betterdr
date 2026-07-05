@@ -110,6 +110,18 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
         const families = hasUnscoped
             ? []
             : [...new Set(selectedFuturesItems.map((it) => it.family))];
+        // Exact board scoping: when every selected futures node names its
+        // board(s) via sportKeys, pass the union down so multi-select shows
+        // ONLY the ticked boards. Family scoping alone over-shows — ticking
+        // "To Win Super Bowl" + "To Win World Series" would drag NCAAF in
+        // via the football family. If ANY selected node is family-only
+        // (no sportKeys), exact scoping would wrongly hide that node's
+        // boards, so fall back to family-wide for the whole selection.
+        const allHaveBoards = !hasUnscoped
+            && selectedFuturesItems.every((it) => Array.isArray(it.sportKeys) && it.sportKeys.length > 0);
+        const boardKeys = allHaveBoards
+            ? [...new Set(selectedFuturesItems.flatMap((it) => it.sportKeys))]
+            : [];
         const single = selectedFuturesItems.length === 1 ? selectedFuturesItems[0] : null;
         const futuresSportKey = single && Array.isArray(single.sportKeys) && single.sportKeys.length > 0
             ? single.sportKeys[0]
@@ -119,6 +131,7 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
                 <OutrightsView
                     sportKey={futuresSportKey}
                     families={families}
+                    boardKeys={boardKeys}
                     title={single ? (single.label || 'Futures') : 'Futures'}
                 />
             </ErrorBoundary>

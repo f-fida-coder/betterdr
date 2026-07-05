@@ -58,7 +58,22 @@ export const sportsData = [
             { id: 'nba',             label: 'NBA',             selectable: true, sportKeys: ['basketball_nba'] },
             { id: 'wnba',            label: 'WNBA',            selectable: true, sportKeys: ['basketball_wnba'] },
             { id: 'ncaa-basketball', label: 'NCAA Basketball', selectable: true, sportKeys: ['basketball_ncaab'] },
-            { id: 'basketball-futures', label: 'Basketball Futures', selectable: true, type: 'futures', family: 'basketball' },
+            // Per-league futures groups (2026-07-05, competitor-style): each
+            // group nests the league's outright board(s). Leaf sportKeys must
+            // match php-backend OddsApiAllowlist::OUTRIGHT_KEYS; leaves hide
+            // when /api/outrights/sports has no open board for the key.
+            {
+                id: 'nba-futures', label: 'NBA Futures', selectable: false, type: 'futures-group',
+                children: [
+                    { id: 'nba-championship', label: 'To Win Championship', selectable: true, type: 'futures', family: 'basketball', sportKeys: ['basketball_nba_championship_winner'] },
+                ],
+            },
+            {
+                id: 'ncaab-futures', label: 'NCAAB Futures', selectable: false, type: 'futures-group',
+                children: [
+                    { id: 'ncaab-championship', label: 'To Win Championship', selectable: true, type: 'futures', family: 'basketball', sportKeys: ['basketball_ncaab_championship_winner'] },
+                ],
+            },
         ],
     },
     // ── BASEBALL ──────────────────────────────────────────────
@@ -69,7 +84,12 @@ export const sportsData = [
         selectable: false,
         children: [
             { id: 'mlb', label: 'MLB', selectable: true, sportKeys: ['baseball_mlb'] },
-            { id: 'baseball-futures', label: 'Baseball Futures', selectable: true, type: 'futures', family: 'baseball' },
+            {
+                id: 'mlb-futures', label: 'MLB Futures', selectable: false, type: 'futures-group',
+                children: [
+                    { id: 'mlb-world-series', label: 'To Win World Series', selectable: true, type: 'futures', family: 'baseball', sportKeys: ['baseball_mlb_world_series_winner'] },
+                ],
+            },
         ],
     },
     // ── HOCKEY ────────────────────────────────────────────────
@@ -80,7 +100,12 @@ export const sportsData = [
         selectable: false,
         children: [
             { id: 'nhl', label: 'NHL', selectable: true, sportKeys: ['icehockey_nhl'] },
-            { id: 'hockey-futures', label: 'Hockey Futures', selectable: true, type: 'futures', family: 'hockey' },
+            {
+                id: 'nhl-futures', label: 'NHL Futures', selectable: false, type: 'futures-group',
+                children: [
+                    { id: 'nhl-stanley-cup', label: 'To Win Stanley Cup', selectable: true, type: 'futures', family: 'hockey', sportKeys: ['icehockey_nhl_championship_winner'] },
+                ],
+            },
         ],
     },
     // ── FOOTBALL ──────────────────────────────────────────────
@@ -93,7 +118,18 @@ export const sportsData = [
             { id: 'nfl',           label: 'NFL',           selectable: true, sportKeys: ['americanfootball_nfl'] },
             { id: 'ncaa-football', label: 'NCAA Football', selectable: true, sportKeys: ['americanfootball_ncaaf'] },
             { id: 'cfl',           label: 'CFL',           selectable: true, sportKeys: ['americanfootball_cfl'] },
-            { id: 'football-futures', label: 'Football Futures', selectable: true, type: 'futures', family: 'football' },
+            {
+                id: 'nfl-futures', label: 'NFL Futures', selectable: false, type: 'futures-group',
+                children: [
+                    { id: 'nfl-super-bowl', label: 'To Win Super Bowl', selectable: true, type: 'futures', family: 'football', sportKeys: ['americanfootball_nfl_super_bowl_winner'] },
+                ],
+            },
+            {
+                id: 'ncaaf-futures', label: 'NCAAF Futures', selectable: false, type: 'futures-group',
+                children: [
+                    { id: 'ncaaf-championship', label: 'To Win Championship', selectable: true, type: 'futures', family: 'football', sportKeys: ['americanfootball_ncaaf_championship_winner'] },
+                ],
+            },
         ],
     },
     // ── SOCCER ────────────────────────────────────────────────
@@ -114,7 +150,12 @@ export const sportsData = [
             { id: 'uefa-euro',        label: 'UEFA Euro',              selectable: true, sportKeys: ['soccer_uefa_euro'] },
             { id: 'fifa-world-cup',   label: 'FIFA World Cup',         selectable: true, sportKeys: ['soccer_fifa_world_cup'] },
             { id: 'j-league',         label: 'J-League',               selectable: true, sportKeys: ['soccer_japan_j_league'] },
-            { id: 'soccer-futures',   label: 'Soccer Futures',         selectable: true, type: 'futures', family: 'soccer' },
+            {
+                id: 'soccer-futures', label: 'Soccer Futures', selectable: false, type: 'futures-group',
+                children: [
+                    { id: 'soccer-world-cup-winner', label: 'To Win World Cup', selectable: true, type: 'futures', family: 'soccer', sportKeys: ['soccer_fifa_world_cup_winner'] },
+                ],
+            },
         ],
     },
     // ── GOLF ──────────────────────────────────────────────────
@@ -130,7 +171,13 @@ export const sportsData = [
         selectable: false,
         futuresOnly: true,
         children: [
-            { id: 'golf-futures', label: 'Golf Futures', selectable: true, type: 'futures', family: 'golf' },
+            // Each major's winner board is its own leaf (no intermediate
+            // group — GOLF itself is the futures-only parent). Seasonal:
+            // a major with no open board hides via the outright-sports set.
+            { id: 'golf-masters',  label: 'Masters Winner',          selectable: true, type: 'futures', family: 'golf', sportKeys: ['golf_masters_tournament_winner'] },
+            { id: 'golf-pga-champ', label: 'PGA Championship Winner', selectable: true, type: 'futures', family: 'golf', sportKeys: ['golf_pga_championship_winner'] },
+            { id: 'golf-the-open', label: 'The Open Winner',         selectable: true, type: 'futures', family: 'golf', sportKeys: ['golf_the_open_championship_winner'] },
+            { id: 'golf-us-open',  label: 'US Open Winner',          selectable: true, type: 'futures', family: 'golf', sportKeys: ['golf_us_open_winner'] },
         ],
     },
     // ── CRICKET ───────────────────────────────────────────────
@@ -445,13 +492,13 @@ const prettifyLeagueSuffix = (suffix) => String(suffix || '')
 export const buildMergedSportsTree = (liveSet) => {
     const baseTree = sportsData
         // OUTRIGHTS_ENABLED=false hides ALL futures surfaces: the top-level
-        // FUTURES tab, per-sport futures children, and futures-only parents
-        // (GOLF, which has no match rows to fall back to).
+        // FUTURES tab, per-sport futures children/groups, and futures-only
+        // parents (GOLF, which has no match rows to fall back to).
         .filter((sport) => OUTRIGHTS_ENABLED || (sport.type !== 'futures' && !sport.futuresOnly))
         .map((sport) => ({
             ...sport,
             children: Array.isArray(sport.children)
-                ? sport.children.filter((c) => OUTRIGHTS_ENABLED || c.type !== 'futures')
+                ? sport.children.filter((c) => OUTRIGHTS_ENABLED || (c.type !== 'futures' && c.type !== 'futures-group'))
                 : sport.children,
         }));
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getSportKeywords, buildMergedSportsTree } from '../data/sportsData';
-import { getAvailableSports, getMatches } from '../api';
+import { getAvailableSports, getMatches, getOutrightSports } from '../api';
 import { prefetchMatchesScope } from '../hooks/useMatches';
 
 // Resolve the (status, scopeKey) a sidebar item will produce once clicked, so
@@ -32,16 +32,25 @@ const resolveHoverPrefetch = (item) => {
 // The backend's /api/matches/sports returns both human titles (e.g.
 // "NFL") and API keys (e.g. "americanfootball_nfl") mixed together —
 // and not every match has both populated — so the widest match wins.
-const filterActiveChildren = (children, liveSet) => {
+const filterActiveChildren = (children, liveSet, outrightSet) => {
     if (!Array.isArray(children)) return [];
-    if (!liveSet) return children;
     return children.filter((child) => {
         // Futures entries are driven by the OUTRIGHTS table, not the match
         // schedule — a sport can carry winner boards with ZERO scheduled
-        // games (golf always; NFL/NBA all off-season). Never hide them
-        // behind the liveSet, or GOLF and every "<Sport> Futures" child
-        // vanish exactly when futures betting matters most.
-        if (child.type === 'futures') return true;
+        // games (golf always; NFL/NBA all off-season). They gate on the
+        // outright-sports probe instead of the liveSet, and FAIL OPEN: a
+        // null `outrightSet` (probe pending, errored, timed out, or the
+        // backend returned []) shows every futures child. A transient API
+        // blip must never make the futures section vanish.
+        if (child.type === 'futures-group') {
+            // Group is visible iff at least one of its board leaves is.
+            return filterActiveChildren(child.children, liveSet, outrightSet).length > 0;
+        }
+        if (child.type === 'futures') {
+            if (!outrightSet || !Array.isArray(child.sportKeys)) return true;
+            return child.sportKeys.some((k) => outrightSet.has(String(k).toLowerCase()));
+        }
+        if (!liveSet) return true;
         const candidates = new Set();
         if (Array.isArray(child.sportKeys)) child.sportKeys.forEach((k) => candidates.add(String(k).toLowerCase()));
         if (child.id) candidates.add(String(child.id).toLowerCase());
@@ -75,14 +84,15 @@ const SidebarItem = React.memo(({
     className = '',
     isMobile = false,
     liveSet = null,
+    outrightSet = null,
     ancestorsWithSelection = null,
 }) => {
     const isExpanded = expandedIds.has(item.id);
     const isSelected = selectedIds.includes(item.id);
 
     const activeChildren = useMemo(
-        () => filterActiveChildren(item.children, liveSet),
-        [item.children, liveSet],
+        () => filterActiveChildren(item.children, liveSet, outrightSet),
+        [item.children, liveSet, outrightSet],
     );
 
     const hasChildren = activeChildren.length > 0;
@@ -223,6 +233,7 @@ const SidebarItem = React.memo(({
                             onToggleExpand={onToggleExpand}
                             isMobile={isMobile}
                             liveSet={liveSet}
+                            outrightSet={outrightSet}
                             ancestorsWithSelection={ancestorsWithSelection}
                         />
                     ))}
@@ -247,6 +258,11 @@ const DashboardSidebar = ({
     // category they never asked to see. Tap a category to expand it.
     const [expandedIds, setExpandedIds] = useState(new Set());
     const [liveSet, setLiveSet] = useState(null);
+    // Sport keys with at least one OPEN outright board (per
+    // /api/outrights/sports). null = pending/failed/empty → fail open:
+    // every futures child stays visible so a probe blip never hides the
+    // futures section. Only a non-empty response actually gates.
+    const [outrightSet, setOutrightSet] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     // Team-name search index: lazily populated when the user starts typing.
     // Holds live + upcoming matches so we can match against home/away team
@@ -285,6 +301,30 @@ const DashboardSidebar = ({
             cancelled = true;
             controller.abort();
         };
+    }, []);
+
+    // Probe which outright boards are open, to hide seasonal futures
+    // leaves (NCAAB/NHL off-season, golf majors between tournaments).
+    // Deliberately fail-open: any error, timeout, or empty response
+    // leaves outrightSet null and the full futures catalog visible —
+    // the OutrightsView's own empty state handles "nothing posted".
+    // Empty [] is treated as null because the backend also returns []
+    // on internal errors (200-[]), so it can't be trusted as "no boards".
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const rows = await getOutrightSports();
+                if (cancelled || !Array.isArray(rows) || rows.length === 0) return;
+                const keys = rows
+                    .map((r) => String(r?.sportKey || '').toLowerCase())
+                    .filter(Boolean);
+                if (keys.length > 0) setOutrightSet(new Set(keys));
+            } catch {
+                // fail open — leave outrightSet null
+            }
+        })();
+        return () => { cancelled = true; };
     }, []);
 
     const toggleExpand = (id) => {
@@ -536,7 +576,7 @@ const DashboardSidebar = ({
         // array (UP NEXT, LIVE NOW) always pass.
         const hasVisibleChildren = (item) => {
             if (!Array.isArray(item.children)) return true;
-            return filterActiveChildren(item.children, liveSet).length > 0;
+            return filterActiveChildren(item.children, liveSet, outrightSet).length > 0;
         };
         const live = displaySports.filter(hasVisibleChildren);
 
@@ -549,7 +589,7 @@ const DashboardSidebar = ({
             }
             return false;
         });
-    }, [displaySports, liveSet, searchQuery]);
+    }, [displaySports, liveSet, outrightSet, searchQuery]);
 
     return (
         <aside className={`dash-sidebar ${isOpen ? 'open' : ''} ${isMobileSportsSelectionMode ? 'mobile-sports-selection-mode' : ''}`}>
@@ -660,6 +700,7 @@ const DashboardSidebar = ({
                         className={item.id === 'commercial-live' || item.id === 'up-next' ? 'desktop-only' : ''}
                         isMobile={isMobileSportsSelectionMode}
                         liveSet={liveSet}
+                        outrightSet={outrightSet}
                         ancestorsWithSelection={ancestorsWithSelection}
                     />
                 ))}

@@ -134,7 +134,7 @@ const extractOutcomes = (primaryBookmaker) => {
  * single tournament/championship; otherwise shows every open outright grouped
  * by sport. Backed by /api/outrights and /api/outrights/sports.
  */
-const OutrightsView = ({ sportKey = '', families = [], title = 'Futures' }) => {
+const OutrightsView = ({ sportKey = '', families = [], boardKeys = [], title = 'Futures' }) => {
     // Defensive: useOddsFormat() returns the context default object, but if
     // the provider tree ever swaps out mid-render we'd destructure undefined
     // and trip the global ErrorBoundary. Pull the value indirectly so the
@@ -167,15 +167,24 @@ const OutrightsView = ({ sportKey = '', families = [], title = 'Futures' }) => {
         return () => { cancelled = true; };
     }, [sportKey]);
 
-    // Optional family scope — one or SEVERAL sidebar futures checkboxes
-    // ("Golf Futures" + "Soccer Futures" combine). Client-side: /api/outrights
-    // already ships the full open list and it's small (futures move slowly),
-    // so one fetch serves every scope. Empty array = all families.
+    // Optional scoping, narrowest wins. `boardKeys` is an exact sport-key
+    // allowlist (multi-selected sidebar board leaves) — only those boards
+    // render. `families` is the coarser fallback when a selection can't
+    // name its boards. Client-side either way: /api/outrights already
+    // ships the full open list and it's small (futures move slowly), so
+    // one fetch serves every scope. Both empty = all boards.
     const familySet = useMemo(() => new Set(families), [families]);
+    const boardKeySet = useMemo(
+        () => new Set(boardKeys.map((k) => String(k).toLowerCase())),
+        [boardKeys],
+    );
     const scopedRows = useMemo(() => {
+        if (boardKeySet.size > 0) {
+            return rows.filter((row) => boardKeySet.has(String(row.sportKey || '').toLowerCase()));
+        }
         if (familySet.size === 0) return rows;
         return rows.filter((row) => familySet.has(sportFamilyFromKey(row.sportKey).id));
-    }, [rows, familySet]);
+    }, [rows, familySet, boardKeySet]);
 
     // Two-level grouping: DIVISION (Football, Basketball, …) → LEAGUE CATEGORY
     // ("NFL FUTURES", "NCAAF FUTURES", …) → individual market cards. This mirrors
@@ -278,13 +287,10 @@ const OutrightsView = ({ sportKey = '', families = [], title = 'Futures' }) => {
                                         <article key={event.id || event.eventId} style={cardStyle}>
                                             <header style={cardHeaderStyle}>
                                                 <div style={cardTitleStyle}>{event.eventName || event.sportKey}</div>
+                                                {/* Bookmaker count is deliberately NOT shown here — it's
+                                                    house-internal sourcing detail (admin views keep it). */}
                                                 <div style={cardMetaStyle}>
                                                     {formatStartTime(event.commenceTime)}
-                                                    {event.bookmakerCount > 0 && (
-                                                        <span style={{ marginLeft: 8 }}>
-                                                            {event.bookmakerCount} book{event.bookmakerCount === 1 ? '' : 's'}
-                                                        </span>
-                                                    )}
                                                 </div>
                                             </header>
                                             {outcomes.length === 0 ? (
