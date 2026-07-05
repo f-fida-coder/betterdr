@@ -11,7 +11,7 @@ import PromoCard from './PromoCard';
 import ChatWidget from './ChatWidget';
 import ModeBetPanel from './ModeBetPanel';
 import LoadingSpinner from './LoadingSpinner';
-import { findSportItemById } from '../data/sportsData';
+import { resolveFuturesSelection } from '../utils/futuresSelection';
 
 // Hoisted static style objects — avoids creating new objects on every render.
 const STYLE_CONTENT_AREA = { position: 'relative', marginTop: '0' };
@@ -106,16 +106,15 @@ function UserDashboardShell({
     return () => window.removeEventListener('search:open-match', handleOpen);
   }, []);
 
-  // Mobile parity with DashboardMain: when the primary selected sidebar item
-  // is a futures/outrights entry, render OutrightsView instead of the regular
-  // match-list (MobileContentView), which only knows about live/upcoming
-  // h2h/spread/total markets and shows an empty state for futures.
-  const primarySelectedId = Array.isArray(selectedSports) && selectedSports.length > 0 ? selectedSports[0] : null;
-  const primarySelectedItem = primarySelectedId ? findSportItemById(primarySelectedId) : null;
-  const isFuturesSelection = primarySelectedItem?.type === 'futures';
-  const futuresSportKey = isFuturesSelection && Array.isArray(primarySelectedItem.sportKeys) && primarySelectedItem.sportKeys.length > 0
-    ? primarySelectedItem.sportKeys[0]
-    : '';
+  // Mobile parity with DashboardMain: when the selection contains a futures
+  // entry, render OutrightsView instead of the regular match-list
+  // (MobileContentView), which only knows about live/upcoming h2h/spread/
+  // total markets and shows an empty state for futures. The scoping props
+  // come from the SAME resolver as desktop (utils/futuresSelection.js) —
+  // this used to be a hand-copied block that only looked at
+  // selectedSports[0] and passed no family/board scope, so tapping "Golf
+  // Futures" on mobile rendered every sport's boards under a golf header.
+  const futuresSelection = resolveFuturesSelection(selectedSports);
 
   return (
     <div className={`dashboard-layout ${tabsBarHidden ? 'no-bet-tabs' : ''}`}>
@@ -162,10 +161,15 @@ function UserDashboardShell({
 
         {dashboardView === 'dashboard' && (
           <>
-            {isMobileViewport && mobileViewState === 'results' && isFuturesSelection ? (
+            {isMobileViewport && mobileViewState === 'results' && futuresSelection ? (
               <div style={STYLE_FUTURES_WRAP}>
                 <ErrorBoundary>
-                  <OutrightsView sportKey={futuresSportKey} title={primarySelectedItem.label || 'Futures'} />
+                  <OutrightsView
+                    sportKey={futuresSelection.sportKey}
+                    families={futuresSelection.families}
+                    boardKeys={futuresSelection.boardKeys}
+                    title={futuresSelection.title}
+                  />
                 </ErrorBoundary>
               </div>
             ) : isMobileViewport && mobileViewState === 'results' ? (

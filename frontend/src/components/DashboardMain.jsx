@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import SportContentView from './SportContentView';
 import OutrightsView from './OutrightsView';
 import ErrorBoundary from './ErrorBoundary';
-import { findSportItemById, OUTRIGHTS_ENABLED } from '../data/sportsData';
+import { findSportItemById } from '../data/sportsData';
+import { resolveFuturesSelection } from '../utils/futuresSelection';
 
 const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
     const isDefault = selectedSports.length === 0;
@@ -93,46 +94,20 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
     // Special-view dispatch happens AFTER all hooks above have run so we
     // never violate Rules of Hooks when switching to/from these branches.
     //
-    // Futures dispatch considers EVERY selected id, not just the first —
-    // ticking "Golf Futures" + "Soccer Futures" combines both families in
-    // one view, and ticking a futures box while a league is checked still
-    // switches to futures (checking the previous behavior of "only the
-    // first selection counts" silently ignored later futures ticks, which
-    // read as broken). Any selected futures node WITHOUT a family scope
-    // (the top-level FUTURES entry) widens the view back to all sports.
-    const selectedFuturesItems = OUTRIGHTS_ENABLED
-        ? selectedSports
-            .map((id) => findSportItemById(id))
-            .filter((it) => it && it.type === 'futures')
-        : [];
-    if (selectedFuturesItems.length > 0) {
-        const hasUnscoped = selectedFuturesItems.some((it) => !it.family);
-        const families = hasUnscoped
-            ? []
-            : [...new Set(selectedFuturesItems.map((it) => it.family))];
-        // Exact board scoping: when every selected futures node names its
-        // board(s) via sportKeys, pass the union down so multi-select shows
-        // ONLY the ticked boards. Family scoping alone over-shows — ticking
-        // "To Win Super Bowl" + "To Win World Series" would drag NCAAF in
-        // via the football family. If ANY selected node is family-only
-        // (no sportKeys), exact scoping would wrongly hide that node's
-        // boards, so fall back to family-wide for the whole selection.
-        const allHaveBoards = !hasUnscoped
-            && selectedFuturesItems.every((it) => Array.isArray(it.sportKeys) && it.sportKeys.length > 0);
-        const boardKeys = allHaveBoards
-            ? [...new Set(selectedFuturesItems.flatMap((it) => it.sportKeys))]
-            : [];
-        const single = selectedFuturesItems.length === 1 ? selectedFuturesItems[0] : null;
-        const futuresSportKey = single && Array.isArray(single.sportKeys) && single.sportKeys.length > 0
-            ? single.sportKeys[0]
-            : '';
+    // Futures dispatch is shared with the mobile path (UserDashboardShell)
+    // via resolveFuturesSelection — see utils/futuresSelection.js for the
+    // scoping rules (every selected id counts, exact boardKeys when the
+    // selection names its boards, family fallback, unscoped FUTURES tab
+    // widens to all).
+    const futuresSelection = resolveFuturesSelection(selectedSports);
+    if (futuresSelection) {
         return (
             <ErrorBoundary>
                 <OutrightsView
-                    sportKey={futuresSportKey}
-                    families={families}
-                    boardKeys={boardKeys}
-                    title={single ? (single.label || 'Futures') : 'Futures'}
+                    sportKey={futuresSelection.sportKey}
+                    families={futuresSelection.families}
+                    boardKeys={futuresSelection.boardKeys}
+                    title={futuresSelection.title}
                 />
             </ErrorBoundary>
         );
