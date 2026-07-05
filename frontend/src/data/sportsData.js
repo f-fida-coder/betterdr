@@ -17,14 +17,14 @@
 // Futures / outrights surface visibility.
 //
 // Kept OFF because Rundown — our only odds feed — does not currently serve any
-// futures: the `tournament_winner` market (id 1141) is in their catalog but is
-// NOT active for any of our 33 sports (verified live 2026-06-29). Enabling this
-// would show players a permanently-empty "Futures" tab. The full pipeline
-// (OutrightIngestService → outrights table → this view) is built and tested, so
-// flip this to true the moment a real source populates the table — Rundown
-// turning 1141 on, or an admin/DGS price feed. Real-money placement is also
-// gated server-side by SPORTSBOOK_OUTRIGHTS_BETTING_ENABLED (default off).
-export const OUTRIGHTS_ENABLED = false;
+// futures: ON since 2026-07-05 — The Odds API is the sole futures source
+// (OddsApiSyncService::syncOutrights, hourly). The outrights table carries
+// live boards (Super Bowl / World Series / NCAAF champ / FIFA WC / golf
+// majors), the admin winner UI grades them, and real-money placement is
+// separately gated server-side by SPORTSBOOK_OUTRIGHTS_BETTING_ENABLED.
+// Flip to false to hide the FUTURES tab + OutrightsView without a deploy
+// of backend flags (display-only kill switch).
+export const OUTRIGHTS_ENABLED = true;
 
 export const sportsData = [
     {
