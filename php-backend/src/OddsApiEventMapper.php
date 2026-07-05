@@ -41,6 +41,10 @@ final class OddsApiEventMapper
      * leagues (RundownSportMap::displayName() only knows Rundown sports).
      */
     private const SPORT_DISPLAY_NAMES = [
+        // Non-soccer supplemental sports (approved 2026-07-05). MUST match
+        // the frontend labels in sportsData.js (Boxing child / NRL child).
+        'boxing_boxing'                        => 'Boxing',
+        'rugbyleague_nrl'                      => 'NRL',
         'soccer_efl_champ'                     => 'EFL Championship',
         'soccer_england_league1'               => 'EFL League One',
         'soccer_england_league2'               => 'EFL League Two',
@@ -99,6 +103,9 @@ final class OddsApiEventMapper
         if ($bookmakers === []) {
             return null; // no priced markets → nothing to store (avoids empty-odds row bloat)
         }
+        if (self::isSpeculativeFight($sportKey, $commenceTs, $nowTs, count($bookmakers))) {
+            return null; // rumored bout, not a booked fight — must never render as real
+        }
 
         return [
             'id'                => self::deterministicMatchId($eventId),
@@ -154,6 +161,43 @@ final class OddsApiEventMapper
             'updatedAt'         => $now,
             'createdAt'         => $now,
         ];
+    }
+
+    /** Placeholder cluster observed in the 2026-07-05 live sample: rumored bouts stamped Dec 31 ≥20:00 UTC. */
+    private const PLACEHOLDER_MONTH_DAY = '12-31';
+    private const PLACEHOLDER_HOUR_UTC  = 20;
+    private const SPECULATIVE_HORIZON_DAYS = 120;
+
+    /**
+     * True for CATEGORY_FIGHTS events that are speculative matchups, not
+     * booked fights. The boxing feed carries dozens of rumored bouts
+     * (Fury-Joshua and friends) with placeholder kickoffs — Dec 31,
+     * 22:5x UTC in the live sample. Zero-book events already die in
+     * toMatchDoc(); this guard covers the rumor that picks up a price:
+     *
+     *   - placeholder-dated (Dec 31 ≥20:00 UTC) → speculative REGARDLESS
+     *     of book count (2026-07-05 ruling): the date is fiction and must
+     *     not render. The event returns on its own once the feed stamps a
+     *     real commence_time.
+     *   - single-book AND >120 days out → speculative (far-future belt;
+     *     every real fight in the live sample was ≤70 days out, and a
+     *     real bout gains books long before this horizon).
+     *
+     * Real near-term single-book fights pass. Fights-only: any other
+     * category's events are untouched.
+     */
+    public static function isSpeculativeFight(string $sportKey, int $commenceTs, int $nowTs, int $bookCount): bool
+    {
+        if (!OddsApiAllowlist::isAllowed($sportKey, OddsApiAllowlist::CATEGORY_FIGHTS)) {
+            return false;
+        }
+        $isPlaceholder = gmdate('m-d', $commenceTs) === self::PLACEHOLDER_MONTH_DAY
+            && (int) gmdate('G', $commenceTs) >= self::PLACEHOLDER_HOUR_UTC;
+        if ($isPlaceholder) {
+            return true;
+        }
+        return $bookCount < 2
+            && ($commenceTs - $nowTs) > self::SPECULATIVE_HORIZON_DAYS * 86400;
     }
 
     /** Deterministic 24-hex match id — provider-prefixed so it can never collide with a Rundown id. */
@@ -246,6 +290,11 @@ final class OddsApiEventMapper
             foreach ((is_array($bm['markets'] ?? null) ? $bm['markets'] : []) as $market) {
                 if (!is_array($market)) continue;
                 $marketKey = strtolower(trim((string) ($market['key'] ?? '')));
+                // Exchange lay prices (h2h_lay etc. — Betfair in the rugby
+                // au region) must NEVER become house lines — explicit reject
+                // on top of the whitelist, so a future ALLOWED_MARKET_KEYS
+                // edit can't accidentally admit them.
+                if (str_ends_with($marketKey, '_lay')) continue;
                 if (!in_array($marketKey, self::ALLOWED_MARKET_KEYS, true)) continue;
                 $outcomes = [];
                 foreach ((is_array($market['outcomes'] ?? null) ? $market['outcomes'] : []) as $o) {

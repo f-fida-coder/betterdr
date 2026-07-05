@@ -707,7 +707,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             tennis: 'fa-solid fa-table-tennis-paddle-ball',
             golf: 'fa-solid fa-golf-ball-tee',
             mma: 'fa-solid fa-hand-fist',
-            boxing: 'fa-solid fa-mitten',
+            boxing: 'fa-solid fa-hand-fist',
             cricket: 'fa-solid fa-baseball',
             rugbyleague: 'fa-solid fa-football',
             rugbyunion: 'fa-solid fa-football',

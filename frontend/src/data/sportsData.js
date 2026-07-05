@@ -1,11 +1,12 @@
 /**
  * Sportsbook navigation data — single source of truth for desktop and mobile.
  *
- * Catalog is aligned 1:1 with what Rundown actually serves
- * (php-backend/src/RundownSportMap.php). Sports our upstream does not
- * provide (Boxing, Golf, Auto Racing) are intentionally absent —
- * surfacing them would create permanently-empty child rows that
- * confuse players.
+ * Catalog is aligned 1:1 with what our upstreams actually serve:
+ * Rundown (php-backend/src/RundownSportMap.php) plus the approved
+ * The Odds API supplemental keys (php-backend/src/OddsApiAllowlist.php —
+ * Boxing and NRL since 2026-07-05). Sports no upstream provides (Auto
+ * Racing; Golf is futures-only) are intentionally absent — surfacing
+ * them would create permanently-empty child rows that confuse players.
  *
  * CONFIGURED_SPORT_KEYS is derived FROM this tree (see below) so the
  * allowlist self-maintains when new sports are added.
@@ -161,7 +162,20 @@ export const sportsData = [
         icon: 'fa-solid fa-hand-fist',
         selectable: false,
         children: [
-            { id: 'mma', label: 'UFC / MMA', selectable: true, sportKeys: ['mma_mixed_martial_arts'] },
+            { id: 'mma',    label: 'UFC / MMA', selectable: true, sportKeys: ['mma_mixed_martial_arts'] },
+            // The Odds API supplemental (2026-07-05) — labels must match
+            // backend OddsApiEventMapper::SPORT_DISPLAY_NAMES.
+            { id: 'boxing', label: 'Boxing',    selectable: true, sportKeys: ['boxing_boxing'] },
+        ],
+    },
+    // ── RUGBY ─────────────────────────────────────────────────
+    {
+        id: 'rugby',
+        label: 'RUGBY',
+        icon: 'fa-solid fa-football',
+        selectable: false,
+        children: [
+            { id: 'nrl', label: 'NRL', selectable: true, sportKeys: ['rugbyleague_nrl'] },
         ],
     },
 ];
@@ -234,6 +248,8 @@ export const getSportKeywords = (id) => {
         atp: ['atp', 'tennis_atp'],
         wta: ['wta', 'tennis_wta'],
         mma: ['mma', 'ufc', 'mixed martial', 'mma_mixed_martial_arts'],
+        boxing: ['boxing', 'boxing_boxing'],
+        nrl: ['nrl', 'rugbyleague_nrl'],
         // Parent-level catch-all keywords
         football: ['nfl', 'ncaaf', 'cfl', 'american football', 'americanfootball'],
         basketball: ['basketball', 'nba', 'wnba', 'ncaab'],
@@ -242,7 +258,8 @@ export const getSportKeywords = (id) => {
         soccer: ['soccer', 'premier league', 'la liga', 'serie a', 'bundesliga', 'ligue 1', 'mls', 'champions league', 'epl', 'uefa', 'fifa'],
         cricket: ['cricket', 'ipl', 't20'],
         tennis: ['tennis', 'atp', 'wta'],
-        'martial-arts': ['mma', 'ufc', 'martial'],
+        'martial-arts': ['mma', 'ufc', 'martial', 'boxing'],
+        rugby: ['rugby', 'rugbyleague', 'nrl'],
     };
 
     return keywordMap[normalized] || [normalized];
@@ -380,11 +397,10 @@ export const SUPPLEMENTAL_LEAGUE_LABELS = {
 // Sport-key prefix → static parent id. Used by buildMergedSportsTree to
 // route auto-discovered backend sport keys (e.g. `soccer_korea_kleague1`)
 // to the right parent category instead of creating top-level rows.
-// Prefixes for sports we deliberately don't surface (boxing, golf,
+// Prefixes for sports we deliberately don't surface (golf match rows,
 // motorsport) are absent — any matching backend rows will be silently
 // dropped from the sidebar, which is preferred over creating empty
-// "Boxing → boxing_boxing" entries the player can click into and get
-// no data.
+// entries the player can click into and get no data.
 const PREFIX_TO_PARENT_ID = {
     basketball: 'basketball',
     baseball: 'baseball',
@@ -394,6 +410,8 @@ const PREFIX_TO_PARENT_ID = {
     soccer: 'soccer',
     tennis: 'tennis',
     mma: 'martial-arts',
+    boxing: 'martial-arts',
+    rugbyleague: 'rugby',
     cricket: 'cricket',
 };
 

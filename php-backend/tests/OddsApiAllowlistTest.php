@@ -16,12 +16,36 @@ TestRunner::run('allowlist: shipped tiers have zero Rundown overlap', function (
     $violations = OddsApiAllowlist::overlapViolations(
         OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_SOCCER),
         OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_OUTRIGHTS),
-        OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_CARDS)
+        OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_CARDS),
+        OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_FIGHTS),
+        OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_RUGBY)
     );
     TestRunner::assertEquals([], $violations, 'shipped constants are overlap-free');
     OddsApiAllowlist::assertNoRundownOverlap(); // must not throw
     TestRunner::assertEquals(19, count(OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_SOCCER)), 'approved 19-league soccer launch set');
     TestRunner::assertEquals(11, count(OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_OUTRIGHTS)), 'approved 11 outright keys');
+    TestRunner::assertEquals(['boxing_boxing'], OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_FIGHTS), 'fights = boxing only (2026-07-05)');
+    TestRunner::assertEquals(['rugbyleague_nrl'], OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_RUGBY), 'rugby = NRL only; state_of_origin skipped, six_nations no-go');
+});
+
+TestRunner::run('allowlist: fights/rugby markets + per-category regions', function (): void {
+    TestRunner::assertEquals('h2h', OddsApiAllowlist::marketsFor(OddsApiAllowlist::CATEGORY_FIGHTS), 'boxing is h2h-only');
+    TestRunner::assertEquals('h2h,spreads,totals', OddsApiAllowlist::marketsFor(OddsApiAllowlist::CATEGORY_RUGBY), 'NRL gets full main lines');
+    // Regions are per-category (2026-07-05 ruling): rugby=au (us was empty
+    // in the live sample), everything else stays us — including the
+    // pre-existing categories, whose behavior must not change.
+    TestRunner::assertEquals('au', OddsApiAllowlist::regionsFor(OddsApiAllowlist::CATEGORY_RUGBY), 'rugby polls au books');
+    TestRunner::assertEquals('us', OddsApiAllowlist::regionsFor(OddsApiAllowlist::CATEGORY_FIGHTS), 'fights stay us per ruling');
+    TestRunner::assertEquals('us', OddsApiAllowlist::regionsFor(OddsApiAllowlist::CATEGORY_SOCCER), 'soccer region unchanged');
+    TestRunner::assertEquals('us', OddsApiAllowlist::regionsFor(OddsApiAllowlist::CATEGORY_OUTRIGHTS), 'outrights region unchanged');
+    TestRunner::assertEquals('us', OddsApiAllowlist::regionsFor(OddsApiAllowlist::CATEGORY_CARDS), 'cards region unchanged');
+});
+
+TestRunner::run('allowlist: the guard trips on a Rundown key planted in fights or rugby', function (): void {
+    $violations = OddsApiAllowlist::overlapViolations([], [], [], ['mma_mixed_martial_arts'], []);
+    TestRunner::assertEquals(1, count($violations), 'MMA (Rundown sport 7) is refused in the fights tier');
+    $violations = OddsApiAllowlist::overlapViolations([], [], [], [], ['cricket_t20']);
+    TestRunner::assertEquals(1, count($violations), 'a Rundown key is refused in the rugby tier');
 });
 
 TestRunner::run('allowlist: the guard trips on a Rundown-covered key', function (): void {

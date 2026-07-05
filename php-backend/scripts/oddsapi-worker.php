@@ -12,7 +12,11 @@ declare(strict_types=1);
  *   - outrights/futures: ODDS_API_POLL_OUTRIGHTS_MINUTES (60). Gated by
  *     ODDS_API_OUTRIGHTS_SYNC_ENABLED (default OFF until the outrights-
  *     ingestion chunk lands).
- *   - card markets: land in a later chunk; this scheduler gains a third tier then.
+ *   - card markets: ODDS_API_POLL_CARDS_MINUTES (15), gated by
+ *     OddsApiCardMarketsService::enabled().
+ *   - low-volume fights + rugby (boxing_boxing, rugbyleague_nrl):
+ *     ODDS_API_POLL_LOWVOLUME_MINUTES (30), same near-kickoff tightening.
+ *     Zero-event passes are NORMAL between fight cards / NRL rounds.
  *
  * CREDIT BUDGET GUARD (wired here):
  *   - Every pass reads OddsApiClient::pollIntervalMultiplier() — 2 when
@@ -80,6 +84,7 @@ $nearMinutes     = max(0, (int) Env::get('ODDS_API_POLL_SOCCER_NEAR_KICKOFF_MINU
 $nearWindowHours = max(1, (int) Env::get('ODDS_API_NEAR_KICKOFF_WINDOW_HOURS', '2'));
 $outrightMinutes = max(5, (int) Env::get('ODDS_API_POLL_OUTRIGHTS_MINUTES', '60'));
 $cardsMinutes    = max(5, (int) Env::get('ODDS_API_POLL_CARDS_MINUTES', '15'));
+$lowVolMinutes   = max(5, (int) Env::get('ODDS_API_POLL_LOWVOLUME_MINUTES', '30'));
 
 $shutdown = false;
 if (function_exists('pcntl_signal')) {
@@ -102,24 +107,31 @@ Logger::info('oddsapi-worker started', [
     'outrightsGate'   => OddsApiSyncService::outrightsEnabled(),
     'cardsMinutes'    => $cardsMinutes,
     'cardsGate'       => OddsApiCardMarketsService::enabled(),
+    'lowVolMinutes'   => $lowVolMinutes,
 ], 'oddsapi');
 Logger::flush();
 
 $soccerDueAt        = 0; // due immediately
 $outrightsDueAt     = 0;
 $cardsDueAt         = 0;
+$lowVolDueAt        = 0;
 $lastUsageLogDay    = '';
 $outrightsOnlyState = false;
 
 /**
- * True while any allowlisted soccer match kicks off within the window —
- * drives the near-kickoff cadence tightening. These sportKeys are fed
- * exclusively by this worker, so no oddsSource filter is needed.
+ * True while any match of the given sportKeys kicks off within the window —
+ * drives the near-kickoff cadence tightening per tier. These sportKeys are
+ * fed exclusively by this worker, so no oddsSource filter is needed.
+ *
+ * @param list<string> $sportKeys
  */
-function oddsapiHasKickoffWithinWindow(SqlRepository $db, int $windowHours): bool
+function oddsapiHasKickoffWithinWindow(SqlRepository $db, int $windowHours, array $sportKeys): bool
 {
+    if ($sportKeys === []) {
+        return false;
+    }
     $rows = $db->findMany('matches', [
-        'sportKey'  => ['$in' => OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_SOCCER)],
+        'sportKey'  => ['$in' => $sportKeys],
         'status'    => 'scheduled',
         'startTime' => ['$gte' => gmdate(DATE_ATOM), '$lte' => gmdate(DATE_ATOM, time() + $windowHours * 3600)],
     ], ['projection' => ['id' => 1], 'limit' => 1]);
@@ -188,7 +200,7 @@ while (!$shutdown) {
         $intervalMinutes = $soccerMinutes;
         if ($nearMinutes > 0) {
             try {
-                if (oddsapiHasKickoffWithinWindow($repo, $nearWindowHours)) {
+                if (oddsapiHasKickoffWithinWindow($repo, $nearWindowHours, OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_SOCCER))) {
                     $intervalMinutes = min($intervalMinutes, $nearMinutes);
                 }
             } catch (Throwable $e) {
@@ -198,6 +210,41 @@ while (!$shutdown) {
         // BUDGET GUARD: interval × multiplier — below the SLOWDOWN threshold
         // every soccer poll frequency literally halves.
         $soccerDueAt = $loopStart + ($intervalMinutes * 60 * $mult);
+    }
+
+    // ── Low-volume tier: fights + rugby (skipped in outrights-only mode).
+    //    events:0 passes are NORMAL — boxing goes weeks between cards and
+    //    the NRL board empties between rounds. ─────────────────────────────
+    if (!$outOnly && $loopStart >= $lowVolDueAt) {
+        try {
+            $r = OddsApiSyncService::syncLowVolumePrematch($repo);
+            Logger::info('oddsapi lowvolume pass', [
+                'sports'   => $r['sports'],
+                'events'   => $r['events'], // 0 between cards/rounds — normal, not an error
+                'inserted' => $r['inserted'],
+                'updated'  => $r['updated'],
+                'skipped'  => $r['skipped'],
+                'errors'   => count($r['errors']),
+            ] + ($r['errors'] !== [] ? ['errorDetail' => $r['errors']] : []), 'oddsapi');
+        } catch (Throwable $e) {
+            Logger::warning('oddsapi lowvolume pass failed', ['error' => $e->getMessage()], 'oddsapi');
+        }
+        $intervalMinutes = $lowVolMinutes;
+        if ($nearMinutes > 0) {
+            try {
+                $lowVolKeys = array_merge(
+                    OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_FIGHTS),
+                    OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_RUGBY)
+                );
+                if (oddsapiHasKickoffWithinWindow($repo, $nearWindowHours, $lowVolKeys)) {
+                    $intervalMinutes = min($intervalMinutes, $nearMinutes);
+                }
+            } catch (Throwable $e) {
+                // DB hiccup → keep the normal cadence, never crash the loop.
+            }
+        }
+        // BUDGET GUARD: same multiplier on the low-volume cadence.
+        $lowVolDueAt = $loopStart + ($intervalMinutes * 60 * $mult);
     }
 
     // ── Outrights tier (keeps polling even in outrights-only mode) ───

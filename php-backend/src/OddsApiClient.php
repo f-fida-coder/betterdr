@@ -32,7 +32,8 @@ final class OddsApiClient
 {
     public const DEFAULT_BASE = 'https://api.the-odds-api.com/v4';
     private const DEFAULT_TIMEOUT_SECONDS = 10;
-    private const REGIONS = 'us';
+    // Regions are per-category (rugby=au, everything else=us) —
+    // OddsApiAllowlist::regionsFor(), hard-set like markets.
     private const ODDS_FORMAT = 'american';
     private const QUOTA_CACHE_NS = 'theoddsapi-quota';
     private const QUOTA_CACHE_KEY = 'latest';
@@ -74,7 +75,7 @@ final class OddsApiClient
         OddsApiAllowlist::assertAllowed($sportKey, $category);
         unset($params['markets'], $params['regions'], $params['oddsFormat']);
         $query = array_merge(self::normalizeQuery($params), [
-            'regions'    => self::REGIONS,
+            'regions'    => OddsApiAllowlist::regionsFor($category),
             'markets'    => OddsApiAllowlist::marketsFor($category),
             'oddsFormat' => self::ODDS_FORMAT,
             'dateFormat' => 'iso',
@@ -108,7 +109,7 @@ final class OddsApiClient
         }
         unset($params['markets'], $params['regions'], $params['oddsFormat']);
         $query = array_merge(self::normalizeQuery($params), [
-            'regions'    => self::REGIONS,
+            'regions'    => OddsApiAllowlist::regionsFor(OddsApiAllowlist::CATEGORY_CARDS),
             'markets'    => OddsApiAllowlist::marketsFor(OddsApiAllowlist::CATEGORY_CARDS),
             'oddsFormat' => self::ODDS_FORMAT,
             'dateFormat' => 'iso',

@@ -34,15 +34,52 @@ final class OddsApiSyncService
      */
     public static function syncSoccerPrematch(SqlRepository $db): array
     {
-        $stats = ['sports' => 0, 'events' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => []];
+        $stats = self::emptyPrematchStats();
         if (!self::enabled()) {
             return $stats;
         }
+        self::runPrematchCategory($db, OddsApiAllowlist::CATEGORY_SOCCER, $stats);
+        return $stats;
+    }
 
-        foreach (OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_SOCCER) as $sportKey) {
+    /**
+     * One prematch pass over the low-volume categories (fights + rugby,
+     * approved 2026-07-05). ZERO EVENTS IS NORMAL here — boxing goes weeks
+     * between cards and the NRL board empties between rounds. An empty
+     * response is a clean events:0 stat line, never an error.
+     *
+     * @return array{sports:int, events:int, inserted:int, updated:int, skipped:int, errors:array<string,string>}
+     */
+    public static function syncLowVolumePrematch(SqlRepository $db): array
+    {
+        $stats = self::emptyPrematchStats();
+        if (!self::enabled()) {
+            return $stats;
+        }
+        self::runPrematchCategory($db, OddsApiAllowlist::CATEGORY_FIGHTS, $stats);
+        self::runPrematchCategory($db, OddsApiAllowlist::CATEGORY_RUGBY, $stats);
+        return $stats;
+    }
+
+    /** @return array{sports:int, events:int, inserted:int, updated:int, skipped:int, errors:array<string,string>} */
+    private static function emptyPrematchStats(): array
+    {
+        return ['sports' => 0, 'events' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => []];
+    }
+
+    /**
+     * Fetch + upsert every allowlisted key of one main-lines category,
+     * accumulating into $stats. Shared by the soccer and low-volume passes —
+     * markets and regions are hard-set per category inside the client.
+     *
+     * @param array{sports:int, events:int, inserted:int, updated:int, skipped:int, errors:array<string,string>} $stats
+     */
+    private static function runPrematchCategory(SqlRepository $db, string $category, array &$stats): void
+    {
+        foreach (OddsApiAllowlist::keysFor($category) as $sportKey) {
             $stats['sports']++;
             try {
-                $events = OddsApiClient::getOdds($sportKey, OddsApiAllowlist::CATEGORY_SOCCER);
+                $events = OddsApiClient::getOdds($sportKey, $category);
             } catch (Throwable $e) {
                 // Isolation: log-and-continue. An Odds API outage degrades to
                 // "these leagues go stale" — it can never touch Rundown rows.
@@ -57,7 +94,7 @@ final class OddsApiSyncService
                 $stats['events']++;
                 $doc = OddsApiEventMapper::toMatchDoc($event, $sportKey);
                 if ($doc === null) {
-                    $stats['skipped']++; // past kickoff / no priced markets / malformed
+                    $stats['skipped']++; // past kickoff / no priced markets / speculative fight / malformed
                     continue;
                 }
                 try {
@@ -71,7 +108,6 @@ final class OddsApiSyncService
                 }
             }
         }
-        return $stats;
     }
 
     /** Outrights tier gate — sync only; player-facing betting is separately gated by SPORTSBOOK_OUTRIGHTS_BETTING_ENABLED. */

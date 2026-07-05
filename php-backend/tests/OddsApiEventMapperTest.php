@@ -255,3 +255,112 @@ TestRunner::run('oddsapi mapper: every allowlisted soccer league has a display n
         TestRunner::assertEquals(true, OddsApiEventMapper::displayName($key) !== $key, "display name mapped for {$key}");
     }
 });
+
+/** Trimmed real-shape boxing event (h2h only, 2-way). Book count + date vary per test. */
+function oamBoxingEvent(string $commence, int $books): array
+{
+    $bms = [];
+    $keys = ['draftkings', 'fanduel', 'betmgm'];
+    for ($i = 0; $i < $books; $i++) {
+        $bms[] = [
+            'key' => $keys[$i], 'title' => ucfirst($keys[$i]), 'last_update' => '2026-07-05T11:00:00Z',
+            'markets' => [
+                ['key' => 'h2h', 'outcomes' => [
+                    ['name' => 'Tyson Fury',  'price' => -450],
+                    ['name' => 'Mariusz Wach', 'price' => 340],
+                ]],
+            ],
+        ];
+    }
+    return [
+        'id'            => 'boxevt' . $books . substr(sha1($commence), 0, 6),
+        'sport_key'     => 'boxing_boxing',
+        'sport_title'   => 'Boxing',
+        'commence_time' => $commence,
+        'home_team'     => 'Tyson Fury',
+        'away_team'     => 'Mariusz Wach',
+        'bookmakers'    => $bms,
+    ];
+}
+
+TestRunner::run('oddsapi mapper: speculative boxing placeholder bouts never render', function (): void {
+    // Test-seam clock is 2026-07-05T12:00:00Z (SqlRepository double above).
+    // Placeholder cluster from the 2026-07-05 live sample: Dec 31, 22:5x UTC.
+
+    // Placeholder-dated + 1 book → dropped (the rumor that picked up a price).
+    TestRunner::assertEquals(null, OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-12-31T22:55:00Z', 1), 'boxing_boxing'), 'single-book placeholder bout dropped');
+    // Placeholder-dated + 3 books → STILL dropped (2026-07-05 ruling: the
+    // date is fiction regardless of book count; the event returns on its
+    // own once the feed stamps a real commence_time).
+    TestRunner::assertEquals(null, OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-12-31T22:57:00Z', 3), 'boxing_boxing'), 'multi-book placeholder bout dropped too');
+    // Real near-term single-book fight (Canelo pattern: ~69d out, 1 book) → kept.
+    $real = OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-09-12T22:00:00Z', 1), 'boxing_boxing');
+    TestRunner::assertEquals('Boxing', $real['sport'], 'real single-book fight ~69d out renders with the Boxing display name');
+    TestRunner::assertEquals('scheduled', $real['status'], 'real fight is a normal prematch row');
+    // Far-future belt: single-book, normal-looking date but >120d out → dropped.
+    TestRunner::assertEquals(null, OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-11-15T22:00:00Z', 1), 'boxing_boxing'), 'single-book rumor >120d out dropped');
+    // Same >120d date with 2 books → kept (booked fights gain books early).
+    $far = OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-11-15T22:00:00Z', 2), 'boxing_boxing');
+    TestRunner::assertEquals('Boxing', $far['sport'], 'multi-book far-future fight kept');
+    // Fights-only: an identical single-book far-future SOCCER event is untouched.
+    $soccer = oamFixtureEvent();
+    $soccer['commence_time'] = '2026-11-15T14:00:00Z';
+    $soccer['bookmakers'] = [$soccer['bookmakers'][1]]; // one book
+    $kept = OddsApiEventMapper::toMatchDoc($soccer, 'soccer_efl_champ');
+    TestRunner::assertEquals('scheduled', $kept['status'], 'guard is fights-only — soccer unaffected');
+});
+
+TestRunner::run('oddsapi mapper: exchange lay markets are explicitly rejected', function (): void {
+    // NRL au region: Betfair returns h2h_lay alongside backable prices.
+    // Lay prices must NEVER become house lines (2026-07-05 ruling).
+    $event = [
+        'id'            => 'nrlevt1',
+        'sport_key'     => 'rugbyleague_nrl',
+        'sport_title'   => 'NRL',
+        'commence_time' => '2026-07-10T10:00:00Z',
+        'home_team'     => 'Wests Tigers',
+        'away_team'     => 'New Zealand Warriors',
+        'bookmakers'    => [
+            [
+                // Lay-only book: must be excluded entirely.
+                'key' => 'betfair_ex_au', 'title' => 'Betfair', 'last_update' => '2026-07-05T11:00:00Z',
+                'markets' => [
+                    ['key' => 'h2h_lay', 'outcomes' => [
+                        ['name' => 'Wests Tigers', 'price' => 210],
+                        ['name' => 'New Zealand Warriors', 'price' => -260],
+                    ]],
+                ],
+            ],
+            [
+                'key' => 'sportsbet', 'title' => 'Sportsbet', 'last_update' => '2026-07-05T11:00:00Z',
+                'markets' => [
+                    ['key' => 'h2h', 'outcomes' => [
+                        ['name' => 'Wests Tigers', 'price' => 195],
+                        ['name' => 'New Zealand Warriors', 'price' => -240],
+                    ]],
+                    ['key' => 'h2h_lay', 'outcomes' => [
+                        ['name' => 'Wests Tigers', 'price' => 205],
+                        ['name' => 'New Zealand Warriors', 'price' => -250],
+                    ]],
+                    ['key' => 'spreads', 'outcomes' => [
+                        ['name' => 'Wests Tigers', 'price' => -110, 'point' => 6.5],
+                        ['name' => 'New Zealand Warriors', 'price' => -110, 'point' => -6.5],
+                    ]],
+                    ['key' => 'totals', 'outcomes' => [
+                        ['name' => 'Over',  'price' => -110, 'point' => 42.5],
+                        ['name' => 'Under', 'price' => -110, 'point' => 42.5],
+                    ]],
+                ],
+            ],
+        ],
+    ];
+    $doc = OddsApiEventMapper::toMatchDoc($event, 'rugbyleague_nrl');
+    TestRunner::assertEquals('NRL', $doc['sport'], 'NRL display name mapped');
+    TestRunner::assertEquals(1, count($doc['odds']['bookmakers']), 'lay-only book excluded entirely');
+    TestRunner::assertEquals('sportsbet', $doc['odds']['bookmakers'][0]['key'], 'backable book survives');
+    $keys = array_map(static fn (array $m): string => $m['key'], $doc['odds']['bookmakers'][0]['markets']);
+    sort($keys);
+    TestRunner::assertEquals(['h2h', 'spreads', 'totals'], $keys, 'h2h_lay shed, full main lines kept');
+    $h2h = oamMarket($doc, 'sportsbet', 'h2h');
+    TestRunner::assertEquals(2, count($h2h['outcomes']), 'NRL h2h maps 2-way cleanly');
+});

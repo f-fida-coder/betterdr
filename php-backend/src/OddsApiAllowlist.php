@@ -40,6 +40,10 @@ final class OddsApiAllowlist
      * from The Odds API.
      */
     public const CATEGORY_CARDS = 'cards';
+    /** Boxing bouts — h2h only; Rundown has no boxing (live catalog check 2026-07-05). */
+    public const CATEGORY_FIGHTS = 'fights';
+    /** Rugby League NRL — Rundown has no rugby of any code (live catalog check 2026-07-05). */
+    public const CATEGORY_RUGBY = 'rugby';
 
     /** @var list<string> 19-league launch set approved 2026-07-05. */
     private const SOCCER_KEYS = [
@@ -104,6 +108,16 @@ final class OddsApiAllowlist
     private const CARD_MARKETS = ['alternate_totals_cards', 'alternate_spreads_cards'];
 
     /**
+     * @var list<string> Approved 2026-07-05. The boxing feed carries rumored
+     * placeholder bouts alongside real ones — OddsApiEventMapper::
+     * isSpeculativeFight() filters them at ingestion.
+     */
+    private const FIGHT_KEYS = ['boxing_boxing'];
+
+    /** @var list<string> rugbyleague_nrl_state_of_origin SKIPPED, rugbyunion_six_nations NO-GO until Feb (2026-07-05 ruling). */
+    private const RUGBY_KEYS = ['rugbyleague_nrl'];
+
+    /**
      * The Odds API key → Rundown sportKey where the SAME competition is
      * spelled differently. A plain set-intersection would miss these, so the
      * overlap check resolves through this map first.
@@ -121,6 +135,8 @@ final class OddsApiAllowlist
             self::CATEGORY_SOCCER    => self::SOCCER_KEYS,
             self::CATEGORY_OUTRIGHTS => self::OUTRIGHT_KEYS,
             self::CATEGORY_CARDS     => self::CARDS_ONLY_KEYS,
+            self::CATEGORY_FIGHTS    => self::FIGHT_KEYS,
+            self::CATEGORY_RUGBY     => self::RUGBY_KEYS,
             default                  => [],
         };
     }
@@ -140,7 +156,22 @@ final class OddsApiAllowlist
             self::CATEGORY_SOCCER    => 'h2h,spreads,totals',
             self::CATEGORY_OUTRIGHTS => 'outrights',
             self::CATEGORY_CARDS     => implode(',', self::CARD_MARKETS),
+            self::CATEGORY_FIGHTS    => 'h2h', // boxing has nothing else upstream (2026-07-05 live sample)
+            self::CATEGORY_RUGBY     => 'h2h,spreads,totals',
             default                  => '',
+        };
+    }
+
+    /**
+     * Bookmaker regions per category — hard-set like markets; callers cannot
+     * widen. Rugby is the first non-us category: the au sample showed 5-8
+     * books per NRL match where us showed effectively zero (2026-07-05).
+     */
+    public static function regionsFor(string $category): string
+    {
+        return match ($category) {
+            self::CATEGORY_RUGBY => 'au',
+            default              => 'us',
         };
     }
 
@@ -165,7 +196,13 @@ final class OddsApiAllowlist
         if (self::$asserted) {
             return;
         }
-        $violations = self::overlapViolations(self::SOCCER_KEYS, self::OUTRIGHT_KEYS, self::CARDS_ONLY_KEYS);
+        $violations = self::overlapViolations(
+            self::SOCCER_KEYS,
+            self::OUTRIGHT_KEYS,
+            self::CARDS_ONLY_KEYS,
+            self::FIGHT_KEYS,
+            self::RUGBY_KEYS
+        );
         if ($violations !== []) {
             $msg = 'OddsApiAllowlist: STARTUP REFUSED — ' . implode('; ', $violations)
                 . '. TheRundown stays authoritative; fix the allowlist.';
@@ -183,15 +220,22 @@ final class OddsApiAllowlist
      * @param list<string> $soccerKeys
      * @param list<string> $outrightKeys
      * @param list<string> $cardsOnlyKeys
+     * @param list<string> $fightKeys
+     * @param list<string> $rugbyKeys
      * @return list<string>
      */
-    public static function overlapViolations(array $soccerKeys, array $outrightKeys, array $cardsOnlyKeys): array
-    {
+    public static function overlapViolations(
+        array $soccerKeys,
+        array $outrightKeys,
+        array $cardsOnlyKeys,
+        array $fightKeys = [],
+        array $rugbyKeys = []
+    ): array {
         $rundown = array_flip(RundownSportMap::allKnownSportKeys());
         $violations = [];
 
         // Full-fetch tiers must never touch a Rundown-covered league.
-        foreach (array_merge($soccerKeys, $outrightKeys) as $key) {
+        foreach (array_merge($soccerKeys, $outrightKeys, $fightKeys, $rugbyKeys) as $key) {
             $resolved = self::RUNDOWN_KEY_ALIASES[$key] ?? $key;
             if (isset($rundown[$key]) || isset($rundown[$resolved])) {
                 $violations[] = '"' . $key . '" is fed by TheRundown and must not be fetched from The Odds API';
