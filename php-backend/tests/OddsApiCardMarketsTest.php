@@ -348,3 +348,13 @@ TestRunner::run('cards write: exactly three namespaced keys, nothing else', func
     OddsApiCardMarketsService::writeCardMarkets($db2, '', []);
     TestRunner::assertEquals(0, count($db2->updates), 'blank match id → no write');
 });
+
+TestRunner::run('cards matcher: USA alias bridges The Odds API vs Rundown naming', function (): void {
+    // WC 2026: The Odds API says "USA", Rundown says "United States".
+    // 'usa' (3 chars) is below the containment threshold, so without the
+    // post-normalization alias the sides can never match.
+    TestRunner::assertEquals(true, OddsApiCardMarketsService::sideMatches('USA', 'United States', 'United States'), 'USA matches United States');
+    TestRunner::assertEquals(true, OddsApiCardMarketsService::sideMatches('United States', 'United States', 'United States'), 'full name still matches itself');
+    TestRunner::assertEquals(false, OddsApiCardMarketsService::sideMatches('USA', 'Belgium', 'Belgium'), 'USA does not match the opponent');
+    TestRunner::assertEquals(false, OddsApiCardMarketsService::sideMatches('US', 'United States', 'United States'), 'unknown short form still refused (fail-closed)');
+});

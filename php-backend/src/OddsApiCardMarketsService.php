@@ -219,17 +219,25 @@ final class OddsApiCardMarketsService
             }
         }
 
-        $from = gmdate(DATE_ATOM, $commenceTs - self::MATCH_TIME_TOLERANCE_SECONDS);
-        $to   = gmdate(DATE_ATOM, $commenceTs + self::MATCH_TIME_TOLERANCE_SECONDS);
+        // NO startTime range filter here — DELIBERATE (2026-07-05 incident).
+        // The live matches.j_start_time_dt generated column predates
+        // SqlRepository's DATETIME definition (it is a legacy VARCHAR of the
+        // raw ISO string, 'T'/'Z' included), so mysql-format range bounds
+        // string-compare 'T' > ' ' and a same-day window matches NOTHING —
+        // every WC card event logged candidates:0 against perfect rows.
+        // Filter the kickoff window in PHP instead; a league's scheduled
+        // rows are few. Revert to a ranged query only after the Part-2
+        // column migration lands (worker startup logs a drift canary).
         $rows = $db->findMany(self::COLLECTION, [
-            'sportKey'  => strtolower(trim($sportKey)),
-            'status'    => 'scheduled',
-            'startTime' => ['$gte' => $from, '$lte' => $to],
-        ], ['limit' => 25]);
+            'sportKey' => strtolower(trim($sportKey)),
+            'status'   => 'scheduled',
+        ], ['limit' => 200]);
 
         $candidates = [];
         foreach (is_array($rows) ? $rows : [] as $row) {
             if (!is_array($row) || !self::rowEligible($row)) continue;
+            $rowTs = strtotime((string) ($row['startTime'] ?? ''));
+            if ($rowTs === false || abs($rowTs - $commenceTs) > self::MATCH_TIME_TOLERANCE_SECONDS) continue;
             $homeOk = self::sideMatches($toaHome, (string) ($row['homeTeam'] ?? ''), (string) ($row['homeTeamFull'] ?? ''));
             $awayOk = self::sideMatches($toaAway, (string) ($row['awayTeam'] ?? ''), (string) ($row['awayTeamFull'] ?? ''));
             if ($homeOk && $awayOk) {
@@ -294,6 +302,15 @@ final class OddsApiCardMarketsService
         return false;
     }
 
+    /**
+     * Post-normalization aliases for names whose common short form is too
+     * short for the containment rules (< 5 chars). National teams only —
+     * The Odds API says "USA", Rundown says "United States" (WC 2026).
+     */
+    private const NAME_ALIASES = [
+        'usa' => 'unitedstates',
+    ];
+
     private static function normalizeName(string $name): string
     {
         $s = trim($name);
@@ -302,7 +319,8 @@ final class OddsApiCardMarketsService
         if (is_string($translit) && $translit !== '') {
             $s = $translit;
         }
-        return (string) preg_replace('/[^a-z0-9]/', '', strtolower($s));
+        $out = (string) preg_replace('/[^a-z0-9]/', '', strtolower($s));
+        return self::NAME_ALIASES[$out] ?? $out;
     }
 
     /**

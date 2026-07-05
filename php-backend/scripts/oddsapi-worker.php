@@ -77,6 +77,33 @@ OddsApiAllowlist::assertNoRundownOverlap();
 $dbName = (string) Env::get('MYSQL_DB', 'sports_betting');
 $repo   = new SqlRepository('', $dbName);
 
+// Schema-drift canary (2026-07-05): while matches.j_start_time_dt is the
+// legacy VARCHAR generated column (raw ISO string) instead of SqlRepository's
+// DATETIME definition, startTime RANGE queries silently match nothing on
+// same-day windows. The oddsapi call sites filter kickoff windows in PHP as
+// a workaround — WARN at every startup until the Part-2 column migration
+// lands, so the broken column cannot be quietly forgotten.
+try {
+    $stmt = $repo->getRawPdoForOps()->query(
+        "SELECT DATA_TYPE FROM information_schema.COLUMNS"
+        . " WHERE TABLE_SCHEMA = DATABASE()"
+        . " AND TABLE_NAME = '" . $repo->rawTableName('matches') . "'"
+        . " AND COLUMN_NAME = 'j_start_time_dt'"
+    );
+    $colType = $stmt !== false ? $stmt->fetchColumn() : false;
+    if (is_string($colType) && strtolower($colType) !== 'datetime') {
+        Logger::warning(
+            'SCHEMA DRIFT: matches.j_start_time_dt is ' . strtoupper($colType)
+            . ' not DATETIME — startTime range queries are unreliable'
+            . ' (PHP-side window filtering active; run the Part-2 column migration)',
+            [],
+            'oddsapi'
+        );
+    }
+} catch (Throwable $e) {
+    // The canary must never block startup.
+}
+
 $tick            = max(5, (int) Env::get('ODDS_API_WORKER_TICK_SECONDS', '30'));
 $maxRuntime      = max(300, (int) Env::get('ODDS_API_WORKER_MAX_RUNTIME_SECONDS', '21600')); // 6h then voluntary restart
 $soccerMinutes   = max(1, (int) Env::get('ODDS_API_POLL_SOCCER_MINUTES', '10'));
@@ -123,6 +150,12 @@ $outrightsOnlyState = false;
  * drives the near-kickoff cadence tightening per tier. These sportKeys are
  * fed exclusively by this worker, so no oddsSource filter is needed.
  *
+ * NO startTime range filter in the query — DELIBERATE (2026-07-05
+ * incident): the legacy VARCHAR j_start_time_dt column makes same-day
+ * range bounds match nothing (see OddsApiCardMarketsService::
+ * resolveRundownMatch), which silently disabled this tightening since
+ * launch. Window is checked in PHP; revert after the Part-2 migration.
+ *
  * @param list<string> $sportKeys
  */
 function oddsapiHasKickoffWithinWindow(SqlRepository $db, int $windowHours, array $sportKeys): bool
@@ -131,11 +164,18 @@ function oddsapiHasKickoffWithinWindow(SqlRepository $db, int $windowHours, arra
         return false;
     }
     $rows = $db->findMany('matches', [
-        'sportKey'  => ['$in' => $sportKeys],
-        'status'    => 'scheduled',
-        'startTime' => ['$gte' => gmdate(DATE_ATOM), '$lte' => gmdate(DATE_ATOM, time() + $windowHours * 3600)],
-    ], ['projection' => ['id' => 1], 'limit' => 1]);
-    return is_array($rows) && count($rows) > 0;
+        'sportKey' => ['$in' => $sportKeys],
+        'status'   => 'scheduled',
+    ], ['projection' => ['id' => 1, 'startTime' => 1], 'limit' => 500]);
+    $now = time();
+    $until = $now + $windowHours * 3600;
+    foreach (is_array($rows) ? $rows : [] as $row) {
+        $ts = strtotime((string) ($row['startTime'] ?? ''));
+        if ($ts !== false && $ts >= $now && $ts <= $until) {
+            return true;
+        }
+    }
+    return false;
 }
 
 while (!$shutdown) {
