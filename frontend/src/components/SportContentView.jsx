@@ -1927,7 +1927,6 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                 </div>
                                 {detailOpenMatch?.id === match.id && (
                                     <MatchDetailView
-                                        embedded
                                         match={detailOpenMatch}
                                         onClose={() => setDetailOpenMatch(null)}
                                         betMode={normalizedMode}

@@ -5,6 +5,7 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
 import { isMarketEligibleForMode } from '../utils/teaserAdjustment';
 import { isMlbSportKey, formatPitcherLabel, MLB_LISTED_PITCHER_POLICY, MLB_OFFICIAL_GAME_POLICY } from '../utils/pitchers';
+import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
 
 /**
  * Ordered list of non-prop market sections we know how to render.
@@ -144,6 +145,20 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
     const homeTeam = match?.homeTeamFull || match?.homeTeam || match?.home_team || 'Home';
     const awayTeam = match?.awayTeamFull || match?.awayTeam || match?.away_team || 'Away';
     const matchName = `${awayTeam} @ ${homeTeam}`;
+
+    // Modal header logos — same resolution pattern as PropBuilderModal so the
+    // + sheet and the P+ sheet open with an identical VS header.
+    const [teamLogos, setTeamLogos] = React.useState({ away: null, home: null });
+    React.useEffect(() => {
+        let alive = true;
+        Promise.all([
+            fetchTeamBadgeUrl(awayTeam, { sportKey: match?.sportKey, sport: match?.sport }),
+            fetchTeamBadgeUrl(homeTeam, { sportKey: match?.sportKey, sport: match?.sport }),
+        ]).then(([away, home]) => {
+            if (alive) setTeamLogos({ away, home });
+        }).catch(() => {});
+        return () => { alive = false; };
+    }, [awayTeam, homeTeam, match?.sportKey, match?.sport]);
     const sportKeyLower = String(match?.sportKey || match?.sport || '').toLowerCase();
 
     // Listed starting pitchers (MLB) — display-only here; the Action toggle that
@@ -373,15 +388,17 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
         left: 0,
         right: 0,
         bottom: 0,
-        background: 'rgba(0,0,0,0.85)',
+        background: 'rgba(0, 0, 0, 0.72)',
         zIndex: 9998,
         display: 'flex',
         alignItems: 'stretch',
         justifyContent: 'center',
     };
+    // Light sheet + VS header — mirrors PropBuilderModal's overlay/sheet/
+    // vsHeader styles so + and P+ open as one visual family. Keep in sync.
     const sheetStyle = {
-        background: '#0f0f0f',
-        color: '#f5f5f5',
+        background: '#fff',
+        color: '#1a1a1a',
         width: '100%',
         maxWidth: 720,
         height: '100%',
@@ -389,17 +406,61 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
-        boxShadow: '0 -14px 40px rgba(0,0,0,0.7)',
+        boxShadow: '0 -10px 40px rgba(0,0,0,0.6)',
     };
-    const headerStyle = {
+    const vsHeaderStyle = {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
         padding: '12px 14px',
-        borderBottom: '1px solid #1e1e1e',
+        background: '#f2f2f2',
+        borderBottom: '1px solid #e0e0e0',
+    };
+    const vsMatchupRowStyle = {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        gap: 10,
+        gap: 8,
     };
-    const titleStyle = { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 };
+    const vsTeamStyle = (reverse) => ({
+        display: 'flex',
+        flexDirection: reverse ? 'row-reverse' : 'row',
+        alignItems: 'center',
+        gap: 8,
+        minWidth: 0,
+        flex: 1,
+    });
+    const vsLogoStyle = {
+        width: 22,
+        height: 22,
+        borderRadius: '50%',
+        border: '1px solid #d5d5d5',
+        objectFit: 'contain',
+        background: '#fff',
+        flexShrink: 0,
+    };
+    const vsNameStyle = {
+        fontSize: 13,
+        fontWeight: 700,
+        color: '#1a1a1a',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+    };
+    const renderVsTeam = (name, logoUrl, reverse) => (
+        <div style={vsTeamStyle(reverse)}>
+            <img
+                src={logoUrl || createFallbackTeamLogoDataUri(name)}
+                alt=""
+                width="22"
+                height="22"
+                style={vsLogoStyle}
+                loading="lazy"
+                onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(name || ''); }}
+            />
+            <span style={{ ...vsNameStyle, textAlign: reverse ? 'right' : 'left' }}>{name}</span>
+        </div>
+    );
     const toggleAllBtnStyle = {
         background: '#d0451b',
         color: '#fff',
@@ -739,14 +800,18 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
     return (
         <div style={overlayStyle} onClick={onClose}>
             <div style={sheetStyle} onClick={(e) => e.stopPropagation()}>
-                <div style={headerStyle}>
-                    <div style={{ ...titleStyle, flex: 1, textAlign: 'left' }}>
-                        <strong style={{ fontSize: 14 }}>{matchName}</strong>
-                        <span style={{ fontSize: 11, color: '#9aa' }}>Alt Lines & Totals</span>
+                <div style={vsHeaderStyle}>
+                    <div style={vsMatchupRowStyle}>
+                        {renderVsTeam(awayTeam, teamLogos.away, false)}
+                        <span style={{ fontSize: 12, fontWeight: 800, color: '#555', flexShrink: 0 }}>VS</span>
+                        {renderVsTeam(homeTeam, teamLogos.home, true)}
                     </div>
-                    <button style={toggleAllBtnStyle} onClick={allOpen ? closeAll : openAll}>
-                        {allOpen ? 'Close All' : 'Open All'}
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: '#64748b', textTransform: 'uppercase' }}>More Bets</span>
+                        <button style={toggleAllBtnStyle} onClick={allOpen ? closeAll : openAll}>
+                            {allOpen ? 'Close All' : 'Open All'}
+                        </button>
+                    </div>
                 </div>
                 <div style={bodyStyle}>
                     {sectionsBody}
