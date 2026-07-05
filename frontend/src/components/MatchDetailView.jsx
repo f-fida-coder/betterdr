@@ -32,6 +32,11 @@ const SECTION_HEADER_HEIGHT = 44;
 const SECTION_DEFS = [
     { key: 'alternate_spreads', label: 'Alt Game Spread', kind: 'alt-lines' },
     { key: 'alternate_totals', label: 'Alt Game Total', kind: 'alt-lines' },
+    // Soccer card markets (The Odds API supplemental). The props endpoint
+    // merges them into extendedMarkets ONLY while servable (betting flag on,
+    // prematch, fresh) — so these sections self-hide at kickoff/staleness.
+    { key: 'alternate_totals_cards', label: 'Total Cards', kind: 'alt-lines' },
+    { key: 'alternate_spreads_cards', label: 'Card Handicap', kind: 'alt-lines' },
     { key: 'team_totals', label: 'Team Totals', kind: 'team-totals' },
     { key: 'alternate_team_totals', label: 'Alt Team Totals', kind: 'team-totals' },
 

@@ -1852,6 +1852,29 @@ export const voidAdminOutright = async (outrightId, reason, token) => {
     return response.json();
 };
 
+// ── Admin card-bet grading (manual only — no card data in any feed) ──────
+export const getAdminCardBets = async (token) => {
+    const response = await fetch(buildApiUrl('/admin/card-bets'), {
+        headers: getHeaders(token)
+    });
+    return parseJsonResponse(response, 'Failed to load card bets');
+};
+
+// Money action: grades ONE straight card bet (won|lost|void) through the
+// settlement ledger path. Backend requires full admin role.
+export const gradeAdminCardBet = async (betId, decision, token) => {
+    const response = await fetch(buildApiUrl(`/admin/card-bets/${betId}/grade`), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ decision })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || error.message || 'Failed to grade card bet');
+    }
+    return response.json();
+};
+
 export const getSettleEligibility = async (matchId, token) => {
     const response = await fetch(buildApiUrl('/bets/settle-eligibility', { matchId }), {
         headers: getHeaders(token)

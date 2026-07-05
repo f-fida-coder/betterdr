@@ -66,6 +66,17 @@ const legPickLabel = (leg) => {
             line: line ? `${line}${bpSuffix}` : bpSuffix.trim(),
         };
     }
+    // Soccer card markets — manual-graded, straight-only; without these
+    // mappings a card leg would render as a bogus "ML".
+    if (market === 'alternate_spreads_cards') {
+        const line = point === null ? '' : formatSpreadValue(point);
+        return { label: 'Card Handicap', pick: selection, line };
+    }
+    if (market === 'alternate_totals_cards') {
+        const isUnder = selection.toLowerCase().startsWith('u');
+        const line = point === null ? '' : formatLineValue(Math.abs(point));
+        return { label: isUnder ? 'Cards Under' : 'Cards Over', pick: '', line };
+    }
     // h2h / moneyline / anything else: never show a line, never the
     // stored point=0 sentinel that older rows leak into selection text.
     return { label: 'ML', pick: selection, line: '' };

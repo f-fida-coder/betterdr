@@ -274,6 +274,8 @@ const betTypeBaseLabel = (marketType) => {
     if (k === 'h2h') return 'Moneyline';
     if (k === 'spreads') return 'Spread';
     if (k === 'totals') return 'Total';
+    if (k === 'alternate_totals_cards') return 'Total Cards';
+    if (k === 'alternate_spreads_cards') return 'Card Handicap';
     // Player props (and any non-core market) get the friendly stat label —
     // never the raw uppercase wire key (e.g. BATTER_RUNS_SCORED).
     return prettyPlayerMarketLabel(marketType) || 'Bet';
@@ -286,11 +288,11 @@ const betTypeLineLabel = (sel) => {
     const base = betTypeBaseLabel(sel?.marketType);
     const market = String(sel?.marketType || '').toLowerCase();
     const line = Number(sel?.line);
-    if (market === 'spreads' && Number.isFinite(line)) {
+    if ((market === 'spreads' || market === 'alternate_spreads_cards') && Number.isFinite(line)) {
         const signed = line > 0 ? `+${trimNumber(line)}` : trimNumber(line);
         return `${base} ${signed}`;
     }
-    if (market === 'totals' && Number.isFinite(line)) {
+    if ((market === 'totals' || market === 'alternate_totals_cards') && Number.isFinite(line)) {
         const isUnder = String(sel?.selection || '').toUpperCase().startsWith('U');
         return `${base} ${isUnder ? 'Under' : 'Over'} ${trimNumber(Math.abs(line))}`;
     }

@@ -93,6 +93,14 @@ final class DebugController
             $this->voidOutright((string) $m[1]);
             return true;
         }
+        if ($method === 'GET' && $path === '/api/admin/card-bets') {
+            $this->listAdminCardBets();
+            return true;
+        }
+        if ($method === 'POST' && preg_match('#^/api/admin/card-bets/([a-f0-9]{24})/grade$#', $path, $m) === 1) {
+            $this->gradeAdminCardBet((string) $m[1]);
+            return true;
+        }
         return false;
     }
 
@@ -165,6 +173,45 @@ final class DebugController
                 ?: strcmp($a['commenceTime'], $b['commenceTime']));
             Response::json(['ok' => true, 'outrights' => $out]);
         } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Pending card bets grouped by match — the operator's grading inbox.
+     * Card bets NEVER auto-grade (no card data in any results feed), so
+     * this list is the only route to settlement. Read-only; default gate
+     * (agents may view — the grade trigger below is strict-admin).
+     */
+    private function listAdminCardBets(): void
+    {
+        try {
+            if ($this->protectAdminOnly() === null) return;
+            Response::json(['ok' => true] + CardBetGradingService::listPendingCardBets($this->db));
+        } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function gradeAdminCardBet(string $betId): void
+    {
+        try {
+            // Strict: grading a card bet moves money — full admin role only,
+            // never an agent token (same rule as outright settle/void).
+            $actor = $this->protectAdminOnly(true);
+            if ($actor === null) return;
+            $body = Http::jsonBody();
+            $decision = is_array($body) ? strtolower(trim((string) ($body['decision'] ?? ''))) : '';
+            if (!in_array($decision, ['won', 'lost', 'void'], true)) {
+                Response::json(['ok' => false, 'error' => 'missing_or_invalid_decision'], 400);
+                return;
+            }
+            $gradedBy = (string) ($actor['id'] ?? 'admin');
+            Response::json(CardBetGradingService::gradeBet($this->db, $betId, $decision, $gradedBy));
+        } catch (RuntimeException $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            Logger::exception($e, 'gradeAdminCardBet failed');
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
     }

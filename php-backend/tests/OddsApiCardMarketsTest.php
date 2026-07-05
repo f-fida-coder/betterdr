@@ -103,6 +103,7 @@ require_once dirname(__DIR__) . '/src/RundownEventMapper.php';
 require_once dirname(__DIR__) . '/src/OddsApiAllowlist.php';
 require_once dirname(__DIR__) . '/src/OddsApiEventMapper.php';
 require_once dirname(__DIR__) . '/src/OddsApiCardMarketsService.php';
+require_once dirname(__DIR__) . '/src/CardBetGradingService.php';
 
 // A kickoff comfortably in the future so rowEligible passes.
 define('CMT_KICKOFF_TS', time() + 6 * 3600);
@@ -318,6 +319,19 @@ TestRunner::run('cards composition: straight-only across every multi-leg type', 
         ['matchId' => 'm3', 'marketType' => 'totals', 'selection' => 'Over', 'point' => 2.5],
     ]);
     TestRunner::assertEquals(true, true, 'ordinary two-event parlay still passes');
+});
+
+TestRunner::run('cards manual grade: pure guard matrix (Cards-3 scope fence)', function (): void {
+    $bet = ['status' => 'pending', 'type' => 'straight'];
+    $cardLeg = ['marketType' => 'alternate_totals_cards', 'status' => 'pending'];
+
+    TestRunner::assertEquals(null, CardBetGradingService::gradeableCardBetError($bet, [$cardLeg]), 'pending straight single card leg → gradable');
+    TestRunner::assertEquals('bet_not_found', CardBetGradingService::gradeableCardBetError(null, [$cardLeg]), 'missing bet refused');
+    TestRunner::assertEquals('bet_not_pending', CardBetGradingService::gradeableCardBetError(['status' => 'won', 'type' => 'straight'], [$cardLeg]), 'terminal bet refused (idempotency — no double payout)');
+    TestRunner::assertEquals('bet_not_straight', CardBetGradingService::gradeableCardBetError(['status' => 'pending', 'type' => 'parlay'], [$cardLeg]), 'non-straight refused');
+    TestRunner::assertEquals('bet_leg_count', CardBetGradingService::gradeableCardBetError($bet, [$cardLeg, $cardLeg]), 'two pending legs refused');
+    TestRunner::assertEquals('bet_leg_count', CardBetGradingService::gradeableCardBetError($bet, []), 'zero pending legs refused');
+    TestRunner::assertEquals('not_a_card_bet', CardBetGradingService::gradeableCardBetError($bet, [['marketType' => 'totals', 'status' => 'pending']]), 'NON-card leg refused — endpoint can only grade card bets');
 });
 
 TestRunner::run('cards write: exactly three namespaced keys, nothing else', function (): void {
