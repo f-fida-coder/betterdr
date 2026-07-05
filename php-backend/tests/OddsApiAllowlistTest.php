@@ -76,6 +76,9 @@ TestRunner::run('allowlist: category gating', function (): void {
     TestRunner::assertEquals(true,  OddsApiAllowlist::isAllowed('soccer_efl_champ', OddsApiAllowlist::CATEGORY_SOCCER), 'approved league fetchable');
     TestRunner::assertEquals(false, OddsApiAllowlist::isAllowed('soccer_epl', OddsApiAllowlist::CATEGORY_SOCCER), 'Rundown league NOT fetchable for main lines');
     TestRunner::assertEquals(true,  OddsApiAllowlist::isAllowed('soccer_epl', OddsApiAllowlist::CATEGORY_CARDS), 'Rundown league IS fetchable for cards only');
+    TestRunner::assertEquals(true,  OddsApiAllowlist::isAllowed('soccer_fifa_world_cup', OddsApiAllowlist::CATEGORY_CARDS), 'World Cup cards approved 2026-07-05');
+    TestRunner::assertEquals(false, OddsApiAllowlist::isAllowed('soccer_fifa_world_cup', OddsApiAllowlist::CATEGORY_SOCCER), 'World Cup main lines stay Rundown-only (One Rule)');
+    TestRunner::assertEquals(7, count(OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_CARDS)), 'cards set is exactly the 7 approved leagues');
     TestRunner::assertEquals(false, OddsApiAllowlist::isAllowed('tennis_atp_wimbledon', OddsApiAllowlist::CATEGORY_SOCCER), 'tennis dropped from scope');
     TestRunner::assertEquals(true,  OddsApiAllowlist::isAllowed('golf_masters_tournament_winner', OddsApiAllowlist::CATEGORY_OUTRIGHTS), 'golf outright approved');
     TestRunner::assertEquals(false, OddsApiAllowlist::isAllowed('politics_us_presidential_election_winner', OddsApiAllowlist::CATEGORY_OUTRIGHTS), 'politics excluded (Rundown sport 22)');

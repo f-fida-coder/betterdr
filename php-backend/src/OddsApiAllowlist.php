@@ -98,6 +98,7 @@ final class OddsApiAllowlist
         'soccer_germany_bundesliga',
         'soccer_france_ligue_one',
         'soccer_usa_mls',
+        'soccer_fifa_world_cup', // approved 2026-07-05 (mid-WC2026): live card content while club leagues pause
     ];
 
     /**
