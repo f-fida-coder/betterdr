@@ -178,6 +178,18 @@ const OutrightsView = ({ sportKey = '', families = [], boardKeys = [], title = '
         () => new Set(boardKeys.map((k) => String(k).toLowerCase())),
         [boardKeys],
     );
+    // boardKeys arrives in the user's TICK ORDER (selection array →
+    // resolver preserves it), and the owner wants that order to win:
+    // first-ticked board's sport block on top. Map key → tick index so
+    // grouping below can sort by it.
+    const boardKeyOrder = useMemo(() => {
+        const map = new Map();
+        boardKeys.forEach((k, i) => {
+            const key = String(k).toLowerCase();
+            if (!map.has(key)) map.set(key, i);
+        });
+        return map;
+    }, [boardKeys]);
     const scopedRows = useMemo(() => {
         if (boardKeySet.size > 0) {
             return rows.filter((row) => boardKeySet.has(String(row.sportKey || '').toLowerCase()));
@@ -206,13 +218,42 @@ const OutrightsView = ({ sportKey = '', families = [], boardKeys = [], title = '
             cats.get(cat.id).events.push(row);
         }
 
-        const ordered = [...byFamily.values()].map((fam) => ({
-            id: fam.id,
-            label: fam.label,
-            emoji: fam.emoji,
-            // Categories alphabetical within a division for a stable order.
-            categories: [...fam.categories.values()].sort((a, b) => a.label.localeCompare(b.label)),
-        }));
+        // Earliest tick index across a set of events; Infinity when the view
+        // isn't board-scoped (or a row somehow isn't in the tick map).
+        const tickIndexOf = (events) => Math.min(
+            ...events.map((e) => {
+                const idx = boardKeyOrder.get(String(e.sportKey || '').toLowerCase());
+                return idx === undefined ? Infinity : idx;
+            }),
+        );
+
+        const ordered = [...byFamily.values()].map((fam) => {
+            const categories = [...fam.categories.values()];
+            if (boardKeyOrder.size > 0) {
+                // Board-scoped view: categories follow tick order so two
+                // same-sport boards stay adjacent under one sport heading
+                // but sit in the order the user picked them.
+                categories.sort((a, b) => tickIndexOf(a.events) - tickIndexOf(b.events));
+            } else {
+                // Categories alphabetical within a division for a stable order.
+                categories.sort((a, b) => a.label.localeCompare(b.label));
+            }
+            return {
+                id: fam.id,
+                label: fam.label,
+                emoji: fam.emoji,
+                tickIndex: tickIndexOf(categories.flatMap((c) => c.events)),
+                categories,
+            };
+        });
+
+        if (boardKeyOrder.size > 0) {
+            // Owner requirement (2026-07-06): with multiple boards ticked,
+            // sport blocks render in FIRST-TICK order, not the fixed
+            // priority order — first-ticked board's section on top.
+            ordered.sort((a, b) => a.tickIndex - b.tickIndex);
+            return ordered;
+        }
 
         // Stable, opinionated division order — major US team sports first,
         // then global/niche. Anything unmapped (e.g. cricket, rugby) falls
@@ -227,7 +268,7 @@ const OutrightsView = ({ sportKey = '', families = [], boardKeys = [], title = '
             return ai - bi;
         });
         return ordered;
-    }, [scopedRows]);
+    }, [scopedRows, boardKeyOrder]);
 
     const subtitle = useMemo(() => {
         if (sportKey) return sportKey.replace(/_/g, ' ').toUpperCase();

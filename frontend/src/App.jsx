@@ -21,6 +21,7 @@ import {
   updateProfile
 } from './api';
 import { seedMatchesPreload } from './hooks/useMatches';
+import { findSportItemById } from './data/sportsData';
 import LandingPage from './components/LandingPage';
 import LoadingSpinner from './components/LoadingSpinner';
 import { useToast } from './contexts/ToastContext';
@@ -782,7 +783,20 @@ function AppInner() {
       if (replace) {
         return [sport];
       }
-      return [...prev.filter(s => !quickFilters.has(s)), sport];
+      let next = prev.filter(s => !quickFilters.has(s));
+      // Ticking a SPECIFIC futures board while the top-level FUTURES tab is
+      // active must deselect the tab: the resolver's "unscoped wins" rule
+      // would otherwise keep widening the view to every board, so the user
+      // ticks "To Win World Series" and still sees the whole catalog under
+      // a FUTURES header. A user picking a named board wants that board.
+      const item = findSportItemById(sport);
+      if (item?.type === 'futures' && item.family) {
+        next = next.filter((s) => {
+          const other = findSportItemById(s);
+          return !(other?.type === 'futures' && !other.family);
+        });
+      }
+      return [...next, sport];
     });
   }, []);
 
