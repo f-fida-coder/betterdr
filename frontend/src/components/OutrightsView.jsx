@@ -134,7 +134,7 @@ const extractOutcomes = (primaryBookmaker) => {
  * single tournament/championship; otherwise shows every open outright grouped
  * by sport. Backed by /api/outrights and /api/outrights/sports.
  */
-const OutrightsView = ({ sportKey = '', family = '', title = 'Futures' }) => {
+const OutrightsView = ({ sportKey = '', families = [], title = 'Futures' }) => {
     // Defensive: useOddsFormat() returns the context default object, but if
     // the provider tree ever swaps out mid-render we'd destructure undefined
     // and trip the global ErrorBoundary. Pull the value indirectly so the
@@ -167,13 +167,15 @@ const OutrightsView = ({ sportKey = '', family = '', title = 'Futures' }) => {
         return () => { cancelled = true; };
     }, [sportKey]);
 
-    // Optional family scope ("Baseball Futures" sidebar entry → only baseball
-    // boards). Client-side: /api/outrights already ships the full open list
-    // and it's small (futures move slowly), so one fetch serves every scope.
+    // Optional family scope — one or SEVERAL sidebar futures checkboxes
+    // ("Golf Futures" + "Soccer Futures" combine). Client-side: /api/outrights
+    // already ships the full open list and it's small (futures move slowly),
+    // so one fetch serves every scope. Empty array = all families.
+    const familySet = useMemo(() => new Set(families), [families]);
     const scopedRows = useMemo(() => {
-        if (!family) return rows;
-        return rows.filter((row) => sportFamilyFromKey(row.sportKey).id === family);
-    }, [rows, family]);
+        if (familySet.size === 0) return rows;
+        return rows.filter((row) => familySet.has(sportFamilyFromKey(row.sportKey).id));
+    }, [rows, familySet]);
 
     // Two-level grouping: DIVISION (Football, Basketball, …) → LEAGUE CATEGORY
     // ("NFL FUTURES", "NCAAF FUTURES", …) → individual market cards. This mirrors
@@ -249,7 +251,7 @@ const OutrightsView = ({ sportKey = '', family = '', title = 'Futures' }) => {
             <main className="dash-main" style={pageStyle}>
                 <FuturesHeader title={title} subtitle="Nothing posted right now" />
                 <div style={emptyStateStyle}>
-                    No {family ? `${family} ` : ''}futures available right now. Check back closer to a tournament.
+                    No {families.length > 0 ? `${families.join(' / ')} ` : ''}futures available right now. Check back closer to a tournament.
                 </div>
             </main>
         );
@@ -261,7 +263,7 @@ const OutrightsView = ({ sportKey = '', family = '', title = 'Futures' }) => {
             <div style={{ padding: '12px 12px 24px' }}>
                 {groups.map((group) => (
                     <section key={group.id} style={{ marginBottom: 20 }}>
-                        {!sportKey && !family && (
+                        {!sportKey && families.length !== 1 && (
                             <div style={divisionHeadingStyle}>
                                 <span style={{ fontSize: 16, marginRight: 8 }}>{group.emoji}</span>
                                 {group.label}

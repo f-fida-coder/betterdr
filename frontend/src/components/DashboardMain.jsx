@@ -92,19 +92,34 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
 
     // Special-view dispatch happens AFTER all hooks above have run so we
     // never violate Rules of Hooks when switching to/from these branches.
-    // TEMP: outrights hidden (see OUTRIGHTS_ENABLED) — guard the OutrightsView
-    // render so a stale persisted FUTURES selection can't surface inflated
-    // outright cards. Re-enable with the backend kill-switch removal.
-    if (OUTRIGHTS_ENABLED && selectedItem && selectedItem.type === 'futures') {
-        const futuresSportKey = Array.isArray(selectedItem.sportKeys) && selectedItem.sportKeys.length > 0
-            ? selectedItem.sportKeys[0]
+    //
+    // Futures dispatch considers EVERY selected id, not just the first —
+    // ticking "Golf Futures" + "Soccer Futures" combines both families in
+    // one view, and ticking a futures box while a league is checked still
+    // switches to futures (checking the previous behavior of "only the
+    // first selection counts" silently ignored later futures ticks, which
+    // read as broken). Any selected futures node WITHOUT a family scope
+    // (the top-level FUTURES entry) widens the view back to all sports.
+    const selectedFuturesItems = OUTRIGHTS_ENABLED
+        ? selectedSports
+            .map((id) => findSportItemById(id))
+            .filter((it) => it && it.type === 'futures')
+        : [];
+    if (selectedFuturesItems.length > 0) {
+        const hasUnscoped = selectedFuturesItems.some((it) => !it.family);
+        const families = hasUnscoped
+            ? []
+            : [...new Set(selectedFuturesItems.map((it) => it.family))];
+        const single = selectedFuturesItems.length === 1 ? selectedFuturesItems[0] : null;
+        const futuresSportKey = single && Array.isArray(single.sportKeys) && single.sportKeys.length > 0
+            ? single.sportKeys[0]
             : '';
         return (
             <ErrorBoundary>
                 <OutrightsView
                     sportKey={futuresSportKey}
-                    family={selectedItem.family || ''}
-                    title={selectedItem.label || 'Futures'}
+                    families={families}
+                    title={single ? (single.label || 'Futures') : 'Futures'}
                 />
             </ErrorBoundary>
         );
