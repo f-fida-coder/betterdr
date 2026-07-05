@@ -19,8 +19,10 @@ require_once __DIR__ . '/TestRunner.php';
 // Running them in the shared process would skip their mocks — the real classes
 // are already autoloaded — and fatal (e.g. Response::reset() not found).
 const ISOLATED_SUITES = [
-    'BaccaratPayoutTest.php',  // mocks CasinoController deps to test calculateBaccaratPayout sans DB
-    'JurassicRunMathTest.php', // mocks Response/SqlRepository to test CasinoController::spin sans DB
+    'BaccaratPayoutTest.php',       // mocks CasinoController deps to test calculateBaccaratPayout sans DB
+    'JurassicRunMathTest.php',      // mocks Response/SqlRepository to test CasinoController::spin sans DB
+    'OddsApiCardMarketsTest.php',   // needs an INSTANCE-method SqlRepository double (shared-process stub is static-only)
+    'SqlRepositoryMergeTest.php',   // loads the REAL SqlRepository (would fatal-redeclare against shared-process stubs)
 ];
 
 $testFiles = glob(__DIR__ . '/*Test.php') ?: [];

@@ -568,6 +568,22 @@ final class SportsbookBetSupport
             return;
         }
 
+        // Card markets are STRAIGHT-ONLY (ruling 2026-07-05): they grade
+        // manually (no card data exists in any results feed), and a combined
+        // ticket blocked pending on a manual card leg would hold every other
+        // leg's payout hostage. Rejected at composition time — before any
+        // stake math or money movement. Suffix match so any future *_cards
+        // market inherits the rule. NOTE: the open-parlay ADD-LEG path
+        // enforces composition inline (BetsController) and carries a mirror
+        // of this check — keep the two in sync.
+        foreach ($validatedSelections as $selection) {
+            if (str_ends_with(strtolower((string) ($selection['marketType'] ?? '')), '_cards')) {
+                throw new ApiException('Card markets are available as straight bets only.', 400, [
+                    'code' => 'CARDS_STRAIGHT_ONLY',
+                ]);
+            }
+        }
+
         // SGP only relaxes pure PARLAY tickets and only when explicitly enabled.
         // Every other combined type (teaser/if_bet/reverse/round_robin) — and
         // parlay when SGP is off — keeps the full hard block: any shared event

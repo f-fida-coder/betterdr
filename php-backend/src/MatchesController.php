@@ -1009,6 +1009,16 @@ final class MatchesController
             // +/-2.5 range is unaffected. Placement re-derives the same cap.
             $extended = $this->capAlternateLadders($extended, $baseMarkets, $sportKey);
 
+            // Soccer card markets (The Odds API supplemental — namespaced doc
+            // keys, see OddsApiCardMarketsService). Merged AFTER the alt-ladder
+            // cap: cards are exempt from it (see the placement-side exemption +
+            // reasoning in BetsController::validateSelection). One shared gate
+            // with placement, so visible ⟺ placeable; [] when the betting flag
+            // is off, kickoff has passed, or the card data is stale.
+            foreach (OddsApiCardMarketsService::servableCardMarkets($refreshed ?? $match) as $cardMarket) {
+                $extended[] = $cardMarket;
+            }
+
             // Tag each player-prop outcome with the player's team side
             // ('home'/'away') so the Prop Builder can filter by team. Built from
             // the two team rosters in two cached calls (PlayerPropTeam::sideMap).

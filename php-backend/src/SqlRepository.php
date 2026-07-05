@@ -300,6 +300,32 @@ final class SqlRepository
         return ((int) $stmt->rowCount()) === 1;
     }
 
+    /**
+     * Merge $set's top-level keys onto $existing — updateOne's partial-update
+     * semantics, extracted PURE + PUBLIC so a test can LOCK the behavior.
+     *
+     * LOAD-BEARING for the supplemental odds feed: OddsApiCardMarketsService
+     * persists namespaced keys (cardMarkets / cardMarketsSyncedAt /
+     * cardMarketsSource) on TheRundown-owned match docs and relies on partial
+     * updates NOT dropping keys absent from $set — that's how card odds
+     * survive every Rundown re-sync without the two providers ever touching
+     * each other's fields. If updateOne is ever changed to REPLACE semantics,
+     * card data dies silently in prod; SqlRepositoryMergeTest fails loudly
+     * instead. Change that test and this comment together or not at all.
+     *
+     * @param array<string,mixed> $existing
+     * @param array<string,mixed> $set
+     * @return array<string,mixed>
+     */
+    public static function mergeDocumentKeys(array $existing, array $set): array
+    {
+        $merged = $existing;
+        foreach ($set as $k => $v) {
+            $merged[(string) $k] = $v;
+        }
+        return $merged;
+    }
+
     public function updateOne(string $collection, array $filter, array $set): void
     {
         $table = $this->tableName($collection);
@@ -310,10 +336,7 @@ final class SqlRepository
             return;
         }
 
-        $merged = $existing;
-        foreach ($this->normalizeForStorage($set) as $k => $v) {
-            $merged[(string) $k] = $v;
-        }
+        $merged = self::mergeDocumentKeys($existing, $this->normalizeForStorage($set));
 
         $id = (string) ($existing['id'] ?? '');
         if ($id === '') {

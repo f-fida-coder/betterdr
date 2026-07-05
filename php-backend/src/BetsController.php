@@ -1506,6 +1506,15 @@ final class BetsController
                         ['code' => 'OPEN_PARLAY_FULL']
                     );
                 }
+                // Cards are straight-only — mirrors validateTicketComposition
+                // (this add-leg path enforces composition inline rather than
+                // calling it; keep the two checks in sync).
+                if (str_ends_with(strtolower((string) ($validated['marketType'] ?? '')), '_cards')) {
+                    $this->db->rollback();
+                    throw new ApiException('Card markets are available as straight bets only.', 400, [
+                        'code' => 'CARDS_STRAIGHT_ONLY',
+                    ]);
+                }
                 // No same-game / duplicate-event leg (mirrors validateTicketComposition).
                 $newMatchId = (string) ($validated['matchId'] ?? '');
                 foreach ($existingLegs as $existing) {
@@ -3150,7 +3159,17 @@ final class BetsController
             // the UI) so a capped rung can't be placed via a direct API call.
             // The limit is read from platformsettings live (no restart).
             $altKey = strtolower((string) ($market['key'] ?? ''));
-            if (AltLineCap::isAltKey($altKey)) {
+            // Card markets are EXEMPT from the alt-ladder risk cap. The cap
+            // exists to stop cherry-picking rungs far from a core market's
+            // MAIN line — cards have no core/main line at all, so the cap's
+            // median fallback would trim the whole product to one rung per
+            // side (default perSide=1). Card ladders are already house-safe:
+            // ingestion collapses each rung to the preferred-book/median
+            // price, and the strict rung-exists check ABOVE still rejects any
+            // point not currently stored. Display is symmetric (cards merge
+            // after capAlternateLadders in getMatchProps), so no
+            // show-but-reject window opens.
+            if (AltLineCap::isAltKey($altKey) && !str_ends_with($altKey, '_cards')) {
                 $capSettings = null;
                 try {
                     $capSettings = $this->db->findOne('platformsettings', []);
@@ -3838,6 +3857,14 @@ final class BetsController
             foreach ($match['playerProps'] as $m) {
                 if (is_array($m)) $pool[] = $m;
             }
+        }
+        // Soccer card markets — the SAME single gate as display
+        // (MatchesController::getMatchProps), so a card leg prices exactly
+        // when the player can see it, and rejects (market not found) the
+        // moment kickoff passes or the card data goes stale. Fail-closed on
+        // both surfaces.
+        foreach (OddsApiCardMarketsService::servableCardMarkets($match) as $cardMarket) {
+            $pool[] = $cardMarket;
         }
         return $pool;
     }

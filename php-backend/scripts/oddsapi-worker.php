@@ -56,6 +56,7 @@ require_once $phpBackendDir . '/src/OddsApiAllowlist.php';
 require_once $phpBackendDir . '/src/OddsApiClient.php';
 require_once $phpBackendDir . '/src/OddsApiEventMapper.php';
 require_once $phpBackendDir . '/src/OddsApiSyncService.php';
+require_once $phpBackendDir . '/src/OddsApiCardMarketsService.php';
 
 Env::load($projectRoot, $phpBackendDir);
 Logger::init($phpBackendDir . '/logs');
@@ -78,6 +79,7 @@ $soccerMinutes   = max(1, (int) Env::get('ODDS_API_POLL_SOCCER_MINUTES', '10'));
 $nearMinutes     = max(0, (int) Env::get('ODDS_API_POLL_SOCCER_NEAR_KICKOFF_MINUTES', '5')); // 0 = no tightening
 $nearWindowHours = max(1, (int) Env::get('ODDS_API_NEAR_KICKOFF_WINDOW_HOURS', '2'));
 $outrightMinutes = max(5, (int) Env::get('ODDS_API_POLL_OUTRIGHTS_MINUTES', '60'));
+$cardsMinutes    = max(5, (int) Env::get('ODDS_API_POLL_CARDS_MINUTES', '15'));
 
 $shutdown = false;
 if (function_exists('pcntl_signal')) {
@@ -98,11 +100,14 @@ Logger::info('oddsapi-worker started', [
     'nearMinutes'     => $nearMinutes,
     'outrightMinutes' => $outrightMinutes,
     'outrightsGate'   => OddsApiSyncService::outrightsEnabled(),
+    'cardsMinutes'    => $cardsMinutes,
+    'cardsGate'       => OddsApiCardMarketsService::enabled(),
 ], 'oddsapi');
 Logger::flush();
 
 $soccerDueAt        = 0; // due immediately
 $outrightsDueAt     = 0;
+$cardsDueAt         = 0;
 $lastUsageLogDay    = '';
 $outrightsOnlyState = false;
 
@@ -212,6 +217,29 @@ while (!$shutdown) {
         }
         // BUDGET GUARD: same multiplier on the outrights cadence.
         $outrightsDueAt = $loopStart + ($outrightMinutes * 60 * $mult);
+    }
+
+    // ── Cards tier (skipped in outrights-only mode — it's the costliest
+    //    per-event tier, first to shed under budget pressure) ──────────
+    if (!$outOnly && OddsApiCardMarketsService::enabled() && $loopStart >= $cardsDueAt) {
+        try {
+            $r = OddsApiCardMarketsService::syncCardMarkets($repo);
+            Logger::info('oddsapi cards pass', [
+                'leagues'        => $r['leagues'],
+                'eventsInWindow' => $r['eventsInWindow'],
+                'matched'        => $r['matched'],
+                'unmatched'      => $r['unmatched'],  // fail-closed drops — tune name matching if high
+                'ambiguous'      => $r['ambiguous'],
+                'fetched'        => $r['fetched'],
+                'updated'        => $r['updated'],
+                'empty'          => $r['empty'],
+                'errors'         => count($r['errors']),
+            ] + ($r['errors'] !== [] ? ['errorDetail' => $r['errors']] : []), 'oddsapi');
+        } catch (Throwable $e) {
+            Logger::warning('oddsapi cards pass failed', ['error' => $e->getMessage()], 'oddsapi');
+        }
+        // BUDGET GUARD: same multiplier on the cards cadence.
+        $cardsDueAt = $loopStart + ($cardsMinutes * 60 * $mult);
     }
 
     Logger::flush();
