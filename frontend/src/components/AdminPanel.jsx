@@ -28,6 +28,7 @@ const GamesEventsView = lazy(() => import('./admin-views/GamesEventsView'));
 const StuckBetsView = lazy(() => import('./admin-views/StuckBetsView'));
 const OutrightsAdminView = lazy(() => import('./admin-views/OutrightsAdminView'));
 const CardBetsView = lazy(() => import('./admin-views/CardBetsView'));
+const ManualBetsView = lazy(() => import('./admin-views/ManualBetsView'));
 const SportsBookLinksView = lazy(() => import('./admin-views/SportsBookLinksView'));
 const BetTickerView = lazy(() => import('./admin-views/BetTickerView'));
 const TicketWriterView = lazy(() => import('./admin-views/TicketWriterView'));
@@ -302,6 +303,8 @@ function AdminPanel({ onExit, role = 'admin' }) {
         return renderLazyView(<OutrightsAdminView />, 'Loading outrights…');
       case 'card-bets':
         return renderLazyView(<CardBetsView />, 'Loading card bets…');
+      case 'manual-bets':
+        return renderLazyView(<ManualBetsView />, 'Loading manual bets…');
       case 'sportsbook-links':
         return renderLazyView(<SportsBookLinksView />, 'Loading sportsbook links...');
       case 'bet-ticker':

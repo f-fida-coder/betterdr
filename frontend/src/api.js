@@ -1875,6 +1875,47 @@ export const gradeAdminCardBet = async (betId, decision, token) => {
     return response.json();
 };
 
+// ── Admin manual/write-in bets (strict admin only on the backend) ─────────
+export const getAdminManualBets = async (token) => {
+    const response = await fetch(buildApiUrl('/admin/manual-bets'), {
+        headers: getHeaders(token)
+    });
+    return parseJsonResponse(response, 'Failed to load manual bets');
+};
+
+// Money action: books a write-in bet on the player's account (pending hold).
+// payload = {userId, description, oddsAmerican, stake, requestId}. requestId
+// is the server-side double-click guard — the caller generates ONE per
+// confirmed intent and reuses it on retries so the server replays instead of
+// re-booking. The response's potentialPayout/toWin are authoritative.
+export const placeAdminManualBet = async (payload, token) => {
+    const response = await fetch(buildApiUrl('/admin/manual-bets'), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || error.error || 'Failed to place manual bet');
+    }
+    return response.json();
+};
+
+// Money action: grades ONE manual bet (won|lost|void) through the settlement
+// ledger path. Backend requires full admin role.
+export const gradeAdminManualBet = async (betId, decision, token) => {
+    const response = await fetch(buildApiUrl(`/admin/manual-bets/${betId}/grade`), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ decision })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || error.message || 'Failed to grade manual bet');
+    }
+    return response.json();
+};
+
 export const getSettleEligibility = async (matchId, token) => {
     const response = await fetch(buildApiUrl('/bets/settle-eligibility', { matchId }), {
         headers: getHeaders(token)
