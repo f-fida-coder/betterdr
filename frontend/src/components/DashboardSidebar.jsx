@@ -36,6 +36,12 @@ const filterActiveChildren = (children, liveSet) => {
     if (!Array.isArray(children)) return [];
     if (!liveSet) return children;
     return children.filter((child) => {
+        // Futures entries are driven by the OUTRIGHTS table, not the match
+        // schedule — a sport can carry winner boards with ZERO scheduled
+        // games (golf always; NFL/NBA all off-season). Never hide them
+        // behind the liveSet, or GOLF and every "<Sport> Futures" child
+        // vanish exactly when futures betting matters most.
+        if (child.type === 'futures') return true;
         const candidates = new Set();
         if (Array.isArray(child.sportKeys)) child.sportKeys.forEach((k) => candidates.add(String(k).toLowerCase()));
         if (child.id) candidates.add(String(child.id).toLowerCase());
