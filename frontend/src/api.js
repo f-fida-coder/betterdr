@@ -1812,6 +1812,46 @@ export const settleMatchBets = async (payload, token) => {
     return response.json();
 };
 
+// ── Admin outrights (futures) grading ────────────────────────────────────
+// List every futures board (all statuses, independent of the public betting
+// flag) with outcomes (RAW AMERICAN prices) + pending-bet counts.
+export const getAdminOutrights = async (token) => {
+    const response = await fetch(buildApiUrl('/admin/outrights'), {
+        headers: getHeaders(token)
+    });
+    return parseJsonResponse(response, 'Failed to load outrights');
+};
+
+// Money action: settles the board and grades every pending futures bet.
+// Backend validates the winner against the board's outcomes and requires
+// the full admin role.
+export const settleAdminOutright = async (outrightId, winner, token) => {
+    const response = await fetch(buildApiUrl(`/admin/outrights/${outrightId}/settle`), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ winner })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || error.message || 'Failed to settle outright');
+    }
+    return response.json();
+};
+
+// Money action: voids the board and refunds every pending futures bet.
+export const voidAdminOutright = async (outrightId, reason, token) => {
+    const response = await fetch(buildApiUrl(`/admin/outrights/${outrightId}/void`), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ reason })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || error.message || 'Failed to void outright');
+    }
+    return response.json();
+};
+
 export const getSettleEligibility = async (matchId, token) => {
     const response = await fetch(buildApiUrl('/bets/settle-eligibility', { matchId }), {
         headers: getHeaders(token)

@@ -64,6 +64,25 @@ final class OutrightSettlementService
             throw new RuntimeException('Outright not found');
         }
 
+        // Validate + canonicalize BEFORE any write. Bet grading compares
+        // selection === winningOutcome (exact string), so an unvalidated
+        // winner (typo, partial name) would settle the board and grade EVERY
+        // pending bet as lost. A winner matching neither the board nor any
+        // pending bet is refused outright.
+        $pendingNames = [];
+        foreach ($db->findMany('betselections', ['outrightId' => $outrightId, 'status' => 'pending'], ['projection' => ['selection' => 1], 'limit' => 2000]) as $sel) {
+            if (is_array($sel)) {
+                $pendingNames[] = (string) ($sel['selection'] ?? '');
+            }
+        }
+        $canonical = self::resolveWinningOutcome($outright, $pendingNames, $winningOutcome);
+        if ($canonical === null) {
+            throw new RuntimeException(
+                'Winner "' . $winningOutcome . '" is not an outcome on this board and no pending bet carries it — refusing to settle.'
+            );
+        }
+        $winningOutcome = $canonical;
+
         // Persist the winner on the outright row first so settlement is
         // recoverable if the per-bet pass dies halfway: a re-run reads the
         // same winningOutcome and continues from where it stopped.
@@ -79,6 +98,50 @@ final class OutrightSettlementService
         }
 
         return self::gradePendingBetsForOutright($db, $outrightId, $winningOutcome, /*void:*/ false, $settledBy);
+    }
+
+    /**
+     * Resolve an operator-supplied winner to the CANONICAL outcome name, or
+     * null when it matches nothing. Money-critical: bet grading compares
+     * selection === winningOutcome (exact string), so an unvalidated winner
+     * (typo, partial name) would settle the board and grade EVERY pending
+     * bet as lost. Valid winners are, case-insensitively:
+     *   (a) an outcome on the board's stored 'outrights' market, or
+     *   (b) a selection name some pending bet actually carries — covers the
+     *       rare case where the feed dropped the eventual winner from the
+     *       board after bets were placed.
+     * The returned name is the stored-exact-case form ((a) preferred), so
+     * grading string-compares clean. Pure — no DB — so the validation rule
+     * is lockable by OutrightWinnerValidationTest.
+     *
+     * @param array<string,mixed> $outright              the outrights row
+     * @param list<string>        $pendingSelectionNames distinct pending bet selections
+     */
+    public static function resolveWinningOutcome(array $outright, array $pendingSelectionNames, string $winner): ?string
+    {
+        $winner = trim($winner);
+        if ($winner === '') {
+            return null;
+        }
+        foreach ((is_array($outright['bookmakers'] ?? null) ? $outright['bookmakers'] : []) as $bm) {
+            if (!is_array($bm)) continue;
+            foreach ((is_array($bm['markets'] ?? null) ? $bm['markets'] : []) as $m) {
+                if (!is_array($m) || ($m['key'] ?? '') !== 'outrights') continue;
+                foreach ((is_array($m['outcomes'] ?? null) ? $m['outcomes'] : []) as $o) {
+                    $name = is_array($o) ? trim((string) ($o['name'] ?? '')) : '';
+                    if ($name !== '' && strcasecmp($name, $winner) === 0) {
+                        return $name; // canonical board name
+                    }
+                }
+            }
+        }
+        foreach ($pendingSelectionNames as $name) {
+            $name = trim((string) $name);
+            if ($name !== '' && strcasecmp($name, $winner) === 0) {
+                return $name; // canonical bet-selection name
+            }
+        }
+        return null;
     }
 
     /**

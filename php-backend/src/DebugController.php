@@ -81,6 +81,10 @@ final class DebugController
             $this->historicalEventMarkets((string) $m[1], (string) $m[2]);
             return true;
         }
+        if ($method === 'GET' && $path === '/api/admin/outrights') {
+            $this->listAdminOutrights();
+            return true;
+        }
         if ($method === 'POST' && preg_match('#^/api/admin/outrights/([a-f0-9]{24})/settle$#', $path, $m) === 1) {
             $this->settleOutright((string) $m[1]);
             return true;
@@ -92,10 +96,85 @@ final class DebugController
         return false;
     }
 
+    /**
+     * Admin list of outright boards — ALL statuses (open/settled/voided),
+     * independent of the public betting flag, so the operator can grade
+     * while player-facing futures are dark. Includes each board's outcomes
+     * (RAW AMERICAN prices — the UI converts at display) and its pending-bet
+     * count so the operator sees the blast radius before settling. Read-only;
+     * the default gate applies (agents may view — the settle/void triggers
+     * below are strict-admin).
+     */
+    private function listAdminOutrights(): void
+    {
+        try {
+            if ($this->protectAdminOnly() === null) return;
+            $rows = $this->db->findMany('outrights', [], ['limit' => 300]);
+
+            // One query for all pending-bet counts (never per-row).
+            $ids = [];
+            foreach (is_array($rows) ? $rows : [] as $r) {
+                if (is_array($r) && ($r['id'] ?? '') !== '') {
+                    $ids[] = (string) $r['id'];
+                }
+            }
+            $pendingByOutright = [];
+            if ($ids !== []) {
+                $sels = $this->db->findMany('betselections', [
+                    'outrightId' => ['$in' => $ids],
+                    'status'     => 'pending',
+                ], ['projection' => ['outrightId' => 1], 'limit' => 5000]);
+                foreach (is_array($sels) ? $sels : [] as $s) {
+                    $oid = is_array($s) ? (string) ($s['outrightId'] ?? '') : '';
+                    if ($oid !== '') {
+                        $pendingByOutright[$oid] = ($pendingByOutright[$oid] ?? 0) + 1;
+                    }
+                }
+            }
+
+            $out = [];
+            foreach (is_array($rows) ? $rows : [] as $row) {
+                if (!is_array($row)) continue;
+                $outcomes = [];
+                foreach ((is_array($row['bookmakers'] ?? null) ? $row['bookmakers'] : []) as $bm) {
+                    if (!is_array($bm)) continue;
+                    foreach ((is_array($bm['markets'] ?? null) ? $bm['markets'] : []) as $m) {
+                        if (is_array($m) && ($m['key'] ?? '') === 'outrights' && is_array($m['outcomes'] ?? null)) {
+                            $outcomes = $m['outcomes'];
+                            break 2;
+                        }
+                    }
+                }
+                $id = (string) ($row['id'] ?? '');
+                $out[] = [
+                    'id'              => $id,
+                    'sportKey'        => (string) ($row['sportKey'] ?? ''),
+                    'eventName'       => (string) ($row['eventName'] ?? ''),
+                    'commenceTime'    => (string) ($row['commenceTime'] ?? ''),
+                    'status'          => (string) ($row['status'] ?? 'open'),
+                    'oddsSource'      => (string) ($row['oddsSource'] ?? ''),
+                    'winningOutcome'  => (string) ($row['winningOutcome'] ?? ''),
+                    'voidReason'      => (string) ($row['voidReason'] ?? ''),
+                    'settledAt'       => (string) ($row['settledAt'] ?? ''),
+                    'outcomes'        => $outcomes, // [{name, price RAW AMERICAN}]
+                    'pendingBetCount' => (int) ($pendingByOutright[$id] ?? 0),
+                ];
+            }
+            usort($out, static fn (array $a, array $b): int =>
+                ($a['status'] === 'open' ? 0 : 1) <=> ($b['status'] === 'open' ? 0 : 1)
+                ?: strcmp($a['commenceTime'], $b['commenceTime']));
+            Response::json(['ok' => true, 'outrights' => $out]);
+        } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
     private function settleOutright(string $outrightId): void
     {
         try {
-            $actor = $this->protectAdminOnly();
+            // Strict: settling a futures board grades every pending bet and
+            // moves money — full admin role only, never an agent token.
+            $actor = $this->protectAdminOnly(true);
             if ($actor === null) return;
             $body = Http::jsonBody();
             $winner = is_array($body) ? trim((string) ($body['winner'] ?? $body['winningOutcome'] ?? '')) : '';
@@ -116,7 +195,8 @@ final class DebugController
     private function voidOutright(string $outrightId): void
     {
         try {
-            $actor = $this->protectAdminOnly();
+            // Strict: voiding refunds every pending bet — full admin role only.
+            $actor = $this->protectAdminOnly(true);
             if ($actor === null) return;
             $body = Http::jsonBody();
             $reason = is_array($body) ? trim((string) ($body['reason'] ?? '')) : '';
@@ -1586,7 +1666,12 @@ final class DebugController
         }
     }
 
-    private function protectAdminOnly(): ?array
+    /**
+     * @param bool $requireAdminRole true = full 'admin' role ONLY (agents
+     *   rejected). Used by money-moving actions (outright settle/void) where
+     *   an agent-level token must not be able to trigger settlement.
+     */
+    private function protectAdminOnly(bool $requireAdminRole = false): ?array
     {
         $auth = Http::header('authorization');
         if (!str_starts_with($auth, 'Bearer ')) {
@@ -1603,8 +1688,11 @@ final class DebugController
         }
 
         $role = (string) ($decoded['role'] ?? 'user');
-        if (!in_array($role, ['admin', 'super_agent', 'master_agent'], true)) {
-            Response::json(['message' => 'Not authorized as admin or master agent'], 403);
+        $allowedRoles = $requireAdminRole ? ['admin'] : ['admin', 'super_agent', 'master_agent'];
+        if (!in_array($role, $allowedRoles, true)) {
+            Response::json(['message' => $requireAdminRole
+                ? 'Not authorized: admin role required'
+                : 'Not authorized as admin or master agent'], 403);
             return null;
         }
 
