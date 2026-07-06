@@ -21,6 +21,8 @@ function marketLabel(marketType) {
   const mt = String(marketType || '').toLowerCase();
   if (mt === 'alternate_totals_cards') return 'Total Cards';
   if (mt === 'alternate_spreads_cards') return 'Card Handicap';
+  if (mt === 'alternate_totals_corners') return 'Total Corners';
+  if (mt === 'alternate_spreads_corners') return 'Corner Handicap';
   return mt;
 }
 
@@ -93,10 +95,11 @@ function CardBetsView() {
     <div className="card-bets-wrap" style={{ padding: '16px 20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 20 }}>Card Bets — Manual Grading</h2>
+          <h2 style={{ margin: 0, fontSize: 20 }}>Card &amp; Corner Bets — Manual Grading</h2>
           <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
-            Card markets have NO automatic results source — grade each bet from the official match
-            report (league site / FA). The final score shown is context only: goals are not cards.
+            Card and corner markets have NO automatic results source — grade each bet from the
+            official match report (league site / FA). The final score shown is context only:
+            goals are not cards or corners.
           </div>
         </div>
         <button
@@ -140,7 +143,7 @@ function CardBetsView() {
                 </div>
                 <div style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>
                   {fmtDate(m.startTime)} · status: {m.matchStatus || 'unknown'}
-                  {finished && ` · final score ${m.scoreHome}–${m.scoreAway} (context only — grade from the official CARD count)`}
+                  {finished && ` · final score ${m.scoreHome}–${m.scoreAway} (context only — grade from the official CARD/CORNER count)`}
                 </div>
                 {!finished && (
                   <div style={{ marginTop: 6, fontSize: 12, color: '#a16207', background: '#fef3c7', padding: '3px 6px', borderRadius: 4, display: 'inline-block' }}>

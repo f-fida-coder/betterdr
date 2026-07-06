@@ -367,13 +367,13 @@ final class OddsApiCardMarketsService
                     // dropped, never converted (same guard as the match mapper).
                     if (abs(round($american)) < 100) continue;
 
-                    if ($marketKey === 'alternate_totals_cards') {
+                    if (in_array($marketKey, ['alternate_totals_cards', 'alternate_totals_corners'], true)) {
                         $side = ucfirst(strtolower($name));
                         if ($side !== 'Over' && $side !== 'Under') continue;
                         $outName = $side;
                     } else {
-                        // Card handicap: canonicalize to the Rundown row's team
-                        // strings so the bet leg speaks the backend's language.
+                        // Card/corner handicap: canonicalize to the Rundown row's
+                        // team strings so the bet leg speaks the backend's language.
                         if (self::sideMatches($name, $homeTeam, $homeTeamFull)) {
                             $outName = $homeTeam;
                         } elseif (self::sideMatches($name, $awayTeam, $awayTeamFull)) {

@@ -1520,12 +1520,13 @@ final class BetsController
                         ['code' => 'OPEN_PARLAY_FULL']
                     );
                 }
-                // Cards are straight-only — mirrors validateTicketComposition
-                // (this add-leg path enforces composition inline rather than
-                // calling it; keep the two checks in sync).
-                if (str_ends_with(strtolower((string) ($validated['marketType'] ?? '')), '_cards')) {
+                // Cards/corners are straight-only — mirrors
+                // validateTicketComposition (this add-leg path enforces
+                // composition inline rather than calling it; keep in sync).
+                $addLegMt = strtolower((string) ($validated['marketType'] ?? ''));
+                if (str_ends_with($addLegMt, '_cards') || str_ends_with($addLegMt, '_corners')) {
                     $this->db->rollback();
-                    throw new ApiException('Card markets are available as straight bets only.', 400, [
+                    throw new ApiException('Card and corner markets are available as straight bets only.', 400, [
                         'code' => 'CARDS_STRAIGHT_ONLY',
                     ]);
                 }
@@ -3183,7 +3184,7 @@ final class BetsController
             // point not currently stored. Display is symmetric (cards merge
             // after capAlternateLadders in getMatchProps), so no
             // show-but-reject window opens.
-            if (AltLineCap::isAltKey($altKey) && !str_ends_with($altKey, '_cards')) {
+            if (AltLineCap::isAltKey($altKey) && !str_ends_with($altKey, '_cards') && !str_ends_with($altKey, '_corners')) {
                 $capSettings = null;
                 try {
                     $capSettings = $this->db->findOne('platformsettings', []);

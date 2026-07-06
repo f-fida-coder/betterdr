@@ -593,8 +593,11 @@ final class SportsbookBetSupport
         // enforces composition inline (BetsController) and carries a mirror
         // of this check — keep the two in sync.
         foreach ($validatedSelections as $selection) {
-            if (str_ends_with(strtolower((string) ($selection['marketType'] ?? '')), '_cards')) {
-                throw new ApiException('Card markets are available as straight bets only.', 400, [
+            $mt = strtolower((string) ($selection['marketType'] ?? ''));
+            // '_corners' added 2026-07-06 — corners ride the cards pipeline
+            // and inherit the same manual-grading/straight-only rationale.
+            if (str_ends_with($mt, '_cards') || str_ends_with($mt, '_corners')) {
+                throw new ApiException('Card and corner markets are available as straight bets only.', 400, [
                     'code' => 'CARDS_STRAIGHT_ONLY',
                 ]);
             }

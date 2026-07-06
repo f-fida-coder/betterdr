@@ -102,11 +102,21 @@ final class OddsApiAllowlist
     ];
 
     /**
-     * Game-level card markets only (2026-07-05 ruling). Player card props
-     * (player_to_receive_card / player_to_receive_red_card) stay OFF —
-     * manual-grading load too high; revisit later.
+     * Game-level card AND corner markets (cards 2026-07-05, corners
+     * 2026-07-06 — corners ride the identical pipeline: same per-event
+     * endpoint, window, cadence, manual grading surface, straight-only
+     * rule). Player card props (player_to_receive_card /
+     * player_to_receive_red_card) stay OFF — manual-grading load too high;
+     * team corners (alternate_team_totals_corners) and corners_1x2 also
+     * OFF for now — game-level only. Adding keys here widens the SAME
+     * per-event call (~1 credit per market per region per event poll).
      */
-    private const CARD_MARKETS = ['alternate_totals_cards', 'alternate_spreads_cards'];
+    private const CARD_MARKETS = [
+        'alternate_totals_cards',
+        'alternate_spreads_cards',
+        'alternate_totals_corners',
+        'alternate_spreads_corners',
+    ];
 
     /**
      * @var list<string> Approved 2026-07-05. The boxing feed carries rumored

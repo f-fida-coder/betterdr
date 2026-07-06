@@ -92,7 +92,11 @@ TestRunner::run('allowlist: category gating', function (): void {
     TestRunner::assertEquals(true, $threw, 'assertAllowed() throws for a Rundown-covered main-line fetch');
 });
 
-TestRunner::run('allowlist: card markets are game-level only', function (): void {
+TestRunner::run('allowlist: card + corner markets are game-level only', function (): void {
     $markets = OddsApiAllowlist::marketsFor(OddsApiAllowlist::CATEGORY_CARDS);
-    TestRunner::assertEquals('alternate_totals_cards,alternate_spreads_cards', $markets, 'player card props stay OFF per 2026-07-05 ruling');
+    TestRunner::assertEquals(
+        'alternate_totals_cards,alternate_spreads_cards,alternate_totals_corners,alternate_spreads_corners',
+        $markets,
+        'cards + game-level corners (2026-07-06); player card props stay OFF per 2026-07-05 ruling, team corners / corners_1x2 stay OFF too'
+    );
 });

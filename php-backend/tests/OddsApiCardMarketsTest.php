@@ -358,3 +358,97 @@ TestRunner::run('cards matcher: USA alias bridges The Odds API vs Rundown naming
     TestRunner::assertEquals(false, OddsApiCardMarketsService::sideMatches('USA', 'Belgium', 'Belgium'), 'USA does not match the opponent');
     TestRunner::assertEquals(false, OddsApiCardMarketsService::sideMatches('US', 'United States', 'United States'), 'unknown short form still refused (fail-closed)');
 });
+
+// ── Corner markets (2026-07-06) — ride the cards pipeline end to end ────────
+//
+// alternate_totals_corners / alternate_spreads_corners were added to
+// CARD_MARKETS: same per-event fetch, same ingest, same serve gate, same
+// straight-only rule, same manual-grading surface. This suite locks each
+// seam so corners can never silently diverge from cards — especially the
+// settlement lock: parseGradableMarket must return null for corner keys or
+// the sweep would grade corner bets against GOALS.
+
+TestRunner::run('corners builder: totals branch + handicap canonicalization', function (): void {
+    $event = [
+        'id' => 'evt-corners',
+        'bookmakers' => [
+            ['key' => 'draftkings', 'markets' => [
+                ['key' => 'alternate_totals_corners', 'outcomes' => [
+                    ['name' => 'Over',  'point' => 9.5, 'price' => -105],
+                    ['name' => 'Under', 'point' => 9.5, 'price' => -125],
+                    ['name' => 'Exactly', 'point' => 9.5, 'price' => 300], // not Over/Under → drop
+                ]],
+                ['key' => 'alternate_spreads_corners', 'outcomes' => [
+                    ['name' => 'Arsenal FC', 'point' => -2.5, 'price' => 110],
+                    ['name' => 'Someone Else', 'point' => 2.5, 'price' => -130], // neither team → drop
+                ]],
+            ]],
+        ],
+    ];
+    $markets = OddsApiCardMarketsService::buildCardMarkets($event, 'Arsenal', 'Arsenal', 'Chelsea', 'Chelsea');
+    $byKey = [];
+    foreach ($markets as $m) { $byKey[$m['key']] = $m['outcomes']; }
+
+    TestRunner::assertEquals(2, count($byKey), 'both corner keys ingested');
+    $totals = $byKey['alternate_totals_corners'];
+    $sides = array_map(static fn ($o) => $o['name'], $totals);
+    sort($sides);
+    TestRunner::assertEquals(['Over', 'Under'], $sides, 'corners totals take the Over/Under branch (not team matching)');
+    $spreads = $byKey['alternate_spreads_corners'];
+    TestRunner::assertEquals(1, count($spreads), 'unknown club dropped, never guessed');
+    TestRunner::assertEquals('Arsenal', $spreads[0]['name'], 'corner handicap canonicalized to the Rundown row name');
+    TestRunner::assertEqualsFloat(2.1, (float) $spreads[0]['price'], '+110 → 2.10 decimal (board contract)', 0.001);
+});
+
+TestRunner::run('corners composition: straight-only (suffix rule extended)', function (): void {
+    $cornerLeg = ['matchId' => 'm1', 'marketType' => 'alternate_totals_corners', 'selection' => 'Over', 'point' => 9.5];
+    $spreadLeg = ['matchId' => 'm2', 'marketType' => 'spreads', 'selection' => 'Arsenal', 'point' => -0.5];
+
+    SportsbookBetSupport::validateTicketComposition('straight', [$cornerLeg]);
+    TestRunner::assertEquals(true, true, 'straight corner bet passes composition');
+
+    foreach (['parlay', 'round_robin', 'if_bet', 'reverse', 'teaser'] as $type) {
+        $threw = '';
+        try {
+            SportsbookBetSupport::validateTicketComposition($type, [$cornerLeg, $spreadLeg]);
+        } catch (ApiException $e) {
+            $threw = (string) ($e->payload()['code'] ?? '');
+        }
+        TestRunner::assertEquals('CARDS_STRAIGHT_ONLY', $threw, "corner leg in {$type} → CARDS_STRAIGHT_ONLY");
+    }
+    $threw = '';
+    try {
+        SportsbookBetSupport::validateTicketComposition('parlay', [
+            ['matchId' => 'm1', 'marketType' => 'alternate_spreads_corners', 'selection' => 'Arsenal', 'point' => -2.5],
+            $spreadLeg,
+        ]);
+    } catch (ApiException $e) {
+        $threw = (string) ($e->payload()['code'] ?? '');
+    }
+    TestRunner::assertEquals('CARDS_STRAIGHT_ONLY', $threw, 'corner handicap leg in parlay rejected');
+});
+
+TestRunner::run('corners manual grade: fence accepts corners, still refuses feed markets', function (): void {
+    $bet = ['status' => 'pending', 'type' => 'straight'];
+    TestRunner::assertEquals(null, CardBetGradingService::gradeableCardBetError($bet, [['marketType' => 'alternate_totals_corners', 'status' => 'pending']]), 'pending straight corner-totals leg → gradable');
+    TestRunner::assertEquals(null, CardBetGradingService::gradeableCardBetError($bet, [['marketType' => 'alternate_spreads_corners', 'status' => 'pending']]), 'pending straight corner-handicap leg → gradable');
+    TestRunner::assertEquals('not_a_card_bet', CardBetGradingService::gradeableCardBetError($bet, [['marketType' => 'totals', 'status' => 'pending']]), 'feed-market leg still refused');
+});
+
+TestRunner::run('corners settlement lock: parseGradableMarket is null for card AND corner keys', function (): void {
+    // MONEY-CRITICAL: if any of these ever resolves to a gradable base, the
+    // settlement sweep would grade card/corner bets against the GOAL score.
+    $ref = new ReflectionMethod(SportsbookBetSupport::class, 'parseGradableMarket');
+    foreach ([
+        'alternate_totals_cards',
+        'alternate_spreads_cards',
+        'alternate_totals_corners',
+        'alternate_spreads_corners',
+        'totals_corners',
+        'spreads_corners',
+    ] as $key) {
+        TestRunner::assertEquals(null, $ref->invoke(null, $key), "{$key} never auto-grades");
+    }
+    // Sanity: the reflection target still grades real markets.
+    TestRunner::assertEquals(['base' => 'totals', 'suffix' => null], $ref->invoke(null, 'alternate_totals'), 'alt totals still grade like totals');
+});

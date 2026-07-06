@@ -51,8 +51,11 @@ final class CardBetGradingService
             return 'bet_leg_count';
         }
         $mt = strtolower((string) ($pendingLegs[0]['marketType'] ?? ''));
-        if (!str_ends_with($mt, '_cards')) {
-            return 'not_a_card_bet'; // this endpoint can ONLY grade card bets
+        // '_corners' added 2026-07-06: corner markets ride the cards pipeline
+        // end to end, including this grading surface (same no-results-feed
+        // rationale — the operator reads the official corner count).
+        if (!str_ends_with($mt, '_cards') && !str_ends_with($mt, '_corners')) {
+            return 'not_a_card_bet'; // this endpoint ONLY grades card/corner bets
         }
         return null;
     }
@@ -107,6 +110,10 @@ final class CardBetGradingService
                 $db->rollback();
                 return ['ok' => false, 'betId' => $betId, 'decision' => $decision, 'error' => 'invalid_leg'];
             }
+            // Ledger wording: 'card' vs 'corner' derived from the leg. The
+            // machine-readable gradeReason stays 'manual_card_grade' for both
+            // (stable audit key for the shared cards/corners surface).
+            $kindWord = str_ends_with(strtolower((string) ($leg['marketType'] ?? '')), '_corners') ? 'corner' : 'card';
             $db->updateOne('betselections', ['id' => SqlRepository::id($legId)], [
                 'status'      => $decision,
                 'updatedAt'   => $now,
@@ -162,7 +169,7 @@ final class CardBetGradingService
                     : (float) round($balance + $balanceRefund);
                 $transactionType   = $isFreeplay ? 'fp_bet_void' : 'bet_void';
                 $transactionAmount = $riskAmount;
-                $description = 'STRAIGHT' . ($isFreeplay ? ' freeplay' : '') . ' card bet voided - wager refunded (manual card grade)';
+                $description = 'STRAIGHT' . ($isFreeplay ? ' freeplay' : '') . ' ' . $kindWord . ' bet voided - wager refunded (manual grade)';
             } elseif ($decision === 'won') {
                 $profit        = (float) round(max(0.0, $ticketPayout - $riskAmount));
                 $balanceCredit = (float) round(max(0.0, $ticketPayout - $freeplayUsed));
@@ -178,16 +185,16 @@ final class CardBetGradingService
                 $description = 'STRAIGHT'
                     . ($isFreeplay ? ' freeplay' : '')
                     . ($isCreditAccount && !$isFreeplay
-                        ? ' card bet won - profit credited (credit account, manual card grade)'
-                        : ' card bet won - profit credited (manual card grade)');
+                        ? ' ' . $kindWord . ' bet won - profit credited (credit account, manual grade)'
+                        : ' ' . $kindWord . ' bet won - profit credited (manual grade)');
             } else { // lost
                 if ($isCreditAccount && $realPortion > 0) {
                     $balanceBefore = $balance;
                     $balanceAfter  = (float) round($balance - $realPortion);
                     $userUpdate['balance'] = $balanceAfter;
-                    $description = 'STRAIGHT card bet lost - balance debited (credit account, manual card grade)';
+                    $description = 'STRAIGHT ' . $kindWord . ' bet lost - balance debited (credit account, manual grade)';
                 } else {
-                    $description = 'STRAIGHT' . ($isFreeplay ? ' freeplay' : '') . ' card bet lost (manual card grade)';
+                    $description = 'STRAIGHT' . ($isFreeplay ? ' freeplay' : '') . ' ' . $kindWord . ' bet lost (manual grade)';
                 }
                 $transactionType   = $isFreeplay ? 'fp_bet_lost' : 'bet_lost';
                 $transactionAmount = $riskAmount;
