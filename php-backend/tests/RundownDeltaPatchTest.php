@@ -245,7 +245,7 @@ TestRunner::run('csvForLivePolling stays core-only (snapshot path is 12-capped)'
         TestRunner::assertTrue(in_array($coreId, $ids, true), "missing core id {$coreId}");
     }
     TestRunner::assertTrue(count($ids) <= 12, 'snapshot market_ids must respect the 12-cap, got ' . count($ids));
-    foreach ([981, 1013, 1017, 4, 1010, 769, 1112, 1024, 1150] as $periodId) {
+    foreach ([981, 1013, 1017, 4, 1010, 769, 784, 1024, 1150] as $periodId) {
         TestRunner::assertTrue(!in_array($periodId, $ids, true), "period id {$periodId} must NOT be in the capped snapshot list");
     }
 });
@@ -255,8 +255,10 @@ TestRunner::run('isLiveDeltaRelevant accepts core + period IDs, rejects props/un
     foreach ([1, 2, 3, 94, 41, 42, 43, 96] as $coreId) {
         TestRunner::assertTrue(RundownMarketMap::isLiveDeltaRelevant($coreId), "core id {$coreId} should be relevant");
     }
-    // Periods across every sport we serve (H1/H2, Q1-Q4, innings, NHL P, sets).
-    foreach ([4, 1010, 981, 1013, 1017, 1024, 769, 1112, 1150] as $periodId) {
+    // Periods across every sport we serve (H1/H2, Q1-Q4, innings, NHL P,
+    // sets). 784 = F1 innings — 1112 (F7) was removed with the F3/F7 board
+    // markets (product 2026-07-06).
+    foreach ([4, 1010, 981, 1013, 1017, 1024, 769, 784, 1150] as $periodId) {
         TestRunner::assertTrue(RundownMarketMap::isPeriodMarketId($periodId), "period id {$periodId} should be a period market");
         TestRunner::assertTrue(RundownMarketMap::isLiveDeltaRelevant($periodId), "period id {$periodId} should be relevant");
     }

@@ -122,8 +122,16 @@ function oamMarket(array $doc, string $book, string $marketKey): ?array
     return null;
 }
 
+// Frozen suite clock, passed explicitly to every toMatchDoc call. The
+// ambient fallback (SqlRepository::nowUtc) is whichever SqlRepository class
+// won the load race in the shared runner — an earlier suite's stub or the
+// REAL class with the REAL current time. Relying on it made this suite a
+// time bomb: the 2026-07-06T14:00Z fixture expired at kickoff and every
+// mapper test went red in CI (2026-07-06) while passing in isolation.
+const OAM_NOW = '2026-07-05T12:00:00+00:00';
+
 TestRunner::run('oddsapi mapper: identity, namespacing, doc shell', function (): void {
-    $doc = OddsApiEventMapper::toMatchDoc(oamFixtureEvent(), 'soccer_efl_champ');
+    $doc = OddsApiEventMapper::toMatchDoc(oamFixtureEvent(), 'soccer_efl_champ', OAM_NOW);
     TestRunner::assertEquals('toa_evt123abc', $doc['externalId'], 'externalId is toa_-prefixed');
     TestRunner::assertEquals(substr(sha1('theoddsapi:evt123abc'), 0, 24), $doc['id'], 'deterministic provider-prefixed id');
     TestRunner::assertEquals(24, strlen((string) $doc['id']), 'id is 24 hex chars');
@@ -140,7 +148,7 @@ TestRunner::run('oddsapi mapper: identity, namespacing, doc shell', function ():
 });
 
 TestRunner::run('oddsapi mapper: 3-way h2h is a plain h2h market with Draw', function (): void {
-    $doc = OddsApiEventMapper::toMatchDoc(oamFixtureEvent(), 'soccer_efl_champ');
+    $doc = OddsApiEventMapper::toMatchDoc(oamFixtureEvent(), 'soccer_efl_champ', OAM_NOW);
     $h2h = oamMarket($doc, 'draftkings', 'h2h');
     TestRunner::assertEquals(3, count($h2h['outcomes']), 'three outcomes: home, away, Draw');
     $byName = [];
@@ -154,7 +162,7 @@ TestRunner::run('oddsapi mapper: 3-way h2h is a plain h2h market with Draw', fun
 });
 
 TestRunner::run('oddsapi mapper: totals + quarter-line promote', function (): void {
-    $doc = OddsApiEventMapper::toMatchDoc(oamFixtureEvent(), 'soccer_efl_champ');
+    $doc = OddsApiEventMapper::toMatchDoc(oamFixtureEvent(), 'soccer_efl_champ', OAM_NOW);
     $totals = oamMarket($doc, 'draftkings', 'totals');
     TestRunner::assertEquals(2, count($totals['outcomes']), 'Over + Under');
     TestRunner::assertEqualsFloat(2.5, (float) $totals['outcomes'][0]['point'], 'totals line preserved', 0.001);
@@ -171,23 +179,23 @@ TestRunner::run('oddsapi mapper: refusals — past kickoff, no books, bad prices
     TestRunner::assertEquals(null, OddsApiEventMapper::toMatchDoc($ev, 'soccer_efl_champ', '2026-07-06T14:00:01+00:00'), 'at/past kickoff → null (prematch only)');
 
     $noBooks = $ev; $noBooks['bookmakers'] = [];
-    TestRunner::assertEquals(null, OddsApiEventMapper::toMatchDoc($noBooks, 'soccer_efl_champ'), 'no priced markets → null (no empty-odds rows)');
+    TestRunner::assertEquals(null, OddsApiEventMapper::toMatchDoc($noBooks, 'soccer_efl_champ', OAM_NOW), 'no priced markets → null (no empty-odds rows)');
 
     $badPrice = $ev;
     $badPrice['bookmakers'][1]['markets'][0]['outcomes'][0]['price'] = 1.91; // decimal leaked in
-    $doc = OddsApiEventMapper::toMatchDoc($badPrice, 'soccer_efl_champ');
+    $doc = OddsApiEventMapper::toMatchDoc($badPrice, 'soccer_efl_champ', OAM_NOW);
     $h2h = oamMarket($doc, 'draftkings', 'h2h');
     TestRunner::assertEquals(2, count($h2h['outcomes']), 'decimal-looking price dropped, never converted');
 
     $foreign = $ev;
     $foreign['bookmakers'][1]['markets'][0]['outcomes'][0]['name'] = 'Wrong Club FC';
-    $doc = OddsApiEventMapper::toMatchDoc($foreign, 'soccer_efl_champ');
+    $doc = OddsApiEventMapper::toMatchDoc($foreign, 'soccer_efl_champ', OAM_NOW);
     $h2h = oamMarket($doc, 'draftkings', 'h2h');
     TestRunner::assertEquals(2, count($h2h['outcomes']), 'outcome name matching neither team nor Draw is dropped');
 });
 
 TestRunner::run('oddsapi mapper: isPastKickoff hard-suspend predicate', function (): void {
-    $doc = OddsApiEventMapper::toMatchDoc(oamFixtureEvent(), 'soccer_efl_champ');
+    $doc = OddsApiEventMapper::toMatchDoc(oamFixtureEvent(), 'soccer_efl_champ', OAM_NOW);
     $kickoffTs = strtotime('2026-07-06T14:00:00Z');
 
     TestRunner::assertEquals(false, OddsApiEventMapper::isPastKickoff($doc, $kickoffTs - 60), 'before kickoff → bettable');
@@ -204,7 +212,7 @@ TestRunner::run('oddsapi mapper: isPastKickoff hard-suspend predicate', function
 });
 
 TestRunner::run('oddsapi mapper: mapped doc grades in the REAL settlement engine', function (): void {
-    $doc = OddsApiEventMapper::toMatchDoc(oamFixtureEvent(), 'soccer_efl_champ');
+    $doc = OddsApiEventMapper::toMatchDoc(oamFixtureEvent(), 'soccer_efl_champ', OAM_NOW);
 
     // Simulate the match finishing 2-2 exactly as a real score sync would:
     // BOTH doc.status AND score.event_status must go terminal — the real
@@ -288,25 +296,25 @@ TestRunner::run('oddsapi mapper: speculative boxing placeholder bouts never rend
     // Placeholder cluster from the 2026-07-05 live sample: Dec 31, 22:5x UTC.
 
     // Placeholder-dated + 1 book → dropped (the rumor that picked up a price).
-    TestRunner::assertEquals(null, OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-12-31T22:55:00Z', 1), 'boxing_boxing'), 'single-book placeholder bout dropped');
+    TestRunner::assertEquals(null, OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-12-31T22:55:00Z', 1), 'boxing_boxing', OAM_NOW), 'single-book placeholder bout dropped');
     // Placeholder-dated + 3 books → STILL dropped (2026-07-05 ruling: the
     // date is fiction regardless of book count; the event returns on its
     // own once the feed stamps a real commence_time).
-    TestRunner::assertEquals(null, OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-12-31T22:57:00Z', 3), 'boxing_boxing'), 'multi-book placeholder bout dropped too');
+    TestRunner::assertEquals(null, OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-12-31T22:57:00Z', 3), 'boxing_boxing', OAM_NOW), 'multi-book placeholder bout dropped too');
     // Real near-term single-book fight (Canelo pattern: ~69d out, 1 book) → kept.
-    $real = OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-09-12T22:00:00Z', 1), 'boxing_boxing');
+    $real = OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-09-12T22:00:00Z', 1), 'boxing_boxing', OAM_NOW);
     TestRunner::assertEquals('Boxing', $real['sport'], 'real single-book fight ~69d out renders with the Boxing display name');
     TestRunner::assertEquals('scheduled', $real['status'], 'real fight is a normal prematch row');
     // Far-future belt: single-book, normal-looking date but >120d out → dropped.
-    TestRunner::assertEquals(null, OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-11-15T22:00:00Z', 1), 'boxing_boxing'), 'single-book rumor >120d out dropped');
+    TestRunner::assertEquals(null, OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-11-15T22:00:00Z', 1), 'boxing_boxing', OAM_NOW), 'single-book rumor >120d out dropped');
     // Same >120d date with 2 books → kept (booked fights gain books early).
-    $far = OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-11-15T22:00:00Z', 2), 'boxing_boxing');
+    $far = OddsApiEventMapper::toMatchDoc(oamBoxingEvent('2026-11-15T22:00:00Z', 2), 'boxing_boxing', OAM_NOW);
     TestRunner::assertEquals('Boxing', $far['sport'], 'multi-book far-future fight kept');
     // Fights-only: an identical single-book far-future SOCCER event is untouched.
     $soccer = oamFixtureEvent();
     $soccer['commence_time'] = '2026-11-15T14:00:00Z';
     $soccer['bookmakers'] = [$soccer['bookmakers'][1]]; // one book
-    $kept = OddsApiEventMapper::toMatchDoc($soccer, 'soccer_efl_champ');
+    $kept = OddsApiEventMapper::toMatchDoc($soccer, 'soccer_efl_champ', OAM_NOW);
     TestRunner::assertEquals('scheduled', $kept['status'], 'guard is fights-only — soccer unaffected');
 });
 
@@ -354,7 +362,7 @@ TestRunner::run('oddsapi mapper: exchange lay markets are explicitly rejected', 
             ],
         ],
     ];
-    $doc = OddsApiEventMapper::toMatchDoc($event, 'rugbyleague_nrl');
+    $doc = OddsApiEventMapper::toMatchDoc($event, 'rugbyleague_nrl', OAM_NOW);
     TestRunner::assertEquals('NRL', $doc['sport'], 'NRL display name mapped');
     TestRunner::assertEquals(1, count($doc['odds']['bookmakers']), 'lay-only book excluded entirely');
     TestRunner::assertEquals('sportsbet', $doc['odds']['bookmakers'][0]['key'], 'backable book survives');
