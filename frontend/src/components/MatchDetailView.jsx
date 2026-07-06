@@ -38,6 +38,8 @@ const SECTION_DEFS = [
     // prematch, fresh) — so these sections self-hide at kickoff/staleness.
     { key: 'alternate_totals_cards', label: 'Total Cards', kind: 'alt-lines' },
     { key: 'alternate_spreads_cards', label: 'Card Handicap', kind: 'alt-lines' },
+    { key: 'alternate_totals_corners', label: 'Total Corners', kind: 'alt-lines' },
+    { key: 'alternate_spreads_corners', label: 'Corner Handicap', kind: 'alt-lines' },
     { key: 'team_totals', label: 'Team Totals', kind: 'team-totals' },
     { key: 'alternate_team_totals', label: 'Alt Team Totals', kind: 'team-totals' },
 
@@ -117,10 +119,9 @@ const SECTION_DEFS = [
     { key: 'alternate_asian_handicap', label: 'Asian Handicap (Alt Lines)', kind: 'alt-lines' },
     { key: 'first_team_to_score', label: 'First Team to Score', kind: 'alt-lines' },
     { key: 'last_team_to_score', label: 'Last Team to Score', kind: 'alt-lines' },
-    { key: 'alternate_spreads_corners', label: 'Corners — Alt Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_corners', label: 'Corners — Alt Total', kind: 'alt-lines' },
-    { key: 'alternate_spreads_cards', label: 'Cards — Alt Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_cards', label: 'Cards — Alt Total', kind: 'alt-lines' },
+    // Corner markets live next to the card entries near the top (theoddsapi
+    // pipeline). The duplicate 'Cards — Alt …' rows that used to sit here made
+    // SECTION_DEFS.filter render the SAME card markets under two labels.
 ];
 
 const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = false }) => {
@@ -246,7 +247,7 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
         let cancelled = false;
         setLoading(true);
         setError('');
-        getMatchProps(matchId)
+        getMatchProps(matchId, { sheet: true })
             .then((data) => {
                 if (cancelled) return;
                 setPayload(data || { extendedMarkets: [], playerProps: [], cached: false });

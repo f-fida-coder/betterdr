@@ -961,10 +961,19 @@ final class MatchesController
             // If the doc has no props yet but the match is mappable to a
             // Rundown event, backfill on demand. Dedup per-event for 30s
             // so concurrent loads of the prop modal share one upstream call.
+            //
+            // sheet=1 (the "+" More Bets sheet, both platforms) SKIPS the
+            // backfill entirely: that sheet never renders playerProps, so
+            // firing syncEventFull for it was pure Rundown-credit waste —
+            // the reason the mobile "+" was made inert on 2026-06-23. The
+            // sheet serves the stored row (extended markets + theoddsapi
+            // card/corner markets); only the Prop Builder pays for props.
+            $sheetOnly  = (string) ($_GET['sheet'] ?? '') === '1';
             $externalId = (string) ($match['externalId'] ?? '');
             $sportKey   = (string) ($match['sportKey'] ?? '');
             if (
-                $props === []
+                !$sheetOnly
+                && $props === []
                 && $externalId !== ''
                 && RundownClient::isConfigured()
                 && strtolower((string) ($match['oddsSource'] ?? '')) === RundownEventMapper::ODDS_SOURCE_TAG

@@ -794,10 +794,15 @@ export const getAvailableSports = async ({ signal, timeoutMs = 5000 } = {}) => {
  * Lazy-load player props + extended markets for a single match. Triggers a
  * per-event upstream fetch on the backend if the cached payload is stale.
  */
-export const getMatchProps = async (matchId) => {
+export const getMatchProps = async (matchId, { sheet = false } = {}) => {
     if (!matchId) return { extendedMarkets: [], playerProps: [], cached: false };
+    // sheet:true = the "+" More Bets sheet: it never renders playerProps, so
+    // the backend skips the Rundown props backfill (syncEventFull) and serves
+    // the stored row only — zero upstream credits per open. The Prop Builder
+    // (P+) omits it and keeps the backfill.
+    const suffix = sheet ? '?sheet=1' : '';
     // Live odds — never serve from browser/CDN cache.
-    const response = await fetch(buildApiUrl(`/matches/${encodeURIComponent(matchId)}/props`), {
+    const response = await fetch(buildApiUrl(`/matches/${encodeURIComponent(matchId)}/props${suffix}`), {
         headers: getHeaders(),
         cache: 'no-store',
     });
