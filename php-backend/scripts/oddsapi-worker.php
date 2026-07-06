@@ -9,13 +9,13 @@ declare(strict_types=1);
  *   - soccer main lines: ODDS_API_POLL_SOCCER_MINUTES (10), tightened to
  *     ODDS_API_POLL_SOCCER_NEAR_KICKOFF_MINUTES (5) while any allowlisted
  *     soccer match kicks off within ODDS_API_NEAR_KICKOFF_WINDOW_HOURS (2).
- *   - outrights/futures: ODDS_API_POLL_OUTRIGHTS_MINUTES (60). Gated by
+ *   - outrights/futures: ODDS_API_POLL_OUTRIGHTS_MINUTES (10). Gated by
  *     ODDS_API_OUTRIGHTS_SYNC_ENABLED (default OFF until the outrights-
  *     ingestion chunk lands).
- *   - card markets: ODDS_API_POLL_CARDS_MINUTES (15), gated by
+ *   - card markets: ODDS_API_POLL_CARDS_MINUTES (10), gated by
  *     OddsApiCardMarketsService::enabled().
  *   - low-volume fights + rugby (boxing_boxing, rugbyleague_nrl):
- *     ODDS_API_POLL_LOWVOLUME_MINUTES (30), same near-kickoff tightening.
+ *     ODDS_API_POLL_LOWVOLUME_MINUTES (10), same near-kickoff tightening.
  *     Zero-event passes are NORMAL between fight cards / NRL rounds.
  *
  * CREDIT BUDGET GUARD (wired here):
@@ -109,9 +109,9 @@ $maxRuntime      = max(300, (int) Env::get('ODDS_API_WORKER_MAX_RUNTIME_SECONDS'
 $soccerMinutes   = max(1, (int) Env::get('ODDS_API_POLL_SOCCER_MINUTES', '10'));
 $nearMinutes     = max(0, (int) Env::get('ODDS_API_POLL_SOCCER_NEAR_KICKOFF_MINUTES', '5')); // 0 = no tightening
 $nearWindowHours = max(1, (int) Env::get('ODDS_API_NEAR_KICKOFF_WINDOW_HOURS', '2'));
-$outrightMinutes = max(5, (int) Env::get('ODDS_API_POLL_OUTRIGHTS_MINUTES', '60'));
-$cardsMinutes    = max(5, (int) Env::get('ODDS_API_POLL_CARDS_MINUTES', '15'));
-$lowVolMinutes   = max(5, (int) Env::get('ODDS_API_POLL_LOWVOLUME_MINUTES', '30'));
+$outrightMinutes = max(5, (int) Env::get('ODDS_API_POLL_OUTRIGHTS_MINUTES', '10'));
+$cardsMinutes    = max(5, (int) Env::get('ODDS_API_POLL_CARDS_MINUTES', '10'));
+$lowVolMinutes   = max(5, (int) Env::get('ODDS_API_POLL_LOWVOLUME_MINUTES', '10'));
 
 $shutdown = false;
 if (function_exists('pcntl_signal')) {

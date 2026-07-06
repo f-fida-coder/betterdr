@@ -268,9 +268,9 @@ TestRunner::run('cards serve gate: visible ⟺ placeable, fail-closed on every e
     $past['startTime'] = gmdate(DATE_ATOM, $now - 60);
     TestRunner::assertEquals([], OddsApiCardMarketsService::servableCardMarkets($past, $now), 'post-kickoff → dark');
 
-    // Stale sync (31 min > 1800s default) → dark.
+    // Stale sync (21 min > 1200s default = two missed 10-min polls) → dark.
     $stale = $row;
-    $stale['cardMarketsSyncedAt'] = gmdate(DATE_ATOM, $now - 1860);
+    $stale['cardMarketsSyncedAt'] = gmdate(DATE_ATOM, $now - 1260);
     TestRunner::assertEquals([], OddsApiCardMarketsService::servableCardMarkets($stale, $now), 'stale sync → dark');
 
     // Wrong / missing provider tag → dark.

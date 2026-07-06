@@ -48,7 +48,7 @@ final class OddsApiCardMarketsService
     private const MATCH_TIME_TOLERANCE_SECONDS = 300;
 
     /** Cards go dark this many seconds after the last successful sync (= 2 missed polls). */
-    private const DEFAULT_SERVE_STALE_SECONDS = 1800;
+    private const DEFAULT_SERVE_STALE_SECONDS = 1200; // 2 missed 10-min polls (was 1800 @ 15-min cadence)
 
     public static function enabled(): bool
     {
@@ -75,8 +75,8 @@ final class OddsApiCardMarketsService
      *   - kickoff is still in the future — the ACTIVE post-kickoff close
      *     (this feed has no live signal; market-level, so the match itself
      *     stays bettable on its Rundown main lines)
-     *   - cardMarketsSyncedAt within ODDS_API_CARDS_STALE_SECONDS (1800s
-     *     default): the worker polls every 15 min, so two missed polls or a
+     *   - cardMarketsSyncedAt within ODDS_API_CARDS_STALE_SECONDS (1200s
+     *     default): the worker polls every 10 min, so two missed polls or a
      *     dead worker → cards vanish rather than serve stale prices
      *
      * @param array<string,mixed> $match
