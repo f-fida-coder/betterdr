@@ -223,15 +223,17 @@ const legDescription = (leg, oddsFormat) => {
     if (market === 'totals') {
         // Game total (not a team total — that market type is `team_totals` and
         // falls through to the default branch). The selection is just
-        // "Over"/"Under", so PREFIX the team whose crest the row shows (the
-        // home side, matching legTeamForLogo) using the MASCOT only →
-        // "Tigers Over 8.5".
+        // "Over"/"Under". A game total belongs to BOTH teams, so label it
+        // "Over 8.5 (Phillies @ Royals)" — the old home-mascot prefix
+        // ("Royals Over 8.5") read as a team total for one side.
         const isUnder = selection.toLowerCase().startsWith('u');
         const line = point === null ? '' : formatLineValue(Math.abs(point));
         const snap = leg?.matchSnapshot || {};
-        const team = mascotName(snap.homeTeamFull, snap.homeTeam);
+        const away = mascotName(snap.awayTeamFull, snap.awayTeam);
+        const home = mascotName(snap.homeTeamFull, snap.homeTeam);
+        const game = away && home ? `(${away} @ ${home})` : '';
         const ou = isUnder ? 'Under' : 'Over';
-        return [team, ou, line, odds].filter(Boolean).join(' ');
+        return [ou, line, game, odds].filter(Boolean).join(' ');
     }
     // Admin write-in: render the FULL free-text description + odds. The
     // moneyline fallback below would mascot-shorten it to its last word
@@ -814,6 +816,34 @@ const ticketTypeLabel = (bet) => {
     return 'Straight';
 };
 
+// FULL, untruncated selection text for the drill-down panels — the row's
+// one-liner (legDescription) mascot-shortens and the row CSS ellipsizes,
+// so this is the one place the player can always read the whole pick
+// ("Bobby Witt Jr. Under 0.5 Home Runs", the full write-in text, etc.).
+// No odds here — the panel prints those on their own row.
+const legSelectionFullText = (leg) => {
+    const market = String(leg?.marketType || '').toLowerCase();
+    const point = Number.isFinite(Number(leg?.point)) ? Number(leg.point) : null;
+    const full = String(leg?.selectionFull || '').trim() || String(leg?.selection || '').trim() || 'Pick';
+    if (market === 'spreads') {
+        const line = point === null ? '' : formatSpreadValue(point);
+        return [full, line].filter(Boolean).join(' ');
+    }
+    if (market === 'totals') {
+        const isUnder = String(leg?.selection || '').trim().toLowerCase().startsWith('u');
+        const line = point === null ? '' : formatLineValue(Math.abs(point));
+        const snap = leg?.matchSnapshot || {};
+        const away = String(snap.awayTeamFull || snap.awayTeam || '').trim();
+        const home = String(snap.homeTeamFull || snap.homeTeam || '').trim();
+        const game = away && home ? `(${away} @ ${home})` : '';
+        return [isUnder ? 'Under' : 'Over', line, game].filter(Boolean).join(' ');
+    }
+    if (isPlayerPropMarket(leg?.marketType)) {
+        return [full, prettyPlayerMarketLabel(leg?.marketType)].filter(Boolean).join(' ');
+    }
+    return full;
+};
+
 // Player-friendly market label for a single leg, used in the per-leg
 // drill-down panel. Mirrors the badge shorthand sportsbooks show on
 // settled tickets (Game Spread / Total / Moneyline) so the player
@@ -834,7 +864,7 @@ const legMarketLabel = (leg) => {
 // any settlement note (e.g. push reason). Fields fall back gracefully
 // when older data shapes are missing fields so the panel stays useful
 // for legacy tickets too.
-const LegDetailsPanel = ({ leg, parentBet }) => {
+const LegDetailsPanel = ({ leg, parentBet, oddsFormat }) => {
     const status = normalizeStatus(leg?.status);
     const home = String(leg?.matchSnapshot?.homeTeam || '').trim();
     const away = String(leg?.matchSnapshot?.awayTeam || '').trim();
@@ -858,7 +888,13 @@ const LegDetailsPanel = ({ leg, parentBet }) => {
     const rows = [];
     rows.push(['Status', scoreLine]);
     if (matchup) rows.push(['Game', matchup]);
-    rows.push(['Selection', legMarketLabel(leg)]);
+    // Selection = the FULL untruncated pick + its accepted odds. The
+    // collapsed leg row ellipsizes long descriptions (player props,
+    // write-ins), so this panel is where the player reads the whole
+    // thing. The market shorthand that used to sit here moved to its
+    // own Market row below.
+    rows.push(['Selection', [legSelectionFullText(leg), formatOdds(leg?.odds, oddsFormat)].filter(Boolean).join(' ')]);
+    rows.push(['Market', legMarketLabel(leg)]);
     if (scheduled) rows.push(['Scheduled', scheduled]);
     if (accepted) rows.push(['Accepted', accepted]);
     if (note) rows.push(['Note', note]);
@@ -932,6 +968,11 @@ const BetDetailsPanel = ({ bet, oddsFormat }) => {
     if (String(bet?.type || '').toLowerCase() === 'manual') {
         const manualDesc = String(bet?.description || firstLeg?.selectionFull || '').trim();
         if (manualDesc) rows.push(['Description', manualDesc]);
+    } else if (!isMulti && firstLeg) {
+        // Straight tickets: the collapsed row's one-liner mascot-shortens
+        // and ellipsizes — print the full untruncated pick here, same as
+        // the per-leg panel does for parlay legs.
+        rows.push(['Selection', legSelectionFullText(firstLeg)]);
     }
     rows.push(['Odds', odds]);
     rows.push(['Placed', placedAt]);
@@ -1135,18 +1176,35 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                         </div>
                                         {childSelections.map((leg, idx) => {
                                             const childLegLive = isLegLive(leg, child);
+                                            // Composite leg index keeps Round Robin child legs
+                                            // inside the same single-open expandedLegKey the
+                                            // parent-ticket legs use.
+                                            const childLegIdx = `child-${ci}-${idx}`;
+                                            const isChildLegExpanded = expandedLegKey === `${betId}::${childLegIdx}`;
                                             return (
-                                                <div key={`${betId}-child-${ci}-leg-${idx}`} className="my-bets-table-row leg" style={{ paddingLeft: 24 }}>
-                                                    <span className="my-bets-table-col-desc">
-                                                        <MyBetsLegLogo leg={leg} teamLogos={teamLogos} />
-                                                        <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
-                                                        {childLegLive && (
-                                                            <span className="my-bets-table-live-badge" aria-label="Live game">{legBadgeLabel(leg, child)}</span>
-                                                        )}
-                                                    </span>
-                                                    {!isGraded && <span className="my-bets-table-col-risk" />}
-                                                    <span className="my-bets-table-col-win" />
-                                                </div>
+                                                <React.Fragment key={`${betId}-child-${ci}-leg-${idx}`}>
+                                                    <div
+                                                        className={`my-bets-table-row leg expandable${isChildLegExpanded ? ' expanded' : ''}`}
+                                                        style={{ paddingLeft: 24 }}
+                                                        role="button"
+                                                        tabIndex={0}
+                                                        onClick={() => toggleExpandedLeg(betId, childLegIdx)}
+                                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpandedLeg(betId, childLegIdx); } }}
+                                                    >
+                                                        <span className="my-bets-table-col-desc">
+                                                            <MyBetsLegLogo leg={leg} teamLogos={teamLogos} />
+                                                            <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                                            {childLegLive && (
+                                                                <span className="my-bets-table-live-badge" aria-label="Live game">{legBadgeLabel(leg, child)}</span>
+                                                            )}
+                                                        </span>
+                                                        {!isGraded && <span className="my-bets-table-col-risk" />}
+                                                        <span className="my-bets-table-col-win" />
+                                                    </div>
+                                                    {isChildLegExpanded && (
+                                                        <LegDetailsPanel leg={leg} parentBet={child} oddsFormat={oddsFormat} />
+                                                    )}
+                                                </React.Fragment>
                                             );
                                         })}
                                     </React.Fragment>
@@ -1266,7 +1324,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                             <span className="my-bets-table-col-win" />
                                         </div>
                                         {isLegExpanded && (
-                                            <LegDetailsPanel leg={leg} parentBet={bet} />
+                                            <LegDetailsPanel leg={leg} parentBet={bet} oddsFormat={oddsFormat} />
                                         )}
                                     </React.Fragment>
                                 );

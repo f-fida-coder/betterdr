@@ -495,9 +495,13 @@
   font-variant-numeric: tabular-nums;
   text-align: right;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Wrap, never ellipsize: the detail panel is the ONE place a long
+     selection / write-in description must be fully readable — the
+     collapsed rows already ellipsize, so truncating here too left no
+     way to see the whole pick. Short values (money, dates) never
+     reach the wrap point, so their receipt layout is unchanged. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 600px) {
