@@ -6,7 +6,7 @@ import { useToast } from '../contexts/ToastContext';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import { teaserSportGroup } from '../utils/teaserAdjustment';
 import { resolveBroadcast } from '../utils/broadcast';
-import { isMlbSportKey, isAltSpreadSuppressedSport, formatPitcherLabel, hasListedPitchers, MLB_LISTED_PITCHER_POLICY } from '../utils/pitchers';
+import { isMlbSportKey, isSoccerSportKey, isAltSpreadSuppressedSport, formatPitcherLabel, hasListedPitchers, MLB_LISTED_PITCHER_POLICY, SOCCER_90_MINUTE_POLICY } from '../utils/pitchers';
 import { TERMINAL_MATCH_STATUSES, isLiveLikeMatch } from '../utils/liveStatus';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
@@ -1567,6 +1567,18 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                         </div>
                                     );
                                 })()}
+
+                                {isSoccerSportKey(match.sportKey) && (
+                                    <div className="match-rules-note" style={{
+                                        padding: '6px 12px',
+                                        borderTop: '1px solid #eef0f2',
+                                        fontSize: 10,
+                                        lineHeight: 1.35,
+                                        color: '#94a3b8',
+                                    }}>
+                                        {SOCCER_90_MINUTE_POLICY}
+                                    </div>
+                                )}
 
                                 {match.odds && (
                                     <div className="match-odds">

@@ -4,7 +4,7 @@ import { formatLineValue, formatOdds, formatSpreadValue } from '../utils/odds';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
 import { isMarketEligibleForMode } from '../utils/teaserAdjustment';
-import { isMlbSportKey, formatPitcherLabel, MLB_LISTED_PITCHER_POLICY, MLB_OFFICIAL_GAME_POLICY } from '../utils/pitchers';
+import { isMlbSportKey, isSoccerSportKey, formatPitcherLabel, MLB_LISTED_PITCHER_POLICY, MLB_OFFICIAL_GAME_POLICY, SOCCER_90_MINUTE_POLICY } from '../utils/pitchers';
 import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
 
 /**
@@ -735,6 +735,11 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
                             <div style={{ marginTop: 6, fontSize: 11, lineHeight: 1.4, color: '#64748b' }}>
                                 {MLB_LISTED_PITCHER_POLICY} {MLB_OFFICIAL_GAME_POLICY}
                             </div>
+                        </div>
+                    )}
+                    {isSoccerSportKey(sportKeyLower) && (
+                        <div style={{ padding: '10px 14px', borderBottom: '1px solid #eef0f2', background: '#fafbfc', fontSize: 11, lineHeight: 1.4, color: '#64748b' }}>
+                            {SOCCER_90_MINUTE_POLICY}
                         </div>
                     )}
                     {loading && (

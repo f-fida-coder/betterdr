@@ -19,7 +19,7 @@ import { resolveBroadcast } from '../utils/broadcast';
 import { isLiveLikeMatch } from '../utils/liveStatus';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
-import { isMlbSportKey, isAltSpreadSuppressedSport, formatPitcherLabel, MLB_LISTED_PITCHER_POLICY } from '../utils/pitchers';
+import { isMlbSportKey, isSoccerSportKey, isAltSpreadSuppressedSport, formatPitcherLabel, MLB_LISTED_PITCHER_POLICY, SOCCER_90_MINUTE_POLICY } from '../utils/pitchers';
 import {
     FULL_PERIOD,
     getPeriodsForSportKey,
@@ -3113,6 +3113,18 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     </div>
                 );
             })()}
+
+            {isSoccerSportKey(match?.sportKey || match?.sport) && (
+                <div style={{
+                    padding: '6px 12px',
+                    borderTop: '1px solid #eef0f2',
+                    fontSize: 10,
+                    lineHeight: 1.35,
+                    color: '#94a3b8',
+                }}>
+                    {SOCCER_90_MINUTE_POLICY}
+                </div>
+            )}
 
             {blocked && (
                 <div style={blockedBannerStyle}>

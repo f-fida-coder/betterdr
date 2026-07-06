@@ -59,3 +59,11 @@ export const MLB_LISTED_PITCHER_POLICY =
 
 export const MLB_OFFICIAL_GAME_POLICY =
     'Official game: moneyline, run line and total wagers have action once the game is official \u2014 9 innings, or 8\u00BD with the home team ahead. A game called before becoming official is void and refunded.';
+
+// Canonical soccer house-rule copy. This text MUST describe settlement
+// behavior EXACTLY \u2014 soccer grades at regulation: STATUS_FULL_TIME is
+// terminal (RundownEventMapper STATUS_MAP) and the score locks there, so
+// ET/PK goals never reach the stored final. Cards/corners are graded by
+// an operator ("unless otherwise stated" covers markets priced on ET).
+export const SOCCER_90_MINUTE_POLICY =
+    'All soccer wagers are decided on 90 minutes play plus injury time. Extra Time and Penalty Kicks do not count unless otherwise stated.';
