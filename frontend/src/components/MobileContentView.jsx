@@ -3121,11 +3121,12 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 </div>
             )}
 
-            {/* Inline "More Bets" panel — expands under the card (replaces the
-                old fullscreen modal). One per card; the "+" toggles it. */}
+            {/* "More Bets" sheet — fullscreen MODAL over the board (same
+                presentation as the P+ Prop Builder, per request 2026-07-06;
+                the inline embedded panel cramped the card list on phones).
+                One per card; the "+" toggles it. */}
             {detailOpen && (
                 <MatchDetailView
-                    embedded
                     match={modalMatch}
                     onClose={() => setDetailOpen(false)}
                     betMode={betMode}

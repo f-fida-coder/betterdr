@@ -799,10 +799,12 @@ export const getMatchProps = async (matchId, { sheet = false } = {}) => {
     // sheet:true = the "+" More Bets sheet: it never renders playerProps, so
     // the backend skips the Rundown props backfill (syncEventFull) and serves
     // the stored row only — zero upstream credits per open. The Prop Builder
-    // (P+) omits it and keeps the backfill.
-    const suffix = sheet ? '?sheet=1' : '';
+    // (P+) omits it and keeps the backfill. MUST go through buildApiUrl's
+    // params argument — the path-style API base already carries a '?', so a
+    // hand-appended '?sheet=1' makes a second one and 404s the route.
+    const params = sheet ? { sheet: 1 } : null;
     // Live odds — never serve from browser/CDN cache.
-    const response = await fetch(buildApiUrl(`/matches/${encodeURIComponent(matchId)}/props${suffix}`), {
+    const response = await fetch(buildApiUrl(`/matches/${encodeURIComponent(matchId)}/props`, params), {
         headers: getHeaders(),
         cache: 'no-store',
     });
