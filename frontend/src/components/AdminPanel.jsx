@@ -32,6 +32,7 @@ const ManualBetsView = lazy(() => import('./admin-views/ManualBetsView'));
 const SportsBookLinksView = lazy(() => import('./admin-views/SportsBookLinksView'));
 const BetTickerView = lazy(() => import('./admin-views/BetTickerView'));
 const TicketWriterView = lazy(() => import('./admin-views/TicketWriterView'));
+const OddsCalculatorView = lazy(() => import('./admin-views/OddsCalculatorView'));
 const ScoresView = lazy(() => import('./admin-views/ScoresView'));
 const AgentAdminView = lazy(() => import('./admin-views/AgentAdminView'));
 const MasterAgentManagerView = lazy(() => import('./admin-views/MasterAgentManagerView'));
@@ -311,6 +312,8 @@ function AdminPanel({ onExit, role = 'admin' }) {
         return renderLazyView(<BetTickerView />, 'Loading bet ticker...');
       case 'ticketwriter':
         return renderLazyView(<TicketWriterView />, 'Loading ticket writer...');
+      case 'odds-calculator':
+        return renderLazyView(<OddsCalculatorView />, 'Loading odds calculator...');
       case 'scores':
         return renderLazyView(<ScoresView />, 'Loading scores...');
       case 'agent-admin':
