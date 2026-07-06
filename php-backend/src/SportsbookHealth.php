@@ -618,6 +618,19 @@ final class SportsbookHealth
             $annotated['bettingBlockedReason'] = 'This match has started. In-play betting is not available for this competition.';
         }
 
+        // PROVIDER MASTER SWITCH: ODDS_API_MASTER_ENABLED=false turns the
+        // whole The Odds API supplemental provider off. Its board rows are
+        // hidden from every public listing (isPublicVisible) AND rejected at
+        // placement (isBettable) in this single chokepoint — both surfaces
+        // read this annotation, so hidden and unplaceable flip together.
+        // Only ever flips true→false; Rundown rows are never touched.
+        if (!OddsApiEventMapper::masterEnabled()
+            && strtolower(trim((string) ($annotated['oddsSource'] ?? ''))) === OddsApiEventMapper::ODDS_SOURCE_TAG) {
+            $annotated['isPublicVisible'] = false;
+            $annotated['isBettable'] = false;
+            $annotated['bettingBlockedReason'] = 'This market is temporarily unavailable.';
+        }
+
         return $annotated;
     }
 

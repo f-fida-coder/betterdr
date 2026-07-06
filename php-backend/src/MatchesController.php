@@ -104,6 +104,13 @@ final class MatchesController
     private function listOutrights(): void
     {
         try {
+            // Provider master switch: outrights are 100% The Odds API-fed,
+            // so ODDS_API_MASTER_ENABLED=false empties the board outright.
+            // Before the cache read, so a flip takes effect immediately.
+            if (!OddsApiEventMapper::masterEnabled()) {
+                Response::json([], 200, self::NO_STORE_HEADER);
+                return;
+            }
             $sportKey = (string) ($_GET['sportKey'] ?? '');
             if ($sportKey !== '' && preg_match('/^[a-z][a-z0-9_]{1,79}$/', $sportKey) !== 1) {
                 Response::json(['error' => 'invalid_sport_key'], 400);
@@ -177,6 +184,12 @@ final class MatchesController
     private function listOutrightSports(): void
     {
         try {
+            // Provider master switch off → no outright sports advertised, so
+            // the futures sidebar sections hide (same fail path as no rows).
+            if (!OddsApiEventMapper::masterEnabled()) {
+                Response::json([], 200, self::NO_STORE_HEADER);
+                return;
+            }
             $cacheTtl = $this->envInt('SPORTSBOOK_OUTRIGHTS_SPORTS_CACHE_TTL_SECONDS', 60);
             $loader = function (): array {
                 $rows = $this->db->findMany('outrights', ['status' => 'open'], ['projection' => ['sportKey' => 1, 'eventName' => 1], 'limit' => 1000]);
@@ -1616,6 +1629,12 @@ final class MatchesController
             // computeMatches() applies at line 384.
             $source = strtolower((string) ($match['oddsSource'] ?? ''));
             if ($source === 'oddsapi') {
+                continue;
+            }
+            // Provider master switch off → theoddsapi rows are hidden from
+            // the match list (applyBettingAvailability strips them), so the
+            // sidebar must not advertise their sports either.
+            if ($source === OddsApiEventMapper::ODDS_SOURCE_TAG && !OddsApiEventMapper::masterEnabled()) {
                 continue;
             }
 

@@ -2822,6 +2822,9 @@ final class BetsController
      */
     private static function outrightsBettingEnabled(): bool
     {
+        if (!OddsApiEventMapper::masterEnabled()) {
+            return false; // ODDS_API_MASTER_ENABLED=false — whole provider off
+        }
         $flag = strtolower(trim((string) (Env::get('SPORTSBOOK_OUTRIGHTS_BETTING_ENABLED', 'false') ?? 'false')));
         return $flag === 'true' || $flag === '1';
     }

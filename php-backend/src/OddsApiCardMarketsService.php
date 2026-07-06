@@ -52,6 +52,9 @@ final class OddsApiCardMarketsService
 
     public static function enabled(): bool
     {
+        if (!OddsApiEventMapper::masterEnabled()) {
+            return false; // ODDS_API_MASTER_ENABLED=false — whole provider off
+        }
         $flag = strtolower(trim((string) (Env::get('ODDS_API_CARDS_SYNC_ENABLED', 'false') ?? 'false')));
         return ($flag === 'true' || $flag === '1') && OddsApiClient::isConfigured();
     }
@@ -59,6 +62,9 @@ final class OddsApiCardMarketsService
     /** Master player-facing gate — OFF until the Cards-3 manual-grading admin UI is live (ruling 2026-07-05). */
     public static function bettingEnabled(): bool
     {
+        if (!OddsApiEventMapper::masterEnabled()) {
+            return false; // provider master switch also darkens display+placement
+        }
         $flag = strtolower(trim((string) (Env::get('SPORTSBOOK_CARDS_BETTING_ENABLED', 'false') ?? 'false')));
         return $flag === 'true' || $flag === '1';
     }

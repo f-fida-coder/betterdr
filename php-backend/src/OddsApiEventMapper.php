@@ -213,6 +213,29 @@ final class OddsApiEventMapper
     }
 
     /**
+     * MASTER on/off switch for the entire The Odds API supplemental provider:
+     * ODDS_API_MASTER_ENABLED (default ON). Setting it to false/0/off turns
+     * every theoddsapi surface dark at once, regardless of the per-tier flags:
+     *   - oddsapi-worker goes inert (OddsApiSyncService::enabled())
+     *   - theoddsapi board rows are hidden from every public listing and
+     *     rejected at placement (SportsbookHealth::applyBettingAvailability —
+     *     the one chokepoint both surfaces read)
+     *   - the sidebar stops advertising their sports
+     *     (MatchesController::computeAvailableSports)
+     *   - /api/outrights + /api/outrights/sports serve empty and outright
+     *     placement is rejected (BetsController::outrightsBettingEnabled)
+     *   - card/corner markets go dark on display AND placement
+     *     (OddsApiCardMarketsService)
+     * Settlement of already-placed bets is deliberately NOT gated — pending
+     * bets on this provider's markets still grade and pay out normally.
+     */
+    public static function masterEnabled(): bool
+    {
+        $flag = strtolower(trim((string) (Env::get('ODDS_API_MASTER_ENABLED', 'true') ?? 'true')));
+        return !in_array($flag, ['false', '0', 'off', 'no'], true);
+    }
+
+    /**
      * True when a theoddsapi-sourced match is at/past its scheduled kickoff.
      *
      * This feed is prematch-only (no live status/score signal), so once

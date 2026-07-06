@@ -23,6 +23,9 @@ final class OddsApiSyncService
 
     public static function enabled(): bool
     {
+        if (!OddsApiEventMapper::masterEnabled()) {
+            return false; // ODDS_API_MASTER_ENABLED=false — whole provider off
+        }
         $flag = strtolower(trim((string) (Env::get('ODDS_API_SYNC_ENABLED', 'false') ?? 'false')));
         return ($flag === 'true' || $flag === '1') && OddsApiClient::isConfigured();
     }

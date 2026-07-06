@@ -364,3 +364,25 @@ TestRunner::run('oddsapi mapper: exchange lay markets are explicitly rejected', 
     $h2h = oamMarket($doc, 'sportsbet', 'h2h');
     TestRunner::assertEquals(2, count($h2h['outcomes']), 'NRL h2h maps 2-way cleanly');
 });
+
+TestRunner::run('masterEnabled: provider master switch semantics', function (): void {
+    // Default (env unset) — ON: shipping the switch changes nothing until an
+    // operator flips it.
+    unset($_ENV['ODDS_API_MASTER_ENABLED']);
+    TestRunner::assertEquals(true, OddsApiEventMapper::masterEnabled(), 'unset env defaults ON');
+
+    // Every accepted OFF spelling.
+    foreach (['false', '0', 'off', 'no', 'FALSE', ' Off '] as $off) {
+        $_ENV['ODDS_API_MASTER_ENABLED'] = $off;
+        TestRunner::assertEquals(false, OddsApiEventMapper::masterEnabled(), "'{$off}' turns the provider OFF");
+    }
+
+    // Anything else stays ON (fail-open to current behavior — a typo must
+    // never silently take the provider down).
+    foreach (['true', '1', 'on', 'yes', 'banana'] as $on) {
+        $_ENV['ODDS_API_MASTER_ENABLED'] = $on;
+        TestRunner::assertEquals(true, OddsApiEventMapper::masterEnabled(), "'{$on}' keeps the provider ON");
+    }
+
+    unset($_ENV['ODDS_API_MASTER_ENABLED']); // never leak into later suites
+});
