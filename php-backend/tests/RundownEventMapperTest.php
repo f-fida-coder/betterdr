@@ -30,6 +30,23 @@ if (!class_exists('SqlRepository')) {
     }
 }
 
+// getenv-backed Env stub (the mapper reads flat-juice/preferred-books envs;
+// shared run.php gets Env from an earlier suite, standalone runone needs it).
+if (!class_exists('Env')) {
+    class Env
+    {
+        public static function get(string $key, ?string $default = null): ?string
+        {
+            $v = getenv($key);
+            return $v === false ? $default : $v;
+        }
+    }
+}
+require_once dirname(__DIR__) . '/src/SportsMatchStatus.php';
+// Quarter-line promotion helpers live here (soccer spread/total suites) —
+// loaded by an earlier suite in the shared process, needed for runone.
+require_once dirname(__DIR__) . '/src/SportsbookBetSupport.php';
+
 // Helper — collect every extendedMarkets key off a mapped doc.
 function rmtExtendedKeys(array $doc): array
 {
@@ -642,4 +659,114 @@ TestRunner::run('soccer total: stays quarter when NO clean rung exists (blank fa
     $doc = RundownEventMapper::toMatchDoc(rmtSoccerTotalEvent(true), 'soccer_fifa_world_cup');
     $pts = array_map(static fn ($r) => $r[1], rmtAllTotalRungs($doc));
     TestRunner::assertTrue(in_array(3.25, $pts, true), 'quarter total left intact as last-resort fallback');
+});
+
+// ── Rundown status classification — FULL MAP LOCK (2026-07-06 incident) ─────
+//
+// STATUS_FULL_TIME was mapped 'live', so a decided soccer game (Norway–Brazil
+// 2-1, "Full Time") stayed on the board with OPEN BETTING for 17+ hours: the
+// score sweep re-asserted status='live' every tick and placement accepted.
+// This suite locks the classification of EVERY status Rundown documents
+// (docs.therundown.io/reference/event-statuses) so the next drifted or newly
+// added status fails a test instead of booking bets on finished games.
+
+// Minimal synthetic Rundown event carrying just a status — enough for
+// toMatchDoc()'s required fields (event_id, sport_id, home/away teams).
+function rmtStatusEvent(string $eventStatus, int $sh = 0, int $sa = 0): array
+{
+    return [
+        'event_id' => 'evt-status-' . strtolower($eventStatus),
+        'sport_id' => 14,
+        'teams' => [
+            ['team_id' => 1, 'name' => 'Brazil', 'is_home' => true,  'is_away' => false],
+            ['team_id' => 2, 'name' => 'Norway', 'is_home' => false, 'is_away' => true],
+        ],
+        'score' => [
+            'event_status' => $eventStatus,
+            'score_home' => $sh,
+            'score_away' => $sa,
+            'event_status_detail' => 'Full Time',
+        ],
+        'schedule' => ['event_name' => 'Norway at Brazil'],
+    ];
+}
+
+TestRunner::run('Rundown STATUS_MAP: full classification lock (every documented status)', function (): void {
+    // Complete list from docs.therundown.io/reference/event-statuses,
+    // including the soccer-only statuses. Update BOTH this table and
+    // RundownEventMapper::STATUS_MAP when Rundown adds a status.
+    $expected = [
+        // pre-game
+        'STATUS_SCHEDULED'         => 'scheduled',
+        'STATUS_TBD'               => 'scheduled',
+        'STATUS_DELAYED'           => 'scheduled',
+        'STATUS_RAIN_DELAY'        => 'scheduled',
+        'STATUS_NOT_AVAILABLE'     => 'scheduled',
+        // in-play
+        'STATUS_IN_PROGRESS'       => 'live',
+        'STATUS_HALFTIME'          => 'live',
+        'STATUS_HALFTIME_ET'       => 'live',      // was UNMAPPED (would strand a live row)
+        'STATUS_END_PERIOD'        => 'live',
+        'STATUS_FIRST_HALF'        => 'live',
+        'STATUS_SECOND_HALF'       => 'live',
+        'STATUS_OVERTIME'          => 'live',
+        'STATUS_SHOOTOUT'          => 'live',
+        'STATUS_END_OF_REGULATION' => 'live',
+        'STATUS_SUSPENDED'         => 'live',      // deliberate: row stays warm, serve-time normalize blocks betting
+        // terminal — result stands
+        'STATUS_FINAL'             => 'finished',
+        'STATUS_FINAL_AET'         => 'finished',
+        'STATUS_FINAL_PEN'         => 'finished',
+        'STATUS_FORFEIT'           => 'finished',
+        'STATUS_FULL_TIME'         => 'finished',  // THE 2026-07-06 BUG: was 'live'
+        // terminal — void
+        'STATUS_POSTPONED'         => 'canceled',
+        'STATUS_CANCELED'          => 'canceled',
+        'STATUS_ABANDONED'         => 'canceled',  // was UNMAPPED (would strand a live row)
+    ];
+    foreach ($expected as $rundownStatus => $want) {
+        $doc = RundownEventMapper::toMatchDoc(rmtStatusEvent($rundownStatus), 'soccer_fifa_world_cup');
+        TestRunner::assertNotNull($doc, "{$rundownStatus}: event maps");
+        TestRunner::assertEquals($want, (string) ($doc['status'] ?? ''), "{$rundownStatus} → {$want}");
+    }
+});
+
+TestRunner::run('Rundown scoreUpdate: terminal statuses land, unknown statuses never demote', function (): void {
+    // The score-sweep path: FULL_TIME must WRITE finished (this is the tick
+    // that closes betting and triggers instant settlement in the worker).
+    $patch = RundownEventMapper::scoreUpdate(rmtStatusEvent('STATUS_FULL_TIME', 2, 1));
+    TestRunner::assertEquals('finished', (string) ($patch['status'] ?? ''), 'FULL_TIME score tick writes status=finished');
+    $patch = RundownEventMapper::scoreUpdate(rmtStatusEvent('STATUS_ABANDONED'));
+    TestRunner::assertEquals('canceled', (string) ($patch['status'] ?? ''), 'ABANDONED score tick writes status=canceled');
+    // Unknown/sport-specific statuses must not touch status at all (the
+    // old '?? scheduled' default once demoted live rows).
+    $patch = RundownEventMapper::scoreUpdate(rmtStatusEvent('STATUS_SOMETHING_RUNDOWN_ADDED_LATER'));
+    TestRunner::assertFalse(array_key_exists('status', $patch), 'unknown status writes NO status key');
+});
+
+TestRunner::run('normalize()/annotate(): FULL_TIME is terminal at serve time (read-layer backstop)', function (): void {
+    // Layer-2 defense: rows already stored 'live' by the OLD map must still
+    // annotate as finished from score.event_status alone — this is what
+    // closes betting immediately on deploy and lets the settle sweep grade
+    // stuck rows without waiting for a feed rewrite.
+    TestRunner::assertEquals('finished', SportsMatchStatus::normalize('live', 'STATUS_FULL_TIME'), 'normalize(live, FULL_TIME) → finished');
+    TestRunner::assertEquals('finished', SportsMatchStatus::normalize('', 'STATUS_FULL_TIME'), 'normalize(-, FULL_TIME) → finished');
+    // HALFTIME_ET must NOT be swallowed by the FULL_TIME pattern.
+    TestRunner::assertEquals('live', SportsMatchStatus::normalize('live', 'STATUS_HALFTIME_ET'), 'normalize(live, HALFTIME_ET) stays live');
+
+    // The exact incident row: stored status 'live', real score, FULL_TIME.
+    $incidentRow = [
+        'status' => 'live',
+        'startTime' => date('c', time() - 90 * 60),
+        'lastUpdated' => date('c', time() - 30),
+        'sportKey' => 'soccer_fifa_world_cup',
+        'score' => [
+            'event_status' => 'STATUS_FULL_TIME',
+            'score_home' => 2,
+            'score_away' => 1,
+        ],
+    ];
+    $annotated = SportsMatchStatus::annotate($incidentRow);
+    TestRunner::assertEquals('finished', (string) ($annotated['status'] ?? ''), 'incident row annotates finished');
+    TestRunner::assertFalse((bool) ($annotated['isBettable'] ?? true), 'incident row is NOT bettable');
 });

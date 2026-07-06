@@ -41,6 +41,15 @@ final class SportsMatchStatus
             str_contains($status, 'FINAL')
             || str_contains($status, 'COMPLETE')
             || str_contains($status, 'CLOSED')
+            // Soccer regulation full time (STATUS_FULL_TIME) is terminal for
+            // us — markets grade at 90'. Read-time backstop for the
+            // RundownEventMapper STATUS_MAP fix (2026-07-06 incident): rows
+            // written 'live' by the old map still ANNOTATE as finished, which
+            // closes betting at serve time and lets the settle sweep grade
+            // them without waiting for a feed rewrite. Does NOT match
+            // STATUS_HALFTIME_ET ('HALFTIME_ET' lacks the 'FULL_TIME'
+            // substring).
+            || str_contains($status, 'FULL_TIME')
             || $status === 'FINISHED'
         ) {
             return 'finished';

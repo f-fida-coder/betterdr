@@ -34,7 +34,15 @@ final class RundownEventMapper
 
     /**
      * Rundown event_status → matches.doc.status.
-     * Anything not listed defaults to 'scheduled' (safer than blocking a row).
+     *
+     * Defaults for anything NOT listed: toMatchDoc() falls back to
+     * 'scheduled'; scoreUpdate() writes NO status (keeps the row's current
+     * one). That second default means an unmapped TERMINAL status leaves a
+     * live row live FOREVER — exactly the 2026-07-06 incident (see
+     * STATUS_FULL_TIME below). When Rundown adds a status, classify it here
+     * AND extend the RundownEventMapperTest full-map lock.
+     *
+     * Audited 2026-07-06 against docs.therundown.io/reference/event-statuses.
      */
     private const STATUS_MAP = [
         'STATUS_SCHEDULED'          => 'scheduled',
@@ -44,20 +52,41 @@ final class RundownEventMapper
         'STATUS_NOT_AVAILABLE'      => 'scheduled',
         'STATUS_POSTPONED'          => 'canceled',
         'STATUS_CANCELED'           => 'canceled',
+        // Match stopped and will not resume (crowd trouble, weather, etc.) —
+        // void/refund like a cancel. Was previously UNMAPPED: a live row hit
+        // by ABANDONED kept status 'live' forever (same bug class as
+        // FULL_TIME below).
+        'STATUS_ABANDONED'          => 'canceled',
         'STATUS_FORFEIT'            => 'finished',
         'STATUS_FINAL'              => 'finished',
         'STATUS_FINAL_AET'          => 'finished',
         'STATUS_FINAL_PEN'          => 'finished',
+        // Soccer regulation full time — TERMINAL for us. Rundown's docs say
+        // "the match may continue to extra time", but (a) our soccer markets
+        // grade at regulation like every mainstream book, and (b) Rundown
+        // parks non-knockout games on FULL_TIME indefinitely: mapping it
+        // 'live' kept a decided World Cup game (Norway–Brazil 2-1) on the
+        // board with open betting for 17+ hours (2026-07-06 incident).
+        // Knockout ET is deliberately not offered live — the row finishes at
+        // 90' and grades on the regulation score.
+        'STATUS_FULL_TIME'          => 'finished',
         'STATUS_IN_PROGRESS'        => 'live',
         'STATUS_HALFTIME'           => 'live',
+        // Halftime of extra time (soccer knockout). Was previously UNMAPPED.
+        // Only reachable if the row never saw FULL_TIME (feed raced straight
+        // into ET statuses) — in-play, so 'live'.
+        'STATUS_HALFTIME_ET'        => 'live',
         'STATUS_END_PERIOD'         => 'live',
         'STATUS_FIRST_HALF'         => 'live',
         'STATUS_SECOND_HALF'        => 'live',
         'STATUS_OVERTIME'           => 'live',
         'STATUS_SHOOTOUT'           => 'live',
         'STATUS_END_OF_REGULATION'  => 'live',
+        // Deliberate split-brain: the MAP keeps a suspended row 'live' so
+        // score updates keep flowing, while SportsMatchStatus::normalize()
+        // reads score.event_status ('...SUSPEND...') as 'suspended' at serve
+        // time → betting blocked but the row stays warm for a resume.
         'STATUS_SUSPENDED'          => 'live',
-        'STATUS_FULL_TIME'          => 'live',
     ];
 
     /**
