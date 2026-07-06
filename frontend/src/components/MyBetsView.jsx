@@ -204,11 +204,38 @@ const ticketSummary = (bet) => {
     return `${team} ML`;
 };
 
+// "Line moved" detail for a repriced leg, or null when the leg booked at
+// the slip's exact price. Booking auto-accepts favorable moves and small
+// in-band adverse moves at the official current price; when that happens
+// the leg carries the audit-only clientOddsAmerican (slip price at
+// submit). Display-only — settlement never reads it.
+const legPriceMovedText = (leg, oddsFormat) => {
+    const clientAm = Number(leg?.clientOddsAmerican);
+    const bookedAm = Number(leg?.oddsAmerican);
+    if (!Number.isFinite(clientAm) || clientAm === 0 || clientAm === bookedAm) return null;
+    const clientDec = americanToDecimal(clientAm);
+    const bookedDec = Number(leg?.odds) > 1 ? Number(leg.odds) : americanToDecimal(bookedAm);
+    if (!clientDec || !bookedDec) return null;
+    const improved = bookedDec >= clientDec;
+    return `${formatOdds(clientDec, oddsFormat)} → ${formatOdds(bookedDec, oddsFormat)}${improved ? ' (price improved)' : ''}`;
+};
+
 // One-line description for a single leg, e.g. "Lakers -4 -110".
 // Used for both single-game tickets and the indented leg rows under
 // a multi-leg parent. Returns the raw string the UI renders verbatim
-// in the Description column.
+// in the Description column. A leg that booked at a different price
+// than the slip carried gets a "(was -400)" suffix so the row itself
+// discloses the reprice — the drill-down panel has the full arrow.
 const legDescription = (leg, oddsFormat) => {
+    const base = legDescriptionBase(leg, oddsFormat);
+    const clientAm = Number(leg?.clientOddsAmerican);
+    if (!Number.isFinite(clientAm) || clientAm === 0) return base;
+    const clientDec = americanToDecimal(clientAm);
+    if (!clientDec) return base;
+    return `${base} (was ${formatOdds(clientDec, oddsFormat)})`;
+};
+
+const legDescriptionBase = (leg, oddsFormat) => {
     const market = String(leg?.marketType || '').toLowerCase();
     const point = Number.isFinite(Number(leg?.point)) ? Number(leg.point) : null;
     const selection = String(leg?.selection || '').trim();
@@ -895,6 +922,10 @@ const LegDetailsPanel = ({ leg, parentBet, oddsFormat }) => {
     // own Market row below.
     rows.push(['Selection', [legSelectionFullText(leg), formatOdds(leg?.odds, oddsFormat)].filter(Boolean).join(' ')]);
     rows.push(['Market', legMarketLabel(leg)]);
+    {
+        const moved = legPriceMovedText(leg, oddsFormat);
+        if (moved) rows.push(['Line Moved', moved]);
+    }
     if (scheduled) rows.push(['Scheduled', scheduled]);
     if (accepted) rows.push(['Accepted', accepted]);
     if (note) rows.push(['Note', note]);
@@ -975,6 +1006,10 @@ const BetDetailsPanel = ({ bet, oddsFormat }) => {
         rows.push(['Selection', legSelectionFullText(firstLeg)]);
     }
     rows.push(['Odds', odds]);
+    if (!isMulti && firstLeg) {
+        const moved = legPriceMovedText(firstLeg, oddsFormat);
+        if (moved) rows.push(['Line Moved', moved]);
+    }
     rows.push(['Placed', placedAt]);
     if (settledAt) rows.push(['Settled', settledAt]);
     if (ticketIdShort) rows.push(['Ticket', `#${ticketIdShort}`]);

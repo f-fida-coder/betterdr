@@ -1,6 +1,6 @@
 import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
-import { formatOdds, formatLineValue, formatSpreadValue } from '../utils/odds';
+import { formatOdds, formatLineValue, formatSpreadValue, americanToDecimal } from '../utils/odds';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
 
@@ -46,6 +46,28 @@ const lineSuffix = (leg) => {
 const propMarketSuffix = (leg) => (
     isPlayerPropMarket(leg?.marketType) ? ` ${prettyPlayerMarketLabel(leg?.marketType)}` : ''
 );
+
+// "Line moved" note under a repriced leg. Booking auto-accepts favorable
+// moves and small in-band adverse moves, placing at the official current
+// price; when that happened the leg carries the audit-only
+// clientOddsAmerican (the slip's price at submit). Surfacing the move here
+// is what keeps the receipt from silently disagreeing with the slip the
+// player just saw. Green when the booked price pays more, muted otherwise
+// (an in-band move is routine, not an error).
+const LegPriceMovedNote = ({ leg, oddsFormat }) => {
+    const clientAm = Number(leg?.clientOddsAmerican);
+    const bookedAm = Number(leg?.oddsAmerican);
+    if (!Number.isFinite(clientAm) || clientAm === 0 || clientAm === bookedAm) return null;
+    const clientDec = americanToDecimal(clientAm);
+    const bookedDec = Number(leg?.odds) > 1 ? Number(leg.odds) : americanToDecimal(bookedAm);
+    if (!clientDec || !bookedDec) return null;
+    const improved = bookedDec >= clientDec;
+    return (
+        <div style={{ fontSize: 11, marginTop: 2, fontWeight: 700, color: improved ? '#16a34a' : '#64748b' }}>
+            {improved ? 'Price improved' : 'Line moved'}: {formatOdds(clientDec, oddsFormat)} → {formatOdds(bookedDec, oddsFormat)}
+        </div>
+    );
+};
 
 const matchTitle = (leg) => {
     const home = leg?.matchSnapshot?.homeTeamFull || leg?.matchSnapshot?.homeTeam || leg?.match?.homeTeamFull || leg?.match?.homeTeam;
@@ -237,6 +259,7 @@ const WagerConfirmedScreen = ({
                                                         {matchStartTime(leg)}
                                                     </div>
                                                 )}
+                                                <LegPriceMovedNote leg={leg} oddsFormat={oddsFormat} />
                                             </div>
                                             <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>
                                                 {formatOdds(leg.odds, oddsFormat)}

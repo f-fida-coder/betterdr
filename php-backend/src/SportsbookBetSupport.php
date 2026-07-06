@@ -2029,6 +2029,13 @@ final class SportsbookBetSupport
             'playerTeamSide' => $selection['playerTeamSide'] ?? null,
             'odds' => self::num($selection['odds'] ?? 0),
             'oddsAmerican' => $americanOdds,
+            // Slip price at submit when booking repriced the leg (favorable
+            // or in-band adverse auto-accept), else null. Audit/display only
+            // — the receipt and Pending render "line moved -210 → -220" off
+            // it; no payout or settlement math ever reads it.
+            'clientOddsAmerican' => isset($selection['clientOddsAmerican']) && is_numeric($selection['clientOddsAmerican'])
+                ? (int) $selection['clientOddsAmerican']
+                : null,
             'marketType' => $selection['marketType'] ?? null,
             'point' => isset($selection['point']) && is_numeric($selection['point']) ? (float) $selection['point'] : null,
             'basePoint' => isset($selection['basePoint']) && is_numeric($selection['basePoint']) ? (float) $selection['basePoint'] : null,

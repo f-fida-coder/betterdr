@@ -2919,9 +2919,15 @@ final class BetsController
             throw new ApiException('Odds exceed maximum allowed value for selection ' . $selection, 409, ['code' => 'ODDS_EXCEEDS_MAX']);
         }
 
+        $clientOddsAmerican = null;
         if (is_numeric($odds)) {
             $clientSnapped = SportsbookBetSupport::snapDecimalOdds((float) $odds);
             $clientAmericanInt = SportsbookBetSupport::decimalToAmericanInt($clientSnapped);
+            // Audit-only slip-price snapshot when booking repriced the leg —
+            // same contract as the match path (never read by settlement).
+            if ($clientAmericanInt !== 0 && $clientAmericanInt !== $officialAmericanInt) {
+                $clientOddsAmerican = $clientAmericanInt;
+            }
             // Gate by the acceptance policy, not raw inequality: a favorable
             // move or a small adverse move (within the band) auto-places at the
             // official price below; only a policy-breaching move prompts.
@@ -2973,6 +2979,7 @@ final class BetsController
             'selectionPid' => $outcome['pid'] ?? null,
             'odds' => $officialOdds,
             'oddsAmerican' => $officialAmericanInt,
+            'clientOddsAmerican' => $clientOddsAmerican,
             'marketType' => 'outrights',
             'point' => null,
             'matchSnapshot' => $snapshot,
@@ -3426,9 +3433,19 @@ final class BetsController
         // decimal floating-point mismatches on the 0.0001 threshold.
         // For Buy Points legs, "official" here means the server's repriced
         // ladder value (not the base market price).
+        $clientOddsAmerican = null;
         if (is_numeric($odds)) {
             $clientSnapped = SportsbookBetSupport::snapDecimalOdds((float) $odds);
             $clientAmericanInt = SportsbookBetSupport::decimalToAmericanInt($clientSnapped);
+            // Audit-only snapshot of the price the CLIENT's slip carried when
+            // it differs from the booked official price (favorable move or
+            // in-band adverse move auto-accepted below). Never read by any
+            // payout/settlement math — those use odds/oddsAmerican only. Lets
+            // receipts and Pending show "line moved -210 → -220" instead of a
+            // silent reprice the player has to escalate to understand.
+            if ($clientAmericanInt !== 0 && $clientAmericanInt !== $effectiveAmerican) {
+                $clientOddsAmerican = $clientAmericanInt;
+            }
             // Gate by the acceptance policy, not raw inequality: a favorable
             // move or a small adverse move (within the band) auto-places at the
             // official price below; only a policy-breaching move prompts. For
@@ -3492,6 +3509,9 @@ final class BetsController
             'side' => $outcome['side'] ?? null,
             'odds' => $effectiveDecimal,
             'oddsAmerican' => $effectiveAmerican,
+            // Audit-only: the slip's price when booking repriced the leg
+            // (null when unchanged). Display reads it; settlement never does.
+            'clientOddsAmerican' => $clientOddsAmerican,
             'marketType' => $marketKey,
             'point' => $adjustedPoint,
             // Audit fields — present whenever Buy Points applied. Settlement
@@ -3541,6 +3561,10 @@ final class BetsController
             'selectionPid' => $selection['selectionPid'] ?? null,
             'odds' => (float) $selection['odds'],
             'oddsAmerican' => isset($selection['oddsAmerican']) ? (int) $selection['oddsAmerican'] : null,
+            // Audit-only slip price when booking repriced this leg (else null).
+            'clientOddsAmerican' => isset($selection['clientOddsAmerican']) && is_numeric($selection['clientOddsAmerican'])
+                ? (int) $selection['clientOddsAmerican']
+                : null,
             'marketType' => $selection['marketType'] ?? '',
             // Team totals canonical grading fields. Null on every non-team-total
             // leg; settlement reads these (NOT the display name) to grade the
