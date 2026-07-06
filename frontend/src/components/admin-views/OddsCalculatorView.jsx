@@ -16,8 +16,6 @@ const MAX_PARLAY_LEGS = 10;
 
 // ── Formatting ────────────────────────────────────────────────────────────────
 
-const fmtAmerican = (n) => (n > 0 ? `+${n}` : `${n}`);
-
 // Combined-parlay readout only — thousands separators keep a stacked
 // longshot ticket readable (+2,593,742,460,100 beats +2.59e12). Never used
 // for input fields; the parsers accept commas but the inputs stay plain.
@@ -48,12 +46,30 @@ const fmtMoney2dp = (value) => {
 
 // ── Parsing (raw text → validated number or null) ─────────────────────────────
 
-const parseAmericanText = (raw) => {
-  const trimmed = String(raw || '').trim().replace(/,/g, '').replace(/^\+/, '');
-  if (trimmed === '' || !/^-?\d+$/.test(trimmed)) return null;
+// American inputs are split into MAGNITUDE (the typed digits) + SIGN (the
+// [+|−] toggle beside the field) — mobile number keyboards bury the minus
+// key, which produced "typed 130, meant +130, saw —" product feedback.
+// The toggle is the source of truth for sign; this parses digits only.
+const parseMagnitudeText = (raw) => {
+  const trimmed = String(raw || '').trim().replace(/,/g, '');
+  if (trimmed === '' || !/^\d+$/.test(trimmed)) return null;
   const n = parseInt(trimmed, 10);
-  if (Math.abs(n) < MIN_ABS_AMERICAN || Math.abs(n) > MAX_ABS_AMERICAN) return null;
+  if (n < MIN_ABS_AMERICAN || n > MAX_ABS_AMERICAN) return null;
   return n;
+};
+
+// Normalize typed/pasted text for a magnitude field: any explicit sign
+// character still works (it flips the toggle — last one typed wins) and
+// is stripped from the digits. Returns { text, sign } with sign null when
+// the user typed no sign character.
+const applySignedText = (raw) => {
+  const s = String(raw || '');
+  let sign = null;
+  for (const ch of s) {
+    if (ch === '+') sign = 1;
+    else if (ch === '-' || ch === '−') sign = -1;
+  }
+  return { text: s.replace(/[+\-−\s]/g, ''), sign };
 };
 
 const parseDecimalText = (raw) => {
@@ -119,17 +135,47 @@ function Readout({ label, value, color = '#0f172a', secondary = null }) {
   );
 }
 
+// Segmented [+|−] sign picker rendered beside every American-odds input.
+// Sign by tap, not by keyboard — the toggle IS the sign; the field holds
+// only the digits.
+function SignToggle({ sign, onChange }) {
+  return (
+    <div style={{ display: 'flex', flexShrink: 0, border: '1px solid #cbd5e1', borderRadius: 6, overflow: 'hidden' }}>
+      {[[1, '+'], [-1, '−']].map(([s, label]) => (
+        <button
+          key={label}
+          type="button"
+          onClick={() => onChange(s)}
+          aria-label={s === 1 ? 'Positive (underdog) odds' : 'Negative (favorite) odds'}
+          aria-pressed={sign === s}
+          style={{
+            minHeight: 44, minWidth: 40, border: 'none', fontWeight: 800, fontSize: 16, cursor: 'pointer',
+            background: sign === s ? '#0f172a' : '#fff',
+            color: sign === s ? '#fff' : '#64748b',
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── Tab 1: Converter & Payout ─────────────────────────────────────────────────
 
 function ConverterTab() {
   // Raw text per field so the field being typed in is never rewritten
   // under the user's cursor; the other two always render derived values.
-  const [fields, setFields] = useState({ american: '-110', decimal: '', prob: '' });
+  // American = digits-only magnitude + the sign toggle (default −110,
+  // matching the old prefill).
+  const [fields, setFields] = useState({ american: '110', decimal: '', prob: '' });
+  const [americanSign, setAmericanSign] = useState(-1);
   const [driver, setDriver] = useState('american'); // which field the user last edited
   const [stakeText, setStakeText] = useState('100');
 
+  const americanMagnitude = parseMagnitudeText(fields.american);
   const driverValue = driver === 'american'
-    ? parseAmericanText(fields.american)
+    ? (americanMagnitude === null ? null : americanSign * americanMagnitude)
     : driver === 'decimal'
       ? parseDecimalText(fields.decimal)
       : parseProbText(fields.prob);
@@ -142,7 +188,7 @@ function ConverterTab() {
 
   const driverError = fields[driver].trim() !== '' && american === null;
   const errorMessage = driver === 'american'
-    ? `Enter a whole number from -${MAX_ABS_AMERICAN} to -${MIN_ABS_AMERICAN} or +${MIN_ABS_AMERICAN} to +${MAX_ABS_AMERICAN}`
+    ? `Enter odds of ${MIN_ABS_AMERICAN} to ${MAX_ABS_AMERICAN.toLocaleString('en-US')} — pick + or − with the toggle`
     : driver === 'decimal'
       ? `Enter decimal odds from ${MIN_DECIMAL} to ${MAX_DECIMAL}`
       : 'Enter a probability that maps inside ±100…±50000 American (about 0.2%–99.8%)';
@@ -150,14 +196,39 @@ function ConverterTab() {
   const displayFor = (field) => {
     if (field === driver) return fields[field];
     if (american === null) return '';
-    if (field === 'american') return fmtAmerican(american);
+    if (field === 'american') return String(Math.abs(american));
     if (field === 'decimal') return Number(decimal.toFixed(4)).toString();
     return `${impliedProb.toFixed(2)}%`;
   };
+  // Toggle mirrors the derived sign while decimal/prob drives; editing it
+  // makes American the driver again.
+  const displayedSign = driver === 'american'
+    ? americanSign
+    : (american !== null ? (american > 0 ? 1 : -1) : americanSign);
 
   const onFieldChange = (field, value) => {
     setDriver(field);
+    if (field === 'american') {
+      const { text, sign } = applySignedText(value);
+      setFields((prev) => ({ ...prev, american: text }));
+      // Typed sign wins; clearing the field resets to + so a fresh bare
+      // number reads positive (product rule 2026-07-06).
+      if (sign !== null) setAmericanSign(sign);
+      else if (text === '') setAmericanSign(1);
+      return;
+    }
     setFields((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const onAmericanSignChange = (sign) => {
+    if (driver !== 'american') {
+      // Adopt the currently-derived magnitude so tapping the toggle while
+      // decimal/prob drives flips THAT number's sign instead of reviving
+      // stale text.
+      setFields((prev) => ({ ...prev, american: american !== null ? String(Math.abs(american)) : prev.american }));
+      setDriver('american');
+    }
+    setAmericanSign(sign);
   };
 
   const stake = parseStakeText(stakeText);
@@ -177,16 +248,19 @@ function ConverterTab() {
           Type into any one field — the other two convert live. Decimal and probability inputs snap to the nearest whole American number, the same basis bets are booked at.
         </div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 140px', minWidth: 130 }}>
+          <div style={{ flex: '1 1 180px', minWidth: 170 }}>
             <label style={labelStyle}>American</label>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={displayFor('american')}
-              onChange={(e) => onFieldChange('american', e.target.value)}
-              placeholder="-110"
-              style={driver === 'american' && driverError ? inputErrorStyle : inputStyle}
-            />
+            <div style={{ display: 'flex', gap: 6 }}>
+              <SignToggle sign={displayedSign} onChange={onAmericanSignChange} />
+              <input
+                type="text"
+                inputMode="numeric"
+                value={displayFor('american')}
+                onChange={(e) => onFieldChange('american', e.target.value)}
+                placeholder="110"
+                style={{ ...(driver === 'american' && driverError ? inputErrorStyle : inputStyle), flex: 1, minWidth: 0 }}
+              />
+            </div>
           </div>
           <div style={{ flex: '1 1 140px', minWidth: 130 }}>
             <label style={labelStyle}>Decimal</label>
@@ -244,14 +318,26 @@ function ConverterTab() {
 // ── Tab 2: Parlay ─────────────────────────────────────────────────────────────
 
 function ParlayTab() {
-  const [legTexts, setLegTexts] = useState(['-110', '-110']);
+  // Each leg = digits-only magnitude + sign toggle. Fresh legs default to
+  // + so a bare typed number reads positive (product rule 2026-07-06);
+  // the toggle is the source of truth for sign.
+  const emptyLeg = () => ({ text: '', sign: 1 });
+  const [legInputs, setLegInputs] = useState([emptyLeg(), emptyLeg()]);
   const [stakeText, setStakeText] = useState('100');
 
-  const legs = legTexts.map(parseAmericanText);
+  const legs = legInputs.map(({ text, sign }) => {
+    const magnitude = parseMagnitudeText(text);
+    return magnitude === null ? null : sign * magnitude;
+  });
   const allValid = legs.every((n) => n !== null);
   const stake = parseStakeText(stakeText);
   const stakeError = stakeText.trim() !== '' && stake === null;
 
+  // Why the combined shows "—": the first empty/invalid leg, spelled out
+  // beside the dashes — silent dashes were the product complaint.
+  const firstBadLeg = legs.findIndex((n) => n === null);
+
+  const legsKey = legInputs.map(({ text, sign }) => `${sign}${text}`).join('|');
   const parlay = useMemo(() => {
     if (!allValid) return null;
     // Per-leg exact decimal from the American int, multiplied, then locked
@@ -262,7 +348,7 @@ function ParlayTab() {
     const combinedAmerican = decimalToAmerican(rawCombined);
     const lockedCombined = roundCombinedToAmericanDecimal(rawCombined);
     return { rawCombined, combinedAmerican, lockedCombined };
-  }, [legTexts.join('|'), allValid]);
+  }, [legsKey, allValid]);
 
   const exactPayout = parlay && stake !== null ? stake * parlay.lockedCombined : null;
   const bookedPayout = exactPayout !== null ? Math.round(exactPayout) : null;
@@ -270,11 +356,21 @@ function ParlayTab() {
   const payoutDiffers = exactPayout !== null && Math.abs(exactPayout - bookedPayout) >= 0.005;
   const combinedSnapped = parlay && Math.abs(parlay.lockedCombined - parlay.rawCombined) >= 0.00005;
 
-  const setLeg = (index, value) => {
-    setLegTexts((prev) => prev.map((t, i) => (i === index ? value : t)));
+  const setLegText = (index, value) => {
+    const { text, sign } = applySignedText(value);
+    setLegInputs((prev) => prev.map((leg, i) => {
+      if (i !== index) return leg;
+      // Typed sign wins; clearing the field resets to + so a fresh bare
+      // number reads positive.
+      const nextSign = sign !== null ? sign : (text === '' ? 1 : leg.sign);
+      return { text, sign: nextSign };
+    }));
   };
-  const addLeg = () => setLegTexts((prev) => (prev.length < MAX_PARLAY_LEGS ? [...prev, ''] : prev));
-  const removeLeg = (index) => setLegTexts((prev) => (prev.length > MIN_PARLAY_LEGS ? prev.filter((_, i) => i !== index) : prev));
+  const setLegSign = (index, sign) => {
+    setLegInputs((prev) => prev.map((leg, i) => (i === index ? { ...leg, sign } : leg)));
+  };
+  const addLeg = () => setLegInputs((prev) => (prev.length < MAX_PARLAY_LEGS ? [...prev, emptyLeg()] : prev));
+  const removeLeg = (index) => setLegInputs((prev) => (prev.length > MIN_PARLAY_LEGS ? prev.filter((_, i) => i !== index) : prev));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -282,37 +378,38 @@ function ParlayTab() {
         <div style={{ color: '#64748b', fontSize: 13 }}>
           American odds per leg ({MIN_PARLAY_LEGS}–{MAX_PARLAY_LEGS} legs). Combined price locks to the rounded American line — the same number the book stores and settles at.
         </div>
-        {legTexts.map((text, index) => {
+        {legInputs.map(({ text, sign }, index) => {
           const invalid = text.trim() !== '' && legs[index] === null;
           return (
             <div key={index} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-              <div style={{ flex: '0 0 64px', paddingTop: 12, fontSize: 13, fontWeight: 700, color: '#475569' }}>
+              <div style={{ flex: '0 0 48px', paddingTop: 12, fontSize: 13, fontWeight: 700, color: '#475569' }}>
                 Leg {index + 1}
               </div>
-              <div style={{ flex: 1 }}>
+              <SignToggle sign={sign} onChange={(s) => setLegSign(index, s)} />
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <input
                   type="text"
                   inputMode="numeric"
                   value={text}
-                  onChange={(e) => setLeg(index, e.target.value)}
-                  placeholder="-110"
+                  onChange={(e) => setLegText(index, e.target.value)}
+                  placeholder="110"
                   style={invalid ? inputErrorStyle : inputStyle}
                 />
                 {invalid && (
                   <div style={errorTextStyle}>
-                    Whole number, -{MAX_ABS_AMERICAN} to -{MIN_ABS_AMERICAN} or +{MIN_ABS_AMERICAN} to +{MAX_ABS_AMERICAN}
+                    Enter odds of {MIN_ABS_AMERICAN} to {MAX_ABS_AMERICAN.toLocaleString('en-US')}
                   </div>
                 )}
               </div>
               <button
                 type="button"
                 onClick={() => removeLeg(index)}
-                disabled={legTexts.length <= MIN_PARLAY_LEGS}
+                disabled={legInputs.length <= MIN_PARLAY_LEGS}
                 aria-label={`Remove leg ${index + 1}`}
                 style={{
                   flexShrink: 0, minHeight: 44, minWidth: 44, border: '1px solid #cbd5e1', borderRadius: 6,
-                  background: '#fff', fontSize: 16, cursor: legTexts.length <= MIN_PARLAY_LEGS ? 'not-allowed' : 'pointer',
-                  color: legTexts.length <= MIN_PARLAY_LEGS ? '#cbd5e1' : '#64748b',
+                  background: '#fff', fontSize: 16, cursor: legInputs.length <= MIN_PARLAY_LEGS ? 'not-allowed' : 'pointer',
+                  color: legInputs.length <= MIN_PARLAY_LEGS ? '#cbd5e1' : '#64748b',
                 }}
               >
                 ✕
@@ -323,11 +420,11 @@ function ParlayTab() {
         <button
           type="button"
           onClick={addLeg}
-          disabled={legTexts.length >= MAX_PARLAY_LEGS}
+          disabled={legInputs.length >= MAX_PARLAY_LEGS}
           style={{
             alignSelf: 'flex-start', minHeight: 44, padding: '8px 16px', borderRadius: 6, fontWeight: 700, fontSize: 13,
-            border: '1px solid #cbd5e1', background: '#fff', color: legTexts.length >= MAX_PARLAY_LEGS ? '#cbd5e1' : '#0f172a',
-            cursor: legTexts.length >= MAX_PARLAY_LEGS ? 'not-allowed' : 'pointer',
+            border: '1px solid #cbd5e1', background: '#fff', color: legInputs.length >= MAX_PARLAY_LEGS ? '#cbd5e1' : '#0f172a',
+            cursor: legInputs.length >= MAX_PARLAY_LEGS ? 'not-allowed' : 'pointer',
           }}
         >
           + Add Leg
@@ -346,6 +443,11 @@ function ParlayTab() {
             secondary={combinedSnapped ? `raw ${parlay.rawCombined.toFixed(4)} before American-line lock` : null}
           />
         </div>
+        {!parlay && firstBadLeg !== -1 && (
+          <div style={{ color: '#9a3412', fontSize: 12, fontWeight: 600 }}>
+            Leg {firstBadLeg + 1}: enter odds of {MIN_ABS_AMERICAN} to {MAX_ABS_AMERICAN.toLocaleString('en-US')} — pick + or − with the toggle
+          </div>
+        )}
         <div style={{ maxWidth: 220 }}>
           <label style={labelStyle}>Stake</label>
           <input
