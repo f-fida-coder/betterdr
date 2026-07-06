@@ -70,15 +70,18 @@ TestRunner::run('baseball: MLB innings markets emit _1st_N_innings suffix', func
     TestRunner::assertEquals('h2h_1st_5_innings',     RundownMarketMap::explicitPeriodKey(769,  'baseball_mlb'));
     TestRunner::assertEquals('totals_1st_5_innings',  RundownMarketMap::explicitPeriodKey(780,  'baseball_mlb'));
     TestRunner::assertEquals('spreads_1st_5_innings', RundownMarketMap::explicitPeriodKey(791,  'baseball_mlb'));
-    TestRunner::assertEquals('h2h_1st_3_innings',     RundownMarketMap::explicitPeriodKey(1109, 'baseball_mlb'));
-    TestRunner::assertEquals('spreads_1st_3_innings', RundownMarketMap::explicitPeriodKey(1110, 'baseball_mlb'));
-    TestRunner::assertEquals('totals_1st_3_innings',  RundownMarketMap::explicitPeriodKey(1111, 'baseball_mlb'));
-    TestRunner::assertEquals('h2h_1st_7_innings',     RundownMarketMap::explicitPeriodKey(1112, 'baseball_mlb'));
-    TestRunner::assertEquals('spreads_1st_7_innings', RundownMarketMap::explicitPeriodKey(1113, 'baseball_mlb'));
-    TestRunner::assertEquals('totals_1st_7_innings',  RundownMarketMap::explicitPeriodKey(1114, 'baseball_mlb'));
     TestRunner::assertEquals('h2h_1st_1_innings',     RundownMarketMap::explicitPeriodKey(784,  'baseball_mlb'));
     TestRunner::assertEquals('totals_1st_1_innings',  RundownMarketMap::explicitPeriodKey(766,  'baseball_mlb'));
     TestRunner::assertEquals('spreads_1st_1_innings', RundownMarketMap::explicitPeriodKey(1129, 'baseball_mlb'));
+});
+
+TestRunner::run('baseball: F3/F7 market_ids stay removed (product 2026-07-06)', function (): void {
+    // Board offers Game/F1/F5 only. If someone re-adds 1109-1114 to
+    // PERIOD_MARKETS without the frontend counterpart (BASEBALL_PERIODS +
+    // SUPPRESSED_PERIOD_SUFFIXES in utils/periods.js), this fails first.
+    foreach ([1109, 1110, 1111, 1112, 1113, 1114] as $id) {
+        TestRunner::assertEquals(null, RundownMarketMap::explicitPeriodKey($id, 'baseball_mlb'));
+    }
 });
 
 TestRunner::run('soccer: 1H / 2H half markets route to _h1 / _h2', function (): void {

@@ -252,12 +252,14 @@ final class RundownMarketMap
         769  => ['h2h',     '1st_5_innings', false],
         780  => ['totals',  '1st_5_innings', false],
         791  => ['spreads', '1st_5_innings', false],
-        1109 => ['h2h',     '1st_3_innings', false],
-        1110 => ['spreads', '1st_3_innings', false],
-        1111 => ['totals',  '1st_3_innings', false],
-        1112 => ['h2h',     '1st_7_innings', false],
-        1113 => ['spreads', '1st_7_innings', false],
-        1114 => ['totals',  '1st_7_innings', false],
+        // F3/F7 removed per product decision 2026-07-06 — the board offers
+        // Game/F1/F5 only, so stop paying datapoints for markets nobody can
+        // reach. To re-add: 1109/1110/1111 = h2h/spreads/totals 1st_3_innings,
+        // 1112/1113/1114 = same trio for 1st_7_innings (frontend: restore the
+        // BASEBALL_PERIODS entries + drop the suffixes from
+        // SUPPRESSED_PERIOD_SUFFIXES in utils/periods.js). Settlement of bets
+        // already placed on these markets is unaffected — it grades from the
+        // stored bet + match docs, not this map.
         // F1 (first inning) — Rundown ships these as separate IDs.
         784  => ['h2h',     '1st_1_innings', false],   // first_inning_result
         766  => ['totals',  '1st_1_innings', false],   // over_under_05_runs_first_inning
@@ -430,7 +432,7 @@ final class RundownMarketMap
         $isMlb    = str_starts_with($sport, 'baseball_');
 
         // MLB period markets come exclusively via explicit market_ids
-        // (769/780/791 for F5, 1109-1114 for F3/F7, etc.). A core market_id
+        // (769/780/791 for F5, 784/766/1129 for F1). A core market_id
         // with period_id>0 on baseball means an in-play full-game variant
         // we don't classify — drop rather than guess.
         if ($isMlb) {

@@ -148,16 +148,17 @@ TestRunner::run('MLB: extendedMarkets uses _1st_N_innings suffix (matches fronte
     foreach (['h2h_1st_5_innings','spreads_1st_5_innings','totals_1st_5_innings'] as $want) {
         TestRunner::assertTrue(in_array($want, $keys, true), "missing F5 key: {$want}");
     }
-    // F3 + F7 — affiliates vary per-game; require at least one chip's
-    // worth of each so the period strip lights up. Catches the regression
-    // (no F3/F7 ever) without flaking when one bookmaker drops a price.
+    // F3 + F7 — removed per product decision 2026-07-06 (board offers
+    // Game/F1/F5 only; ids 1109-1114 dropped from PERIOD_MARKETS). The
+    // fixture still carries their price rows, so this asserts the mapper
+    // now DROPS them instead of emitting keys nobody can reach.
     $hasF3 = false; $hasF7 = false;
     foreach ($keys as $k) {
         if (str_contains($k, '_1st_3_innings')) $hasF3 = true;
         if (str_contains($k, '_1st_7_innings')) $hasF7 = true;
     }
-    TestRunner::assertTrue($hasF3, 'no _1st_3_innings keys produced');
-    TestRunner::assertTrue($hasF7, 'no _1st_7_innings keys produced');
+    TestRunner::assertFalse($hasF3, '_1st_3_innings keys produced despite F3 removal');
+    TestRunner::assertFalse($hasF7, '_1st_7_innings keys produced despite F7 removal');
 });
 
 TestRunner::run('MLB: no _5_innings / _7_innings keys (legacy bug)', function (): void {

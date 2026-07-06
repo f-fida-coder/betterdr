@@ -1467,10 +1467,11 @@ final class RundownSyncService
     private static function baseQueryParams(bool $allLines = false): array
     {
         $params = [
-            // Request core markets PLUS every explicit period market
-            // (Q1-Q4 / H1-H2 / F1/F3/F5/F7 innings / NHL P1-P3 / tennis
-            // sets). Without this Rundown only sends the 8 core IDs and
-            // every period chip in the UI stays blank.
+            // Core markets ONLY (csvForLivePolling = the 8 core IDs —
+            // Rundown caps market_ids at 12 per request, see the note on
+            // csvForLivePolling). Period markets are seeded by the
+            // full-coverage path (baseQueryParamsFull) and preserved
+            // across these core-only writes by carryForwardExtendedMarkets.
             'market_ids'       => RundownMarketMap::csvForLivePolling(),
             'hide_no_markets'  => 'true',
             // Skip finished games — they still surface on the date endpoint

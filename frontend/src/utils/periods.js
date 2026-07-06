@@ -38,13 +38,25 @@ export const FOOTBALL_PERIODS = [
     { id: '3q', label: '3Q', suffix: '_q3' },
     { id: '4q', label: '4Q', suffix: '_q4' },
 ];
+// Product decision 2026-07-06: MLB board offers Game / F1 / F5 only —
+// F3 and F7 removed (RundownMarketMap PERIOD_MARKETS ids 1109-1114
+// dropped in the same change, so their markets stop being ingested).
+// F1/F5 are `pinned`: the chips render even when a sync cycle's data
+// momentarily lacks their suffix — the empty-period banner covers the
+// gap. Product caught the whole strip vanishing on the mobile board
+// (2026-07-06 screenshot) because visibility was purely data-driven;
+// MLB's period set is a product commitment, not a feed artifact.
 export const BASEBALL_PERIODS = [
     FULL_PERIOD,
-    { id: 'f1', label: 'F1', suffix: '_1st_1_innings' },
-    { id: 'f3', label: 'F3', suffix: '_1st_3_innings' },
-    { id: 'f5', label: 'F5', suffix: '_1st_5_innings' },
-    { id: 'f7', label: 'F7', suffix: '_1st_7_innings' },
+    { id: 'f1', label: 'F1', suffix: '_1st_1_innings', pinned: true },
+    { id: 'f5', label: 'F5', suffix: '_1st_5_innings', pinned: true },
 ];
+
+// Suffixes that must never surface as chips — removed-by-product markets
+// can linger in stored docs until ingestion cycles them out, and without
+// this guard buildVisiblePeriods would resurrect them as auto-derived
+// "extra" chips (periodFromSuffix turns _1st_3_innings back into F3).
+const SUPPRESSED_PERIOD_SUFFIXES = new Set(['_1st_3_innings', '_1st_7_innings']);
 export const HOCKEY_PERIODS = [
     FULL_PERIOD,
     { id: 'p1', label: 'P1', suffix: '_p1' },
@@ -190,12 +202,12 @@ const periodFromSuffix = (suffix) => {
 export const buildVisiblePeriods = (preset, availableSuffixes) => {
     const base = Array.isArray(preset) ? preset : [FULL_PERIOD];
     const suffixes = availableSuffixes instanceof Set ? availableSuffixes : new Set(['']);
-    const visible = base.filter((p) => p.id === 'full' || suffixes.has(p.suffix));
+    const visible = base.filter((p) => p.id === 'full' || p.pinned || suffixes.has(p.suffix));
     const knownSuffixes = new Set(base.filter((p) => p.id !== 'full' && p.suffix).map((p) => p.suffix));
     const extras = [];
 
     for (const suffix of suffixes) {
-        if (!suffix || suffix === '' || knownSuffixes.has(suffix)) continue;
+        if (!suffix || suffix === '' || knownSuffixes.has(suffix) || SUPPRESSED_PERIOD_SUFFIXES.has(suffix)) continue;
         const p = periodFromSuffix(suffix);
         if (!p) continue;
         if (!visible.some((v) => v.id === p.id || v.suffix === p.suffix)) extras.push(p);
