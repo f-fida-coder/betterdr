@@ -3459,6 +3459,21 @@ final class BetsController
             }
         }
 
+        // ── Basketball alt-ladder placement block ──────────────────────────
+        // Mirror of the serve-layer drop (AltLineCap::ladderHiddenForSport —
+        // see rationale there): basketball offers Buy Points, not raw
+        // alternate spread/total ladders. The ladders stay in the stored doc
+        // (ingestion untouched), so a stale client or hand-built request
+        // could still submit one — refuse it here so hidden ⟺ unplaceable.
+        // Only fires on alternate_-prefixed keys: base-line spread/total legs
+        // and their Buy Points variants are untouched by construction.
+        if (!$isPropMarket && AltLineCap::ladderHiddenForSport((string) ($match['sportKey'] ?? ''), $marketKey)) {
+            throw new ApiException('Alternate lines are not offered for this sport — use Buy Points on the main line instead.', 409, [
+                'code' => 'ALT_LINE_UNAVAILABLE',
+                'marketType' => $marketKey,
+            ]);
+        }
+
         // Compare client odds vs official using American integers to avoid
         // decimal floating-point mismatches on the 0.0001 threshold.
         // For Buy Points legs, "official" here means the server's repriced

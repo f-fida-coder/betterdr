@@ -266,6 +266,34 @@ final class AltLineCap
     }
 
     /**
+     * Product gate (PO ruling 2026-07-07): basketball offers NO alternate
+     * spread/total ladders — Buy Points is the point-adjustment product
+     * there, and it's flat-cents priced off the base line (it never reads
+     * these ladders), so the raw ladder is redundant next to it. Applied at
+     * BOTH the serve layer (MatchesController::capAlternateLadders drops the
+     * market from the board list AND the More Bets sheet) and placement
+     * (BetsController::validateSelection rejects the leg), so hidden ⟺
+     * unplaceable. Ingestion still stores the ladders — same feed pull, zero
+     * extra credits — so reversing this needs no resync. Scope guards:
+     * only true alternate_ keys (a bare 'spreads'/'totals' Buy Points leg
+     * can never trip it), team totals excluded ('team_totals' doesn't
+     * prefix-match 'totals'), and every non-basketball sport's ladders —
+     * soccer alt goal totals, baseball run-line ladders, hockey — are
+     * deliberately untouched.
+     */
+    public static function ladderHiddenForSport(string $sportKey, string $altKey): bool
+    {
+        if (!self::isAltKey($altKey)) {
+            return false;
+        }
+        if (!str_starts_with(strtolower(trim($sportKey)), 'basketball')) {
+            return false;
+        }
+        $core = self::coreKeyFor($altKey);
+        return str_starts_with($core, 'spreads') || str_starts_with($core, 'totals');
+    }
+
+    /**
      * Select which alternate rungs to surface. Selection is deterministic and
      * feed-anchored (it only PICKS points; prices are whatever the feed stored
      * at those points — nothing is synthesized):

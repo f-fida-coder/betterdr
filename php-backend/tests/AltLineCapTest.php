@@ -313,3 +313,33 @@ TestRunner::run('AltLineCap — totals cap wider than spreads; key-aware resolve
     if ($origGetSpread === false) { putenv('SPORTSBOOK_ALT_LINES_PER_SIDE'); } else { putenv('SPORTSBOOK_ALT_LINES_PER_SIDE=' . $origGetSpread); }
     if ($origEnvSpread === null) { unset($_ENV['SPORTSBOOK_ALT_LINES_PER_SIDE']); } else { $_ENV['SPORTSBOOK_ALT_LINES_PER_SIDE'] = $origEnvSpread; }
 });
+
+// ── Basketball alt-ladder product gate (PO ruling 2026-07-07) ───────────────
+// Basketball offers Buy Points (flat-cents off the base line), not raw
+// alternate spread/total ladders. ladderHiddenForSport is the SINGLE shared
+// gate for the serve layer (capAlternateLadders drop) and placement
+// (ALT_LINE_UNAVAILABLE), so hidden ⟺ unplaceable by construction.
+TestRunner::run('AltLineCap — basketball alt spread/total ladders hidden, all basketball sportKeys', function (): void {
+    foreach (['basketball_nba', 'basketball_nba_summer_league', 'basketball_wnba', 'basketball_ncaab', 'basketball_euroleague'] as $sk) {
+        TestRunner::assertTrue(AltLineCap::ladderHiddenForSport($sk, 'alternate_spreads'), "{$sk} alternate_spreads hidden");
+        TestRunner::assertTrue(AltLineCap::ladderHiddenForSport($sk, 'alternate_totals'), "{$sk} alternate_totals hidden");
+    }
+    // Team totals are NOT part of the gate ('team_totals' is its own family).
+    TestRunner::assertFalse(AltLineCap::ladderHiddenForSport('basketball_nba', 'alternate_team_totals'), 'alternate_team_totals untouched');
+    // Bare base-market keys never trip the gate — a basketball Buy Points leg
+    // is placed on marketKey 'spreads'/'totals' and must never be blocked.
+    TestRunner::assertFalse(AltLineCap::ladderHiddenForSport('basketball_nba', 'spreads'), 'base spreads (Buy Points leg) never gated');
+    TestRunner::assertFalse(AltLineCap::ladderHiddenForSport('basketball_nba', 'totals'), 'base totals (Buy Points leg) never gated');
+});
+
+TestRunner::run('AltLineCap — DELIBERATE EXCLUSION: other sports\' alt ladders are unaffected', function (): void {
+    // PO ruling scope is basketball ONLY. Soccer alt goal totals, baseball
+    // run-line ladders, hockey and football ladders remain served/placeable —
+    // a regression that widens this gate removes real products from the board.
+    foreach (['soccer_epl', 'soccer_fifa_world_cup', 'baseball_mlb', 'icehockey_nhl', 'americanfootball_nfl', 'tennis_atp'] as $sk) {
+        TestRunner::assertFalse(AltLineCap::ladderHiddenForSport($sk, 'alternate_spreads'), "{$sk} alternate_spreads still offered");
+        TestRunner::assertFalse(AltLineCap::ladderHiddenForSport($sk, 'alternate_totals'), "{$sk} alternate_totals still offered");
+    }
+    // Empty/unknown sportKey → fail open (serve), never a surprise block.
+    TestRunner::assertFalse(AltLineCap::ladderHiddenForSport('', 'alternate_spreads'), 'blank sportKey never gated');
+});

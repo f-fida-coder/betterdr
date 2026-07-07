@@ -1206,6 +1206,13 @@ final class MatchesController
             }
             $altMarketKey = (string) ($m['key'] ?? '');
             $coreKey = AltLineCap::coreKeyFor($altMarketKey);
+            // Basketball: no alt spread/total ladders as a product — Buy
+            // Points (flat-cents off the base line) is the point-adjustment
+            // offering there. Board list and More Bets sheet both flow
+            // through this method; placement mirrors the same gate.
+            if (AltLineCap::ladderHiddenForSport($sportKey, $altMarketKey)) {
+                continue;
+            }
             // Soccer alternate spreads (Asian alt-handicap ladders). Historically
             // dropped here as a product decision ("soccer = O/U alt totals only").
             // The feed DOES ship them and the rest of the stack already handles
