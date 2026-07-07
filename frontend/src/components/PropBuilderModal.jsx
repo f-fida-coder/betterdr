@@ -6,6 +6,7 @@ import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamL
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
 import { isMarketEligibleForMode } from '../utils/teaserAdjustment';
 import { isSingleSidedOverMarket } from '../utils/propBuilderMarkets';
+import MatchDetailView from './MatchDetailView';
 
 const MARKET_LABELS = {
     player_points: 'Points',
@@ -212,7 +213,13 @@ const dedupeByPreferredBook = (outcomes, bookRank) => {
     return Array.from(best.values()).map((v) => v.outcome);
 };
 
-const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
+// includeGameMarkets: mobile's merged "Props" panel (2026-07-08, PO: one
+// button per card) renders the extended game markets — the old "+" More
+// Bets sheet — inline below the player-prop categories, via MatchDetailView
+// in `embedded` mode (its own sheet:true fetch, stored-row only, zero
+// Rundown credits). Desktop keeps separate "+" / Props buttons and does NOT
+// pass this, so its panels are unchanged.
+const PropBuilderModal = ({ match, onClose, betMode = 'straight', includeGameMarkets = false }) => {
     const { oddsFormat } = useOddsFormat();
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState('');
@@ -1030,6 +1037,16 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight' }) => {
                         </div>
                     )}
                     {!loading && !error && visibleCategories.map(renderCategory)}
+                    {/* Merged game markets (mobile only). Rendered after the
+                        prop categories — the button says "Props", so props
+                        lead. When the match has no player props (common on
+                        soccer), the "No player props" note above stays
+                        accurate and these sections still make the panel
+                        useful. Gated on !loading so two spinners never
+                        stack. */}
+                    {includeGameMarkets && !loading && (
+                        <MatchDetailView match={match} betMode={betMode} embedded />
+                    )}
                 </div>
             </div>
         </div>

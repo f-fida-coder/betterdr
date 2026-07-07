@@ -29,7 +29,6 @@ import {
 } from '../utils/periods';
 import TeaserTypePicker from './TeaserTypePicker';
 import PropBuilderModal from './PropBuilderModal';
-import MatchDetailView from './MatchDetailView';
 import OddsAge from './OddsAge';
 
 // Module-level toast dedup — mirrors SportContentView.
@@ -2639,7 +2638,6 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
         );
     };
     const [propsOpen, setPropsOpen] = React.useState(false);
-    const [detailOpen, setDetailOpen] = React.useState(false);
     const modalMatch = React.useMemo(() => ({
         id: match.id,
         externalId: match.externalId,
@@ -2705,7 +2703,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 teaser mode since +/P+ are hidden there). */}
             <div style={{
                 display: 'grid',
-                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 30px'}`,
+                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 38px'}`,
                 columnGap: 4,
                 padding: '0 0 4px',
                 alignItems: 'center',
@@ -2830,15 +2828,15 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 {!isTeaserMode && <span />}
             </div>
             {propsOpen && (
-                <PropBuilderModal match={modalMatch} onClose={() => setPropsOpen(false)} betMode={betMode} />
+                <PropBuilderModal match={modalMatch} onClose={() => setPropsOpen(false)} betMode={betMode} includeGameMarkets />
             )}
 
-            {/* Body: team info | odds | [+ / P+] compact action
-                column. Action column is narrow (30px) so the three odds
-                columns never get squeezed. Dropped in teaser mode. */}
+            {/* Body: team info | odds | [Props] compact action column.
+                Action column is narrow (38px) so the three odds columns
+                never get squeezed. Dropped in teaser mode. */}
             <div style={{
                 display: 'grid',
-                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 30px'}`,
+                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 38px'}`,
                 gridTemplateRows: 'auto auto',
                 columnGap: 4,
                 rowGap: 4,
@@ -2914,18 +2912,18 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     )
                 )}
 
-                {/* Right-column action stack — spans both team rows so
-                    both buttons sit vertically centered against the
-                    odds grid: `+` (all markets), `P+` (player props).
-                    Grid auto-placement fills the cell left over after
-                    team1's odds, so we anchor with grid-row 1 / span 2
-                    to reserve the full column. Hidden in teaser mode:
-                    teasers can only combine spread/total legs, so the
-                    all-markets and player-props pickers are dead ends. */}
+                {/* Right-column action button — spans both team rows so it
+                    sits vertically centered against the odds grid. ONE
+                    "Props" button (PO 2026-07-08): the old orange "+" More
+                    Bets sheet merged into the Props panel, which now renders
+                    the extended game markets below the player props
+                    (PropBuilderModal includeGameMarkets). Hidden in teaser
+                    mode: teasers can only combine spread/total legs, so
+                    everything in this panel is a dead end there. */}
                 {!isTeaserMode && (
                 <div style={{
                     // Column 1 = team info, cols 2..(2+marketCount-1) = odds,
-                    // col (marketCount + 2) = action stack. Using an
+                    // col (marketCount + 2) = action slot. Using an
                     // explicit number (not `-1`) so auto-placement of the
                     // odds cells doesn't leak into the action slot.
                     gridColumn: marketCount + 2,
@@ -2934,46 +2932,22 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     flexDirection: 'column',
                     justifyContent: 'center',
                     alignItems: 'center',
-                    gap: 3,
                 }}>
-                    <button
-                        type="button"
-                        // Re-enabled 2026-07-06 (was inert since 2026-06-23 over Rundown
-                        // credit burn): the sheet now loads with getMatchProps sheet:true,
-                        // which the backend serves from the STORED row only — no
-                        // syncEventFull, zero Rundown credits per tap. Surfaces the
-                        // theoddsapi card/corner markets on mobile.
-                        onClick={() => setDetailOpen((v) => !v)}
-                        disabled={blocked}
-                        aria-label="Open all markets"
-                        title="All game markets"
-                        style={{
-                            background: blocked ? '#444' : '#d0451b',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: 4,
-                            width: 28,
-                            height: 18,
-                            fontSize: 11,
-                            fontWeight: 700,
-                            lineHeight: 1,
-                            cursor: blocked ? 'not-allowed' : 'pointer',
-                            opacity: blocked ? 0.5 : 1,
-                            padding: 0,
-                        }}
-                    >+</button>
                     <button
                         type="button"
                         onClick={() => setPropsOpen(true)}
                         disabled={blocked}
-                        aria-label="Open prop builder"
-                        title="Player props"
+                        aria-label="Open props and more markets"
+                        title="Player props & more game markets"
                         style={{
                             background: blocked ? '#444' : 'linear-gradient(135deg, #a020f0, #d946ef)',
                             color: '#fff',
                             border: 'none',
                             borderRadius: 4,
-                            width: 28,
+                            // 36px pill in the 38px action column: "Props" at
+                            // font 9 needs ~28px of glyphs — the old 28px P+
+                            // pill would clip it.
+                            width: 36,
                             height: 18,
                             fontSize: 9,
                             fontWeight: 800,
@@ -2983,7 +2957,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             opacity: blocked ? 0.5 : 1,
                             padding: 0,
                         }}
-                    >P+</button>
+                    >Props</button>
                 </div>
                 )}
 
@@ -3072,7 +3046,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
             {visibleMarkets.showMoneyline && match.odds.moneylineDraw != null && (
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 30px'}`,
+                    gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 38px'}`,
                     columnGap: 4,
                     alignItems: 'stretch',
                     marginTop: -4,
@@ -3146,17 +3120,6 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 </div>
             )}
 
-            {/* "More Bets" sheet — fullscreen MODAL over the board (same
-                presentation as the P+ Prop Builder, per request 2026-07-06;
-                the inline embedded panel cramped the card list on phones).
-                One per card; the "+" toggles it. */}
-            {detailOpen && (
-                <MatchDetailView
-                    match={modalMatch}
-                    onClose={() => setDetailOpen(false)}
-                    betMode={betMode}
-                />
-            )}
         </div>
     );
 }, areMatchCardPropsEqual);

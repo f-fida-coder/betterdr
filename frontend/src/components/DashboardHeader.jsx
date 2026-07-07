@@ -689,7 +689,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                                     onClick={() => onViewChange && onViewChange('props')}
                                 >
                                     <span style={{ fontSize: '10px', fontWeight: 'bold' }}>PROPS</span>
-                                    <div style={{ fontSize: '12px', fontWeight: 'bold', border: '1px solid #999', padding: '0 2px' }}>P+</div>
+                                    <div style={{ fontSize: '12px', fontWeight: 'bold', border: '1px solid #999', padding: '0 2px' }}>Props</div>
                                 </div>
                             </div>
                         )}

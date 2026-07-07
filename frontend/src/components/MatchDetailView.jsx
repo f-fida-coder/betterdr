@@ -185,6 +185,10 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
     // remote-close requests from that header tap. Mirrors the betslip
     // overlay's `betslip:state` / `betslip:close` event pair.
     React.useEffect(() => {
+        // Embedded (inline inside another surface, e.g. the merged Props
+        // panel) must not claim the page chrome or the scroll lock — the
+        // HOST surface owns both. Only the fullscreen modal signals.
+        if (embedded) return undefined;
         window.dispatchEvent(new CustomEvent('match-detail:state', { detail: { open: true } }));
         const handleClose = () => onClose?.();
         window.addEventListener('match-detail:close', handleClose);
@@ -196,7 +200,7 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
             window.dispatchEvent(new CustomEvent('match-detail:state', { detail: { open: false } }));
             document.body.style.overflow = prevBodyOverflow;
         };
-    }, [onClose]);
+    }, [onClose, embedded]);
 
     // Shared dismiss behavior: ESC / browser Back close this sheet (the
     // component is only mounted while open, so register with true). It opts

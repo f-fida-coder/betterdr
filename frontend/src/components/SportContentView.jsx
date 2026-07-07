@@ -1453,7 +1453,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                             }}
                                             aria-label="Open prop builder"
                                         >
-                                            P+
+                                            Props
                                         </button>
                                         <span
                                             className={`match-status ${match.status === 'LIVE' ? 'live' : (match.status === 'SUSPENDED' ? 'suspended' : '')}`}
