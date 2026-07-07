@@ -529,6 +529,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
   const [pendingBetsError, setPendingBetsError] = useState('');
   const [pendingBetsNotice, setPendingBetsNotice] = useState('');
   const [pendingBetDeletingId, setPendingBetDeletingId] = useState('');
+  const [deletingAllPending, setDeletingAllPending] = useState(false);
 
   // Commission / hierarchy state (agents only)
   const [commissionChain, setCommissionChain] = useState(null);      // { upline, downlines, chainTotal, isValid }
@@ -790,6 +791,69 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
     } finally {
       setPendingBetDeletingId('');
     }
+  };
+
+  // Delete All = the per-bet delete path, batched: one deleteAdminBet call
+  // per listed bet, sequential. Each call is its own backend transaction
+  // (refund + ledger row + restorable deletedwagers row) — no new money
+  // path exists for this button. Sequential (not Promise.all) because every
+  // refund locks the same user row; parallel calls would just serialize on
+  // the lock and interleave errors. Per-bet failures don't stop the batch:
+  // a Round Robin child cascades its whole group, so siblings later in the
+  // list legitimately come back "already processed", and open-parlay
+  // tickets (status 'open') are refused by the backend's pending-only rule
+  // exactly as their individual Delete button would be.
+  const handleDeleteAllPendingBets = async () => {
+    if (deletingAllPending || pendingBets.length === 0) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const count = pendingBets.length;
+    const totalRisk = pendingBets.reduce((sum, b) => sum + Number(b?.amount || 0), 0);
+    if (!window.confirm(`Delete all ${count} pending bet${count === 1 ? '' : 's'} — ${formatCurrency(totalRisk)} risk? Each stake is refunded to the player.`)) return;
+    setDeletingAllPending(true);
+    setPendingBetsError('');
+    setPendingBetsNotice('');
+    let deleted = 0;
+    let skipped = 0;
+    const failures = [];
+    let lastUser = null;
+    for (const bet of pendingBets) {
+      if (!bet?.id) continue;
+      try {
+        const result = await deleteAdminBet(bet.id, token);
+        deleted += 1;
+        if (result?.user) lastUser = result.user;
+      } catch (err) {
+        const msg = String(err?.message || '');
+        // RR-cascade siblings and repeat clicks surface as "already
+        // processed" — that bet is gone, not failed.
+        if (/already processed/i.test(msg)) {
+          skipped += 1;
+        } else {
+          failures.push(`${bet.id.slice(0, 8)}…: ${msg || 'failed'}`);
+        }
+      }
+    }
+    if (lastUser) {
+      setCustomer((prev) => prev ? {
+        ...prev,
+        balance: toMoneyNumber(lastUser.balance, prev.balance),
+        pendingBalance: toMoneyNumber(lastUser.pendingBalance, prev.pendingBalance),
+        freeplayBalance: toMoneyNumber(lastUser.freeplayBalance, prev.freeplayBalance),
+      } : prev);
+    }
+    const summary = [
+      `${deleted} deleted`,
+      skipped > 0 ? `${skipped} already handled` : null,
+      failures.length > 0 ? `${failures.length} failed` : null,
+    ].filter(Boolean).join(', ');
+    if (failures.length > 0) {
+      setPendingBetsError(`${summary}. ${failures.join(' · ')}`);
+    } else {
+      setPendingBetsNotice(`${summary}.`);
+    }
+    setDeletingAllPending(false);
+    await loadPendingBets(false);
   };
 
   // Load commission chain when the 'commission' section is opened for an agent
@@ -2419,7 +2483,19 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
         {activeSection === 'transactions' ? (
           <button className="btn btn-back" onClick={openTransactionSlip}>New transaction</button>
         ) : activeSection === 'pending-bets' ? (
-          <button className="btn btn-back" onClick={() => loadPendingBets()} disabled={pendingBetsLoading}>{pendingBetsLoading ? 'Loading...' : 'Refresh'}</button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {pendingBets.length > 0 && (
+              <button
+                className="btn btn-danger"
+                style={{ background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca' }}
+                onClick={handleDeleteAllPendingBets}
+                disabled={deletingAllPending || pendingBetsLoading}
+              >
+                {deletingAllPending ? 'Deleting…' : 'Delete All'}
+              </button>
+            )}
+            <button className="btn btn-back" onClick={() => loadPendingBets()} disabled={pendingBetsLoading || deletingAllPending}>{pendingBetsLoading ? 'Loading...' : 'Refresh'}</button>
+          </div>
         ) : activeSection === 'freeplays' ? (
           <div style={{ display: 'flex', gap: '8px' }}>
             <button className="btn btn-back" onClick={() => { setFreePlayModalMode('withdraw'); setFreePlayError(''); setShowNewFreePlayModal(true); }}>Withdraw</button>
