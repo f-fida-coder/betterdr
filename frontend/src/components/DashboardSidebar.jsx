@@ -74,6 +74,28 @@ const filterActiveChildren = (children, liveSet, outrightSet) => {
     });
 };
 
+// Tree lookups for the auto-expand-on-selection behavior: find a node by id
+// anywhere in the tree, and flatten a node's descendant ids. Pure and tiny —
+// they only run on an expand tap, never per render.
+const findNodeById = (items, id) => {
+    for (const it of items || []) {
+        if (!it) continue;
+        if (it.id === id) return it;
+        const hit = findNodeById(it.children, id);
+        if (hit) return hit;
+    }
+    return null;
+};
+
+const collectDescendantIds = (node, out = []) => {
+    for (const child of node?.children || []) {
+        if (!child) continue;
+        out.push(child.id);
+        collectDescendantIds(child, out);
+    }
+    return out;
+};
+
 const SidebarItem = React.memo(({
     item,
     level,
@@ -327,14 +349,6 @@ const DashboardSidebar = ({
         return () => { cancelled = true; };
     }, []);
 
-    const toggleExpand = (id) => {
-        setExpandedIds(prev => {
-            const next = new Set(prev);
-            next.has(id) ? next.delete(id) : next.add(id);
-            return next;
-        });
-    };
-
     // Per-mode sport allowlist. Teaser is intentionally narrower than the
     // others: real US sportsbooks only offer teasers for football and
     // basketball — baseball/soccer/hockey spreads don't move enough to
@@ -383,6 +397,55 @@ const DashboardSidebar = ({
         walk(mergedSports);
         return result;
     }, [mergedSports, selectedSports]);
+
+    // Auto-expand any group that contains an active selection — on mount
+    // and whenever selections change — so a checked futures board is never
+    // hidden behind a collapsed section (PO 2026-07-08). Top-level sport
+    // ids are DELIBERATELY excluded: the list opens fully collapsed on
+    // login by design (auto-opened sports annoyed users; the grey
+    // has-active-child highlight already flags them) — do not "fix" that
+    // by unioning sports here. Union-only, so a manual collapse sticks
+    // until the next selection change or sport re-expand (toggleExpand).
+    useEffect(() => {
+        if (ancestorsWithSelection.size === 0) return;
+        const topLevelIds = new Set(mergedSports.map((s) => s?.id));
+        setExpandedIds((prev) => {
+            let changed = false;
+            const next = new Set(prev);
+            ancestorsWithSelection.forEach((id) => {
+                if (!topLevelIds.has(id) && !next.has(id)) {
+                    next.add(id);
+                    changed = true;
+                }
+            });
+            return changed ? next : prev;
+        });
+    }, [ancestorsWithSelection, mergedSports]);
+
+    const toggleExpand = (id) => {
+        setExpandedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+                return next;
+            }
+            next.add(id);
+            // Expanding a node also re-reveals any DESCENDANT group that
+            // holds an active selection (PO 2026-07-08): re-opening
+            // FOOTBALL must show "NFL FUTURES" open when its board is
+            // checked, even if the user collapsed that group earlier in
+            // the session. One-shot at expand time — the user can still
+            // collapse the group right after, and nothing re-adds it
+            // until the next selection change or the next expand here.
+            const node = findNodeById(mergedSports, id);
+            if (node) {
+                for (const descId of collectDescendantIds(node)) {
+                    if (ancestorsWithSelection.has(descId)) next.add(descId);
+                }
+            }
+            return next;
+        });
+    };
 
     // Lazy-load matches the first time the user types ≥2 chars.
     // We don't prefetch on mount — most sessions never use the search box,
