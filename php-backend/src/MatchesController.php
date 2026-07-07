@@ -1043,6 +1043,30 @@ final class MatchesController
                 $extended[] = $cardMarket;
             }
 
+            // Soccer Saves: serve only Over 2.5 / 3.5 (PO 2026-07-08 — the low
+            // rungs are dead extreme favorites). Ingestion no longer maps ids
+            // 435/434 and the wholesale playerProps rebuild self-cleans stored
+            // docs on their next sync; this response filter covers docs stored
+            // BEFORE the change so the dead rungs disappear immediately on
+            // every surface. Threshold (not whitelist) by design: a future
+            // deliberately-mapped higher rung (Over 4.5) shows without a
+            // second edit here. Display/offer-side only — settlement grades
+            // legs off the box score and never consults this response.
+            $props = array_values(array_filter(array_map(static function ($market) {
+                if (!is_array($market) || (string) ($market['key'] ?? '') !== 'player_saves') {
+                    return $market;
+                }
+                $outcomes = array_values(array_filter(
+                    is_array($market['outcomes'] ?? null) ? $market['outcomes'] : [],
+                    static fn ($o): bool => is_array($o) && is_numeric($o['point'] ?? null) && (float) $o['point'] >= 2.5
+                ));
+                if ($outcomes === []) {
+                    return null; // no rungs left → drop the whole section
+                }
+                $market['outcomes'] = $outcomes;
+                return $market;
+            }, $props)));
+
             // Tag each player-prop outcome with the player's team side
             // ('home'/'away') so the Prop Builder can filter by team. Built from
             // the two team rosters in two cached calls (PlayerPropTeam::sideMap).

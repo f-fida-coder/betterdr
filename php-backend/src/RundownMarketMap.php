@@ -141,8 +141,11 @@ final class RundownMarketMap
         917  => 'player_goals',              // 3+ goals → Over 2.5 (unpriced by our books)
         415  => 'player_fouls',              // 1+ fouls → Over 0.5
         423  => 'player_fouls',              // 2+ fouls → Over 1.5
-        435  => 'player_saves',              // 1+ saves → Over 0.5
-        434  => 'player_saves',              // 2+ saves → Over 1.5
+        // Saves ids 435 (Over 0.5) / 434 (Over 1.5) intentionally NOT mapped
+        // — PO ruling 2026-07-08: Saves shows 2.5/3.5 only; the low rungs are
+        // dead extreme favorites (-2000/-4000). Do not re-add without PO
+        // sign-off. Mirror rule: MatchesController's props response drops
+        // player_saves points < 2.5 for docs stored before this change.
         431  => 'player_saves',              // 3+ saves → Over 2.5
         430  => 'player_saves',              // 4+ saves → Over 3.5
         // No box-score ordering data → mapped for DISPLAY only; these settle
@@ -169,8 +172,8 @@ final class RundownMarketMap
         917 => 2.5,   // 3+ goals
         415 => 0.5,   // 1+ fouls
         423 => 1.5,   // 2+ fouls
-        435 => 0.5,   // 1+ saves
-        434 => 1.5,   // 2+ saves
+        // 435 (0.5) / 434 (1.5) removed with their map entries above —
+        // PO 2026-07-08, Saves offers 2.5/3.5 only.
         431 => 2.5,   // 3+ saves
         430 => 3.5,   // 4+ saves
     ];
