@@ -2101,6 +2101,12 @@ final class SportsbookBetSupport
             // so the row shows a single team crest. Null on non-props / legacy
             // rows (UI then shows both crests). Display-only.
             'playerTeamSide' => $selection['playerTeamSide'] ?? null,
+            // Team totals canonical grading fields; null on every other
+            // market. Settlement write-back rebuilds the bet doc's selections
+            // through THIS serializer, so omitting them here erased the doc's
+            // copy whenever a mixed ticket partially settled.
+            'teamSide' => $selection['teamSide'] ?? null,
+            'side' => $selection['side'] ?? null,
             'odds' => self::num($selection['odds'] ?? 0),
             'oddsAmerican' => $americanOdds,
             // Slip price at submit when booking repriced the leg (favorable
@@ -2524,6 +2530,13 @@ final class SportsbookBetSupport
             'selectionPid' => $selection['selectionPid'] ?? null,
             // Player-prop single-crest logo hint ('home'/'away'); null elsewhere.
             'playerTeamSide' => $selection['playerTeamSide'] ?? null,
+            // Team totals canonical grading fields ('home'/'away' +
+            // 'over'/'under'); null on every other market. Settlement grades
+            // team-total legs from THESE rows, and a leg with a missing
+            // teamSide/side fail-safes to PERMANENT 'pending' — so dropping
+            // them here would strand every team-total ticket.
+            'teamSide' => $selection['teamSide'] ?? null,
+            'side' => $selection['side'] ?? null,
             'odds' => self::num($selection['odds'] ?? 0),
             'oddsAmerican' => $americanOdds,
             // Slip price at submit when booking repriced the leg, else null.
