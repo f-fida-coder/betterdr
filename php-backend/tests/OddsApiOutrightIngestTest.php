@@ -198,3 +198,58 @@ TestRunner::run('outright ingest: identity + doc shape', function (): void {
         otaBook('draftkings', [['name' => 'A', 'price' => 200], ['name' => 'B', 'price' => -300]]),
     ]), ''), 'blank sportKey → null');
 });
+
+// ── House juice rounding on the RAW-AMERICAN outright path ─────────────────
+// outrights.price bypasses the matches-board decimal choke point, so the
+// SPORTSBOOK_JUICE_ROUND_ENABLED grid is applied at THIS storage point;
+// display/placement/settlement read the stored integer and inherit it with
+// no second rounding. Negative rounds AWAY from zero, positive TOWARD zero.
+TestRunner::run('outright ingest: juice rounding rounds the stored American, house-favorable', function (): void {
+    $origGetenv = getenv('SPORTSBOOK_JUICE_ROUND_ENABLED');
+    $origEnv = $_ENV['SPORTSBOOK_JUICE_ROUND_ENABLED'] ?? null;
+    putenv('SPORTSBOOK_JUICE_ROUND_ENABLED=true');
+    $_ENV['SPORTSBOOK_JUICE_ROUND_ENABLED'] = 'true';
+    try {
+        $doc = OddsApiSyncService::buildOutrightDoc(otaEvent([
+            otaBook('draftkings', [
+                ['name' => 'Scottie Scheffler', 'price' => 453],   // +453 → +450 (toward zero)
+                ['name' => 'Rory McIlroy',      'price' => -152],  // -152 → -155 (away from zero)
+                ['name' => 'Jon Rahm',          'price' => 1200],  // on grid → unchanged
+            ]),
+        ]), 'golf_masters_tournament_winner');
+        $byName = otaOutcomesByName($doc);
+        TestRunner::assertEquals(450,  $byName['Scottie Scheffler'], '+453 stored as +450');
+        TestRunner::assertEquals(-155, $byName['Rory McIlroy'],      '-152 stored as -155');
+        TestRunner::assertEquals(1200, $byName['Jon Rahm'],          'on-grid +1200 unchanged');
+        // Boundary conversion still exactly once, off the ROUNDED integer.
+        $p = SportsbookBetSupport::outrightPriceToOdds($byName['Rory McIlroy']);
+        TestRunner::assertEquals(-155, $p['american'], 'placement reads back the rounded price');
+        TestRunner::assertEqualsFloat(1.0 + 100.0 / 155.0, $p['decimal'], 'decimal derives from -155, converted once', 0.0001);
+        // The anti-inflation guard still runs FIRST: a leaked decimal is
+        // dropped, never "repaired" onto the grid by the rounding step.
+        $doc = OddsApiSyncService::buildOutrightDoc(otaEvent([
+            otaBook('draftkings', [
+                ['name' => 'Player A', 'price' => 1.91],
+                ['name' => 'Player B', 'price' => 453],
+                ['name' => 'Player C', 'price' => -200],
+            ]),
+        ]), 'golf_masters_tournament_winner');
+        $byName = otaOutcomesByName($doc);
+        TestRunner::assertEquals(false, isset($byName['Player A']), 'decimal leak still dropped with rounding on');
+    } finally {
+        if ($origGetenv === false) { putenv('SPORTSBOOK_JUICE_ROUND_ENABLED'); } else { putenv('SPORTSBOOK_JUICE_ROUND_ENABLED=' . $origGetenv); }
+        if ($origEnv === null) { unset($_ENV['SPORTSBOOK_JUICE_ROUND_ENABLED']); } else { $_ENV['SPORTSBOOK_JUICE_ROUND_ENABLED'] = $origEnv; }
+    }
+});
+
+TestRunner::run('outright ingest: juice rounding OFF (default) keeps the verbatim contract', function (): void {
+    $doc = OddsApiSyncService::buildOutrightDoc(otaEvent([
+        otaBook('draftkings', [
+            ['name' => 'Scottie Scheffler', 'price' => 453],
+            ['name' => 'Rory McIlroy',      'price' => -152],
+        ]),
+    ]), 'golf_masters_tournament_winner');
+    $byName = otaOutcomesByName($doc);
+    TestRunner::assertEquals(453,  $byName['Scottie Scheffler'], 'flag off → +453 verbatim');
+    TestRunner::assertEquals(-152, $byName['Rory McIlroy'],      'flag off → -152 verbatim');
+});

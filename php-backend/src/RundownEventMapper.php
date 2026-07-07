@@ -1192,10 +1192,64 @@ final class RundownEventMapper
         if ($a == 0.0) {
             return 0.0;
         }
+        // House juice rounding (SPORTSBOOK_JUICE_ROUND_ENABLED) is applied to
+        // the AMERICAN integer at this single choke point, so every stored
+        // decimal — core board, alt ladders, period markets, props, card
+        // markets, and both live delta patchers (they all funnel through
+        // here) — is derived from an on-grid American. Runs AFTER any flat
+        // juice substitution (boardPriceDecimal swaps the American before
+        // calling in; -110 is on-grid so it's a no-op there). Rounding an
+        // already-rounded price is idempotent, so placement's
+        // snapDecimalOdds round-trip can never move a price twice.
+        if (self::juiceRoundingEnabled()) {
+            $a = (float) self::roundAmericanHouseFavorable((int) $a);
+        }
         if ($a > 0) {
             return 1.0 + ($a / 100.0);
         }
         return 1.0 + (100.0 / abs($a));
+    }
+
+    /**
+     * Whether house juice rounding is on (SPORTSBOOK_JUICE_ROUND_ENABLED,
+     * default OFF). Kill switch by design: flipping it off restores verbatim
+     * feed pricing on the next worker pass with no deploy. Pending bets are
+     * never affected either way — settlement pays the decimal locked on the
+     * leg at booking.
+     */
+    public static function juiceRoundingEnabled(): bool
+    {
+        $flag = strtolower(trim((string) (Env::get('SPORTSBOOK_JUICE_ROUND_ENABLED', 'false') ?? 'false')));
+        return $flag === 'true' || $flag === '1';
+    }
+
+    /**
+     * Round an American price to the 5-cent grid, always in the HOUSE's
+     * favor (standard PPH juice rounding):
+     *   negative → AWAY from zero:  -102 → -105, -197 → -200
+     *   positive → TOWARD zero:     +113 → +110, +101 → +100
+     * On-grid values pass through unchanged (-110 → -110, +9900 → +9900), so
+     * the function is idempotent. The ±100 boundary is safe by construction:
+     * positives bottom out at exactly +100 and negatives move away from
+     * zero, so the American dead zone (-99..+99) is never entered. Values
+     * with |a| < 100 are not valid American odds (decimal leaks / corrupt
+     * rows) and pass through UNTOUCHED — the existing downstream guards
+     * reject them; rounding must never "repair" garbage into a real price.
+     * Pure integer math — no float arithmetic, no drift.
+     */
+    public static function roundAmericanHouseFavorable(int $american): int
+    {
+        $abs = abs($american);
+        if ($abs < 100) {
+            return $american;
+        }
+        $rem = $abs % 5;
+        if ($rem === 0) {
+            return $american;
+        }
+        return $american < 0
+            ? -($abs + (5 - $rem))
+            : ($abs - $rem);
     }
 
     /**

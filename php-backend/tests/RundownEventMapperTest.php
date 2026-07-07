@@ -862,3 +862,152 @@ TestRunner::run('PK suppression is BASEBALL-ONLY: soccer and hockey level (0) ha
         TestRunner::assertEqualsFloat(0.0, (float) $byTeam[$home][0]['point'], "{$sportKey}: PK point stays 0");
     }
 });
+
+// ── House juice rounding (SPORTSBOOK_JUICE_ROUND_ENABLED) ─────────────────
+// American prices round to the 5-cent grid, always house-favorable:
+// negative AWAY from zero (-102 → -105), positive TOWARD zero (+113 → +110).
+// Applied at the single ingestion choke point (priceToDecimal), so every
+// stored decimal inherits it; OFF by default (kill switch).
+
+TestRunner::run('juice rounding rule: every product-ruling edge case', function (): void {
+    $cases = [
+        // [feed, expected] — the exact examples from the 2026-07-07 ruling.
+        [-100, -100],   // on grid; even money stays even
+        [-101, -105],   // worst case: 4 cents, still house-favorable
+        [+101, +100],   // toward zero; lands exactly ON +100 (legal floor)
+        [+104, +100],
+        [+113, +110],
+        [-102, -105],
+        [-197, -200],
+        [+9900, +9900], // longshots usually already on grid
+        [-110, -110],
+        [+100, +100],
+        [+117, +115],
+        [-333, -335],
+    ];
+    foreach ($cases as [$in, $want]) {
+        TestRunner::assertEquals($want, RundownEventMapper::roundAmericanHouseFavorable($in), "{$in} → {$want}");
+    }
+    // |a| < 100 is not a valid American price (decimal leak / corrupt row):
+    // pass through UNTOUCHED so rounding never repairs garbage into a price.
+    TestRunner::assertEquals(42, RundownEventMapper::roundAmericanHouseFavorable(42), 'sub-100 garbage untouched');
+    TestRunner::assertEquals(-3, RundownEventMapper::roundAmericanHouseFavorable(-3), 'negative sub-100 garbage untouched');
+});
+
+TestRunner::run('juice rounding is idempotent and never crosses the ±100 boundary', function (): void {
+    for ($a = 100; $a <= 320; $a++) {
+        foreach ([$a, -$a] as $in) {
+            $once = RundownEventMapper::roundAmericanHouseFavorable($in);
+            TestRunner::assertEquals($once, RundownEventMapper::roundAmericanHouseFavorable($once), "idempotent at {$in}");
+            if (abs($once) < 100) {
+                TestRunner::assertTrue(false, "rounded {$in} into the American dead zone ({$once})");
+            }
+        }
+    }
+});
+
+function rmtWithJuiceRounding(?string $value, callable $fn): void
+{
+    // Real Env::get reads $_ENV before getenv; the suite stub reads getenv —
+    // set BOTH and restore so nothing leaks into later suites (this file can
+    // run in run.php's shared process).
+    $origGetenv = getenv('SPORTSBOOK_JUICE_ROUND_ENABLED');
+    $origEnv = $_ENV['SPORTSBOOK_JUICE_ROUND_ENABLED'] ?? null;
+    if ($value === null) {
+        putenv('SPORTSBOOK_JUICE_ROUND_ENABLED');
+        unset($_ENV['SPORTSBOOK_JUICE_ROUND_ENABLED']);
+    } else {
+        putenv('SPORTSBOOK_JUICE_ROUND_ENABLED=' . $value);
+        $_ENV['SPORTSBOOK_JUICE_ROUND_ENABLED'] = $value;
+    }
+    try {
+        $fn();
+    } finally {
+        if ($origGetenv === false) {
+            putenv('SPORTSBOOK_JUICE_ROUND_ENABLED');
+        } else {
+            putenv('SPORTSBOOK_JUICE_ROUND_ENABLED=' . $origGetenv);
+        }
+        if ($origEnv === null) {
+            unset($_ENV['SPORTSBOOK_JUICE_ROUND_ENABLED']);
+        } else {
+            $_ENV['SPORTSBOOK_JUICE_ROUND_ENABLED'] = $origEnv;
+        }
+    }
+}
+
+TestRunner::run('juice rounding OFF (default): stored decimals are verbatim feed prices', function (): void {
+    rmtWithJuiceRounding(null, function (): void {
+        TestRunner::assertFalse(RundownEventMapper::juiceRoundingEnabled(), 'flag defaults OFF');
+        // rmtSyntheticMlbEvent prices: NYY -223, Athletics +206 (pre-match spreads).
+        $doc = RundownEventMapper::toMatchDoc(rmtSyntheticMlbEvent(false), 'baseball_mlb');
+        $byTeam = rmtSpreadsByTeam($doc);
+        TestRunner::assertEqualsFloat(1.0 + 100.0 / 223.0, (float) $byTeam['New York Yankees'][0]['price'], '-223 stored verbatim');
+        TestRunner::assertEqualsFloat(1.0 + 206.0 / 100.0, (float) $byTeam['Athletics'][0]['price'], '+206 stored verbatim');
+    });
+});
+
+TestRunner::run('juice rounding ON: stored decimals derive from the house-rounded American', function (): void {
+    rmtWithJuiceRounding('true', function (): void {
+        TestRunner::assertTrue(RundownEventMapper::juiceRoundingEnabled(), 'flag reads true');
+        // -223 → -225 (away from zero), +206 → +205 (toward zero).
+        $doc = RundownEventMapper::toMatchDoc(rmtSyntheticMlbEvent(false), 'baseball_mlb');
+        $byTeam = rmtSpreadsByTeam($doc);
+        TestRunner::assertEqualsFloat(1.0 + 100.0 / 225.0, (float) $byTeam['New York Yankees'][0]['price'], '-223 stored as decimal of -225');
+        TestRunner::assertEqualsFloat(1.0 + 205.0 / 100.0, (float) $byTeam['Athletics'][0]['price'], '+206 stored as decimal of +205');
+    });
+});
+
+TestRunner::run('juice rounding ON + flat juice: rounding runs AFTER substitution, -110 is a no-op', function (): void {
+    // Flat juice replaces the feed American BEFORE priceToDecimal converts;
+    // -110 is on-grid, so enabling rounding must not move it (no double
+    // repricing, order of operations locked).
+    $origFlatGetenv = getenv('SPORTSBOOK_FLAT_JUICE_AMERICAN');
+    $origFlatEnv = $_ENV['SPORTSBOOK_FLAT_JUICE_AMERICAN'] ?? null;
+    putenv('SPORTSBOOK_FLAT_JUICE_AMERICAN=-110');
+    $_ENV['SPORTSBOOK_FLAT_JUICE_AMERICAN'] = '-110';
+    try {
+        rmtWithJuiceRounding('true', function (): void {
+            // basketball gets flat juice by default (SPORTSBOOK_FLAT_JUICE_SPORTS).
+            $decimal = RundownEventMapper::boardPriceDecimal('spreads', -223.0, 'basketball_nba');
+            TestRunner::assertEqualsFloat(1.0 + 100.0 / 110.0, $decimal, 'flat -110 survives rounding unchanged');
+        });
+    } finally {
+        if ($origFlatGetenv === false) { putenv('SPORTSBOOK_FLAT_JUICE_AMERICAN'); } else { putenv('SPORTSBOOK_FLAT_JUICE_AMERICAN=' . $origFlatGetenv); }
+        if ($origFlatEnv === null) { unset($_ENV['SPORTSBOOK_FLAT_JUICE_AMERICAN']); } else { $_ENV['SPORTSBOOK_FLAT_JUICE_AMERICAN'] = $origFlatEnv; }
+    }
+});
+
+TestRunner::run('juice rounding does NOT touch the live-movement placement gate (score-driven, odds-blind)', function (): void {
+    // hasLiveMovementSignal (via isBettable) keys on score/clock/period —
+    // never on odds prices — so quantizing prices to the 5-grid cannot
+    // change what counts as "actually being played". Lock that in: the
+    // same rows must grade identically with the flag on and off.
+    $liveWithScore = [
+        'status' => 'live',
+        'sportKey' => 'baseball_mlb',
+        'startTime' => date('c', time() - 45 * 60),
+        'lastUpdated' => date('c', time() - 20),
+        'score' => ['event_status' => 'STATUS_IN_PROGRESS', 'score_home' => 2, 'score_away' => 1],
+    ];
+    $frozenZeroZero = [
+        'status' => 'live',
+        'sportKey' => 'baseball_mlb',
+        'startTime' => date('c', time() - 45 * 60),
+        'lastUpdated' => date('c', time() - 20),
+        'score' => ['event_status' => 'STATUS_IN_PROGRESS', 'score_home' => 0, 'score_away' => 0],
+    ];
+    $results = [];
+    foreach ([null, 'true'] as $flag) {
+        rmtWithJuiceRounding($flag, function () use (&$results, $flag, $liveWithScore, $frozenZeroZero): void {
+            $results[$flag ?? 'off'] = [
+                SportsMatchStatus::isBettable($liveWithScore),
+                SportsMatchStatus::isBettable($frozenZeroZero),
+            ];
+        });
+    }
+    TestRunner::assertTrue($results['off'][0], 'real score → bettable (flag off)');
+    TestRunner::assertTrue($results['true'][0], 'real score → bettable (flag on)');
+    TestRunner::assertFalse($results['off'][1], 'frozen 0-0 → NOT bettable (flag off)');
+    TestRunner::assertFalse($results['true'][1], 'frozen 0-0 → NOT bettable (flag on)');
+});

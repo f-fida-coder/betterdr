@@ -276,6 +276,16 @@ final class OddsApiSyncService
                     // stored raw it would misprice the contender at the readers.
                     // Drop, never guess (anti-inflation guard).
                     if (abs($american) < 100) continue;
+                    // House juice rounding — the outrights table stores RAW
+                    // AMERICAN (bypasses the matches-board decimal choke point
+                    // in RundownEventMapper::priceToDecimal), so the same
+                    // SPORTSBOOK_JUICE_ROUND_ENABLED grid is applied here at
+                    // storage. Display, placement, and settlement all read the
+                    // stored integer, so they inherit it with no second round.
+                    // AFTER the guard above: rounding never repairs garbage.
+                    if (RundownEventMapper::juiceRoundingEnabled()) {
+                        $american = RundownEventMapper::roundAmericanHouseFavorable($american);
+                    }
 
                     $current = $byName[$name] ?? null;
                     if ($current === null || $rank < $current['rank']) {
