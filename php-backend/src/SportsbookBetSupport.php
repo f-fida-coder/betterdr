@@ -2526,6 +2526,14 @@ final class SportsbookBetSupport
             'playerTeamSide' => $selection['playerTeamSide'] ?? null,
             'odds' => self::num($selection['odds'] ?? 0),
             'oddsAmerican' => $americanOdds,
+            // Slip price at submit when booking repriced the leg, else null.
+            // Audit/display only (receipt + Pending "line moved" note) — the
+            // response legs are rebuilt from THESE rows via
+            // selectionRowForBetDoc, so dropping it here is what silenced the
+            // disclosure for every bet type. Settlement never reads it.
+            'clientOddsAmerican' => isset($selection['clientOddsAmerican']) && is_numeric($selection['clientOddsAmerican'])
+                ? (int) $selection['clientOddsAmerican']
+                : null,
             'marketType' => (string) ($selection['marketType'] ?? ''),
             'point' => $point,
             'basePoint' => $basePoint,
