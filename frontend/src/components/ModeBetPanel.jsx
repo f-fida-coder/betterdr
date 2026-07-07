@@ -299,27 +299,27 @@ const betTypeLineLabel = (sel) => {
     return base;
 };
 
-// Halves notation used in the Buy Points dropdown: -10.5 -> '-10½',
-// 47.5 -> '47½' (unsigned for totals), 10 -> '+10' / '10'.
-const formatLineHalves = (n, signed) => {
+// Line notation used in the Buy Points dropdown: -10.5 -> '-10.5',
+// 47.5 -> '47.5' (unsigned for totals), 10 -> '+10' / '10'. DECIMALS by
+// PO ruling 2026-07-07 (was half-glyph '½' notation, which read as
+// "-0½" on half-point lines and mismatched the rest of the app — board
+// cells, betslip legs, and receipts all render decimals via
+// formatLineValue/formatSpreadValue).
+const formatBuyPointsLine = (n, signed) => {
     if (!Number.isFinite(n)) return '';
-    const abs = Math.abs(n);
-    const whole = Math.floor(abs);
-    const frac = abs - whole;
-    const isHalf = Math.abs(frac - 0.5) < 0.01;
-    const numText = isHalf ? `${whole}½` : `${trimNumber(abs)}`;
+    const numText = trimNumber(Math.abs(n));
     if (!signed) return numText;
     if (n === 0) return numText;
     return n < 0 ? `-${numText}` : `+${numText}`;
 };
 
-// Format a Buy Points option label for the dropdown row, e.g. '-10½ -110'
-// for spreads or '54½ -120' for totals.
+// Format a Buy Points option label for the dropdown row, e.g. '-10.5 -110'
+// for spreads or '54.5 -120' for totals.
 const formatBuyPointsLabel = (option, marketType) => {
     const m = String(marketType || '').toLowerCase();
     const lineText = m === 'totals'
-        ? formatLineHalves(option.line, false)
-        : formatLineHalves(option.line, true);
+        ? formatBuyPointsLine(option.line, false)
+        : formatBuyPointsLine(option.line, true);
     const odds = option.americanOdds;
     const oddsText = Number.isFinite(odds) ? (odds > 0 ? `+${odds}` : `${odds}`) : '';
     return `${lineText} ${oddsText}`.trim();
