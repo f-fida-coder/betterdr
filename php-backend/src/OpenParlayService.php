@@ -77,6 +77,33 @@ final class OpenParlayService
     }
 
     /**
+     * An open parlay must be created with at least one OPEN slot: startLegs
+     * strictly fewer than the declared targetLegs. With every declared slot
+     * already filled at creation it's just a regular parlay wearing the OP
+     * flow (prices identically — recomputePayout delegates to the same
+     * parlay payout math — but forfeits parlay-path options like freeplay
+     * and clutters the open-parlay tracking UI with never-open tickets).
+     * The composer converts that case to a regular parlay placement or
+     * bumps the declared count; this guard stops a stale client or direct
+     * API call from booking another zero-slot ticket. Existing zero-slot
+     * tickets are unaffected (create-time check only; they settle fine).
+     *
+     * The caller has already validated startLegs <= targetLegs, so this
+     * only ever fires on exact equality.
+     */
+    public static function assertHasOpenSlot(int $startLegs, int $targetLegs): void
+    {
+        if ($startLegs < $targetLegs) {
+            return;
+        }
+        throw new ApiException(
+            'All ' . $targetLegs . ' declared legs are already filled — there is no open slot. Raise the leg count to keep it open, or place it as a regular parlay.',
+            400,
+            ['code' => 'OPEN_PARLAY_NO_OPEN_SLOTS', 'targetLegs' => $targetLegs, 'startLegs' => $startLegs]
+        );
+    }
+
+    /**
      * HARD anti-past-posting gate. A leg may only join an open parlay while
      * its own event start is strictly in the future. Independent of
      * isBettable so a fail-open status-sync gap can't let a player add a leg

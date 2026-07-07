@@ -137,6 +137,30 @@ TestRunner::run('declared-count bounds — MAX_LEGS=8, MIN_TARGET_LEGS=2', funct
     TestRunner::assertEquals(2, OpenParlayService::MIN_TARGET_LEGS, 'open parlay needs at least 2 declared legs');
 });
 
+// ── Create-time open-slot rule (PO ruling 2026-07-07) ──────────────────────────
+// startLegs == targetLegs at creation is a regular parlay wearing the OP flow
+// (prices identically but has no open slot) — the composer converts it to a
+// parlay placement; this guard stops a stale client / direct API call.
+TestRunner::run('assertHasOpenSlot — fully-filled ticket refused, open ticket passes', function (): void {
+    // At least one open slot → passes silently.
+    OpenParlayService::assertHasOpenSlot(1, 3);
+    OpenParlayService::assertHasOpenSlot(2, 3);
+    OpenParlayService::assertHasOpenSlot(7, 8);
+    TestRunner::assertTrue(true, 'startLegs < targetLegs passes');
+
+    // Zero open slots → OPEN_PARLAY_NO_OPEN_SLOTS.
+    foreach ([[3, 3], [2, 2], [8, 8]] as [$start, $target]) {
+        $threw = false;
+        try {
+            OpenParlayService::assertHasOpenSlot($start, $target);
+        } catch (ApiException $e) {
+            $threw = true;
+            TestRunner::assertEquals(400, $e->getCode(), "{$start}/{$target} → HTTP 400");
+        }
+        TestRunner::assertTrue($threw, "{$start} start legs with {$target} declared → refused (no open slot)");
+    }
+});
+
 // ── M3/M4 — payout recompute + cap ─────────────────────────────────────────────
 
 TestRunner::run('recomputePayout — combines legs and caps at 3x maxBet', function (): void {

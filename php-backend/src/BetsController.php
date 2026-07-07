@@ -1014,6 +1014,10 @@ final class BetsController
                     ['code' => 'OPEN_PARLAY_TOO_MANY_START_LEGS']
                 );
             }
+            // At least one slot must remain OPEN — a fully-filled ticket is a
+            // regular parlay and belongs on the parlay path (see the helper's
+            // docblock for the full rationale + the composer-side conversion).
+            OpenParlayService::assertHasOpenSlot(count($selections), $targetLegs);
 
             $modeRule = $this->getModeRule($type);
             if ($modeRule === null) {

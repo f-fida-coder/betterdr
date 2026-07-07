@@ -439,6 +439,17 @@ const ModeBetPanel = ({
     const [isMobile, setIsMobile] = useState(false);
     const [submitAttempted, setSubmitAttempted] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
+    // Open-parlay "no open slots" prompt: shown when every declared leg is
+    // already attached at place time (that ticket is a regular parlay in
+    // disguise; the server rejects it with OPEN_PARLAY_NO_OPEN_SLOTS).
+    const [showNoOpenSlots, setShowNoOpenSlots] = useState(false);
+    // Set by the prompt's "Place as Regular Parlay": the mode switch runs
+    // through onModeChange — the SAME handler the P tab uses — and once
+    // this panel re-renders in parlay mode the effect below re-enters the
+    // normal place flow. Parlay validation, freeplay policy, confirmation
+    // modal, and line-moved handling are all the parlay path's own; the OP
+    // payload is never reused with a different type stamp.
+    const [convertToParlayPending, setConvertToParlayPending] = useState(false);
     const [useFreeplay, setUseFreeplay] = useState(false);
     // Holds the placed-ticket payload(s) from the most recent successful
     // /bets/place response so the Wager Confirmed sheet can show full
@@ -1606,6 +1617,13 @@ const ModeBetPanel = ({
             showToast('Please login to place bets', 'error');
             return;
         }
+        // Open parlay with zero open slots: every declared leg is already
+        // attached — the server refuses to book it (OPEN_PARLAY_NO_OPEN_SLOTS),
+        // so intercept with an explicit choice instead of bouncing the call.
+        if (isOpenParlay && legCount >= openParlayTargetLegs) {
+            setShowNoOpenSlots(true);
+            return;
+        }
         setSubmitAttempted(true);
         if (!canPlace) {
             if (validationErrors.length > 0) {
@@ -1623,6 +1641,20 @@ const ModeBetPanel = ({
         }
         setShowConfirm(true);
     };
+
+    // Completes the no-open-slots "Place as Regular Parlay" conversion: by
+    // the time this fires the panel has re-rendered in parlay mode (mode is
+    // a prop; slip legs and wager are lifted state, so both survive the
+    // switch), and handlePlaceBet here IS the normal parlay entry point —
+    // parlay validation → standard confirmation modal → placeBet('parlay').
+    useEffect(() => {
+        if (!convertToParlayPending || isOpenParlay) return;
+        setConvertToParlayPending(false);
+        handlePlaceBet();
+        // handlePlaceBet is re-created each render; the pending flag is the
+        // real trigger and is cleared synchronously above.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [convertToParlayPending, isOpenParlay]);
 
     // ODDS_CHANGED auto-recovery. The backend now returns every moved
     // leg in a single 409 (`legs: [{matchId, selection, marketType,
@@ -2639,7 +2671,7 @@ const ModeBetPanel = ({
                             <div style={{ fontSize: 11, color: palette.textMuted, marginTop: 8 }}>
                                 {legCount < openParlayTargetLegs
                                     ? `Add ${openParlayTargetLegs - legCount} more leg${openParlayTargetLegs - legCount === 1 ? '' : 's'} after placing — each before its game starts.`
-                                    : 'All declared legs selected — you can place now.'}
+                                    : 'All declared slots are filled — raise the leg count to keep it open, or place as a regular parlay.'}
                             </div>
                         </div>
 
@@ -3448,6 +3480,106 @@ const ModeBetPanel = ({
                     </button>
                 )}
             </div>
+            {showNoOpenSlots && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(15,23,42,0.55)',
+                        zIndex: 1200,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 16,
+                    }}
+                    onClick={() => setShowNoOpenSlots(false)}
+                >
+                    <div
+                        style={{
+                            background: '#fff',
+                            borderRadius: 12,
+                            padding: '18px 16px 14px',
+                            maxWidth: 380,
+                            width: '100%',
+                            boxShadow: '0 20px 50px -12px rgba(15,23,42,0.45)',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginBottom: 6 }}>
+                            No open legs left
+                        </div>
+                        <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.5, marginBottom: 14 }}>
+                            All {openParlayTargetLegs} declared legs are already filled, so this ticket has
+                            no open slots — it would just be a regular parlay.
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setShowNoOpenSlots(false);
+                                setConvertToParlayPending(true);
+                                if (onModeChange) onModeChange('parlay');
+                            }}
+                            style={{
+                                width: '100%',
+                                border: 'none',
+                                borderRadius: 10,
+                                padding: '12px 10px',
+                                fontWeight: 800,
+                                fontSize: 12,
+                                letterSpacing: 0.6,
+                                color: '#fff',
+                                background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
+                                cursor: 'pointer',
+                                textTransform: 'uppercase',
+                                marginBottom: 8,
+                            }}
+                        >
+                            Place as Regular Parlay
+                        </button>
+                        {openParlayTargetLegs < OPEN_PARLAY_MAX_LEGS && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowNoOpenSlots(false);
+                                    setOpenParlayTargetLegs(Math.min(openParlayTargetLegs + 1, OPEN_PARLAY_MAX_LEGS));
+                                }}
+                                style={{
+                                    width: '100%',
+                                    borderRadius: 10,
+                                    padding: '12px 10px',
+                                    fontWeight: 800,
+                                    fontSize: 12,
+                                    letterSpacing: 0.6,
+                                    color: '#0f172a',
+                                    background: '#fff',
+                                    border: '1px solid #cbd5e1',
+                                    cursor: 'pointer',
+                                    textTransform: 'uppercase',
+                                    marginBottom: 8,
+                                }}
+                            >
+                                Keep it open — make it {openParlayTargetLegs + 1} legs
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => setShowNoOpenSlots(false)}
+                            style={{
+                                width: '100%',
+                                border: 'none',
+                                background: 'transparent',
+                                color: '#64748b',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                padding: '8px 0 2px',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            )}
             <BetConfirmationModal
                 isOpen={showConfirm}
                 betType={normalizedMode}
