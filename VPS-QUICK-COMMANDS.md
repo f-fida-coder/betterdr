@@ -180,3 +180,7 @@ Check krne ke liye kiya status hai on ya off    `
 `php php-backend/scripts/feed-switch.php status`
 database mein jane ke liye 
 `mysql -u bettor -p bettorplays247`
+odds api ko off ke liye 
+`cd ~/htdocs/www.bettorplays247.com/betterdr && printf '\nODDS_API_MASTER_ENABLED=false\n' >> .env && printf '\nODDS_API_MASTER_ENABLED=false\n' >> .env.production && pkill -f oddsapi-worker.php`
+aur ON ke iye 
+`cd ~/htdocs/www.bettorplays247.com/betterdr && sed -i 's/^ODDS_API_MASTER_ENABLED=.*/ODDS_API_MASTER_ENABLED=true/' .env .env.production && pkill -f oddsapi-worker.php`
