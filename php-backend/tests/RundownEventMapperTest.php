@@ -771,3 +771,94 @@ TestRunner::run('normalize()/annotate(): FULL_TIME is terminal at serve time (re
     TestRunner::assertEquals('finished', (string) ($annotated['status'] ?? ''), 'incident row annotates finished');
     TestRunner::assertFalse((bool) ($annotated['isBettable'] ?? true), 'incident row is NOT bettable');
 });
+
+// ── Baseball PK (0-run) spread suppression ────────────────────────────────
+// In baseball a 0-run spread is the SAME outcome as the moneyline (no ties),
+// so a "PK" rung is a duplicate ML at different juice — it read as broken on
+// the board (Yankees ML -102 next to Yankees PK -114) and invited ML-vs-PK
+// price shopping. Rundown genuinely marks point=0 as the F5 spread MAIN line
+// (this fixture carries it), so suppression must happen at ingestion for the
+// whole spread family: core game spread, period spreads, alternate ladders.
+
+function rmtAllExtendedSpreadPoints(array $doc): array
+{
+    $points = [];
+    foreach (($doc['odds']['extendedMarkets'] ?? []) as $m) {
+        $key = strtolower((string) ($m['key'] ?? ''));
+        $base = str_starts_with($key, 'alternate_') ? substr($key, strlen('alternate_')) : $key;
+        if ($base !== 'spreads' && !str_starts_with($base, 'spreads_')) continue;
+        foreach (($m['outcomes'] ?? []) as $o) {
+            if (isset($o['point'])) $points[$key][] = (float) $o['point'];
+        }
+    }
+    return $points;
+}
+
+TestRunner::run('MLB PK: point=0 F5 spread rungs suppressed at ingestion, non-zero rungs survive', function (): void {
+    // Fixture market 791 marks Detroit +0 / Angels +0 as is_main_line=true —
+    // the exact feed shape that produced the PK row on the F5 board.
+    $doc = RundownEventMapper::toMatchDoc(rmtLoad('mlb_la_at_detroit_scheduled'), 'baseball_mlb');
+    TestRunner::assertNotNull($doc, 'doc should map');
+    $byKey = rmtAllExtendedSpreadPoints($doc);
+    foreach ($byKey as $key => $points) {
+        foreach ($points as $p) {
+            TestRunner::assertTrue(abs($p) > 1e-9, "baseball spread market {$key} must carry NO point=0 rung, found one");
+        }
+    }
+    // The F5 spread market itself survives with its real (non-zero) rungs —
+    // suppression trims the ladder, it must not blank the market.
+    $f5 = $byKey['spreads_1st_5_innings'] ?? [];
+    TestRunner::assertTrue(count($f5) > 0, 'spreads_1st_5_innings still present after PK suppression');
+});
+
+function rmtPkSpreadEvent(string $home, string $away): array
+{
+    // Core game spread (market 2, period 0) with point=0 marked MAIN on both
+    // sides — the Route 2 belt: even if the feed ever publishes a PK game
+    // spread as main, baseball must not store it.
+    return [
+        'event_id' => 'synthetic-pk-spread',
+        'sport_id' => 3,
+        'teams' => [
+            ['name' => $home, 'is_home' => true],
+            ['name' => $away, 'is_away' => true],
+        ],
+        'score' => ['event_status' => 'STATUS_SCHEDULED'],
+        'schedule' => ['event_name' => "{$away} at {$home}"],
+        'markets' => [[
+            'market_id' => 2,
+            'period_id' => 0,
+            'participants' => [
+                ['name' => $away, 'type' => 'TYPE_TEAM', 'id' => 2001, 'lines' => [
+                    ['value' => '+0', 'prices' => ['3' => ['price' => -114, 'is_main_line' => true, 'id' => 9001, 'updated_at' => '2026-07-01T02:00:00Z']]],
+                ]],
+                ['name' => $home, 'type' => 'TYPE_TEAM', 'id' => 2002, 'lines' => [
+                    ['value' => '+0', 'prices' => ['3' => ['price' => -101, 'is_main_line' => true, 'id' => 9002, 'updated_at' => '2026-07-01T02:00:00Z']]],
+                ]],
+            ],
+        ]],
+    ];
+}
+
+TestRunner::run('baseball PK: core game spread main=0 never stored (Route 2 belt)', function (): void {
+    $doc = RundownEventMapper::toMatchDoc(rmtPkSpreadEvent('Tampa Bay Rays', 'New York Yankees'), 'baseball_mlb');
+    TestRunner::assertNotNull($doc, 'doc should map');
+    $byTeam = rmtSpreadsByTeam($doc);
+    TestRunner::assertEquals(0, count($byTeam), 'baseball point=0 game spread must not reach the board');
+});
+
+TestRunner::run('PK suppression is BASEBALL-ONLY: soccer and hockey level (0) handicaps are untouched', function (): void {
+    // DELIBERATE EXCLUSION (product ruling 2026-07-07): a soccer/hockey PK
+    // handicap is a legitimate, distinct product — the draw/OT refunds the
+    // stake, which their moneylines do NOT do. Only baseball sportKeys are
+    // gated; a regression that widens the gate to these sports removes a
+    // real product from the board.
+    foreach (['soccer_epl' => ['Chelsea', 'Arsenal'], 'icehockey_nhl' => ['Carolina', 'Montreal']] as $sportKey => [$home, $away]) {
+        $doc = RundownEventMapper::toMatchDoc(rmtPkSpreadEvent($home, $away), $sportKey);
+        TestRunner::assertNotNull($doc, "{$sportKey} doc should map");
+        $byTeam = rmtSpreadsByTeam($doc);
+        TestRunner::assertEquals(1, count($byTeam[$home] ?? []), "{$sportKey}: home PK spread outcome survives");
+        TestRunner::assertEquals(1, count($byTeam[$away] ?? []), "{$sportKey}: away PK spread outcome survives");
+        TestRunner::assertEqualsFloat(0.0, (float) $byTeam[$home][0]['point'], "{$sportKey}: PK point stays 0");
+    }
+});

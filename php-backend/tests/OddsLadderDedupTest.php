@@ -151,6 +151,89 @@ TestRunner::run('dedupeExtendedMarkets — drops priceless rungs', function (): 
     TestRunner::assertEqualsFloat(4.50, (float) $out[0]['outcomes'][0]['price'], 'kept rung price');
 });
 
+// ── Baseball PK suppression + balanced-pair ordering (sportKey-aware) ──────────
+// dedupeExtendedMarkets doubles as the READ-path cleaner (MatchesController
+// re-applies it to stored docs), so the baseball PK rule and the main-line
+// ordering must hold here too — that's what fixes docs written BEFORE the
+// ingestion gate shipped, without waiting for a resync.
+
+TestRunner::run('dedupeExtendedMarkets — baseball: point=0 spread rungs dropped on the read path', function (): void {
+    $flat = [[
+        'key' => 'spreads_1st_5_innings',
+        'outcomes' => [
+            lad('Washington', 0.0, 1.84, 'pinnacle'),   // the PK rung that showed on the F5 board
+            lad('Washington', -0.5, 2.12, 'fanduel'),
+            lad('Houston', 0.0, 2.02, 'pinnacle'),
+            lad('Houston', 0.5, 1.6849, 'fanduel'),
+        ],
+    ]];
+    $out = RundownEventMapper::dedupeExtendedMarkets($flat, 'baseball_mlb');
+    TestRunner::assertEquals(2, count($out[0]['outcomes']), 'both PK rungs dropped, both real rungs kept');
+    TestRunner::assertNotNull(rung($out[0], 'Washington', -0.5), 'Washington -0.5 survives');
+    TestRunner::assertNotNull(rung($out[0], 'Houston', 0.5), 'Houston +0.5 survives');
+});
+
+TestRunner::run('dedupeExtendedMarkets — PK rule is baseball-only: soccer/no-sportKey keep 0 rungs', function (): void {
+    $flat = [[
+        'key' => 'spreads',
+        'outcomes' => [
+            lad('Chelsea', 0.0, 1.91, 'pinnacle'),
+            lad('Arsenal', 0.0, 1.91, 'pinnacle'),
+        ],
+    ]];
+    // DELIBERATE EXCLUSION (product ruling 2026-07-07): soccer/hockey level
+    // handicaps are a real product (draw refunds stake) — never gated.
+    $soccer = RundownEventMapper::dedupeExtendedMarkets($flat, 'soccer_epl');
+    TestRunner::assertEquals(2, count($soccer[0]['outcomes']), 'soccer PK handicap untouched');
+    // No sportKey (legacy callers, e.g. card markets) → no suppression.
+    $legacy = RundownEventMapper::dedupeExtendedMarkets($flat);
+    TestRunner::assertEquals(2, count($legacy[0]['outcomes']), 'null sportKey → no suppression');
+});
+
+TestRunner::run('dedupeExtendedMarkets — baseball: balanced complementary pair ordered first', function (): void {
+    // Real prod shape (Houston at Washington F5, 2026-07-07): mixed books and
+    // points; the board renders the FIRST outcome per team name, so the
+    // balanced ±0.5 pair must land in front — both sides of the SAME line.
+    $flat = [[
+        'key' => 'spreads_1st_5_innings',
+        'outcomes' => [
+            lad('Washington', 0.0, 1.8403, 'pinnacle'),  // PK — dropped
+            lad('Washington', 0.5, 1.6289, 'pinnacle'),
+            lad('Washington', 1.0, 1.4292, 'pinnacle'),
+            lad('Washington', -1.0, 2.51, 'pinnacle'),
+            lad('Washington', -0.5, 2.12, 'fanduel'),
+            lad('Houston', 0.5, 1.6849, 'fanduel'),
+            lad('Houston', 0.0, 2.02, 'pinnacle'),       // PK — dropped
+            lad('Houston', 1.0, 1.5319, 'pinnacle'),
+            lad('Houston', -0.5, 2.32, 'pinnacle'),
+            lad('Houston', -1.0, 2.83, 'pinnacle'),
+        ],
+    ]];
+    $out = RundownEventMapper::dedupeExtendedMarkets($flat, 'baseball_mlb');
+    $first = $out[0]['outcomes'][0];
+    $second = $out[0]['outcomes'][1];
+    // Most balanced complementary pair: W -0.5 (2.12) / H +0.5 (1.6849),
+    // price gap 0.435 — smaller than every other ±p pair in the ladder.
+    TestRunner::assertEquals('Washington', (string) $first['name'], 'front pair side 1');
+    TestRunner::assertEqualsFloat(-0.5, (float) $first['point'], 'front pair is the -0.5 line');
+    TestRunner::assertEquals('Houston', (string) $second['name'], 'front pair side 2');
+    TestRunner::assertEqualsFloat(0.5, (float) $second['point'], 'front pair is the +0.5 line');
+    // First-match-per-name render now shows a coherent two-sided line.
+    TestRunner::assertEquals(8, count($out[0]['outcomes']), 'PK rungs gone, everything else kept');
+});
+
+TestRunner::run('dedupeExtendedMarkets — ordering never fires for non-spread or non-baseball markets', function (): void {
+    $totals = [[
+        'key' => 'totals_1st_5_innings',
+        'outcomes' => [
+            lad('Over', 4.5, 1.87, 'pinnacle'),
+            lad('Under', 4.5, 1.95, 'pinnacle'),
+        ],
+    ]];
+    $out = RundownEventMapper::dedupeExtendedMarkets($totals, 'baseball_mlb');
+    TestRunner::assertEquals('Over', (string) $out[0]['outcomes'][0]['name'], 'totals order untouched');
+});
+
 // Restore the preferred-book env so later suites in this process see the
 // original value (no cross-suite leakage).
 if ($__origGetenvPB === false) {

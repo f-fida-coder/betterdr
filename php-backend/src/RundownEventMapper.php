@@ -498,6 +498,9 @@ final class RundownEventMapper
                         if ($isCore && $isMain && ($periodId === 0 || $isLiveCore)) {
                             $marketKey = RundownMarketMap::oddsApiKey($marketId);
                             if ($marketKey === null || $rawParticipantName === '') continue;
+                            // Baseball 0-run ("PK") spreads are the moneyline in
+                            // disguise — never stored (see isSuppressedPkSpreadRung).
+                            if (self::isSuppressedPkSpreadRung($marketKey, $point, $sportKey)) continue;
                             if (!isset($bookmakersById[$affiliateId])) {
                                 $bookmakersById[$affiliateId] = [
                                     'key'        => $book['key'],
@@ -550,6 +553,12 @@ final class RundownEventMapper
                             $extKey = 'alternate_' . (string) RundownMarketMap::oddsApiKey($marketId);
                         }
                         if ($extKey === null || $rawParticipantName === '') continue;
+                        // Baseball PK suppression covers period spreads
+                        // (spreads_1st_5_innings…) and alternate_spreads too —
+                        // Rundown genuinely marks point=0 as the F5 main line,
+                        // and a 0 rung anywhere in the ladder is a bettable
+                        // ML-arb duplicate (see isSuppressedPkSpreadRung).
+                        if (self::isSuppressedPkSpreadRung($extKey, $point, $sportKey)) continue;
 
                         $outcome = ['name' => $canonicalTeamName, 'price' => $priceDecimal, 'book' => $book['key']];
                         if ($point !== null) {
@@ -591,7 +600,7 @@ final class RundownEventMapper
             // per book per rung, which otherwise shows "Germany -4.5" once per
             // book. Player props are NOT collapsed here: they key on the player
             // (description) and are deduped to the preferred book client-side.
-            'extendedMarkets' => self::dedupeExtendedMarkets(self::materializeFlatMarkets($extendedByKey)),
+            'extendedMarkets' => self::dedupeExtendedMarkets(self::materializeFlatMarkets($extendedByKey), $sportKey),
             'playerProps'     => self::materializeFlatMarkets($propsByKey),
         ];
     }
@@ -748,10 +757,20 @@ final class RundownEventMapper
      * usable price are dropped. Public so the read path (MatchesController)
      * can apply the same collapse to docs stored before this shipped.
      *
+     * When $sportKey identifies a baseball sport, spread-family markets also
+     * get (a) PK suppression — point=0 rungs dropped, same rule as ingestion,
+     * so docs stored before the ingestion gate shipped are cleaned on read —
+     * and (b) deterministic rung ordering: the complementary pair (+p / −p on
+     * opposite sides) with the most balanced juice is moved to the front.
+     * The board renders the FIRST outcome matching each team's name
+     * (getMarketOutcomeByName), so without (b) the F5/F1 spread cell shows an
+     * arbitrary rung per side — the two sides could even show different
+     * points from different books. Non-baseball sports are untouched.
+     *
      * @param array<int, array{key:string, outcomes:array<int,array<string,mixed>>}> $flatMarkets
      * @return array<int, array{key:string, outcomes:array<int,array<string,mixed>>}>
      */
-    public static function dedupeExtendedMarkets(array $flatMarkets): array
+    public static function dedupeExtendedMarkets(array $flatMarkets, ?string $sportKey = null): array
     {
         $rank = [];
         foreach (array_values(self::preferredBookOrder()) as $i => $bookKey) {
@@ -769,6 +788,8 @@ final class RundownEventMapper
             if ($key === '' || $outcomes === []) {
                 continue;
             }
+            $isBaseballSpreadFamily = self::isBaseballSpreadMarket($key, $sportKey);
+
             // Bucket every book's outcome for the same (side name, point),
             // preserving first-seen rung order so the ladder stays stable.
             $byRung = [];
@@ -781,6 +802,12 @@ final class RundownEventMapper
                 $point = array_key_exists('point', $o) && $o['point'] !== null && $o['point'] !== '' && is_numeric($o['point'])
                     ? (string) (0 + $o['point'])
                     : '';
+                // Read-path PK suppression: same rule as ingestion, applied
+                // here too so docs stored BEFORE the ingestion gate shipped
+                // never surface a baseball PK rung.
+                if ($isBaseballSpreadFamily && $point !== '' && (float) $point == 0.0) {
+                    continue;
+                }
                 $rungKey = strtolower($name) . '|' . $point;
                 if (!isset($byRung[$rungKey])) {
                     $byRung[$rungKey] = [];
@@ -811,11 +838,119 @@ final class RundownEventMapper
                 }
             }
 
+            if ($isBaseballSpreadFamily) {
+                $deduped = self::orderBalancedSpreadPairFirst($deduped);
+            }
+
             if ($deduped !== []) {
                 $out[] = ['key' => $key, 'outcomes' => array_values($deduped)];
             }
         }
         return $out;
+    }
+
+    /**
+     * True when this market key is a spread-family market for a baseball
+     * sport (baseball_mlb / baseball_npb / baseball_kbo / …). Spread family =
+     * 'spreads', any period variant ('spreads_1st_5_innings', 'spreads_h1'…)
+     * and their 'alternate_' forms. In baseball a 0-run spread ("PK") is the
+     * SAME outcome as the moneyline — MLB can't tie — so a PK rung is a
+     * duplicate ML at different juice: it reads as broken on the board
+     * (Yankees ML −102 next to Yankees PK −114) and invites ML-vs-PK price
+     * shopping. The real baseball spread product is the runline (±1.5 game,
+     * ±0.5 F5). Soccer and hockey PK/level handicaps are legitimate products
+     * (a draw refunds the stake — a DIFFERENT bet than their 3-way/OT-inclusive
+     * moneylines) and MUST NOT be gated by any of this.
+     */
+    private static function isBaseballSpreadMarket(string $marketKey, ?string $sportKey): bool
+    {
+        if ($sportKey === null || !str_starts_with(strtolower(trim($sportKey)), 'baseball')) {
+            return false;
+        }
+        $base = strtolower($marketKey);
+        if (str_starts_with($base, 'alternate_')) {
+            $base = substr($base, strlen('alternate_'));
+        }
+        return $base === 'spreads' || str_starts_with($base, 'spreads_');
+    }
+
+    /**
+     * True for a spread rung that must never be stored: baseball, spread
+     * family, point=0. Shared by every ingestion route (core board, period,
+     * alternate ladder) and mirrored on the read path in
+     * dedupeExtendedMarkets, so a PK rung can't reach display, placement,
+     * or Buy Points from any direction.
+     */
+    private static function isSuppressedPkSpreadRung(?string $marketKey, ?float $point, ?string $sportKey): bool
+    {
+        if ($marketKey === null || $point === null || $point != 0.0) {
+            return false;
+        }
+        return self::isBaseballSpreadMarket($marketKey, $sportKey);
+    }
+
+    /**
+     * Move the most balanced COMPLEMENTARY rung pair to the front of a
+     * deduped spread ladder: two outcomes on opposite sides (different
+     * names) at mirrored points (+p / −p) whose decimal prices are closest
+     * together — that pair is the de-facto main line. Ties break to the
+     * smaller |point| (nearest the true main), then first-seen order, so
+     * the result is deterministic for identical input. The board's
+     * first-match-per-name render then shows BOTH sides of the SAME line
+     * from the pair, fixing the cross-book side-mismatch (e.g. Washington
+     * −0.5 FanDuel next to Houston 0 Pinnacle). No pair → order unchanged.
+     * Pure reorder: never drops, reprices, or fabricates an outcome.
+     *
+     * @param list<array<string,mixed>> $outcomes
+     * @return list<array<string,mixed>>
+     */
+    private static function orderBalancedSpreadPairFirst(array $outcomes): array
+    {
+        $n = count($outcomes);
+        if ($n < 2) {
+            return $outcomes;
+        }
+        $bestI = null;
+        $bestJ = null;
+        $bestDiff = null;
+        $bestAbsPoint = null;
+        for ($i = 0; $i < $n; $i++) {
+            $a = $outcomes[$i];
+            if (!is_array($a) || !isset($a['price']) || !is_numeric($a['price'])) continue;
+            $pa = (isset($a['point']) && is_numeric($a['point'])) ? (float) $a['point'] : null;
+            if ($pa === null) continue;
+            for ($j = $i + 1; $j < $n; $j++) {
+                $b = $outcomes[$j];
+                if (!is_array($b) || !isset($b['price']) || !is_numeric($b['price'])) continue;
+                $pb = (isset($b['point']) && is_numeric($b['point'])) ? (float) $b['point'] : null;
+                if ($pb === null) continue;
+                if (strcasecmp((string) ($a['name'] ?? ''), (string) ($b['name'] ?? '')) === 0) continue;
+                if (abs($pa + $pb) > 1e-9) continue; // complementary pair: pb == -pa
+                $diff = abs((float) $a['price'] - (float) $b['price']);
+                $absPoint = abs($pa);
+                if (
+                    $bestDiff === null
+                    || $diff < $bestDiff - 1e-12
+                    || (abs($diff - $bestDiff) <= 1e-12 && $absPoint < $bestAbsPoint)
+                ) {
+                    $bestDiff = $diff;
+                    $bestAbsPoint = $absPoint;
+                    $bestI = $i;
+                    $bestJ = $j;
+                }
+            }
+        }
+        if ($bestI === null || $bestJ === null) {
+            return $outcomes;
+        }
+        $front = [$outcomes[$bestI], $outcomes[$bestJ]];
+        $rest = [];
+        foreach ($outcomes as $k => $o) {
+            if ($k !== $bestI && $k !== $bestJ) {
+                $rest[] = $o;
+            }
+        }
+        return array_merge($front, $rest);
     }
 
     /**

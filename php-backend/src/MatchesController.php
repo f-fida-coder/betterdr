@@ -1022,7 +1022,9 @@ final class MatchesController
             // already-collapsed, but re-applying here is idempotent and fixes
             // docs written before this shipped (and any that bypassed mapping)
             // so the builder never shows the same handicap at multiple juices.
-            $extended = RundownEventMapper::dedupeExtendedMarkets($extended);
+            // sportKey enables the baseball PK-spread suppression + balanced
+            // pair ordering on docs stored before the ingestion gate shipped.
+            $extended = RundownEventMapper::dedupeExtendedMarkets($extended, $sportKey !== '' ? $sportKey : null);
 
             // House risk cap: trim each alt ladder to the N rungs nearest the
             // main line, per side (platformsettings.alternateLinesPerSide, env

@@ -3429,6 +3429,36 @@ final class BetsController
             }
         }
 
+        // ── Baseball PK (0-run) spread placement block ─────────────────────
+        // Belt-and-braces mirror of the ingestion suppression
+        // (RundownEventMapper::isSuppressedPkSpreadRung): in baseball a 0-run
+        // spread is the SAME outcome as the moneyline (no ties), so a "PK"
+        // spread is a duplicate ML at different juice — an arb against our own
+        // board. Ingestion no longer stores these rungs, but a stale client
+        // slip or a doc written before that gate could still submit one;
+        // refuse it here so it can never book. Spread family only (game +
+        // period + alternate_); totals/h2h/props unaffected. Soccer & hockey
+        // PK handicaps are legitimate distinct products (draw refunds stake)
+        // and are NOT gated — baseball sportKeys only.
+        if (
+            !$isPropMarket
+            && $adjustedPoint !== null
+            && (float) $adjustedPoint == 0.0
+            && str_starts_with(strtolower(trim((string) ($match['sportKey'] ?? ''))), 'baseball')
+        ) {
+            $pkBase = strtolower($marketKey);
+            if (str_starts_with($pkBase, 'alternate_')) {
+                $pkBase = substr($pkBase, strlen('alternate_'));
+            }
+            if ($pkBase === 'spreads' || str_starts_with($pkBase, 'spreads_')) {
+                throw new ApiException('This line is unavailable — use the moneyline for a pick\'em price.', 409, [
+                    'code' => 'PK_SPREAD_UNAVAILABLE',
+                    'marketType' => $marketKey,
+                    'point' => $adjustedPoint,
+                ]);
+            }
+        }
+
         // Compare client odds vs official using American integers to avoid
         // decimal floating-point mismatches on the 0.0001 threshold.
         // For Buy Points legs, "official" here means the server's repriced
