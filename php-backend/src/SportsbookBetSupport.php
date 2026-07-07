@@ -323,6 +323,80 @@ final class SportsbookBetSupport
     // player id lands on the leg (then a precise nested-prop rule replaces it).
     public const SGP_DEFAULT_MAX_PLAYER_PROPS_PER_GAME = 1;
 
+    // ── House max-win ceiling (parlays / RR children / open parlays /
+    //    outright legs) ─────────────────────────────────────────────────────
+    // PO ruling 2026-07-07: the operator's exposure on any single parlay-
+    // family ticket or futures leg is capped at $5,000 of WIN (profit —
+    // both PO examples equate the cap to profit: $100 at +5000 wins
+    // exactly $5,000). Configured via MAX_PARLAY_PAYOUT (dollars, default
+    // 5000; <= 0 disables). Unlike the per-player 3×maxBet clamp — which
+    // silently REDUCES the payout — this cap REJECTS with a computed
+    // "reduce your stake to $X" so the price is never silently rewritten.
+    // Runs AFTER the 3× clamp, so whatever survives that reduction must
+    // still fit under the absolute ceiling. Straight non-outright tickets
+    // and teaser/if-bet/reverse are deliberately NOT covered (PO scope:
+    // "parlay and futures"; widen the call-site conditions to change).
+    // Manual/admin-entered bets never pass through these placement paths,
+    // so they bypass the cap by construction (PO exemption).
+    public const DEFAULT_MAX_TICKET_WIN_CAP = 5000.0;
+
+    /** The live cap in dollars, or 0.0 when disabled. */
+    public static function maxTicketWinCap(): float
+    {
+        $raw = Env::get('MAX_PARLAY_PAYOUT', (string) self::DEFAULT_MAX_TICKET_WIN_CAP);
+        $cap = is_numeric($raw) ? (float) $raw : self::DEFAULT_MAX_TICKET_WIN_CAP;
+        return $cap > 0 ? $cap : 0.0;
+    }
+
+    /**
+     * Largest whole-dollar stake whose win fits under the cap at the given
+     * combined DECIMAL odds: floor(cap / (decimal - 1)). floor() guarantees
+     * the suggestion can never bust the cap through rounding —
+     * X <= cap/(d-1) ⇒ X*(d-1) <= cap, exactly. Returns 0 when even a $1
+     * stake would exceed the cap (caller words the message accordingly).
+     */
+    public static function allowedStakeForWinCap(float $cap, float $combinedDecimal): float
+    {
+        if ($cap <= 0 || !is_finite($combinedDecimal) || $combinedDecimal <= 1.0) {
+            return 0.0;
+        }
+        return floor($cap / ($combinedDecimal - 1.0));
+    }
+
+    /**
+     * Reject a ticket (or an RR child / OP recompute) whose WIN exceeds the
+     * house cap. $combinedDecimal must be the UNCLAMPED product of the leg
+     * odds — the stake suggestion is computed from it, and using a payout
+     * ratio already reduced by the 3×maxBet clamp would overstate the
+     * allowed stake and bounce the player twice. No-op when the cap is
+     * disabled or the win fits (win exactly == cap passes).
+     *
+     * @param string $context placement surface, echoed in the error extra
+     */
+    public static function assertWinWithinCap(float $winAmount, float $combinedDecimal, string $context): void
+    {
+        $cap = self::maxTicketWinCap();
+        if ($cap <= 0 || $winAmount <= $cap) {
+            return;
+        }
+        $capFmt = '$' . number_format($cap, 0);
+        $allowed = self::allowedStakeForWinCap($cap, $combinedDecimal);
+        $message = $allowed >= 1.0
+            ? 'Max win is ' . $capFmt . ' — reduce your stake to $' . number_format($allowed, 0) . ' or less.'
+            : 'Max win is ' . $capFmt . ' — these odds cannot fit under the limit at any stake.';
+        if ($context === 'open_parlay_add_leg') {
+            // Stake is locked on an open ticket — there is nothing to reduce.
+            $message = 'Adding this leg pushes the potential win past ' . $capFmt . ' — it cannot be added to this ticket.';
+        }
+        throw new ApiException($message, 400, [
+            'code' => 'MAX_WIN_EXCEEDED',
+            'cap' => $cap,
+            'winAmount' => round($winAmount, 2),
+            'allowedStake' => $allowed,
+            'context' => $context,
+        ]);
+    }
+
     /**
      * Resolve the live SGP config from the platformsettings doc, clamped so
      * callers can trust it. Single source for placement gating, caps, and the
