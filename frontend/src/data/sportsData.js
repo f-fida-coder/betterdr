@@ -41,13 +41,11 @@ export const sportsData = [
         icon: 'fa-solid fa-tv',
         selectable: true,
     },
-    {
-        id: 'all-futures',
-        label: 'FUTURES',
-        icon: 'fa-solid fa-trophy',
-        selectable: true,
-        type: 'futures',
-    },
+    // The top-level FUTURES aggregator was removed 2026-07-08 (operator
+    // call): every league's outright boards already nest under their own
+    // sport as futures-group children below, so the all-sports tab was a
+    // duplicate entry point. resolveFuturesSelection still handles the
+    // per-league leaves; only the unscoped all-futures selection is gone.
     // ── BASKETBALL ────────────────────────────────────────────
     {
         id: 'basketball',
