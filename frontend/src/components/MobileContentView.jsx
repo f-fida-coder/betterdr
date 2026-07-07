@@ -2448,7 +2448,15 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     // The Total column's own pill cycles Total ⇄ Team Totals only (TT is
     // full-game MLB + soccer). Generic Alt Totals are intentionally not in this cycle.
     // Switching total mode clears ALT mode so the two stay mutually exclusive.
-    const totalModeOrder = ['total', ...(hasTeamTotals ? ['tt'] : [])];
+    // Teaser mode locks the column to GAME totals: team totals are never a
+    // teasable market (industry rule — teasers move spreads and full-game
+    // totals only), so the TT option leaves the cycle entirely and
+    // effectiveTotalMode's fallback snaps an already-TT column back to
+    // 'total' the moment teaser mode turns on. Placement independently
+    // rejects any non-spreads/totals teaser leg (applyTeaserAdjustment
+    // whitelist), so hidden ⟺ unplaceable — same discipline as the
+    // hasAltSpreads/hasAltTotals teaser gates above.
+    const totalModeOrder = ['total', ...(hasTeamTotals && !isTeaserMode ? ['tt'] : [])];
     const [totalMode, setTotalMode] = React.useState('total');
     const effectiveTotalMode = totalModeOrder.includes(totalMode) ? totalMode : 'total';
     const teamTotalsActive = effectiveTotalMode === 'tt';
