@@ -1717,7 +1717,24 @@ const ModeBetPanel = ({
             // Letting the top Bet Amount auto-flow through (or having
             // them re-type) is the safe default after a price move.
             const { wagerOverride: _drop, ...rest } = s;
-            return { ...rest, odds: next };
+            // Tag the pre-move price (decimal) so the slip leg and the
+            // review modal render an inline "old → new" delta chip until
+            // placement — without it the explicit ODDS_CHANGED flow shows
+            // only the NEW number and reads as "odds not matching" against
+            // whatever the player remembered. Chained moves keep the
+            // ORIGINAL baseline (+100 → +105 → +110 renders "+100 → +110").
+            // Display-only slip state: the placement payload picks its
+            // fields explicitly and never sends this.
+            const movedFrom = Number.isFinite(Number(rest.priceMovedFrom))
+                ? Number(rest.priceMovedFrom)
+                : Number(s.odds);
+            return {
+                ...rest,
+                odds: next,
+                ...(Number.isFinite(movedFrom) && Math.abs(movedFrom - next) > 1e-9
+                    ? { priceMovedFrom: movedFrom }
+                    : {}),
+            };
         });
         if (patchedCount > 0) {
             onSelectionsChange(patched);
@@ -2956,8 +2973,28 @@ const ModeBetPanel = ({
                                     <span style={{ fontWeight: 700, color: palette.textPrimary, fontVariantNumeric: 'tabular-nums' }}>
                                         {isProp ? null : betTypeText}
                                     </span>
-                                    <span style={{ fontWeight: 800, color: palette.success, fontVariantNumeric: 'tabular-nums' }}>
-                                        {formatOddsSign(sel.odds)}
+                                    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}>
+                                        {/* ODDS_CHANGED delta chip: old → new, set by
+                                            handleOddsChanged when the server repriced
+                                            this leg. Green when the new price pays
+                                            more (higher decimal), muted otherwise. */}
+                                        {Number.isFinite(Number(sel.priceMovedFrom))
+                                            && Math.abs(Number(sel.priceMovedFrom) - Number(sel.odds)) > 1e-9 && (
+                                            <span style={{
+                                                fontSize: 10.5,
+                                                fontWeight: 800,
+                                                padding: '1px 7px',
+                                                borderRadius: 999,
+                                                whiteSpace: 'nowrap',
+                                                background: Number(sel.odds) >= Number(sel.priceMovedFrom) ? 'rgba(22,163,74,0.12)' : '#f1f5f9',
+                                                color: Number(sel.odds) >= Number(sel.priceMovedFrom) ? '#16a34a' : '#64748b',
+                                            }}>
+                                                {formatOddsSign(sel.priceMovedFrom)} → {formatOddsSign(sel.odds)}
+                                            </span>
+                                        )}
+                                        <span style={{ fontWeight: 800, color: palette.success, fontVariantNumeric: 'tabular-nums' }}>
+                                            {formatOddsSign(sel.odds)}
+                                        </span>
                                     </span>
                                 </div>
 

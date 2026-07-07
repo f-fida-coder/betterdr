@@ -170,6 +170,26 @@ const BetConfirmationModal = ({
                   <div style={{ color: '#ffd776', fontWeight: 700 }}>
                     {legHeadline(selection, oddsFormat)}
                   </div>
+                  {/* ODDS_CHANGED delta chip — mirrors the slip leg's chip so the
+                      review step SHOWS the move (old → new) instead of only the
+                      new number. priceMovedFrom is display-only slip state set by
+                      handleOddsChanged; green when the new price pays more. */}
+                  {Number.isFinite(Number(selection.priceMovedFrom))
+                    && Math.abs(Number(selection.priceMovedFrom) - Number(selection.odds)) > 1e-9 && (
+                    <div style={{ marginTop: 4 }}>
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 800,
+                        padding: '1px 8px',
+                        borderRadius: 999,
+                        whiteSpace: 'nowrap',
+                        background: Number(selection.odds) >= Number(selection.priceMovedFrom) ? 'rgba(126,231,168,0.16)' : 'rgba(255,255,255,0.08)',
+                        color: Number(selection.odds) >= Number(selection.priceMovedFrom) ? '#7ee7a8' : '#9aa5bd',
+                      }}>
+                        Price updated: {formatOdds(selection.priceMovedFrom, oddsFormat)} → {formatOdds(selection.odds, oddsFormat)}
+                      </span>
+                    </div>
+                  )}
                   {formatGameTime(selection) && (
                     <div style={{ color: '#9aa5bd', fontSize: 11, marginTop: 4 }}>
                       <i className="fa-regular fa-clock" style={{ marginRight: 4 }} />
