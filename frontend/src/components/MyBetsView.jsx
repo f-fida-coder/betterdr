@@ -4,6 +4,7 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatLineValue, formatOdds, formatSpreadValue, americanToDecimal } from '../utils/odds';
 import { formatSiteDateTime } from '../utils/timezone';
 import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri, mascotName } from '../utils/teamLogos';
+import { isOutrightLeg, outrightMarketLabelForLeg } from '../utils/outrightLabel';
 import '../mybets.css';
 import { consumeMyBetsInitialFilter } from './myBetsState';
 import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
@@ -199,6 +200,13 @@ const ticketSummary = (bet) => {
         const line = point === null ? '' : formatLineValue(Math.abs(point));
         return line ? `${isUnder ? 'Under' : 'Over'} ${line}` : (isUnder ? 'Under' : 'Over');
     }
+    // Outright/futures: "Minnesota Vikings To Win Super Bowl" — the "ML"
+    // fallback below would mislabel a futures pick as a moneyline.
+    if (isOutrightLeg(leg)) {
+        const name = String(leg?.selectionFull || '').trim() || selection || 'Pick';
+        const label = outrightMarketLabelForLeg(leg);
+        return label ? `${name} ${label}` : name;
+    }
     // h2h / moneyline / fallback
     const team = String(leg?.selectionFull || '').trim() || selection || 'Pick';
     return `${team} ML`;
@@ -274,6 +282,16 @@ const legDescriptionBase = (leg, oddsFormat) => {
     if (isPlayerPropMarket(leg?.marketType)) {
         const pick = String(leg?.selectionFull || '').trim() || selection || 'Pick';
         return [pick, prettyPlayerMarketLabel(leg?.marketType), odds].filter(Boolean).join(' ');
+    }
+    // Outright/futures: name + the market it's for + odds — "Minnesota
+    // Vikings To Win Super Bowl +5000" (PO 2026-07-08; bare "name + odds"
+    // didn't say WHICH future). Label resolves at render time (sidebar
+    // leaf label by sportKey, else the snapshot's eventName), so existing
+    // pending futures pick this up with no backfill. Empty label → fall
+    // through to the previous name + odds format, never a blank segment.
+    if (isOutrightLeg(leg)) {
+        const name = String(leg?.selectionFull || '').trim() || selection || 'Pick';
+        return [name, outrightMarketLabelForLeg(leg), odds].filter(Boolean).join(' ');
     }
     // Moneyline / fallback → mascot-only team + odds ("Tigers +105").
     const team = mascotName(leg?.selectionFull, selection) || 'Pick';

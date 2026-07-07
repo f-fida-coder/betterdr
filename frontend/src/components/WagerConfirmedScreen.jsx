@@ -1,6 +1,7 @@
 import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, formatLineValue, formatSpreadValue, americanToDecimal } from '../utils/odds';
+import { isOutrightLeg, outrightMarketLabelForLeg } from '../utils/outrightLabel';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
 
@@ -46,6 +47,16 @@ const lineSuffix = (leg) => {
 const propMarketSuffix = (leg) => (
     isPlayerPropMarket(leg?.marketType) ? ` ${prettyPlayerMarketLabel(leg?.marketType)}` : ''
 );
+
+// Market name appended for outright/futures legs (DISPLAY only):
+// "Minnesota Vikings To Win Super Bowl" (PO 2026-07-08 — bare name + odds
+// didn't say which future). Empty for every other market, and empty when
+// the label can't be resolved so the row falls back to name + odds.
+const outrightMarketSuffix = (leg) => {
+    if (!isOutrightLeg(leg)) return '';
+    const label = outrightMarketLabelForLeg(leg);
+    return label ? ` ${label}` : '';
+};
 
 // "Line moved" note under a repriced leg. Booking auto-accepts favorable
 // moves and small in-band adverse moves, placing at the official current
@@ -248,7 +259,7 @@ const WagerConfirmedScreen = ({
                                             <i className="fa-solid fa-circle-check" style={{ color: '#16a34a', marginTop: 3, fontSize: 11 }} />
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ fontWeight: 700, color: '#0f172a', wordBreak: 'break-word' }}>
-                                                    {leg.selection || '-'}{propMarketSuffix(leg)}{lineSuffix(leg)}
+                                                    {leg.selection || '-'}{propMarketSuffix(leg)}{outrightMarketSuffix(leg)}{lineSuffix(leg)}
                                                 </div>
                                                 <div style={{ fontSize: 11, color: '#64748b' }}>
                                                     {matchTitle(leg) || (leg.matchId || '')}

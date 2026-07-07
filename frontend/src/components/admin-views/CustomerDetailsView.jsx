@@ -24,6 +24,7 @@ import { formatTransactionType, isDebitTransaction } from '../../utils/transacti
 import { resolveDepositFreeplayBonusPreview } from '../../utils/freeplayBonus';
 import { formatUsPhone, generateIdentityPassword, normalizeIdentityName } from '../../utils/identityPassword';
 import { getMoneyToneClass, toMoneyNumber } from '../../utils/money';
+import { isOutrightLeg, outrightMarketLabelForLeg } from '../../utils/outrightLabel';
 
 const DEFAULT_FORM = {
   password: '',
@@ -2924,6 +2925,14 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
               if (market === 'totals' && Number.isFinite(point)) {
                 const isUnder = selection.toLowerCase().startsWith('u');
                 return `${isUnder ? 'Under' : 'Over'} ${Math.abs(point)}${american ? ` ${american}` : ''}`.trim();
+              }
+              // Outright/futures: append the market name so the row says
+              // WHICH future — "Minnesota Vikings To Win Super Bowl +5000"
+              // (PO 2026-07-08). Falls back to plain name + odds when the
+              // label can't be resolved.
+              if (isOutrightLeg(leg)) {
+                const label = outrightMarketLabelForLeg(leg);
+                return `${selection || 'Pick'}${label ? ` ${label}` : ''}${american ? ` ${american}` : ''}`.trim();
               }
               return `${selection || 'ML'}${american ? ` ${american}` : ''}`.trim();
             };
