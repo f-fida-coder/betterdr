@@ -1115,9 +1115,18 @@ final class MatchesController
         $sportKey    = (string) ($match['sportKey'] ?? '');
         $baseMarkets = is_array($match['odds']['markets'] ?? null) ? $match['odds']['markets'] : [];
 
+        // Re-dedupe BEFORE capping (idempotent for docs written after
+        // ingestion started collapsing ladders). This is the LIST-path mirror
+        // of the detail-sheet cleaner: with sportKey it also drops baseball
+        // PK (point=0) spread rungs and fronts the balanced pair on docs
+        // stored BEFORE the ingestion gate shipped. Without it, the delta
+        // patcher (patch-only — never removes rungs) keeps a pre-fix doc's
+        // PK rungs on the F5/F1 BOARD until the full-coverage sweep happens
+        // to rewrite that sport — an unbounded display window. Placement is
+        // separately blocked; this closes the display side.
         if (is_array($match['odds']['extendedMarkets'] ?? null)) {
             $match['odds']['extendedMarkets'] = $this->capAlternateLadders(
-                $match['odds']['extendedMarkets'],
+                RundownEventMapper::dedupeExtendedMarkets($match['odds']['extendedMarkets'], $sportKey !== '' ? $sportKey : null),
                 $baseMarkets,
                 $sportKey,
                 $capSettings
@@ -1125,7 +1134,7 @@ final class MatchesController
         }
         if (is_array($match['extendedMarkets'] ?? null)) {
             $match['extendedMarkets'] = $this->capAlternateLadders(
-                $match['extendedMarkets'],
+                RundownEventMapper::dedupeExtendedMarkets($match['extendedMarkets'], $sportKey !== '' ? $sportKey : null),
                 $baseMarkets,
                 $sportKey,
                 $capSettings
