@@ -3061,10 +3061,13 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 feed shipped a Draw price, so 2-way US sports never get an empty
                 row. A separate grid with the SAME column template as the team
                 rows above, so the Draw price lines up under the ML column.
-                No divider line — the row sits slightly apart from the two
-                team rows (grid above already pads 8px; marginTop 4 → 12px
-                effective gap, PO 2026-07-07: the old tight 4px read as
-                crowded against the home row). Tagged 'h2h' (NOT
+                No divider line — the row sits tight against the two team
+                rows (marginTop -4 cancels the grid's 8px bottom padding so
+                the gap matches the 4px row-gap between Away/Home), with a
+                small 8px gap before the notice divider below. PO follow-up
+                2026-07-07 (supersedes the earlier same-day breathing-room
+                note): Draw belongs visually inside the game block; the
+                small gap goes below it, not above. Tagged 'h2h' (NOT
                 'h2h_3_way') so settlement grades it draw-aware. */}
             {visibleMarkets.showMoneyline && match.odds.moneylineDraw != null && (
                 <div style={{
@@ -3072,7 +3075,8 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 30px'}`,
                     columnGap: 4,
                     alignItems: 'stretch',
-                    marginTop: 4,
+                    marginTop: -4,
+                    marginBottom: 8,
                 }}>
                     <span style={{ ...teamNameStyle, display: 'flex', alignItems: 'center', color: '#64748b', fontWeight: 600 }}>Draw</span>
                     {visibleMarkets.showSpread && <span />}
