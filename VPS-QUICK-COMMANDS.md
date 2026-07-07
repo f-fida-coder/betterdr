@@ -28,6 +28,20 @@ grep -E '^(MYSQL_|RUNDOWN_|SPORTSBOOK_)' .env.production
 > ⚠️ Env change karne ke baad **worker restart zaroori** (section 4) — workers
 > startup pe env cache karte hain. Web ke liye `reload php8.5-fpm` (section 2).
 
+> 📌 **Precedence (Env.php, verified 2026-07-08):** production mode (hostname
+> hstgr match) mein sirf `.env.production` parhi jaati hai — root wali
+> authoritative, `php-backend/.env.production` fallback. **Root `.env` prod pe
+> IGNORED hai** (sirf dev mode mein primary). Isi drift ne
+> `RUNDOWN_PREMATCH_DAYS_AHEAD` (2 vs 4) confusion banaya — ab sab files 4 pe
+> aligned (2026-07-08). Naya var set karo to CHARON files mein same value
+> rakho (root + php-backend × .env + .env.production) taake drift kabhi na ho.
+
+> 🔮 **Advance/7-day bump (pending PO):** `RUNDOWN_PREMATCH_DAYS_AHEAD=7`
+> dono `.env.production` files mein + odds/prematch worker respawn + fpm
+> reload (props-backfill bhi yehi var parhta hai). Phir 24h X-Datapoints
+> headers watch karo (250M/mo pace) — budget ura de to days 3-7 ke liye slow
+> tier design karna hai, tab tak revert.
+
 ---
 
 ## 2. Deploy — naya code laana
