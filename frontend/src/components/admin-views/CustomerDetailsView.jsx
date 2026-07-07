@@ -2486,8 +2486,16 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
           <div style={{ display: 'flex', gap: '8px' }}>
             {pendingBets.length > 0 && (
               <button
-                className="btn btn-danger"
-                style={{ background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca' }}
+                className="btn btn-back"
+                style={{
+                    background: '#fee2e2',
+                    color: '#dc2626',
+                    border: '1px solid #fecaca',
+                    // btn-back has no :disabled rule; keep the dimmed
+                    // not-allowed feedback the old .btn-danger:disabled gave.
+                    opacity: (deletingAllPending || pendingBetsLoading) ? 0.45 : 1,
+                    cursor: (deletingAllPending || pendingBetsLoading) ? 'not-allowed' : 'pointer',
+                }}
                 onClick={handleDeleteAllPendingBets}
                 disabled={deletingAllPending || pendingBetsLoading}
               >
