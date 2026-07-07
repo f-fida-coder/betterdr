@@ -1277,8 +1277,18 @@ const ModeBetPanel = ({
             marketType: String(sel?.marketType || ''),
             odds: Number.isFinite(Number(sel?.odds)) ? Number(Number(sel.odds).toFixed(4)) : null,
             ...(Number.isFinite(Number(sel?.point)) ? { point: Number(sel.point) } : {}),
+            // STRAIGHT-mode stakes live PER LEG (effectiveCombinedRisk is 0
+            // for straight, so the ticket-level `amount` above never sees
+            // them) and MUST be in the signature: the requestId reuses while
+            // the signature is unchanged, and the backend 409s a reused
+            // requestId whose payload hash changed. Without this, a rejected
+            // straight/outright attempt poisoned the slip — every new stake
+            // re-sent the old requestId (REQUEST_ID_REUSED) until the leg was
+            // removed and re-added. Constant 0 on combined modes, so their
+            // rotation semantics are untouched. Do not "simplify" this away.
+            wager: Number(wagerForSelection(sel).toFixed(2)),
         })),
-    }), [normalizedMode, selections, teaserPointValue, effectiveCombinedRisk]);
+    }), [normalizedMode, selections, teaserPointValue, effectiveCombinedRisk, wagerForSelection]);
 
     const potentialPayout = useMemo(() => {
         if (legCount === 0) return 0;
