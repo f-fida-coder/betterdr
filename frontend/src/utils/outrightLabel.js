@@ -22,7 +22,12 @@ const buildSportKeyLabelMap = () => {
     return map;
 };
 
-const SPORT_KEY_LABELS = buildSportKeyLabelMap();
+// Built lazily on first lookup, NOT at module scope: this file sits in the
+// utils-shared chunk while sportsData is co-located into dashboard-views
+// (DashboardSidebar imports it). utils-shared initializes first, so touching
+// sportsData here at module-init time is a TDZ crash that kills the whole
+// app before React mounts (prod outage 2026-07-08).
+let SPORT_KEY_LABELS = null;
 
 /**
  * Friendly market name for an outright/futures leg: the sidebar leaf label
@@ -32,6 +37,7 @@ const SPORT_KEY_LABELS = buildSportKeyLabelMap();
  * name + odds format rather than a blank market segment.
  */
 export const outrightMarketLabel = (sportKey, eventName) => {
+    if (!SPORT_KEY_LABELS) SPORT_KEY_LABELS = buildSportKeyLabelMap();
     const key = String(sportKey || '').toLowerCase().trim();
     if (key && SPORT_KEY_LABELS[key]) return SPORT_KEY_LABELS[key];
     return String(eventName || '').trim();
