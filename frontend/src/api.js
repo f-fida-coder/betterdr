@@ -812,6 +812,29 @@ export const getMatchProps = async (matchId, { sheet = false } = {}) => {
     return response.json();
 };
 
+// Pre-submit re-quote: reprice the slip against current odds and return the
+// reconciled per-leg prices + server combined/payout, WITHOUT booking. The
+// review modal opens on this so the player sees any move before confirming.
+// Read-only on the server (no balance/bet/requestId) — no X-Request-Id here.
+export const quoteBet = async (betData, token) => {
+    const normalizedType = normalizeBetMode(betData?.type || 'straight');
+    const normalizedSelections = Array.isArray(betData?.selections)
+        ? betData.selections.map((sel) => ({ ...sel, type: normalizeBetMode(sel?.type || sel?.marketType || 'straight') }))
+        : undefined;
+    const response = await fetch(buildApiUrl('/bets/quote'), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ ...betData, type: normalizedType, selections: normalizedSelections }),
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        const err = new Error(error.error || error.message || 'Could not price the bet');
+        Object.assign(err, error);
+        throw err;
+    }
+    return response.json();
+};
+
 export const placeBet = async (betData, token, { requestId = '' } = {}) => {
     const normalizedType = normalizeBetMode(betData?.type || 'straight');
     const normalizedSelections = Array.isArray(betData?.selections)

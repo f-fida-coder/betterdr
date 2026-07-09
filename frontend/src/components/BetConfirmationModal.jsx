@@ -80,12 +80,29 @@ const BetConfirmationModal = ({
   onConfirm,
   onCancel,
   isSubmitting = false,
+  // Pre-submit re-quote snapshot (combined modes): { status, data, error,
+  // baselineCombined }. null for modes that don't re-quote (straight/RR/open).
+  reviewQuote = null,
 }) => {
   const { oddsFormat } = useOddsFormat();
   // Shared dismiss behavior: ESC / browser Back / nav-tab tap close the
   // confirmation sheet. Called before the early return so hook order is stable.
   useDismissableSurface(isOpen, onCancel);
   if (!isOpen) return null;
+
+  // Re-quote gating: Confirm stays disabled until the server quote lands, so
+  // the player can never confirm on a stale number. A quote error blocks too.
+  const quoteLoading = reviewQuote?.status === 'loading';
+  const quoteError = reviewQuote?.status === 'error';
+  const quoteReady = reviewQuote?.status === 'ready';
+  const confirmDisabled = isSubmitting || quoteLoading || quoteError;
+  // The combined delta the player watches: what they last saw → the quoted
+  // price. Shown prominently on the odds line, not just as per-leg chips.
+  const baselineCombined = Number(reviewQuote?.baselineCombined);
+  const quotedCombined = Number(reviewQuote?.data?.combinedAmerican);
+  const combinedMoved = quoteReady && Number.isFinite(baselineCombined) && Number.isFinite(quotedCombined)
+    && baselineCombined !== quotedCombined;
+  const fmtAmerican = (v) => (Number(v) > 0 ? `+${Number(v)}` : `${Number(v)}`);
 
   const first = selections[0];
   const second = selections[1];
@@ -144,6 +161,20 @@ const BetConfirmationModal = ({
         </div>
 
         <div style={{ padding: 18, overflowY: 'auto', flex: 1, minHeight: 0 }}>
+          {/* Re-quote status: a brief "getting the current price" while the
+              server quote lands (Confirm disabled), or an error that blocks
+              placing on a price we couldn't verify. */}
+          {quoteLoading && (
+            <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 8, background: 'rgba(31,122,224,0.14)', color: '#9ec6ff', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <i className="fa-solid fa-spinner fa-spin" />
+              Confirming the current price…
+            </div>
+          )}
+          {quoteError && (
+            <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 8, background: 'rgba(220,38,38,0.16)', color: '#fca5a5', fontSize: 12, fontWeight: 700 }}>
+              {reviewQuote?.error || 'Could not price this bet right now. Please try again.'}
+            </div>
+          )}
           <div style={{ fontSize: 13, color: '#b8c3d8', marginBottom: 8 }}>Selections</div>
           <div style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, overflow: 'hidden' }}>
             {selections.map((selection, idx) => {
@@ -242,6 +273,23 @@ const BetConfirmationModal = ({
               <span>Win</span>
               <strong style={{ color: '#7ee7a8' }}>${formatAmount(displayedTotalWin)}</strong>
             </div>
+            {/* Combined-odds delta — the number Nicky watches. Shown prominently
+                when the quote moved off what the slip showed, favorable (green,
+                "improved") or adverse (amber). Confirm books THIS price. */}
+            {combinedMoved && (
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                marginTop: 8, padding: '7px 10px', borderRadius: 8,
+                background: quotedCombined > baselineCombined ? 'rgba(126,231,168,0.14)' : 'rgba(255,215,118,0.12)',
+              }}>
+                <span style={{ fontSize: 12, color: '#b8c3d8', fontWeight: 700 }}>
+                  {quotedCombined > baselineCombined ? 'Price improved' : 'Price updated'}
+                </span>
+                <strong style={{ color: quotedCombined > baselineCombined ? '#7ee7a8' : '#ffd776', fontSize: 15 }}>
+                  {fmtAmerican(baselineCombined)} → {fmtAmerican(quotedCombined)}
+                </strong>
+              </div>
+            )}
             {betType === 'parlay' && selections.length > 1 && totalRisk > 0 && (
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, color: '#b8c3d8' }}>
@@ -286,18 +334,18 @@ const BetConfirmationModal = ({
           </button>
           <button
             onClick={onConfirm}
-            disabled={isSubmitting}
+            disabled={confirmDisabled}
             style={{
               border: 'none',
               borderRadius: 8,
-              background: '#1f7ae0',
+              background: confirmDisabled ? '#33507a' : '#1f7ae0',
               color: '#fff',
               padding: '9px 14px',
               fontWeight: 700,
-              cursor: isSubmitting ? 'not-allowed' : 'pointer',
+              cursor: confirmDisabled ? 'not-allowed' : 'pointer',
             }}
           >
-            {isSubmitting ? 'Placing...' : 'Confirm Bet'}
+            {isSubmitting ? 'Placing...' : quoteLoading ? 'Pricing…' : quoteError ? 'Unavailable' : 'Confirm Bet'}
           </button>
         </div>
       </div>

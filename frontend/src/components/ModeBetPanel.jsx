@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { placeBet, createOpenParlay, normalizeBetMode, createRequestId } from '../api';
+import { placeBet, quoteBet, createOpenParlay, normalizeBetMode, createRequestId } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal, roundCombinedToAmericanDecimal } from '../utils/odds';
@@ -440,6 +440,12 @@ const ModeBetPanel = ({
     const [isMobile, setIsMobile] = useState(false);
     const [submitAttempted, setSubmitAttempted] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
+    // Pre-submit re-quote (combined modes): the review modal opens on a server
+    // quote so the price it shows is exactly what the book will honor. Holds the
+    // reconciled snapshot + a loading/error status; `baselineCombined` is the
+    // American combined the player last SAW (the slip's, then each prior quote's)
+    // so the modal can render the "+210 → +212" combined delta Nicky watches.
+    const [reviewQuote, setReviewQuote] = useState({ status: 'idle', data: null, error: '', baselineCombined: null });
     // Open-parlay "no open slots" prompt: shown when every declared leg is
     // already attached at place time (that ticket is a regular parlay in
     // disguise; the server rejects it with OPEN_PARLAY_NO_OPEN_SLOTS).
@@ -1700,6 +1706,84 @@ const ModeBetPanel = ({
         return legRequestStateRef.current.ids[key];
     };
 
+    // Pre-submit re-quote is scoped to the combined modes that carry a single
+    // combined price (where Nicky's "slip 210 → book 212" gap lives). Straight /
+    // Round Robin / open parlay keep their existing per-leg placement flow.
+    const quoteEligible = ['parlay', 'teaser', 'if_bet', 'reverse'].includes(normalizedMode) && !isOpenParlay;
+
+    // Build the quote payload — the SAME selections + amount the placement will
+    // send, so the server prices the identical ticket (odds are read from the
+    // slip, which patchSlipToQuote reconciles to the quote before Confirm).
+    const buildQuotePayload = () => {
+        const combinedSmartMode = normalizedMode === 'parlay'
+            ? 'risk'
+            : (stakeMode === 'bet' ? resolveBetSmartMode(ticketDecimalOdds) : stakeMode);
+        const requestedWin = combinedSmartMode === 'win' && Number.isFinite(Number(wager)) && Number(wager) > 0
+            ? Math.round(Number(wager)) : 0;
+        const cappedRisk = (winCapState.cap > 0 && Number.isFinite(winCapState.maxStake))
+            ? Math.min(effectiveCombinedRisk, winCapState.maxStake) : effectiveCombinedRisk;
+        const cappedReqWin = winCapState.cap > 0 ? Math.min(requestedWin, winCapState.cap) : requestedWin;
+        return {
+            type: normalizedMode,
+            amount: cappedRisk,
+            ...(cappedReqWin > 0 ? { requestedWin: cappedReqWin } : {}),
+            ...(normalizedMode === 'teaser' ? { teaserPoints: teaserPointValue } : {}),
+            ...(normalizedMode === 'teaser' && selectedTeaserTypeId ? { teaserTypeId: selectedTeaserTypeId } : {}),
+            selections: selections.map((sel) => ({
+                matchId: sel.matchId,
+                selection: sel.selection,
+                odds: Number(sel.odds),
+                type: sel.marketType || 'straight',
+                ...(Number.isFinite(Number(sel.point)) ? { point: Number(sel.point) } : {}),
+                ...(Math.abs(Number(sel.boughtPoints)) > 1e-9 ? { boughtPoints: Number(sel.boughtPoints) } : {}),
+            })),
+        };
+    };
+
+    // Reconcile the slip legs to the quoted (current) odds so the modal's
+    // per-leg rows + delta chips render the move, and the placement payload
+    // (which reads sel.odds) then sends exactly the quoted price. priceMovedFrom
+    // keeps the ORIGINAL slip baseline across re-quotes (chained moves show
+    // slip → current), matching handleOddsChanged's convention.
+    const patchSlipToQuote = (legs) => {
+        const matchKey = (l) => `${String(l.matchId || '')}::${String(l.marketType || '').toLowerCase()}::${String(l.selection || '')}`;
+        const byQualified = new Map(legs.map((l) => [matchKey(l), l]));
+        const patched = selections.map((s) => {
+            const leg = byQualified.get(matchKey(s))
+                || legs.find((l) => String(l.matchId || '') === String(s.matchId || '') && String(l.selection || '') === String(s.selection || ''));
+            const newOdds = Number(leg?.oddsDecimal);
+            if (!Number.isFinite(newOdds) || newOdds <= 1 || Math.abs(newOdds - Number(s.odds)) < 1e-9) return s;
+            const movedFrom = Number.isFinite(Number(s.priceMovedFrom)) ? Number(s.priceMovedFrom) : Number(s.odds);
+            const { wagerOverride: _drop, ...rest } = s;
+            return {
+                ...rest,
+                odds: newOdds,
+                ...(Number.isFinite(movedFrom) && Math.abs(movedFrom - newOdds) > 1e-9 ? { priceMovedFrom: movedFrom } : {}),
+            };
+        });
+        onSelectionsChange(patched);
+    };
+
+    // Fetch a server quote for the open review modal. `baselineCombined` is the
+    // American combined the player last saw (slip on first open, prior quote on
+    // a re-quote), used for the modal's combined delta. Never books.
+    const runQuote = async (baselineCombined) => {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        setReviewQuote({ status: 'loading', data: null, error: '', baselineCombined: baselineCombined ?? null });
+        try {
+            const res = await quoteBet(buildQuotePayload(), token);
+            if (!res?.ok) {
+                setReviewQuote({ status: 'error', data: null, error: res?.error || 'Could not price the bet', baselineCombined: baselineCombined ?? null });
+                return;
+            }
+            if (Array.isArray(res.legs)) patchSlipToQuote(res.legs);
+            setReviewQuote({ status: 'ready', data: res, error: '', baselineCombined: baselineCombined ?? null });
+        } catch (err) {
+            setReviewQuote({ status: 'error', data: null, error: err?.message || 'Could not price the bet', baselineCombined: baselineCombined ?? null });
+        }
+    };
+
     const handlePlaceBet = async () => {
         if (placing || submissionLockRef.current) {
             return;
@@ -1734,6 +1818,16 @@ const ModeBetPanel = ({
             return;
         }
         setShowConfirm(true);
+        // Combined modes: open the modal on a fresh server quote so the price it
+        // shows is exactly what the book will honor. Baseline = the slip's own
+        // combined (the number the player was looking at), so the modal renders
+        // the "slip → quoted" combined delta. Straight/RR/open-parlay skip this.
+        if (quoteEligible) {
+            const baseline = totalRisk > 0 ? decimalToAmerican((totalRisk + displayWinAmount) / totalRisk) : null;
+            runQuote(baseline);
+        } else {
+            setReviewQuote({ status: 'idle', data: null, error: '', baselineCombined: null });
+        }
     };
 
     // Completes the no-open-slots "Place as Regular Parlay" conversion: by
@@ -2046,6 +2140,12 @@ const ModeBetPanel = ({
             const payload = {
                 type: normalizedMode,
                 amount: normalizedMode === 'round_robin' ? roundRobinStakePerParlay : cappedCombinedRisk,
+                // Reviewed-quote lock: the player confirmed a server-quoted price,
+                // so the book must honor it exactly (or better) — 'exact' policy
+                // server-side. The slip odds were reconciled to the quote by
+                // patchSlipToQuote, so this payload already carries the quoted
+                // prices. A late adverse tick returns ODDS_CHANGED → re-quote.
+                ...(quoteEligible && reviewQuote.status === 'ready' ? { reviewedQuote: true } : {}),
                 ...(normalizedMode === 'round_robin'
                     ? { sizes: [...roundRobinSizes].sort((a, b) => a - b) }
                     : (cappedCombinedRequestedWin > 0 ? { requestedWin: cappedCombinedRequestedWin } : {})),
@@ -2102,6 +2202,19 @@ const ModeBetPanel = ({
             const blockingCodes = ['REQUEST_ID_REQUIRED', 'REQUEST_ID_REUSED'];
             if (blockingCodes.includes(String(error?.code || ''))) {
                 requestStateRef.current = { requestId: '', signature: '' };
+            }
+            // Reviewed-quote late tick: the price moved adversely between the
+            // quote and this Confirm tap, so the 'exact' policy rejected it
+            // (never silently booked worse). Re-open the review modal on a FRESH
+            // quote showing the new delta and require a new Confirm — never an
+            // automatic silent retry. Baseline = the price the player just
+            // confirmed (the prior quote's combined), so the delta reads
+            // "what you saw → new".
+            if (quoteEligible && String(error?.code || '') === 'ODDS_CHANGED') {
+                handleOddsChanged(error); // patch slip to the server's new odds + reset requestId
+                setShowConfirm(true);
+                runQuote(reviewQuote.data?.combinedAmerican ?? null);
+                return;
             }
             if (handleOddsChanged(error)) {
                 return;
@@ -3755,7 +3868,16 @@ const ModeBetPanel = ({
                 // totalRisk + requestedWin within ±$2). Otherwise the
                 // modal would re-derive Win from raw potentialPayout
                 // and drift back to $997 on a typed $1000.
-                potentialPayout={normalizedMode === 'straight' ? potentialPayout : (totalRisk + displayWinAmount)}
+                // When a server quote is ready, its payout is authoritative —
+                // the modal shows exactly what the book will pay (closes the
+                // slip→receipt gap). Falls back to the client estimate while the
+                // quote is loading or for non-quoted modes.
+                potentialPayout={(quoteEligible && reviewQuote.status === 'ready' && reviewQuote.data)
+                    ? reviewQuote.data.potentialPayout
+                    : (normalizedMode === 'straight' ? potentialPayout : (totalRisk + displayWinAmount))}
+                // The re-quote snapshot: status (loading/ready/error), the server
+                // combined + payout, and the baseline combined for the delta chip.
+                reviewQuote={quoteEligible ? reviewQuote : null}
                 // Per-leg stakes + the user's intended Win for STRAIGHT mode.
                 // Win values come from resolveStake (American-integer math),
                 // not recomputed from rounded decimal odds in the modal — that

@@ -20,6 +20,15 @@ final class BetsController
             $this->placeBet();
             return true;
         }
+        // Pre-submit re-quote: reprice the slip against CURRENT odds and return
+        // the reconciled per-leg prices + combined/payout, WITHOUT booking. The
+        // review modal opens on this so the player sees any move before Confirm,
+        // then places with reviewedQuote=true to lock the shown price. Read-only:
+        // no balance, no bets/betrequests/transactions, no requestId consumed.
+        if ($path === '/api/bets/quote' && $method === 'POST') {
+            $this->quoteBet();
+            return true;
+        }
         // Open Parlay ("open play"): commit a parlay in status='open' with
         // 1+ legs, then add more legs before any leg's game starts. Stake is
         // reserved at create exactly like a normal parlay (no new money path).
@@ -73,6 +82,161 @@ final class BetsController
         }
 
         return false;
+    }
+
+    /**
+     * POST /api/bets/quote — reprice the slip against CURRENT odds and return
+     * the reconciled per-leg prices + combined/payout/win, WITHOUT booking.
+     *
+     * The review modal opens on this so the player sees any line move (delta
+     * chips) BEFORE confirming; Confirm then re-places with reviewedQuote=true
+     * so the book honors exactly the shown price (or better).
+     *
+     * MONEY-SAFE BY CONSTRUCTION — read-and-compute only:
+     *  - no balance mutation, no bets / betrequests / transactions insert,
+     *  - no requestId consumed, no idempotency doc, no transaction opened.
+     *  Pricing goes through the SAME SportsbookBetSupport::pricedTicket the book
+     *  uses, and repricing through the SAME validateSelection — with policy
+     *  'any' so it RETURNS the current official price instead of throwing
+     *  ODDS_CHANGED (that gate is a placement concern; a quote's job is to SHOW
+     *  the current price). It performs the same dedup'd bet-time odds-freshness
+     *  sync validateSelection always does, so the quote reflects the exact odds
+     *  the book will price off — that read-through is the only DB touch, and it
+     *  is idempotent (SharedFileCache dedups repeat quotes to one sync).
+     */
+    private function quoteBet(): void
+    {
+        try {
+            $user = $this->protect();
+            if ($user === null) {
+                return;
+            }
+            $body = Http::jsonBody();
+            $type = BetModeRules::normalize((string) ($body['type'] ?? 'straight'));
+            // Standard single-ticket modes that go through the review modal.
+            // Round Robin + open parlay keep their own placement flows.
+            if (!in_array($type, ['straight', 'parlay', 'teaser', 'if_bet', 'reverse'], true)) {
+                Response::json(['ok' => false, 'error' => 'Quote is not available for this bet type'], 400);
+                return;
+            }
+            $modeRule = $this->getModeRule($type);
+            if ($modeRule === null) {
+                Response::json(['ok' => false, 'error' => 'Bet mode ' . $type . ' is not supported'], 400);
+                return;
+            }
+            $sgpCfg = SportsbookBetSupport::sgpConfig($this->db->findOne('platformsettings', []));
+            $betAmount = is_numeric($body['amount'] ?? null) ? (float) $body['amount'] : 0.0;
+            if ($betAmount <= 0) {
+                Response::json(['ok' => false, 'error' => 'A stake amount is required to quote'], 400);
+                return;
+            }
+
+            // Build the leg inputs exactly like placeBet (straight = one leg).
+            $selections = is_array($body['selections'] ?? null) ? $body['selections'] : [];
+            $marketType = BetModeRules::normalize((string) ($body['marketType'] ?? ''));
+            if ($type === 'straight') {
+                $selectionInputs = [
+                    (count($selections) > 0 && is_array($selections[0])) ? $selections[0] : [
+                        'matchId' => $body['matchId'] ?? null,
+                        'selection' => $body['selection'] ?? null,
+                        'odds' => $body['odds'] ?? null,
+                        'type' => $marketType !== '' ? $marketType : $type,
+                        'boughtPoints' => $body['boughtPoints'] ?? null,
+                        'point' => $body['point'] ?? null,
+                    ],
+                ];
+            } else {
+                if (count($selections) === 0) {
+                    Response::json(['ok' => false, 'error' => strtoupper($type) . ' requires selections'], 400);
+                    return;
+                }
+                $selectionInputs = $selections;
+            }
+
+            // Reprice each leg to CURRENT odds. Policy 'any' → validateSelection
+            // returns the official price instead of throwing ODDS_CHANGED. A
+            // suspended / removed / limit-exceeded leg still throws (availability
+            // is not an acceptance concern) → surfaced below so the modal blocks
+            // Confirm with the exact reason rather than quoting a dead line.
+            $validated = [];
+            $legs = [];
+            foreach ($selectionInputs as $sel) {
+                if (!is_array($sel)) {
+                    continue;
+                }
+                $selType = BetModeRules::normalize((string) ($sel['type'] ?? ($sel['marketType'] ?? 'straight')));
+                $boughtPoints = is_numeric($sel['boughtPoints'] ?? null) ? (float) $sel['boughtPoints'] : 0.0;
+                if ($selType === 'outrights') {
+                    $v = $this->validateOutrightSelection(
+                        trim((string) ($sel['matchId'] ?? ($sel['outrightId'] ?? ''))),
+                        trim((string) ($sel['selection'] ?? '')),
+                        $sel['odds'] ?? null,
+                        'any',
+                        0
+                    );
+                } else {
+                    $v = $this->validateSelection(
+                        trim((string) ($sel['matchId'] ?? '')),
+                        trim((string) ($sel['selection'] ?? '')),
+                        $sel['odds'] ?? null,
+                        $selType,
+                        $boughtPoints,
+                        'any',
+                        0,
+                        (isset($sel['point']) && is_numeric($sel['point'])) ? (float) $sel['point'] : null
+                    );
+                }
+                $validated[] = $v;
+                $slipDecimal = is_numeric($sel['odds'] ?? null) ? (float) $sel['odds'] : null;
+                $officialDecimal = (float) ($v['odds'] ?? 0);
+                $legs[] = [
+                    'matchId' => $v['matchId'] ?? null,
+                    'selection' => $v['selection'] ?? null,
+                    'selectionFull' => $v['selectionFull'] ?? null,
+                    'marketType' => $v['marketType'] ?? null,
+                    'point' => $v['point'] ?? null,
+                    'oddsDecimal' => $officialDecimal,
+                    'oddsAmerican' => (int) ($v['oddsAmerican'] ?? 0),
+                    // The price the slip carried, so the modal renders the
+                    // "slip → current" delta chip (favorable moves included).
+                    'slipDecimal' => $slipDecimal,
+                    'moved' => $slipDecimal !== null && abs($slipDecimal - $officialDecimal) > 1e-9,
+                ];
+            }
+            if ($validated === []) {
+                Response::json(['ok' => false, 'error' => 'No valid selections to quote'], 400);
+                return;
+            }
+
+            // Same pricing the book uses — the whole point: modal == receipt.
+            $priced = SportsbookBetSupport::pricedTicket(
+                $type,
+                $betAmount,
+                $validated,
+                $modeRule,
+                (float) $sgpCfg['haircutPct'],
+                (float) $sgpCfg['propHaircutPct'],
+                $body['requestedWin'] ?? null
+            );
+            $risk = $priced['totalRisk'];
+            $payout = $priced['potentialPayout'];
+
+            Response::json([
+                'ok' => true,
+                'type' => $type,
+                'risk' => round($risk, 2),
+                'potentialPayout' => round($payout, 2),
+                'win' => round(max(0.0, $payout - $risk), 2),
+                'combinedDecimal' => $priced['combinedOdds'],
+                'combinedAmerican' => SportsbookBetSupport::decimalToAmericanInt($priced['combinedOdds']),
+                'legs' => $legs,
+            ]);
+        } catch (ApiException $e) {
+            Response::json(array_merge(['ok' => false, 'error' => $e->getMessage()], $e->payload()), $e->statusCode());
+        } catch (Throwable $e) {
+            Logger::exception($e, 'quoteBet failed');
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
     }
 
     private function placeBet(): void
@@ -250,6 +414,18 @@ final class BetsController
             $acceptance = SportsbookBetSupport::resolveOddsAcceptance(
                 is_array($user['settings'] ?? null) ? $user['settings'] : null
             );
+            // Pre-submit re-quote path: the client showed the player a server
+            // quote and is confirming THAT exact price. Force 'exact' acceptance
+            // (accept the quoted price or anything favorable; reject ANY adverse
+            // move) so the book can never silently reprice under the confirmed
+            // number — the player gets what the modal showed, or better, never
+            // worse. A late adverse tick returns ODDS_CHANGED and the modal
+            // re-quotes. Non-reviewed placements keep the user's own policy, so
+            // the standard handshake remains the backstop for any path that
+            // bypasses the review modal.
+            if (!empty($body['reviewedQuote'])) {
+                $acceptance = ['policy' => 'exact', 'bandCents' => 0];
+            }
             foreach ($selectionInputs as $idx => $sel) {
                 $boughtPointsRaw = $sel['boughtPoints'] ?? null;
                 $boughtPoints = is_numeric($boughtPointsRaw) ? (float) $boughtPointsRaw : 0.0;
@@ -590,37 +766,24 @@ final class BetsController
                 return;
             }
 
-            $totalRisk = SportsbookBetSupport::ticketRiskAmount($type, $betAmount);
-            // SGP haircut rates flow in here; sameGameHaircutFraction inside
-            // returns 0 for cross-game tickets, so non-SGP payouts are identical
-            // to before. The SAME rates are snapshotted onto the bet doc below.
-            $potentialPayout = SportsbookBetSupport::calculatePotentialPayout(
+            // Canonical pricing (risk + payout + Win-pin + combined) via the
+            // SHARED SportsbookBetSupport::pricedTicket, so the pre-submit quote
+            // (::quoteBet) prices identically — the review modal shows exactly
+            // what this books. SGP haircut rates flow in; sameGameHaircutFraction
+            // returns 0 for cross-game tickets. The SAME rates are snapshotted
+            // onto the bet doc below.
+            $priced = SportsbookBetSupport::pricedTicket(
                 $type,
                 $betAmount,
                 $validatedSelections,
                 $modeRule,
                 (float) $sgpCfg['haircutPct'],
-                (float) $sgpCfg['propHaircutPct']
+                (float) $sgpCfg['propHaircutPct'],
+                $body['requestedWin'] ?? null
             );
-
-            // Win-mode pinning: when the client typed in Win mode and sent
-            // `requestedWin`, lock potentialPayout = totalRisk + requestedWin
-            // so the player gets exactly what they typed. Otherwise the
-            // round(risk × decimal) recompute drifts to $999/$1001 on a
-            // typed $1000 win for non-round odds. Range-checked so a stray
-            // / malicious value can't manipulate payout — must be within
-            // ±$2 of the computed payout, which is the worst-case rounding
-            // drift for any single integer-risk leg.
-            $requestedWinRaw = $body['requestedWin'] ?? null;
-            if (is_numeric($requestedWinRaw)) {
-                $requestedWin = (float) round((float) $requestedWinRaw);
-                $pinnedPayout = $totalRisk + $requestedWin;
-                if ($requestedWin > 0 && abs($pinnedPayout - $potentialPayout) <= 2.0) {
-                    $potentialPayout = $pinnedPayout;
-                }
-            }
-
-            $combinedOdds = SportsbookBetSupport::combinedOdds($totalRisk, $potentialPayout);
+            $totalRisk = $priced['totalRisk'];
+            $potentialPayout = $priced['potentialPayout'];
+            $combinedOdds = $priced['combinedOdds'];
 
             // Both min and max are risk-anchored — they cap the player's
             // stake, not the operator's payout. This matches what every

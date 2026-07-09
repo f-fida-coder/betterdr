@@ -128,6 +128,53 @@ final class SportsbookBetSupport
     }
 
     /**
+     * Canonical ticket pricing — the SINGLE source of a ticket's risk /
+     * potentialPayout / combined odds, shared by real placement (BetsController
+     * ::placeBet) AND the pre-submit quote (::quoteBet) so the review modal can
+     * never show a number the book won't honor. Pure: no I/O, no side effects.
+     *
+     * Wraps ticketRiskAmount + calculatePotentialPayout + the Win-mode pin
+     * (typed Win locks potentialPayout = risk + requestedWin within ±$2 of the
+     * computed payout) + combinedOdds. If this math ever changes, BOTH the quote
+     * and the book move together — that's the whole point of routing them here.
+     *
+     * @param array<int, array<string, mixed>> $validatedSelections
+     * @param array<string, mixed>             $rule
+     * @return array{totalRisk: float, potentialPayout: float, combinedOdds: float}
+     */
+    public static function pricedTicket(
+        string $type,
+        float $unitStake,
+        array $validatedSelections,
+        array $rule,
+        float $sgpHaircutPct = 0.0,
+        float $sgpPropHaircutPct = 0.0,
+        mixed $requestedWinRaw = null
+    ): array {
+        $totalRisk = self::ticketRiskAmount($type, $unitStake);
+        $potentialPayout = self::calculatePotentialPayout(
+            $type,
+            $unitStake,
+            $validatedSelections,
+            $rule,
+            $sgpHaircutPct,
+            $sgpPropHaircutPct
+        );
+        if (is_numeric($requestedWinRaw)) {
+            $requestedWin = (float) round((float) $requestedWinRaw);
+            $pinnedPayout = $totalRisk + $requestedWin;
+            if ($requestedWin > 0 && abs($pinnedPayout - $potentialPayout) <= 2.0) {
+                $potentialPayout = $pinnedPayout;
+            }
+        }
+        return [
+            'totalRisk' => $totalRisk,
+            'potentialPayout' => $potentialPayout,
+            'combinedOdds' => self::combinedOdds($totalRisk, $potentialPayout),
+        ];
+    }
+
+    /**
      * Convert a decimal odds value to a rounded American integer.
      * decimal ≥ 2.0 → american = round((decimal − 1) × 100)
      * decimal < 2.0 → american = round(−100 / (decimal − 1))
