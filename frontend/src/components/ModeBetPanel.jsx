@@ -2186,8 +2186,11 @@ const ModeBetPanel = ({
                 : await placeBet(payload, token, { requestId });
             const successText = result?.message || 'Bet placed successfully';
             requestStateRef.current = { requestId: '', signature: '' };
-            setMessage({ type: 'success', text: successText });
-            showToast(successText, 'success');
+            // A queued (approval-required) bet is a distinct outcome from a live
+            // placement — surface it as info, not a green "placed" success.
+            const approvalPending = !!result?.approvalPending;
+            setMessage({ type: approvalPending ? 'info' : 'success', text: successText });
+            showToast(successText, approvalPending ? 'info' : 'success');
             // Capture the placed ticket(s) for the Wager Confirmed sheet.
             // Combined-mode placements always produce a single ticket but
             // we still pass the whole `bets` array so the confirmation

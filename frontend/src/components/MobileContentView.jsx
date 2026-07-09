@@ -2698,12 +2698,12 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
 
             {/* Combined header row: live dot + date on the left,
                 SPREAD / ML / TOTAL labels aligned with the odds
-                columns below. The Props entry is a full-width bar
-                BELOW the game now (not a right-edge action column),
-                so the label grid ends at the last odds column. */}
+                columns below. Trailing empty slot matches the vertical
+                Props column on the right (dropped in teaser mode since
+                the Props panel is hidden there). */}
             <div style={{
                 display: 'grid',
-                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}`,
+                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 32px'}`,
                 columnGap: 4,
                 padding: '0 0 4px',
                 alignItems: 'center',
@@ -2825,17 +2825,19 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         <span style={columnLabelStyle}>Total</span>
                     )
                 )}
+                {!isTeaserMode && <span />}
             </div>
             {propsOpen && (
                 <PropBuilderModal match={modalMatch} onClose={() => setPropsOpen(false)} betMode={betMode} includeGameMarkets />
             )}
 
-            {/* Body: team info | odds. The odds columns span the full row
-                width now — the Props entry moved to a full-width bar below
-                the game (was a 38px right-edge action column). */}
+            {/* Body: team info | odds | vertical Props column. The Props
+                column is a narrow (32px) right-edge bar with the label
+                running top-to-bottom, spanning both team rows. Dropped in
+                teaser mode (the Props panel is hidden there). */}
             <div style={{
                 display: 'grid',
-                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}`,
+                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 32px'}`,
                 gridTemplateRows: 'auto auto',
                 columnGap: 4,
                 rowGap: 4,
@@ -2911,6 +2913,57 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     )
                 )}
 
+
+                {/* Right-column Props button — spans both team rows so it
+                    sits as one tall bar against the odds grid. ONE
+                    consolidated "Props" entry (the old "+" More Bets + "P+"
+                    builder merged 2026-07-08): opens PropBuilderModal with
+                    includeGameMarkets. The label runs VERTICALLY (top-to-
+                    bottom) so the column stays narrow without clipping.
+                    Hidden in teaser mode — teasers can only combine
+                    spread/total legs, so this panel is a dead end there. */}
+                {!isTeaserMode && (
+                <div style={{
+                    // Column 1 = team info, cols 2..(2+marketCount-1) = odds,
+                    // col (marketCount + 2) = the Props slot. Explicit number
+                    // (not `-1`) so auto-placed odds cells can't leak into it.
+                    gridColumn: marketCount + 2,
+                    gridRow: '1 / span 2',
+                    display: 'flex',
+                    alignItems: 'stretch',
+                    justifyContent: 'center',
+                }}>
+                    <button
+                        type="button"
+                        onClick={() => setPropsOpen(true)}
+                        disabled={blocked}
+                        aria-label="Open props and more markets"
+                        title="Player props & more game markets"
+                        style={{
+                            background: blocked ? '#444' : 'linear-gradient(135deg, #a020f0, #d946ef)',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 4,
+                            width: '100%',
+                            // Vertical text: "Props" reads top-to-bottom rather
+                            // than horizontally, so the button stays a slim
+                            // right-edge bar (32px column) with no clipping.
+                            writingMode: 'vertical-rl',
+                            textOrientation: 'mixed',
+                            fontSize: 11,
+                            fontWeight: 800,
+                            letterSpacing: 1,
+                            lineHeight: 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '6px 0',
+                            cursor: blocked ? 'not-allowed' : 'pointer',
+                            opacity: blocked ? 0.5 : 1,
+                        }}
+                    >Props</button>
+                </div>
+                )}
 
                 <div style={{ ...teamCellStyle, gridColumn: 1, gridRow: 2 }}>
                     <TeamAvatar team={match.team2} sportKey={match.sportKey} sport={match.sport} abbr={match.team2Short} fullName={match.team2Full} />
@@ -2997,7 +3050,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
             {visibleMarkets.showMoneyline && match.odds.moneylineDraw != null && (
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}`,
+                    gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 32px'}`,
                     columnGap: 4,
                     alignItems: 'stretch',
                     marginTop: -4,
@@ -3013,39 +3066,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         onClick={() => addIfAllowed(match.id, 'Draw', 'h2h', match.odds.moneylineDraw, matchName, 'Moneyline', null)}
                     />
                     {visibleMarkets.showTotals && <span />}
-                </div>
-            )}
-
-            {/* Props / more markets — the ONE consolidated entry (the old "+"
-                More Bets and "P+" builder both merged here on 2026-07-08). Sits
-                as a full-width bar BELOW the game's odds (PO: stack it up/down,
-                not squeezed on the right edge) so the odds columns reclaim that
-                width. Opens the same PropBuilderModal (includeGameMarkets) the
-                right-edge pill did — tap behavior unchanged. Hidden in teaser
-                mode (its markets can't be teased). Mobile board only; desktop
-                (SportContentView) is untouched. */}
-            {!isTeaserMode && (
-                <div style={{ padding: '2px 0 4px' }}>
-                    <button
-                        type="button"
-                        onClick={() => setPropsOpen(true)}
-                        disabled={blocked}
-                        aria-label="Open props and more markets"
-                        title="Player props & more game markets"
-                        style={{
-                            width: '100%',
-                            height: 28,
-                            background: blocked ? '#444' : 'linear-gradient(135deg, #a020f0, #d946ef)',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: 6,
-                            fontSize: 12,
-                            fontWeight: 800,
-                            letterSpacing: 0.3,
-                            cursor: blocked ? 'not-allowed' : 'pointer',
-                            opacity: blocked ? 0.5 : 1,
-                        }}
-                    >Props</button>
+                    {!isTeaserMode && <span />}
                 </div>
             )}
 

@@ -61,7 +61,11 @@ final class AuthController
             // AT RISK card: any non-final status counts.
             $bets = $this->db->findMany('bets', [
                 'userId' => SqlRepository::id($userId),
-                'status' => ['$nin' => ['won', 'lost', 'void']],
+                // 'rejected' = approval-queue bet that was declined/timed out
+                // and already refunded — it holds no stake, so exclude it
+                // alongside the settled terminals. ('pending_approval' is NOT
+                // excluded: its stake is still held and must count as risk.)
+                'status' => ['$nin' => ['won', 'lost', 'void', 'rejected']],
             ], ['projection' => [
                 'riskAmount' => 1, 'amount' => 1,
                 'freeplayAmountUsed' => 1, 'isFreeplay' => 1,

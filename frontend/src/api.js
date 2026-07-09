@@ -1945,6 +1945,41 @@ export const gradeAdminCardBet = async (betId, decision, token) => {
     return response.json();
 };
 
+// ── Bet approval queue (admin + super/master/plain agent, downline-scoped) ──
+export const getAdminBetApprovals = async (token) => {
+    const response = await fetch(buildApiUrl('/admin/bet-approvals'), { headers: getHeaders(token) });
+    return parseJsonResponse(response, 'Failed to load bet approvals');
+};
+
+// Money action: approve → books FROZEN submit-time odds (never the advisory
+// current line shown in the inbox).
+export const approveAdminBet = async (betId, token) => {
+    const response = await fetch(buildApiUrl(`/admin/bet-approvals/${betId}/approve`), {
+        method: 'POST',
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || error.message || 'Failed to approve bet');
+    }
+    return response.json();
+};
+
+// Money action: reject → refunds the held stake (cash + freeplay) and marks
+// the bet rejected.
+export const rejectAdminBet = async (betId, token, reason = '') => {
+    const response = await fetch(buildApiUrl(`/admin/bet-approvals/${betId}/reject`), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ reason })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || error.message || 'Failed to reject bet');
+    }
+    return response.json();
+};
+
 // ── Admin manual/write-in bets (strict admin only on the backend) ─────────
 export const getAdminManualBets = async (token) => {
     const response = await fetch(buildApiUrl('/admin/manual-bets'), {

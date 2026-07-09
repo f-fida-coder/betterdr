@@ -239,6 +239,85 @@ final class BetsController
         }
     }
 
+    /**
+     * READ-ONLY current-odds snapshot for a stored bet, for the approval
+     * inbox's advisory delta. Reuses the EXACT quote pricing path
+     * (validateSelection/validateOutrightSelection with policy 'any' → current
+     * official price, no ODDS_CHANGED throw; SportsbookBetSupport::pricedTicket
+     * for the combined). Writes NOTHING — no balance, no ledger, no requestId,
+     * no bet mutation — identical guarantee to the /api/bets/quote endpoint.
+     * A suspended/removed leg is marked unavailable (advisory only). This is
+     * NEVER the price a bet books at: approval releases the FROZEN submit-time
+     * odds already stored on the bet (see BetApprovalService::approve).
+     */
+    public function quoteStoredBetCurrentOdds(array $bet): array
+    {
+        $type = (string) ($bet['type'] ?? 'straight');
+        $selectionDocs = is_array($bet['selections'] ?? null) ? $bet['selections'] : [];
+        $submitCombinedDecimal = (float) ($bet['combinedOdds'] ?? $bet['odds'] ?? 0);
+        $result = [
+            'available' => false,
+            'anyMoved' => false,
+            'submitCombinedAmerican' => $submitCombinedDecimal > 1.0
+                ? SportsbookBetSupport::decimalToAmericanInt($submitCombinedDecimal) : null,
+            'currentCombinedAmerican' => null,
+            'currentPotentialPayout' => null,
+            'legs' => [],
+        ];
+        if (count($selectionDocs) === 0) return $result;
+
+        $modeRule = $this->getModeRule($type);
+        $sgpCfg = SportsbookBetSupport::sgpConfig($this->db->findOne('platformsettings', []));
+        $validated = [];
+        $anyUnavailable = false;
+        foreach ($selectionDocs as $sel) {
+            if (!is_array($sel)) continue;
+            $submitDecimal = is_numeric($sel['odds'] ?? null) ? (float) $sel['odds'] : null;
+            $selType = (string) ($sel['marketType'] ?? $sel['type'] ?? 'straight');
+            try {
+                if ($selType === 'outrights' || !empty($sel['isOutright'])) {
+                    $v = $this->validateOutrightSelection(
+                        trim((string) ($sel['matchId'] ?? $sel['outrightId'] ?? '')),
+                        trim((string) ($sel['selection'] ?? '')), $submitDecimal, 'any', 0);
+                } else {
+                    $v = $this->validateSelection(
+                        trim((string) ($sel['matchId'] ?? '')), trim((string) ($sel['selection'] ?? '')),
+                        $submitDecimal, $selType,
+                        is_numeric($sel['boughtPoints'] ?? null) ? (float) $sel['boughtPoints'] : 0.0,
+                        'any', 0,
+                        (isset($sel['point']) && is_numeric($sel['point'])) ? (float) $sel['point'] : null);
+                }
+            } catch (Throwable $e) {
+                $anyUnavailable = true;
+                $result['legs'][] = ['selection' => (string) ($sel['selection'] ?? ''), 'available' => false];
+                continue;
+            }
+            $validated[] = $v;
+            $curDecimal = (float) ($v['odds'] ?? 0);
+            $moved = $submitDecimal !== null && abs($submitDecimal - $curDecimal) > 1e-9;
+            if ($moved) $result['anyMoved'] = true;
+            $result['legs'][] = [
+                'selection'       => (string) ($v['selection'] ?? ($sel['selection'] ?? '')),
+                'available'       => true,
+                'submitAmerican'  => is_numeric($sel['oddsAmerican'] ?? null) ? (int) $sel['oddsAmerican']
+                    : ($submitDecimal !== null && $submitDecimal > 1.0 ? SportsbookBetSupport::decimalToAmericanInt($submitDecimal) : null),
+                'currentAmerican' => (int) ($v['oddsAmerican'] ?? 0),
+                'moved'           => $moved,
+            ];
+        }
+        $result['available'] = !$anyUnavailable && count($validated) > 0;
+        if ($result['available'] && $modeRule !== null) {
+            try {
+                $unitStake = (float) ($bet['unitStake'] ?? $bet['riskAmount'] ?? $bet['amount'] ?? 0);
+                $priced = SportsbookBetSupport::pricedTicket($type, $unitStake, $validated, $modeRule,
+                    (float) $sgpCfg['haircutPct'], (float) $sgpCfg['propHaircutPct'], null);
+                $result['currentCombinedAmerican'] = SportsbookBetSupport::decimalToAmericanInt($priced['combinedOdds']);
+                $result['currentPotentialPayout'] = round($priced['potentialPayout'], 2);
+            } catch (Throwable $e) { /* combined recompute is advisory */ }
+        }
+        return $result;
+    }
+
     private function placeBet(): void
     {
         $requestDocId = '';
@@ -722,6 +801,7 @@ final class BetsController
                         'balance' => $existingRequest['responseBalance'] ?? ($user['balance'] ?? 0),
                         'pendingBalance' => $existingRequest['responsePendingBalance'] ?? ($user['pendingBalance'] ?? 0),
                         'freeplayBalance' => $existingRequest['responseFreeplayBalance'] ?? ($user['freeplayBalance'] ?? 0),
+                        'approvalPending' => $existingRequest['responseApprovalPending'] ?? false,
                     ]);
                     $existingResponse['idempotentReplay'] = true;
                     Response::json($existingResponse);
@@ -1020,6 +1100,17 @@ final class BetsController
                 $userAgent = Http::header('user-agent');
                 $now = SqlRepository::nowUtc();
 
+                // ── Bet-approval-queue gate ─────────────────────────────────
+                // Read AFTER the max-win-cap clamp so the threshold compares the
+                // FINAL priced payout, never a stale pre-cap number. A queued
+                // bet HOLDS its stake identically to a normal pending bet (the
+                // balance math above is byte-identical) but sits in
+                // 'pending_approval' until an admin approves/rejects it.
+                $approval = $this->approvalDecisionForUser($lockedUser, (float) $totalRisk, (float) $potentialPayout);
+                $betStatus = $approval['requiresApproval']
+                    ? SportsbookBetSupport::STATUS_PENDING_APPROVAL
+                    : 'pending';
+
                 $baseBetData = [
                     'userId' => $userId,
                     'requestId' => $requestId,
@@ -1030,7 +1121,7 @@ final class BetsController
                     'type' => $type,
                     'potentialPayout' => $potentialPayout,
                     'combinedOdds' => $combinedOdds,
-                    'status' => 'pending',
+                    'status' => $betStatus,
                     'isFreeplay' => $useFreeplay,
                     // Exact dollars sourced from freeplay. When equal to
                     // riskAmount: pure freeplay ticket. When < riskAmount &&
@@ -1072,6 +1163,12 @@ final class BetsController
                     // detection on the surviving won legs.
                     'sgpHaircutPct' => $isSameGame ? (float) $sgpCfg['haircutPct'] : null,
                     'sgpPropHaircutPct' => $isSameGame ? (float) $sgpCfg['propHaircutPct'] : null,
+                    // Approval-queue provenance — null on normal live bets. The
+                    // stake is already held in pendingBalance; this ticket is NOT
+                    // live and NOT gradable until approved.
+                    'approvalReason' => $approval['requiresApproval'] ? $approval['reason'] : null,
+                    'approvalThreshold' => $approval['requiresApproval'] ? $approval['threshold'] : null,
+                    'approvalRequestedAt' => $approval['requiresApproval'] ? $now : null,
                     'createdAt' => $now,
                     'updatedAt' => $now,
                 ];
@@ -1109,7 +1206,7 @@ final class BetsController
                     'reason' => $useFreeplay ? 'FP_BET_PLACED' : 'BET_PLACED',
                     'description' => strtoupper($type)
                         . ($useFreeplay ? ' freeplay' : '')
-                        . ' bet placed'
+                        . ' bet ' . ($approval['requiresApproval'] ? 'submitted (held for approval)' : 'placed')
                         . ($freeplayApplied > 0 && $realPortion > 0
                             ? ' ($' . number_format($freeplayApplied, 0) . ' fp + $' . number_format($realPortion, 0) . ' bal)'
                             : ''),
@@ -1130,6 +1227,7 @@ final class BetsController
                 'balance' => $newBalance,
                 'pendingBalance' => $newPending,
                 'freeplayBalance' => $newFreeplay,
+                'approvalPending' => $approval['requiresApproval'],
             ]);
 
             $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
@@ -1139,6 +1237,7 @@ final class BetsController
                 'responseBalance' => $newBalance,
                 'responsePendingBalance' => $newPending,
                 'responseFreeplayBalance' => $newFreeplay,
+                'responseApprovalPending' => $approval['requiresApproval'],
                 'updatedAt' => SqlRepository::nowUtc(),
             ]);
             $requestDocOwned = false;
@@ -1348,6 +1447,15 @@ final class BetsController
             }
             SportsbookBetSupport::assertWinWithinCap((float) $payoutCalc['winAmount'], $opRawCombined, 'open_parlay_create');
 
+            // Approval queue not wired for open parlays yet (Chunk 2b). Block the
+            // bypass so a flagged/over-threshold player can't route around approval.
+            if ($this->approvalDecisionForUser($user, (float) $totalRisk, (float) $potentialPayout)['requiresApproval']) {
+                throw new ApiException(
+                    'This wager requires approval, which isn’t available for open parlays yet. Please place it as a standard ticket.',
+                    400, ['code' => 'BET_APPROVAL_UNSUPPORTED_MODE']
+                );
+            }
+
             if ($minBetLimit > 0 && $totalRisk < $minBetLimit) {
                 throw new ApiException(
                     'Min bet is $' . rtrim(rtrim(number_format($minBetLimit, 2, '.', ''), '0'), '.')
@@ -1407,6 +1515,7 @@ final class BetsController
                         'balance' => $existingRequest['responseBalance'] ?? ($user['balance'] ?? 0),
                         'pendingBalance' => $existingRequest['responsePendingBalance'] ?? ($user['pendingBalance'] ?? 0),
                         'freeplayBalance' => $existingRequest['responseFreeplayBalance'] ?? ($user['freeplayBalance'] ?? 0),
+                        'approvalPending' => $existingRequest['responseApprovalPending'] ?? false,
                     ]);
                     $existingResponse['idempotentReplay'] = true;
                     Response::json($existingResponse);
@@ -1711,6 +1820,7 @@ final class BetsController
                         'balance' => $existingRequest['responseBalance'] ?? ($user['balance'] ?? 0),
                         'pendingBalance' => $existingRequest['responsePendingBalance'] ?? ($user['pendingBalance'] ?? 0),
                         'freeplayBalance' => $existingRequest['responseFreeplayBalance'] ?? ($user['freeplayBalance'] ?? 0),
+                        'approvalPending' => $existingRequest['responseApprovalPending'] ?? false,
                     ]);
                     $existingResponse['idempotentReplay'] = true;
                     Response::json($existingResponse);
@@ -2046,6 +2156,20 @@ final class BetsController
             if ($lockedUser === null) {
                 $this->db->rollback();
                 throw new ApiException('User not found', 404);
+            }
+
+            // Approval queue not wired for round robins yet (Chunk 2b). Block the
+            // bypass so a flagged/over-threshold player can't route around approval.
+            $rrTotalPayout = array_sum(array_map(
+                static fn (array $p): float => (float) ($p['potentialPayout'] ?? 0),
+                $childPlans
+            ));
+            if ($this->approvalDecisionForUser($lockedUser, (float) $totalRisk, $rrTotalPayout)['requiresApproval']) {
+                $this->db->rollback();
+                throw new ApiException(
+                    'This wager requires approval, which isn’t available for round robins yet. Please place it as a standard ticket.',
+                    400, ['code' => 'BET_APPROVAL_UNSUPPORTED_MODE']
+                );
             }
 
             $balance         = $this->num($lockedUser['balance'] ?? 0);
@@ -2844,7 +2968,12 @@ final class BetsController
                     // inflating available balance (money drift).
                     $pendingBets = $this->db->findMany('bets', [
                         'userId' => SqlRepository::id($userId),
-                        'status' => ['$in' => ['pending', 'open']],
+                        // 'pending_approval' bets reserved their real stake in
+                        // pendingBalance at submit (held while queued), exactly
+                        // like 'pending'/'open' — so they MUST be summed here.
+                        // Omitting them would let the reconciler overwrite a
+                        // correct pendingBalance and free the hold (double-spend).
+                        'status' => ['$in' => ['pending', 'open', 'pending_approval']],
                     ], ['projection' => ['riskAmount' => 1, 'amount' => 1, 'freeplayAmountUsed' => 1, 'isFreeplay' => 1]]);
                     $expectedPending = 0.0;
                     foreach ($pendingBets as $pb) {
@@ -3952,6 +4081,27 @@ final class BetsController
      * @param array<string, mixed> $meta
      * @return array<string, mixed>
      */
+    /** Resolve the approval gate for a user doc + this ticket's final totals. */
+    private function approvalDecisionForUser(array $userDoc, float $stake, float $payout): array
+    {
+        $s = is_array($userDoc['settings'] ?? null) ? $userDoc['settings'] : [];
+        $force = !empty($s['requiresBetApproval']);
+        $playerT = isset($s['betApprovalThreshold']) && is_numeric($s['betApprovalThreshold'])
+            ? (float) $s['betApprovalThreshold'] : null;
+        $agentT = null;
+        $agentId = $userDoc['agentId'] ?? null;
+        if ($agentId !== null && $agentId !== '') {
+            $a = $this->db->findOne('users', ['id' => SqlRepository::id((string) $agentId)], ['projection' => ['settings' => 1]]);
+            $as = is_array($a['settings'] ?? null) ? $a['settings'] : [];
+            if (isset($as['betApprovalThreshold']) && is_numeric($as['betApprovalThreshold'])) {
+                $agentT = (float) $as['betApprovalThreshold'];
+            }
+        }
+        return SportsbookBetSupport::approvalDecision(
+            $force, $playerT, $agentT, SportsbookBetSupport::betApprovalEnvThreshold(), $stake, $payout
+        );
+    }
+
     private function buildBetPlacementResponse(array $betIds, array $meta): array
     {
         // freeplayBalance is included so the client can apply an
@@ -3961,13 +4111,15 @@ final class BetsController
         // the placement response surfaced the deducted pool — the
         // refetch eventually caught up, but the window of "freeplay
         // still shows pre-bet value" was confusing the user.
+        $approvalPending = !empty($meta['approvalPending']);
         return [
-            'message' => 'Bet placed successfully',
+            'message' => $approvalPending ? 'Bet submitted — awaiting approval.' : 'Bet placed successfully',
             'bets' => $this->loadEnrichedBetsByIds($betIds),
             'requestId' => $meta['requestId'] ?? null,
             'balance' => (float) round($this->num($meta['balance'] ?? 0)),
             'pendingBalance' => (float) round($this->num($meta['pendingBalance'] ?? 0)),
             'freeplayBalance' => (float) round($this->num($meta['freeplayBalance'] ?? 0)),
+            'approvalPending' => $approvalPending,
         ];
     }
 

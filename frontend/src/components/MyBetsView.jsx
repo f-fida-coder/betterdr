@@ -138,6 +138,8 @@ const formatStatus = (value) => {
     if (normalized === 'won') return 'WON';
     if (normalized === 'lost') return 'LOST';
     if (normalized === 'void') return 'VOID';
+    if (normalized === 'rejected') return 'REJECTED';
+    if (normalized === 'pending_approval') return 'PENDING APPROVAL';
     return 'PENDING';
 };
 
@@ -146,6 +148,8 @@ const statusLabel = (value) => {
     if (normalized === 'won') return 'Won';
     if (normalized === 'lost') return 'Lost';
     if (normalized === 'void') return 'Void';
+    if (normalized === 'rejected') return 'Rejected';
+    if (normalized === 'pending_approval') return 'Pending Approval';
     return 'Pending';
 };
 
@@ -154,6 +158,11 @@ const statusTheme = (value) => {
     if (normalized === 'won') return 'won';
     if (normalized === 'lost') return 'lost';
     if (normalized === 'void') return 'void';
+    // Reuse existing themes this chunk (no new CSS): a declined/refunded
+    // bet reads grey like a void; a held bet reads like a pending. A
+    // dedicated amber accent can land with the player-facing chunk.
+    if (normalized === 'rejected') return 'void';
+    if (normalized === 'pending_approval') return 'pending';
     return 'pending';
 };
 

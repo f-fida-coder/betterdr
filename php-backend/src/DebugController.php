@@ -125,6 +125,18 @@ final class DebugController
             $this->gradeAdminManualBet((string) $m[1]);
             return true;
         }
+        if ($method === 'GET' && $path === '/api/admin/bet-approvals') {
+            $this->listAdminBetApprovals();
+            return true;
+        }
+        if ($method === 'POST' && preg_match('#^/api/admin/bet-approvals/([a-f0-9]{24})/approve$#', $path, $m) === 1) {
+            $this->approveAdminBet((string) $m[1]);
+            return true;
+        }
+        if ($method === 'POST' && preg_match('#^/api/admin/bet-approvals/([a-f0-9]{24})/reject$#', $path, $m) === 1) {
+            $this->rejectAdminBet((string) $m[1]);
+            return true;
+        }
         return false;
     }
 
@@ -310,6 +322,57 @@ final class DebugController
             Response::json(['ok' => false, 'error' => $e->getMessage()], 400);
         } catch (Throwable $e) {
             Logger::exception($e, 'gradeAdminManualBet failed');
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /** Scoped approval inbox. Admin + super/master agent may view (agents see only their downline). */
+    private function listAdminBetApprovals(): void
+    {
+        try {
+            $actor = $this->protectBetApprovalActor();
+            if ($actor === null) return;
+            // Read-only current-odds repricer (same pricing as /api/bets/quote,
+            // zero side effects). Advisory delta for the inbox only.
+            $pricer = new BetsController($this->db, $this->jwtSecret);
+            $priceCurrent = static fn (array $bet): array => $pricer->quoteStoredBetCurrentOdds($bet);
+            Response::json(['ok' => true] + BetApprovalService::listPendingApprovals($this->db, $actor, $priceCurrent));
+        } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function approveAdminBet(string $betId): void
+    {
+        try {
+            // Admin OR super/master/plain agent. The service scope-checks the
+            // bet's owner against the actor's downline (agents can only approve
+            // their own players; admin approves any).
+            $actor = $this->protectBetApprovalActor();
+            if ($actor === null) return;
+            $result = BetApprovalService::approve($this->db, $betId, $actor);
+            $status = (int) ($result['status'] ?? (!empty($result['ok']) ? 200 : 400));
+            unset($result['status']);
+            Response::json($result, $status);
+        } catch (Throwable $e) {
+            Logger::exception($e, 'approveAdminBet failed');
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function rejectAdminBet(string $betId): void
+    {
+        try {
+            $actor = $this->protectBetApprovalActor();
+            if ($actor === null) return;
+            $body = Http::jsonBody();
+            $reason = is_array($body) ? trim((string) ($body['reason'] ?? '')) : '';
+            $result = BetApprovalService::reject($this->db, $betId, $actor, $reason);
+            $status = (int) ($result['status'] ?? (!empty($result['ok']) ? 200 : 400));
+            unset($result['status']);
+            Response::json($result, $status);
+        } catch (Throwable $e) {
+            Logger::exception($e, 'rejectAdminBet failed');
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
     }
@@ -2152,6 +2215,39 @@ final class DebugController
      */
     private function protectAdminOnly(bool $requireAdminRole = false): ?array
     {
+        $allowedRoles = $requireAdminRole ? ['admin'] : ['admin', 'super_agent', 'master_agent'];
+        $denyMessage = $requireAdminRole
+            ? 'Not authorized: admin role required'
+            : 'Not authorized as admin or master agent';
+        return $this->protectRoles($allowedRoles, $denyMessage);
+    }
+
+    /**
+     * Bet-approval gate — widens protectAdminOnly() to ALSO admit the plain
+     * 'agent' role, FOR THE THREE BET-APPROVAL ENDPOINTS ONLY (2026-07-09
+     * ruling: plain agents manage real downlines and must action their own
+     * players' flagged bets). Every other admin endpoint stays strict via
+     * protectAdminOnly(). The widening is safe because BetApprovalService
+     * still runs the per-bet downline scope check (scopeDenial), so a plain
+     * agent can only ever approve/reject a bet owned by one of THEIR
+     * customers — never another agent's.
+     */
+    private function protectBetApprovalActor(): ?array
+    {
+        return $this->protectRoles(
+            ['admin', 'super_agent', 'master_agent', 'agent'],
+            'Not authorized to action bet approvals'
+        );
+    }
+
+    /**
+     * Shared bearer-token → role-gate → actor-lookup flow. Extracted so
+     * protectAdminOnly() and protectBetApprovalActor() share ONE auth
+     * implementation (no drift). Behavior for existing callers is unchanged:
+     * protectAdminOnly passes the exact same role lists + deny messages.
+     */
+    private function protectRoles(array $allowedRoles, string $denyMessage): ?array
+    {
         $auth = Http::header('authorization');
         if (!str_starts_with($auth, 'Bearer ')) {
             Response::json(['message' => 'Not authorized, no token'], 401);
@@ -2167,11 +2263,8 @@ final class DebugController
         }
 
         $role = (string) ($decoded['role'] ?? 'user');
-        $allowedRoles = $requireAdminRole ? ['admin'] : ['admin', 'super_agent', 'master_agent'];
         if (!in_array($role, $allowedRoles, true)) {
-            Response::json(['message' => $requireAdminRole
-                ? 'Not authorized: admin role required'
-                : 'Not authorized as admin or master agent'], 403);
+            Response::json(['message' => $denyMessage], 403);
             return null;
         }
 

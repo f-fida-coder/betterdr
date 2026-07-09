@@ -273,6 +273,46 @@ final class SportsbookBetSupport
     public const ODDS_ACCEPT_MAX_BAND_CENTS = 100;
 
     /**
+     * Bet-approval-queue statuses. A queued bet holds its stake in
+     * pendingBalance (like a normal pending bet) but is NOT live and NOT
+     * gradable until an admin/agent approves it. 'rejected' is the terminal
+     * refunded state (never went live) — distinct from 'void' (was live,
+     * then cancelled) so history/agent-figures can tell them apart.
+     */
+    public const STATUS_PENDING_APPROVAL = 'pending_approval';
+    public const STATUS_REJECTED = 'rejected';
+
+    /** Approval-queue threshold ($). 0 = disabled. Env fallback below player/agent. */
+    public const DEFAULT_BET_APPROVAL_THRESHOLD = 0.0;
+
+    public static function betApprovalEnvThreshold(): float
+    {
+        $raw = Env::get('BET_APPROVAL_THRESHOLD', (string) self::DEFAULT_BET_APPROVAL_THRESHOLD);
+        $v = is_numeric($raw) ? (float) $raw : self::DEFAULT_BET_APPROVAL_THRESHOLD;
+        return $v > 0 ? $v : 0.0;
+    }
+
+    /**
+     * Pure gate: force-flag (per-player) OR stake/payout >= effective threshold.
+     * Threshold precedence: player override -> agent -> env. No DB, unit-testable.
+     */
+    public static function approvalDecision(
+        bool $playerForceFlag, ?float $playerThreshold, ?float $agentThreshold,
+        float $envThreshold, float $stake, float $payout
+    ): array {
+        $threshold = null;
+        foreach ([$playerThreshold, $agentThreshold, $envThreshold] as $t) {
+            if ($t !== null && $t > 0) { $threshold = $t; break; }
+        }
+        $byStake  = $threshold !== null && $stake  >= $threshold;
+        $byPayout = $threshold !== null && $payout >= $threshold;
+        $requires = $playerForceFlag || $byStake || $byPayout;
+        $reason = $playerForceFlag ? 'player_flag'
+            : ($byStake ? 'stake_threshold' : ($byPayout ? 'payout_threshold' : null));
+        return ['requiresApproval' => $requires, 'reason' => $reason, 'threshold' => $threshold];
+    }
+
+    /**
      * Decide whether a client's accepted odds may be auto-placed at the
      * CURRENT official odds under the user's acceptance policy. Pure +
      * canonical: both inputs are signed American integers (the same form the
