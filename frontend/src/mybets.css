@@ -554,6 +554,18 @@
   text-overflow: ellipsis;
 }
 
+/* Futures/outright rows wrap instead of ellipsizing: "Vikings to win
+   Super Bowl +5000" must stay fully readable at 375px — truncating the
+   competition is exactly the confusion the label exists to fix. The row
+   grid's fixed Risk / To Win columns are unaffected; the description
+   cell just grows a second line. */
+.my-bets-table-leg-text.wrap {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
 /* Per-leg result letter rendered inline next to the leg description on
    settled multi-leg tickets — green W for a leg that won, red L for a
    leg that lost, muted P for a push/void. Unsettled (pending) legs

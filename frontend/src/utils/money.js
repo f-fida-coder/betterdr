@@ -49,6 +49,32 @@ export const formatMoneyDecimal = (value) => {
   return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
+// Whole-dollar To-Win DISPLAY for PENDING/PROJECTED payouts: cents truncated
+// toward zero (144.21 and 144.99 both → "144"), never rounded up, so a
+// projected payout is never overstated (PO 2026-07-09). Bare number string
+// like formatMoneyDecimal — callers add their own '$'/sign. DISPLAY ONLY:
+// stored payouts, settlement, ledger and every figure that feeds money
+// credited to accounts stay exact; never feed this value back into money math.
+// Use for pending/open-parlay projections ONLY — for REALIZED (settled)
+// amounts use formatMoneyWholeRounded so display matches the ledger credit.
+export const formatMoneyWholeFloored = (value) => {
+  return Math.trunc(toMoneyNumber(value, 0)).toLocaleString('en-US');
+};
+
+// Whole-dollar DISPLAY for REALIZED (settled won/lost/void) amounts: round
+// half-up, MIRRORING how the backend credits payouts at grade today (round(),
+// per the PPH whole-dollar policy). This keeps a settled row's headline equal
+// to what actually moved in the balance — a floored settled win would read
+// $1 under the ledger for payouts with cents ≥ .50 (won 999.86 → floor 999
+// vs credited 1000). DISPLAY ONLY; never feeds money math.
+// ⚠ FLIP TO Math.trunc (floor) HERE when the backend payout-credit switches
+// round()→floor() (approved payout-floor deploy, ~July 20+); the settlement
+// record does not expose the actual-credited amount, so display mirrors the
+// backend policy by convention, not by reading it.
+export const formatMoneyWholeRounded = (value) => {
+  return Math.round(toMoneyNumber(value, 0)).toLocaleString('en-US');
+};
+
 // Compute three evenly-distributed "round" stakes at the 25%, 50%, and 75%
 // positions of the [min, max] range. Used to auto-fill the middle Quick Stake
 // chips so an agent only has to set Min/Max once on a player and the chip

@@ -1,12 +1,13 @@
 import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, formatLineValue, formatSpreadValue, americanToDecimal } from '../utils/odds';
-import { isOutrightLeg, outrightMarketLabelForLeg } from '../utils/outrightLabel';
+import { isOutrightLeg, outrightLegText } from '../utils/outrightLabel';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
+import { formatMoneyWholeFloored } from '../utils/money';
 
 // 2dp w/ thousands separator. Mirrors the bet-review modal's formatAmount
-// so the post-placement Risk/Win tiles match exactly. Integer rounding
+// so the post-placement Risk tile matches exactly. Integer rounding
 // previously made a Win-mode parlay placed for $1000 read as "$169 / $997"
 // here even when the modal showed "$169.49 / $1,000.00". Negatives clamp
 // to 0 since potentialPayout − risk can briefly be negative for malformed
@@ -16,6 +17,15 @@ const fmtMoney = (value) => {
     if (!Number.isFinite(n)) return '0.00';
     const safe = n > 0 ? n : 0;
     return safe.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+// Win tile only: whole dollars, cents FLOORED (PO 2026-07-09) — matches the
+// My Bets To-Win column and never overstates the payout. Risk keeps fmtMoney:
+// Win-mode parlays store fractional stakes (169.49) the player must see
+// exactly. Display-only; the stored payout is untouched.
+const fmtMoneyWhole = (value) => {
+    const n = Number(value);
+    return formatMoneyWholeFloored(Number.isFinite(n) && n > 0 ? n : 0);
 };
 
 const fmtTimestamp = (value) => {
@@ -48,14 +58,15 @@ const propMarketSuffix = (leg) => (
     isPlayerPropMarket(leg?.marketType) ? ` ${prettyPlayerMarketLabel(leg?.marketType)}` : ''
 );
 
-// Market name appended for outright/futures legs (DISPLAY only):
-// "Minnesota Vikings To Win Super Bowl" (PO 2026-07-08 — bare name + odds
-// didn't say which future). Empty for every other market, and empty when
-// the label can't be resolved so the row falls back to name + odds.
-const outrightMarketSuffix = (leg) => {
-    if (!isOutrightLeg(leg)) return '';
-    const label = outrightMarketLabelForLeg(leg);
-    return label ? ` ${label}` : '';
+// Selection text for the receipt row (DISPLAY only). Futures legs read
+// "Vikings to win Super Bowl" (PO 2026-07-08 — bare name + odds didn't say
+// which future); unresolvable competition falls back to the raw selection
+// name, and every other market keeps its selection untouched.
+const legSelectionText = (leg) => {
+    if (isOutrightLeg(leg)) {
+        return outrightLegText(leg) || leg?.selection || '';
+    }
+    return leg?.selection || '';
 };
 
 // "Line moved" note under a repriced leg. Booking auto-accepts favorable
@@ -259,7 +270,7 @@ const WagerConfirmedScreen = ({
                                             <i className="fa-solid fa-circle-check" style={{ color: '#16a34a', marginTop: 3, fontSize: 11 }} />
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ fontWeight: 700, color: '#0f172a', wordBreak: 'break-word' }}>
-                                                    {leg.selection || '-'}{propMarketSuffix(leg)}{outrightMarketSuffix(leg)}{lineSuffix(leg)}
+                                                    {legSelectionText(leg) || '-'}{propMarketSuffix(leg)}{lineSuffix(leg)}
                                                 </div>
                                                 <div style={{ fontSize: 11, color: '#64748b' }}>
                                                     {matchTitle(leg) || (leg.matchId || '')}
@@ -298,7 +309,7 @@ const WagerConfirmedScreen = ({
                                             Win
                                         </div>
                                         <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
-                                            {fmtMoney(win)}
+                                            {fmtMoneyWhole(win)}
                                         </div>
                                     </div>
                                 </div>

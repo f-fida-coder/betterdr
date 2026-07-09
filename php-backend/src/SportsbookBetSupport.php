@@ -2038,9 +2038,26 @@ final class SportsbookBetSupport
         $lines = [];
         foreach ($sorted as $selection) {
             $snapshot = is_array($selection['matchSnapshot'] ?? null) ? $selection['matchSnapshot'] : [];
-            $matchLabel = trim((string) (($snapshot['homeTeam'] ?? 'Match') . ' vs ' . ($snapshot['awayTeam'] ?? '')));
             $marketType = strtoupper((string) ($selection['marketType'] ?? ''));
             $selectionName = (string) ($selection['selection'] ?? 'Selection');
+            // Outright/futures: "Minnesota Vikings to win NFL Super Bowl @ 51.00".
+            // The matchup grammar below would render the placement snapshot's
+            // event-name-as-homeTeam shim as "NFL Super Bowl Winner vs Minnesota
+            // Vikings | OUTRIGHTS | …", which reads like a malformed matchup.
+            // Full team name on purpose — this string is admin/audit-facing; the
+            // player-facing nickname form ("Vikings to win Super Bowl") is built
+            // client-side in utils/outrightLabel.js. Recomputed per response by
+            // enrichBetForResponse, so existing pending futures rows pick this
+            // up with no backfill.
+            if ($marketType === 'OUTRIGHTS' || !empty($selection['isOutright'])) {
+                $event = trim((string) ($snapshot['eventName'] ?? ($snapshot['homeTeam'] ?? '')));
+                $competition = trim((string) preg_replace('/\s+winner\s*$/i', '', $event));
+                $lines[] = trim((string) ($selection['selectionFull'] ?? $selectionName)
+                    . ($competition !== '' ? ' to win ' . $competition : '')
+                    . ' @ ' . number_format(self::num($selection['odds'] ?? 0), 2));
+                continue;
+            }
+            $matchLabel = trim((string) (($snapshot['homeTeam'] ?? 'Match') . ' vs ' . ($snapshot['awayTeam'] ?? '')));
             $pointLabel = self::lineLabel($selection);
             $lines[] = trim($matchLabel . ' | ' . $marketType . ' | ' . $selectionName . ($pointLabel !== '' ? ' ' . $pointLabel : '') . ' @ ' . number_format(self::num($selection['odds'] ?? 0), 2));
         }

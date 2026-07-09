@@ -23,8 +23,8 @@ import {
 import { formatTransactionType, isDebitTransaction } from '../../utils/transactionPresentation';
 import { resolveDepositFreeplayBonusPreview } from '../../utils/freeplayBonus';
 import { formatUsPhone, generateIdentityPassword, normalizeIdentityName } from '../../utils/identityPassword';
-import { getMoneyToneClass, toMoneyNumber } from '../../utils/money';
-import { isOutrightLeg, outrightMarketLabelForLeg } from '../../utils/outrightLabel';
+import { getMoneyToneClass, toMoneyNumber, formatMoneyWholeFloored } from '../../utils/money';
+import { isOutrightLeg, outrightLegText } from '../../utils/outrightLabel';
 
 const DEFAULT_FORM = {
   password: '',
@@ -1348,6 +1348,14 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
 
   const formatCurrency = (value) => {
     return '$' + roundDisplayedMoney(value).toLocaleString('en-US');
+  };
+
+  // Pending-wagers "To Win" column only: cents FLOORED, not rounded (PO
+  // 2026-07-09) — matches the player's My Bets display and never overstates
+  // a projected payout. Balances/figures keep roundDisplayedMoney (the
+  // backend round()s payouts at grade time; that policy is unchanged).
+  const formatCurrencyFloored = (value) => {
+    return '$' + formatMoneyWholeFloored(Math.max(0, toMoneyNumber(value, 0)));
   };
 
   const formatDetailMoney = (value) => {
@@ -2926,13 +2934,12 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                 const isUnder = selection.toLowerCase().startsWith('u');
                 return `${isUnder ? 'Under' : 'Over'} ${Math.abs(point)}${american ? ` ${american}` : ''}`.trim();
               }
-              // Outright/futures: append the market name so the row says
-              // WHICH future — "Minnesota Vikings To Win Super Bowl +5000"
-              // (PO 2026-07-08). Falls back to plain name + odds when the
-              // label can't be resolved.
+              // Outright/futures: say WHICH future — "Vikings to win Super
+              // Bowl +5000" (PO 2026-07-08). Falls back to plain name + odds
+              // when the competition can't be resolved.
               if (isOutrightLeg(leg)) {
-                const label = outrightMarketLabelForLeg(leg);
-                return `${selection || 'Pick'}${label ? ` ${label}` : ''}${american ? ` ${american}` : ''}`.trim();
+                const text = outrightLegText(leg) || selection || 'Pick';
+                return `${text}${american ? ` ${american}` : ''}`.trim();
               }
               return `${selection || 'ML'}${american ? ` ${american}` : ''}`.trim();
             };
@@ -2942,7 +2949,10 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
               return Math.max(0, payout - risk);
             };
             const totalRisk = pendingBets.reduce((sum, b) => sum + Number(b?.amount || 0), 0);
-            const totalWin = pendingBets.reduce((sum, b) => sum + winFromBet(b), 0);
+            // Sum the FLOORED per-row values so Total Win equals what the
+            // rows visually display (flooring the exact total instead can
+            // disagree with the column by up to a dollar per row).
+            const totalWin = pendingBets.reduce((sum, b) => sum + Math.trunc(winFromBet(b)), 0);
             return (
               <div className="tx-table-wrap">
                 <table className="tx-table">
@@ -2985,7 +2995,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                             )}
                           </td>
                           <td className="neg" style={{ fontWeight: 700 }}>{formatCurrency(risk)}</td>
-                          <td style={{ fontWeight: 700 }}>{formatCurrency(win)}</td>
+                          <td style={{ fontWeight: 700 }}>{formatCurrencyFloored(win)}</td>
                           <td className="tx-actions-col">
                             <button
                               type="button"
@@ -3003,7 +3013,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                   {pendingBets.length > 0 && (
                     <tfoot>
                       <tr>
-                        <td style={{ textAlign: 'right', fontWeight: 700 }}>Total Risk: <span className="neg">{formatCurrency(totalRisk)}</span> &nbsp; Total Win: <strong>{formatCurrency(totalWin)}</strong></td>
+                        <td style={{ textAlign: 'right', fontWeight: 700 }}>Total Risk: <span className="neg">{formatCurrency(totalRisk)}</span> &nbsp; Total Win: <strong>{formatCurrencyFloored(totalWin)}</strong></td>
                         <td></td>
                         <td></td>
                         <td></td>

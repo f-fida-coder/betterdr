@@ -4,7 +4,8 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatLineValue, formatOdds, formatSpreadValue, americanToDecimal } from '../utils/odds';
 import { formatSiteDateTime } from '../utils/timezone';
 import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri, mascotName } from '../utils/teamLogos';
-import { isOutrightLeg, outrightMarketLabelForLeg } from '../utils/outrightLabel';
+import { formatMoneyWholeFloored, formatMoneyWholeRounded } from '../utils/money';
+import { isOutrightLeg, outrightLegText } from '../utils/outrightLabel';
 import '../mybets.css';
 import { consumeMyBetsInitialFilter } from './myBetsState';
 import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
@@ -33,6 +34,41 @@ const moneyExactSigned = (value, sign) => {
     const safe = Number.isFinite(n) ? Math.abs(n) : 0;
     const formatted = safe.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     return `${sign}$${formatted}`;
+};
+// PENDING / PROJECTED To-Win formatter: whole dollars with cents FLOORED
+// ($144.21 → $144, $54.00 → $54 — PO 2026-07-09; a projection must never
+// overstate the payout, so truncate, don't round-half-up). DISPLAY ONLY:
+// stored payouts, settlement, and the drill-down detail panels keep the
+// exact 2dp values. The Risk column intentionally stays moneyExact —
+// Win-mode parlays produce fractional stakes (169.49) the player must
+// see exactly (the very reason moneyExact exists).
+const moneyWhole = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '$0';
+    return '$' + formatMoneyWholeFloored(Math.max(0, n));
+};
+const moneyWholeSigned = (value, sign) => {
+    const n = Number(value);
+    const safe = Number.isFinite(n) ? Math.abs(n) : 0;
+    return `${sign}$${formatMoneyWholeFloored(safe)}`;
+};
+// SETTLED / REALIZED formatter (won / lost / void headlines): whole dollars
+// ROUNDED half-up, mirroring the backend's round() payout credit at grade so
+// the row matches the balance that actually moved. A floored settled win
+// would read $1 under the ledger for payouts whose cents ≥ .50 (potentialPayout
+// is stored whole but risk can be fractional, e.g. profit 999.86 → floor 999
+// vs credited 1000). DISPLAY ONLY — settlement/ledger untouched. When the
+// backend payout credit flips round()→floor() (~July 20+ payout-floor deploy),
+// these two must swap to the floored formatter to stay ledger-aligned.
+const moneyWholeSettled = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '$0';
+    return '$' + formatMoneyWholeRounded(Math.max(0, n));
+};
+const moneyWholeSettledSigned = (value, sign) => {
+    const n = Number(value);
+    const safe = Number.isFinite(n) ? Math.abs(n) : 0;
+    return `${sign}$${formatMoneyWholeRounded(safe)}`;
 };
 const normalizeStatus = (value) => String(value || 'pending').trim().toLowerCase();
 
@@ -200,12 +236,11 @@ const ticketSummary = (bet) => {
         const line = point === null ? '' : formatLineValue(Math.abs(point));
         return line ? `${isUnder ? 'Under' : 'Over'} ${line}` : (isUnder ? 'Under' : 'Over');
     }
-    // Outright/futures: "Minnesota Vikings To Win Super Bowl" — the "ML"
-    // fallback below would mislabel a futures pick as a moneyline.
+    // Outright/futures: "Vikings to win Super Bowl" — the "ML" fallback
+    // below would mislabel a futures pick as a moneyline.
     if (isOutrightLeg(leg)) {
-        const name = String(leg?.selectionFull || '').trim() || selection || 'Pick';
-        const label = outrightMarketLabelForLeg(leg);
-        return label ? `${name} ${label}` : name;
+        return outrightLegText(leg)
+            || String(leg?.selectionFull || '').trim() || selection || 'Pick';
     }
     // h2h / moneyline / fallback
     const team = String(leg?.selectionFull || '').trim() || selection || 'Pick';
@@ -283,15 +318,17 @@ const legDescriptionBase = (leg, oddsFormat) => {
         const pick = String(leg?.selectionFull || '').trim() || selection || 'Pick';
         return [pick, prettyPlayerMarketLabel(leg?.marketType), odds].filter(Boolean).join(' ');
     }
-    // Outright/futures: name + the market it's for + odds — "Minnesota
-    // Vikings To Win Super Bowl +5000" (PO 2026-07-08; bare "name + odds"
-    // didn't say WHICH future). Label resolves at render time (sidebar
-    // leaf label by sportKey, else the snapshot's eventName), so existing
-    // pending futures pick this up with no backfill. Empty label → fall
-    // through to the previous name + odds format, never a blank segment.
+    // Outright/futures: nickname + competition + odds — "Vikings to win
+    // Super Bowl +5000" (PO 2026-07-08; bare "name + odds" didn't say WHICH
+    // future). Text resolves at render time from the placement snapshot, so
+    // existing pending futures pick this up with no backfill. Unresolvable
+    // competition → previous full name + odds format, never a dangling
+    // "to win". These rows wrap instead of ellipsizing (see .wrap in
+    // mybets.css) so the competition is never truncated away.
     if (isOutrightLeg(leg)) {
-        const name = String(leg?.selectionFull || '').trim() || selection || 'Pick';
-        return [name, outrightMarketLabelForLeg(leg), odds].filter(Boolean).join(' ');
+        const text = outrightLegText(leg)
+            || String(leg?.selectionFull || '').trim() || selection || 'Pick';
+        return [text, odds].filter(Boolean).join(' ');
     }
     // Moneyline / fallback → mascot-only team + odds ("Tigers +105").
     const team = mascotName(leg?.selectionFull, selection) || 'Pick';
@@ -700,7 +737,7 @@ const ticketAmount = (bet, maxBet) => {
     // To-Win (matches the placement screen) instead of the real-legs-only
     // stored figure. Display-only; fully-filled / graded tickets fall through.
     if (isOpenParlayStillFilling(bet)) {
-        return { text: moneyExact(openParlayPreviewProfit(bet, maxBet)), theme: 'pending' };
+        return { text: moneyWhole(openParlayPreviewProfit(bet, maxBet)), theme: 'pending' };
     }
     const risk = Number(bet?.riskAmount || bet?.amount || 0);
     const potential = Number(bet?.potentialPayout || 0);
@@ -711,7 +748,7 @@ const ticketAmount = (bet, maxBet) => {
     // ever leaving the player's balance). Use cashRisk so the
     // "-X" / "Refund X" headline matches what hit pendingBalance.
     const { cashRisk, fpUsed } = cashRiskOfBet(bet);
-    if (status === 'won') return { text: moneyExactSigned(profit, '+'), theme: 'won' };
+    if (status === 'won') return { text: moneyWholeSettledSigned(profit, '+'), theme: 'won' };
     if (status === 'lost') {
         // Partial-refund loss (e.g. a soccer Asian QUARTER half-loss): the
         // ticket grades a net loss but some stake came back, so potentialPayout
@@ -723,12 +760,12 @@ const ticketAmount = (bet, maxBet) => {
         const returned = Number(bet?.potentialPayout || 0);
         if (returned > 0 && fpUsed <= 0) {
             const netLoss = Math.max(0, cashRisk - returned);
-            return { text: moneyExactSigned(netLoss, '-'), theme: 'lost', returned };
+            return { text: moneyWholeSettledSigned(netLoss, '-'), theme: 'lost', returned };
         }
-        return { text: moneyExactSigned(cashRisk, '-'), theme: 'lost' };
+        return { text: moneyWholeSettledSigned(cashRisk, '-'), theme: 'lost' };
     }
-    if (status === 'void') return { text: `Refund ${moneyExact(cashRisk)}`, theme: 'void' };
-    return { text: moneyExact(profit), theme: 'pending' };
+    if (status === 'void') return { text: `Refund ${moneyWholeSettled(cashRisk)}`, theme: 'void' };
+    return { text: moneyWhole(profit), theme: 'pending' };
 };
 
 // Render the Win-column content for a graded ticket. Normally just the headline
@@ -753,7 +790,7 @@ const winCellContent = (amount) => {
                 fontWeight: 800,
                 letterSpacing: 0.2,
             }} title={`Stake returned: ${moneyExact(amount.returned)}`}>
-                returned {moneyExact(amount.returned)}
+                returned {moneyWholeSettled(amount.returned)}
             </span>
         </span>
     );
@@ -1149,7 +1186,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                 const amount = ticketAmount(bet, maxBet);
                 const isMulti = isMultiLegBet(bet);
                 const isExpanded = expandedBetId === betId;
-                const winCell = status === 'pending' ? moneyExact(ticketPayout) : winCellContent(amount);
+                const winCell = status === 'pending' ? moneyWhole(ticketPayout) : winCellContent(amount);
                 const winTheme = status === 'pending' ? 'pending' : amount.theme;
 
                 if (isRoundRobinGroup(bet)) {
@@ -1213,7 +1250,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                 const childStatus = normalizeStatus(child?.status);
                                 const childPayout = payoutValue(child, maxBet);
                                 const childAmount = ticketAmount(child, maxBet);
-                                const childWinCell = childStatus === 'pending' ? moneyExact(childPayout) : winCellContent(childAmount);
+                                const childWinCell = childStatus === 'pending' ? moneyWhole(childPayout) : winCellContent(childAmount);
                                 const childWinTheme = childStatus === 'pending' ? 'pending' : childAmount.theme;
                                 const childSelections = Array.isArray(child?.selections) ? child.selections : [];
                                 return (
@@ -1246,7 +1283,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                                     >
                                                         <span className="my-bets-table-col-desc">
                                                             <MyBetsLegLogo leg={leg} teamLogos={teamLogos} />
-                                                            <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                                            <span className={`my-bets-table-leg-text${isOutrightLeg(leg) ? ' wrap' : ''}`}>{legDescription(leg, oddsFormat)}</span>
                                                             {childLegLive && (
                                                                 <span className="my-bets-table-live-badge" aria-label="Live game">{legBadgeLabel(leg, child)}</span>
                                                             )}
@@ -1362,7 +1399,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                         >
                                             <span className="my-bets-table-col-desc">
                                                 <MyBetsLegLogo leg={leg} teamLogos={teamLogos} />
-                                                <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                                <span className={`my-bets-table-leg-text${isOutrightLeg(leg) ? ' wrap' : ''}`}>{legDescription(leg, oddsFormat)}</span>
                                                 {legLive && (
                                                     <span className="my-bets-table-live-badge" aria-label="Live game">{legBadgeLabel(leg, bet)}</span>
                                                 )}
@@ -1416,7 +1453,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                         >
                             <span className="my-bets-table-col-desc">
                                 <MyBetsLegLogo leg={leg} teamLogos={teamLogos} />
-                                <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                <span className={`my-bets-table-leg-text${isOutrightLeg(leg) ? ' wrap' : ''}`}>{legDescription(leg, oddsFormat)}</span>
                                 {isManualBet && (
                                     <span className="my-bet-type" title="Booked by the house on your behalf">MANUAL</span>
                                 )}
@@ -1449,25 +1486,22 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                 let totalCashRisk = 0;
                 let totalWin = 0;
                 bets.forEach((b) => {
-                    const { cashRisk, totalRisk } = cashRiskOfBet(b);
+                    const { cashRisk } = cashRiskOfBet(b);
                     totalCashRisk += cashRisk;
-                    if (isOpenParlayStillFilling(b)) {
-                        // Foot the column: an open still-filling parlay row now
-                        // displays the placeholder-inclusive preview To-Win, so
-                        // its contribution to the total must use the SAME helper
-                        // the per-row getter uses. Display-only; every other row
-                        // keeps the existing stored-potentialPayout contribution.
-                        totalWin += openParlayPreviewProfit(b, maxBet);
-                    } else {
-                        const potential = Number(b?.potentialPayout || 0);
-                        totalWin += Math.max(0, potential - totalRisk);
-                    }
+                    // Foot the To-Win column against what the rows DISPLAY:
+                    // payoutValue is the same helper the per-row cell reads
+                    // (including the open-parlay placeholder preview), and each
+                    // contribution is floored exactly like the rendered cell, so
+                    // the Total always equals the sum of the visible row values.
+                    // Flooring the exact grand total instead can disagree with
+                    // the column by up to a dollar per row. Display-only.
+                    totalWin += Math.trunc(Math.max(0, payoutValue(b, maxBet)));
                 });
                 return (
                     <div className="my-bets-table-totals">
                         <span className="my-bets-table-col-desc">Total</span>
                         <span className="my-bets-table-col-risk">{moneyExact(totalCashRisk)}</span>
-                        <span className="my-bets-table-col-win">{moneyExact(totalWin)}</span>
+                        <span className="my-bets-table-col-win">{moneyWhole(totalWin)}</span>
                     </div>
                 );
             })()}
