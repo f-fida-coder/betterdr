@@ -547,13 +547,12 @@ const isStraightBetLive = (bet) => {
     return isLiveSnapshot(firstLeg?.matchSnapshot, bet?.status);
 };
 
-// Team name to use when rendering a leg's logo. For totals we pull
-// from matchSnapshot since the selection is "Over"/"Under", not a team.
+// Team name to use when rendering a leg's logo, for SINGLE-team markets only
+// (spread / moneyline — the selection IS the picked team). Game totals and team
+// totals are resolved from the matchSnapshot in legLogoTeams (a game total is
+// both teams; a team total's selection is only "Over"/"Under").
 const legTeamForLogo = (leg) => {
     const market = String(leg?.marketType || '').toLowerCase();
-    if (market === 'totals') {
-        return String(leg?.matchSnapshot?.homeTeam || '').trim() || null;
-    }
     // Admin write-in: no team behind it — initials-of-the-description would
     // render a meaningless crest, so show no logo at all.
     if (market === 'manual') {
@@ -628,6 +627,29 @@ const legLogoTeams = (leg) => {
         // unresolved /players lookup). Show a NEUTRAL player icon rather than
         // guessing the home team, which would render a confidently-wrong crest.
         return [{ name: '', abbr: '', neutral: true }];
+    }
+    const market = String(leg?.marketType || '').toLowerCase();
+    const snap = leg?.matchSnapshot || {};
+    // A GAME total is the combined score of BOTH teams — show the two matchup
+    // crests, never a single team's (which mis-reads as a team total). Mirrors
+    // the board's both-teams treatment of a game total. Falls to the fallback
+    // initials crest per team if a logo isn't warmed.
+    if (market === 'totals') {
+        return [
+            { name: String(snap.awayTeam || '').trim(), abbr: String(snap.awayTeamShort || '').trim() },
+            { name: String(snap.homeTeam || '').trim(), abbr: String(snap.homeTeamShort || '').trim() },
+        ].filter((t) => t.name);
+    }
+    // A TEAM total IS one team, but the selection is only "Over"/"Under", so the
+    // crest comes from the stored teamSide, not the selection text. (Don't
+    // over-correct game totals onto this path — team_totals is its own market.)
+    if (market === 'team_totals') {
+        const side = String(leg?.teamSide || '').trim().toLowerCase();
+        const name = side === 'away' ? String(snap.awayTeam || '').trim()
+            : side === 'home' ? String(snap.homeTeam || '').trim() : '';
+        const abbr = side === 'away' ? String(snap.awayTeamShort || '').trim()
+            : side === 'home' ? String(snap.homeTeamShort || '').trim() : '';
+        return name ? [{ name, abbr }] : [];
     }
     const team = legTeamForLogo(leg);
     return team ? [{ name: team, abbr: legTeamAbbr(leg, team) }] : [];
