@@ -21,6 +21,7 @@ export const ADMIN_NAV_ITEMS = [
   { id: 'outrights', label: 'Outrights', sidebarIcon: '🏆', dashboardIcon: 'fa-solid fa-trophy', dashboardColor: 'orange', roles: ['admin'], showInSidebar: true, showInDashboard: true },
   { id: 'card-bets', label: 'Card Bets', sidebarIcon: '🟨', dashboardIcon: 'fa-solid fa-square', dashboardColor: 'orange', roles: ['admin'], showInSidebar: true, showInDashboard: true },
   { id: 'manual-bets', label: 'Manual Bets', sidebarIcon: '📝', dashboardIcon: 'fa-solid fa-pen-nib', dashboardColor: 'orange', roles: ['admin'], showInSidebar: true, showInDashboard: true },
+  { id: 'line-override', label: 'Line Override', sidebarIcon: '✍️', dashboardIcon: 'fa-solid fa-sliders', dashboardColor: 'orange', roles: ['admin'], showInSidebar: true, showInDashboard: true },
   { id: 'sportsbook-links', label: 'Sportsbook Links', sidebarIcon: '🔗', dashboardIcon: 'fa-solid fa-lines-leaning', dashboardColor: 'orange', roles: ['admin', 'agent', 'super_agent', 'master_agent'], showInSidebar: true, showInDashboard: true },
   { id: 'bet-ticker', label: 'Bet Ticker', sidebarIcon: '⏱️', dashboardIcon: 'fa-solid fa-clock', dashboardColor: 'orange', roles: ['admin', 'agent', 'super_agent', 'master_agent'], showInSidebar: true, showInDashboard: true },
   { id: 'ticketwriter', label: 'TicketWriter', sidebarIcon: '✏️', dashboardIcon: 'fa-solid fa-pen-to-square', dashboardColor: 'orange', roles: ['admin', 'agent', 'super_agent', 'master_agent'], showInSidebar: true, showInDashboard: true },

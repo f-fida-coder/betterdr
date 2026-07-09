@@ -1376,6 +1376,14 @@ final class MatchesController
                 if (!is_array($outcome)) {
                     continue;
                 }
+                // Manually-overridden line: don't surface a buy-points ladder
+                // (v1 decision 2026-07-09). The admin hand-priced this line; the
+                // feed alt ladder is stale relative to it, and placement rejects
+                // a bought point here anyway (BUY_POINTS_OVERRIDDEN_LINE). So the
+                // ladder is simply absent — never priced off the stale feed.
+                if (strtolower((string) ($outcome['source'] ?? '')) === ManualOddsOverlay::SOURCE_TAG) {
+                    continue;
+                }
                 $pointRaw = $outcome['point'] ?? null;
                 if (!is_numeric($pointRaw)) {
                     continue;

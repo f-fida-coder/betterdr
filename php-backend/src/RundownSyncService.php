@@ -1085,9 +1085,37 @@ final class RundownSyncService
         // full-coverage sync populated (the period-chip flicker). See
         // carryForwardExtendedMarkets().
         $doc = self::carryForwardExtendedMarkets($doc, $existing);
+        // Admin line overrides: re-stamp the manually-set lines the fresh feed
+        // doc just rebuilt away. See carryForwardManualOdds().
+        $doc = self::carryForwardManualOdds($doc, $existing);
         unset($doc['id']);
         $db->updateOne(self::COLLECTION, ['id' => $id], $doc);
         return false;
+    }
+
+    /**
+     * Carry forward + re-materialize admin line overrides across a feed sync.
+     *
+     * The `manualOdds` RECORD survives updateOne's merge on its own — the feed
+     * doc carries no `manualOdds` key, so SqlRepository::mergeDocumentKeys
+     * preserves the existing one (identical discipline to cardMarkets). But the
+     * fresh feed just rebuilt `odds.bookmakers` WITHOUT the overrides, so copy
+     * the record onto the outgoing doc and re-stamp it via the single overlay
+     * gate. "Release to feed" clears the record; a later sync then finds
+     * nothing to re-stamp and the line is feed-driven again.
+     *
+     * @param array<string,mixed> $doc
+     * @param array<string,mixed> $existing
+     * @return array<string,mixed>
+     */
+    private static function carryForwardManualOdds(array $doc, array $existing): array
+    {
+        $manual = is_array($existing['manualOdds'] ?? null) ? $existing['manualOdds'] : [];
+        if ($manual === []) {
+            return $doc;
+        }
+        $doc['manualOdds'] = $manual;
+        return ManualOddsOverlay::apply($doc);
     }
 
     /**
@@ -1351,6 +1379,12 @@ final class RundownSyncService
                 isset($existing['point']) && is_numeric($existing['point']) ? (float) $existing['point'] : null,
                 $deltaPoint
             )) continue;
+            // Guard 2 (admin line override) — same protection as the core
+            // patch: a period / alt-market outcome flagged source='manual' is
+            // admin-owned and must not be repainted by a feed delta.
+            if (strtolower((string) ($existing['source'] ?? '')) === ManualOddsOverlay::SOURCE_TAG) {
+                return $extended;
+            }
             $found = true;
             if ($outcome === null) {
                 unset($outcomes[$k]);
@@ -1426,6 +1460,14 @@ final class RundownSyncService
                 isset($existing['point']) && is_numeric($existing['point']) ? (float) $existing['point'] : null,
                 $deltaPoint
             )) continue;
+            // Guard 2 (admin line override): a manual override owns this
+            // outcome. The feed delta must not repaint its price — drop the
+            // tick and leave the locked line intact. carryForwardManualOdds
+            // re-stamps source='manual' on every full sync, so this marker is
+            // always present on a locked outcome.
+            if (strtolower((string) ($existing['source'] ?? '')) === ManualOddsOverlay::SOURCE_TAG) {
+                return $bookmakers;
+            }
             $found = true;
             if ($outcome === null) {
                 unset($outcomes[$k]);

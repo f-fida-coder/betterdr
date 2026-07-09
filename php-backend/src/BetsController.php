@@ -3461,6 +3461,19 @@ final class BetsController
         $appliedBoughtPoints = 0.0;
         $signedPointDelta = 0.0;
         if (abs($boughtPoints) > 1e-9) {
+            // Manually-overridden line: buy-points is DISABLED (v1 decision
+            // 2026-07-09). The admin hand-priced this line (e.g. off Vegas);
+            // the feed's alt-line ladder is stale relative to it, so deriving
+            // buy-point rungs would price off a ladder the admin never set.
+            // Reject and let them bet the base line — the admin can override
+            // additional points explicitly if a ladder is wanted. This runs
+            // BEFORE any feed pricing so a bought point can never be priced off
+            // the stale feed for an overridden base.
+            if (strtolower((string) ($outcome['source'] ?? '')) === 'manual') {
+                throw new ApiException('Buy Points is unavailable on a manually-set line. Please place the base line.', 400, [
+                    'code' => 'BUY_POINTS_OVERRIDDEN_LINE',
+                ]);
+            }
             // Buy-points is gated per sport (interim lock 2026-06-16: default
             // OFF until each sport's feed-anchored pricing is verified).
             // boughtPoints is SIGNED: + buys (easier), - sells (harder).

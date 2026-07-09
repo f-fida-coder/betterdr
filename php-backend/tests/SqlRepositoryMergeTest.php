@@ -71,6 +71,28 @@ TestRunner::run('merge lock: the narrow card write cannot touch Rundown keys', f
     TestRunner::assertEquals('theoddsapi', $merged['cardMarketsSource'], 'card keys landed');
 });
 
+TestRunner::run('merge lock: manualOdds (admin line override) SURVIVES a Rundown full-doc update', function (): void {
+    // Ruling #1 core: an admin line override is stored as a top-level
+    // manualOdds key, protected by the SAME merge discipline as cardMarkets —
+    // the feed's $set never carries manualOdds, so a fresh sync cannot wipe it.
+    // (RundownSyncService::carryForwardManualOdds then re-materializes it onto
+    // the rebuilt odds; that overlay step is covered in ManualLineOverrideTest.)
+    $existing = srmRundownSet();
+    $existing['manualOdds'] = [[
+        'market' => 'totals', 'name' => 'Over', 'point' => 9.5, 'price' => 1.9259,
+        'feedPoint' => 8.5, 'feedPrice' => 1.9091, 'lockedBy' => 'admin1', 'lockedAt' => '2026-07-09T12:00:00+00:00',
+    ]];
+
+    $incoming = srmRundownSet();                                   // fresh feed, no manualOdds key
+    $incoming['lastOddsSyncAt'] = '2026-07-05T13:05:00+00:00';
+
+    $merged = SqlRepository::mergeDocumentKeys($existing, $incoming);
+
+    TestRunner::assertEquals('2026-07-05T13:05:00+00:00', $merged['lastOddsSyncAt'], 'Rundown keys update from the incoming doc');
+    TestRunner::assertEquals(true, isset($merged['manualOdds']), 'manualOdds SURVIVES the feed refresh — the override is never wiped');
+    TestRunner::assertEquals(9.5, $merged['manualOdds'][0]['point'], 'override point intact');
+});
+
 TestRunner::run('merge lock: shared keys still overwrite (it is a merge, not a union)', function (): void {
     $merged = SqlRepository::mergeDocumentKeys(['a' => 1, 'b' => 2], ['b' => 3, 'c' => 4]);
     TestRunner::assertEquals(1, $merged['a'], 'absent-from-set key kept');

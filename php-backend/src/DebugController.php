@@ -93,6 +93,18 @@ final class DebugController
             $this->voidOutright((string) $m[1]);
             return true;
         }
+        if ($method === 'GET' && preg_match('#^/api/admin/matches/([a-f0-9]{24})/lines$#', $path, $m) === 1) {
+            $this->getMatchLines((string) $m[1]);
+            return true;
+        }
+        if ($method === 'POST' && preg_match('#^/api/admin/matches/([a-f0-9]{24})/line-override$#', $path, $m) === 1) {
+            $this->setLineOverride((string) $m[1]);
+            return true;
+        }
+        if ($method === 'POST' && preg_match('#^/api/admin/matches/([a-f0-9]{24})/line-override/release$#', $path, $m) === 1) {
+            $this->releaseLineOverride((string) $m[1]);
+            return true;
+        }
         if ($method === 'GET' && $path === '/api/admin/card-bets') {
             $this->listAdminCardBets();
             return true;
@@ -340,6 +352,340 @@ final class DebugController
         } catch (Throwable $e) {
             Logger::exception($e, 'voidOutright failed');
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * GET /api/admin/matches/{id}/lines — the overridable markets for a match
+     * (moneyline / spread / total) with the CURRENT feed value and any active
+     * manual override + its lock info, so the admin sees what they're changing
+     * from. Strict admin only. Prices are AMERICAN (the pricing unit).
+     */
+    private function getMatchLines(string $matchId): void
+    {
+        try {
+            $actor = $this->protectAdminOnly(true);
+            if ($actor === null) return;
+
+            $match = $this->db->findOne('matches', ['id' => $matchId]);
+            if ($match === null) {
+                Response::json(['ok' => false, 'error' => 'match_not_found'], 404);
+                return;
+            }
+            $home = (string) ($match['homeTeam'] ?? '');
+            $away = (string) ($match['awayTeam'] ?? '');
+            $overrides = is_array($match['manualOdds'] ?? null) ? $match['manualOdds'] : [];
+
+            // Index overrides by (market|name) for a quick per-outcome lookup.
+            $ovByKey = [];
+            foreach ($overrides as $e) {
+                if (!is_array($e)) continue;
+                $ovByKey[strtolower((string) ($e['market'] ?? '')) . '|' . (string) ($e['name'] ?? '')] = $e;
+            }
+
+            $labels = ['h2h' => 'Moneyline', 'spreads' => 'Spread', 'totals' => 'Total'];
+            $markets = [];
+            foreach (ManualOddsOverlay::OVERRIDABLE_MARKETS as $mkey) {
+                // Representative current feed outcomes from the first book that
+                // carries this market (the main line is consistent across books;
+                // an override is stamped on all of them anyway).
+                $feedOutcomes = $this->firstBookMarketOutcomes($match, $mkey);
+                if ($feedOutcomes === []) continue;
+
+                $rows = [];
+                foreach ($feedOutcomes as $o) {
+                    if (!is_array($o)) continue;
+                    $name = (string) ($o['name'] ?? '');
+                    if ($name === '') continue;
+                    $side = $mkey === 'totals'
+                        ? (stripos($name, 'under') !== false ? 'under' : 'over')
+                        : ($name === $home ? 'home' : ($name === $away ? 'away' : ''));
+                    $ov = $ovByKey[$mkey . '|' . $name] ?? null;
+
+                    $feedPrice = isset($o['price']) && is_numeric($o['price']) ? (float) $o['price'] : null;
+                    $rows[] = [
+                        'name'             => $name,
+                        'side'             => $side,
+                        'feedPoint'        => $ov !== null ? ($ov['feedPoint'] ?? null) : (isset($o['point']) && is_numeric($o['point']) ? (float) $o['point'] : null),
+                        'feedAmerican'     => $ov !== null
+                            ? (isset($ov['feedPrice']) && is_numeric($ov['feedPrice']) ? SportsbookBetSupport::decimalToAmericanInt((float) $ov['feedPrice']) : null)
+                            : ($feedPrice !== null ? SportsbookBetSupport::decimalToAmericanInt($feedPrice) : null),
+                        'overridden'       => $ov !== null,
+                        'overridePoint'    => $ov !== null ? ($ov['point'] ?? null) : null,
+                        'overrideAmerican' => ($ov !== null && isset($ov['price']) && is_numeric($ov['price']))
+                            ? SportsbookBetSupport::decimalToAmericanInt((float) $ov['price']) : null,
+                        'lockedBy'         => $ov['lockedByName'] ?? ($ov['lockedBy'] ?? null),
+                        'lockedAt'         => $ov['lockedAt'] ?? null,
+                    ];
+                }
+                if ($rows !== []) {
+                    $markets[] = ['market' => $mkey, 'label' => $labels[$mkey], 'outcomes' => $rows];
+                }
+            }
+
+            Response::json([
+                'ok'    => true,
+                'match' => [
+                    'id' => $matchId, 'homeTeam' => $home, 'awayTeam' => $away,
+                    'sportKey' => $match['sportKey'] ?? null, 'status' => $match['status'] ?? null,
+                    'startTime' => $match['startTime'] ?? null,
+                ],
+                'markets' => $markets,
+            ]);
+        } catch (Throwable $e) {
+            Logger::exception($e, 'getMatchLines failed');
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Outcomes of a market from the first book that carries it.
+     *
+     * @param array<string,mixed> $match
+     * @return list<array<string,mixed>>
+     */
+    private function firstBookMarketOutcomes(array $match, string $marketKey): array
+    {
+        foreach (($match['odds']['bookmakers'] ?? []) as $book) {
+            if (!is_array($book)) continue;
+            foreach (($book['markets'] ?? []) as $mk) {
+                if (is_array($mk) && strtolower((string) ($mk['key'] ?? '')) === $marketKey
+                    && is_array($mk['outcomes'] ?? null) && $mk['outcomes'] !== []) {
+                    return $mk['outcomes'];
+                }
+            }
+        }
+        return [];
+    }
+
+    /**
+     * POST /api/admin/matches/{id}/line-override — set a manual line on a
+     * match's moneyline / spread / total (money-affecting: it changes what
+     * players can bet and win). Strict admin only. Body:
+     *   { market: 'h2h'|'spreads'|'totals',
+     *     entries: [ { name, side, point?, price } ] }   // price = AMERICAN
+     * Spread/total callers send BOTH sides (no implicit mirroring). The value
+     * is stored VERBATIM (never juice-rounded — the admin is the pricer),
+     * materialized onto every book via the overlay gate, and survives feed
+     * refreshes via carryForwardManualOdds. Every override is audit-logged.
+     */
+    private function setLineOverride(string $matchId): void
+    {
+        try {
+            $actor = $this->protectAdminOnly(true);
+            if ($actor === null) return;
+
+            $body   = Http::jsonBody();
+            $market = strtolower(trim((string) ($body['market'] ?? '')));
+            $rows   = is_array($body['entries'] ?? null) ? $body['entries'] : [];
+            if (!in_array($market, ManualOddsOverlay::OVERRIDABLE_MARKETS, true)) {
+                Response::json(['ok' => false, 'error' => 'unsupported_market'], 400);
+                return;
+            }
+            if ($rows === []) {
+                Response::json(['ok' => false, 'error' => 'no_entries'], 400);
+                return;
+            }
+
+            $match = $this->db->findOne('matches', ['id' => $matchId]);
+            if ($match === null) {
+                Response::json(['ok' => false, 'error' => 'match_not_found'], 404);
+                return;
+            }
+
+            $now      = SqlRepository::nowUtc();
+            $actorId  = (string) ($actor['id'] ?? '');
+            $actorU   = (string) ($actor['username'] ?? '');
+            $newEntries = [];
+            $auditNew   = [];
+            $auditOld   = [];
+
+            foreach ($rows as $row) {
+                if (!is_array($row)) continue;
+                $name = trim((string) ($row['name'] ?? ''));
+                if ($name === '' || !isset($row['price']) || !is_numeric($row['price'])) {
+                    Response::json(['ok' => false, 'error' => 'invalid_entry'], 400);
+                    return;
+                }
+                // Snapshot the current feed value for this outcome (audit +
+                // release restore) and confirm the outcome actually exists.
+                $feed = $this->findOutcomeInOdds($match, $market, $name);
+                if ($feed === null) {
+                    Response::json(['ok' => false, 'error' => 'outcome_not_on_board:' . $name], 400);
+                    return;
+                }
+                $american = (int) round((float) $row['price']);
+                $priceDec = SportsbookBetSupport::americanToDecimalExact($american);
+                $point    = ($market === 'h2h' || !isset($row['point']) || !is_numeric($row['point']))
+                    ? null : (float) $row['point'];
+
+                $newEntries[] = [
+                    'market'    => $market,
+                    'name'      => $name,
+                    'side'      => (string) ($row['side'] ?? ''),
+                    'pid'       => $feed['pid'] ?? null,
+                    'point'     => $point,
+                    'price'     => $priceDec,
+                    'feedPoint' => $feed['point'],
+                    'feedPrice' => $feed['price'],
+                    'lockedBy'  => $actorId,
+                    'lockedByName' => $actorU,
+                    'lockedAt'  => $now,
+                ];
+                $auditNew[] = ['name' => $name, 'point' => $point, 'american' => $american];
+                $auditOld[] = ['name' => $name, 'point' => $feed['point'], 'price' => $feed['price']];
+            }
+
+            // Merge: replace any existing entries for the same (market, name),
+            // keep overrides on other markets/outcomes.
+            $existing = is_array($match['manualOdds'] ?? null) ? $match['manualOdds'] : [];
+            $replacedKeys = [];
+            foreach ($newEntries as $e) {
+                $replacedKeys[$e['market'] . '|' . $e['name']] = true;
+            }
+            $merged = [];
+            foreach ($existing as $e) {
+                if (!is_array($e)) continue;
+                $key = strtolower((string) ($e['market'] ?? '')) . '|' . (string) ($e['name'] ?? '');
+                if (!isset($replacedKeys[$key])) $merged[] = $e;
+            }
+            foreach ($newEntries as $e) $merged[] = $e;
+
+            // Materialize onto the stored odds via the single overlay gate.
+            $match['manualOdds'] = $merged;
+            $match = ManualOddsOverlay::apply($match);
+            $this->db->updateOne('matches', ['id' => $matchId], [
+                'manualOdds' => $merged,
+                'odds'       => $match['odds'],
+            ]);
+
+            $this->logLineOverride('line_override', $actor, $matchId, $market, $auditOld, $auditNew);
+            Response::json(['ok' => true, 'matchId' => $matchId, 'market' => $market, 'entries' => $newEntries]);
+        } catch (RuntimeException $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            Logger::exception($e, 'setLineOverride failed');
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * POST /api/admin/matches/{id}/line-override/release — clear the manual
+     * override on a market and restore the feed value immediately (not waiting
+     * for the next worker sync). Strict admin only; audit-logged. Body:
+     *   { market: 'h2h'|'spreads'|'totals' }
+     */
+    private function releaseLineOverride(string $matchId): void
+    {
+        try {
+            $actor = $this->protectAdminOnly(true);
+            if ($actor === null) return;
+
+            $body   = Http::jsonBody();
+            $market = strtolower(trim((string) ($body['market'] ?? '')));
+            if (!in_array($market, ManualOddsOverlay::OVERRIDABLE_MARKETS, true)) {
+                Response::json(['ok' => false, 'error' => 'unsupported_market'], 400);
+                return;
+            }
+            $match = $this->db->findOne('matches', ['id' => $matchId]);
+            if ($match === null) {
+                Response::json(['ok' => false, 'error' => 'match_not_found'], 404);
+                return;
+            }
+            $existing = is_array($match['manualOdds'] ?? null) ? $match['manualOdds'] : [];
+            $released = [];
+            $kept     = [];
+            foreach ($existing as $e) {
+                if (is_array($e) && strtolower((string) ($e['market'] ?? '')) === $market) {
+                    $released[] = $e;
+                } else {
+                    $kept[] = $e;
+                }
+            }
+            if ($released === []) {
+                Response::json(['ok' => false, 'error' => 'no_override_for_market'], 400);
+                return;
+            }
+            // Restore feed values on the released outcomes immediately.
+            $match['manualOdds'] = $kept;
+            $match = ManualOddsOverlay::restoreFeed($match, $released);
+            $this->db->updateOne('matches', ['id' => $matchId], [
+                'manualOdds' => $kept,
+                'odds'       => $match['odds'],
+            ]);
+
+            $auditOld = array_map(static fn (array $e): array => [
+                'name' => $e['name'] ?? '', 'point' => $e['point'] ?? null, 'price' => $e['price'] ?? null,
+            ], $released);
+            $this->logLineOverride('line_override_release', $actor, $matchId, $market, $auditOld, []);
+            Response::json(['ok' => true, 'matchId' => $matchId, 'market' => $market, 'released' => count($released)]);
+        } catch (RuntimeException $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            Logger::exception($e, 'releaseLineOverride failed');
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Locate an outcome in a match's stored odds by (market key, outcome name)
+     * across all books; returns its current feed point/price/pid for the audit
+     * snapshot, or null when the outcome isn't on the board.
+     *
+     * @param array<string,mixed> $match
+     * @return array{point:?float,price:?float,pid:mixed}|null
+     */
+    private function findOutcomeInOdds(array $match, string $market, string $name): ?array
+    {
+        $books = $match['odds']['bookmakers'] ?? null;
+        if (!is_array($books)) return null;
+        foreach ($books as $book) {
+            if (!is_array($book) || !is_array($book['markets'] ?? null)) continue;
+            foreach ($book['markets'] as $mk) {
+                if (!is_array($mk) || strtolower((string) ($mk['key'] ?? '')) !== $market) continue;
+                foreach (($mk['outcomes'] ?? []) as $o) {
+                    if (is_array($o) && (string) ($o['name'] ?? '') === $name) {
+                        return [
+                            'point' => isset($o['point']) && is_numeric($o['point']) ? (float) $o['point'] : null,
+                            'price' => isset($o['price']) && is_numeric($o['price']) ? (float) $o['price'] : null,
+                            'pid'   => $o['pid'] ?? null,
+                        ];
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Audit every line override + release (money-affecting manual action):
+     * who, when, market, old feed value(s), new value(s).
+     *
+     * @param array<string,mixed>       $actor
+     * @param list<array<string,mixed>> $oldValues
+     * @param list<array<string,mixed>> $newValues
+     */
+    private function logLineOverride(string $action, array $actor, string $matchId, string $market, array $oldValues, array $newValues): void
+    {
+        try {
+            $this->db->insertOne('admin_audit_log', [
+                'action'        => $action,
+                'actorId'       => (string) ($actor['id'] ?? ''),
+                'actorUsername' => (string) ($actor['username'] ?? ''),
+                'actorRole'     => (string) ($actor['role'] ?? ''),
+                'targetId'      => $matchId,
+                'market'        => $market,
+                'oldValue'      => $oldValues,
+                'newValue'      => $newValues,
+                'ip'            => IpUtils::clientIp(),
+                'timestamp'     => time(),
+                'createdAt'     => SqlRepository::nowUtc(),
+            ]);
+        } catch (Throwable $e) {
+            // Never let an audit-write failure abort the override response, but
+            // do surface it in the logs — a missing audit row on a money action
+            // is itself an incident to investigate.
+            Logger::exception($e, 'logLineOverride failed');
         }
     }
 

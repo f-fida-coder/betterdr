@@ -1859,6 +1859,46 @@ export const voidAdminOutright = async (outrightId, reason, token) => {
     return response.json();
 };
 
+// ── Admin line override (manual line on a match's ML/spread/total) ───────
+// Read the overridable markets for one match: current feed value + any active
+// override + lock info. Prices are AMERICAN. Strict admin only on the backend.
+export const getAdminMatchLines = async (matchId, token) => {
+    const response = await fetch(buildApiUrl(`/admin/matches/${matchId}/lines`), {
+        headers: getHeaders(token)
+    });
+    return parseJsonResponse(response, 'Failed to load match lines');
+};
+
+// Money action: set a manual line on a market. `entries` is one row per side
+// ({ name, side, point?, price }) — price is AMERICAN. Spread/total send BOTH
+// sides. Backend stores verbatim + audit-logs; requires full admin role.
+export const setAdminLineOverride = async (matchId, market, entries, token) => {
+    const response = await fetch(buildApiUrl(`/admin/matches/${matchId}/line-override`), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ market, entries })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || error.message || 'Failed to set line override');
+    }
+    return response.json();
+};
+
+// Money action: clear the override on a market and restore the feed value.
+export const releaseAdminLineOverride = async (matchId, market, token) => {
+    const response = await fetch(buildApiUrl(`/admin/matches/${matchId}/line-override/release`), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ market })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || error.message || 'Failed to release line override');
+    }
+    return response.json();
+};
+
 // ── Admin card-bet grading (manual only — no card data in any feed) ──────
 export const getAdminCardBets = async (token) => {
     const response = await fetch(buildApiUrl('/admin/card-bets'), {
