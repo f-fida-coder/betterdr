@@ -634,13 +634,57 @@ final class BetsController
             $winAmount = max(0.0, (float) $potentialPayout - (float) $totalRisk);
             $minBetLimit = isset($user['minBet']) && is_numeric($user['minBet']) ? (float) $user['minBet'] : 0.0;
             $maxBetLimit = isset($user['maxBet']) && is_numeric($user['maxBet']) ? (float) $user['maxBet'] : 0.0;
+
+            // ── Max-WIN cap: unclamped effective decimal (win = totalRisk × (dec−1)) ──
+            // The house absolute win ceiling (MAX_PARLAY_PAYOUT, default $5,000)
+            // is enforced below across ALL ticket types (extended 2026-07-09 from
+            // parlay/outright-only to straights + teaser/if_bet/reverse — PO). It
+            // is computed once here on the UNCLAMPED odds so both the min-bet
+            // override and the reject-suggestion use a stake that never overstates
+            // the cap (double-bounce guard). Straight = the single selection's
+            // decimal; parlay = the exact leg-odds product; teaser/if_bet/reverse
+            // = the pre-3×-clamp payout ratio (win is linear in stake for all).
+            $winCap = SportsbookBetSupport::maxTicketWinCap();
+            $capEffectiveDecimal = 0.0;
+            if ($type === 'straight') {
+                $capEffectiveDecimal = (float) ($validatedSelections[0]['odds'] ?? 0);
+            } elseif ($type === 'parlay') {
+                $capEffectiveDecimal = 1.0;
+                foreach ($validatedSelections as $capSel) {
+                    $capLegOdds = (float) ($capSel['odds'] ?? 0);
+                    if ($capLegOdds > 1.0) {
+                        $capEffectiveDecimal *= $capLegOdds;
+                    }
+                }
+            } else { // teaser / if_bet / reverse — pre-clamp payout ratio on the risk basis
+                $capEffectiveDecimal = $totalRisk > 0 ? ((float) $potentialPayout / (float) $totalRisk) : 0.0;
+            }
+            // Largest whole-dollar risk whose win fits under the cap (0 when the
+            // cap is disabled or even $1 busts it — an extreme longshot).
+            $capMaxRisk = $winCap > 0
+                ? SportsbookBetSupport::allowedStakeForWinCap($winCap, $capEffectiveDecimal)
+                : 0.0;
+
             if ($minBetLimit > 0 && (float) $totalRisk < $minBetLimit) {
-                throw new ApiException(
-                    'Min bet is $' . rtrim(rtrim(number_format($minBetLimit, 2, '.', ''), '0'), '.')
-                    . ' — this ticket only risks $' . rtrim(rtrim(number_format((float) $totalRisk, 2, '.', ''), '0'), '.'),
-                    400,
-                    ['code' => 'BELOW_MIN_BET']
-                );
+                // Cap-overrides-min (PO 2026-07-09): when the max-win cap forces
+                // the max stake BELOW the player's min bet (e.g. +25000, min $25 →
+                // max stake $20), allow the bet down to the cap-limited stake
+                // instead of rejecting it. Only when the cap is the binding reason
+                // (capMaxRisk < minBet), the risk still fits the cap, and it is at
+                // least $1. A normal under-min ticket is still rejected.
+                $capOverridesMin = $winCap > 0
+                    && $capMaxRisk >= 1.0
+                    && $capMaxRisk < $minBetLimit
+                    && (float) $totalRisk >= 1.0
+                    && (float) $totalRisk <= $capMaxRisk;
+                if (!$capOverridesMin) {
+                    throw new ApiException(
+                        'Min bet is $' . rtrim(rtrim(number_format($minBetLimit, 2, '.', ''), '0'), '.')
+                        . ' — this ticket only risks $' . rtrim(rtrim(number_format((float) $totalRisk, 2, '.', ''), '0'), '.'),
+                        400,
+                        ['code' => 'BELOW_MIN_BET']
+                    );
+                }
             }
             // Combined modes (parlay/teaser/if_bet/reverse) get a payout
             // ceiling separate from max bet: capped at 3 × maxBet so a
@@ -664,36 +708,29 @@ final class BetsController
                     $combinedOdds = SportsbookBetSupport::combinedOdds($totalRisk, $potentialPayout);
                 }
             }
-            // House absolute win ceiling (MAX_PARLAY_PAYOUT, default $5,000)
-            // — PO scope: parlays and futures/outright legs. Runs AFTER the
-            // 3× clamp (whatever survives that reduction must still fit) and
-            // REJECTS with a stake suggestion computed from the UNCLAMPED
-            // odds (see SportsbookBetSupport::assertWinWithinCap). Teaser /
-            // if-bet / reverse are deliberately outside the ruling — widen
-            // this condition to change that. Straight non-outright tickets
-            // keep their historically uncapped win.
-            if ($type === 'parlay') {
-                $rawCombined = 1.0;
+            // House absolute win ceiling (MAX_PARLAY_PAYOUT, default $5,000) —
+            // now ALL ticket types (2026-07-09 stake-cap feature; was parlay +
+            // outright only). Runs AFTER the 3× clamp (whatever survives that
+            // reduction must still fit) and REJECTS with a stake suggestion
+            // computed from the UNCLAMPED odds captured above. The betslip
+            // auto-caps the stake first, so a well-behaved client never trips
+            // this — it is the authoritative server-side guard against a
+            // manipulated over-stake.
+            if ($type === 'straight') {
+                // Straight = single selection; loop preserves the outright
+                // context label and is a no-op for the extra iterations.
                 foreach ($validatedSelections as $capSel) {
                     $capLegOdds = (float) ($capSel['odds'] ?? 0);
                     if ($capLegOdds > 1.0) {
-                        $rawCombined *= $capLegOdds;
+                        $capCtx = (($capSel['marketType'] ?? '') === 'outrights' || !empty($capSel['isOutright']))
+                            ? 'outright' : 'straight';
+                        SportsbookBetSupport::assertWinWithinCap($betAmount * ($capLegOdds - 1.0), $capLegOdds, $capCtx);
                     }
                 }
-                SportsbookBetSupport::assertWinWithinCap($winAmount, $rawCombined, 'parlay');
             } else {
-                // Outright/futures legs ride straight tickets — cap each
-                // leg's own win (stake × (decimal − 1)) at the same ceiling.
-                foreach ($validatedSelections as $capSel) {
-                    $isOutrightLeg = ($capSel['marketType'] ?? '') === 'outrights' || !empty($capSel['isOutright']);
-                    if (!$isOutrightLeg) {
-                        continue;
-                    }
-                    $capLegOdds = (float) ($capSel['odds'] ?? 0);
-                    if ($capLegOdds > 1.0) {
-                        SportsbookBetSupport::assertWinWithinCap($betAmount * ($capLegOdds - 1.0), $capLegOdds, 'outright');
-                    }
-                }
+                // parlay / teaser / if_bet / reverse — cap on the ticket's win
+                // using the unclamped effective decimal computed above.
+                SportsbookBetSupport::assertWinWithinCap($winAmount, $capEffectiveDecimal, $type);
             }
             if ($maxBetLimit > 0 && (float) $totalRisk > $maxBetLimit) {
                 throw new ApiException(

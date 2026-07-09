@@ -57,6 +57,21 @@ function mwcDec(int $american): float
     return $american > 0 ? 1.0 + $american / 100.0 : 1.0 + 100.0 / abs($american);
 }
 
+// ApiException accessors that work with BOTH the local mock above (extra()/
+// getCode()) AND the real src/ApiException.php (payload()/statusCode()). In the
+// full suite an earlier suite autoloads the real class, so the mock is skipped;
+// in isolation the mock is used. These bridge the two so assertions run either way.
+function mwcExtra(Throwable $e): array
+{
+    if (method_exists($e, 'extra')) { return $e->extra(); }
+    if (method_exists($e, 'payload')) { return $e->payload(); }
+    return [];
+}
+function mwcStatus(Throwable $e): int
+{
+    return method_exists($e, 'statusCode') ? $e->statusCode() : $e->getCode();
+}
+
 function mwcWithCap(?string $value, callable $fn): void
 {
     $origGetenv = getenv('MAX_PARLAY_PAYOUT');
@@ -87,6 +102,72 @@ TestRunner::run('allowed stake = floor(cap / (decimal - 1)) — PO examples, ari
     // Non-round combined odds floor DOWN: +228 → decimal 3.28 →
     // 5000/2.28 = 2192.98… → $2,192 (never $2,193, which would win $5,000.04).
     TestRunner::assertEqualsFloat(2192.0, SportsbookBetSupport::allowedStakeForWinCap(5000.0, 3.28), '+228 → $2,192 (floored)');
+    // Favorite side (stake-cap feature worked example): −110 → decimal 10/11 +
+    // 1. Ideal math is 5000/(10/11) = $5,500, but 100/110 isn't exact in IEEE
+    // double so the quotient lands a hair under 5500 and floors to $5,499 — the
+    // documented "$1-conservative at exact float boundaries" case ($5,499 wins
+    // $4,999.09, safely under cap; $5,501 would bust it). Confirms the cap binds
+    // on chalk too, not just longshots.
+    TestRunner::assertEqualsFloat(5499.0, SportsbookBetSupport::allowedStakeForWinCap(5000.0, mwcDec(-110)), '−110 → $5,499 (float-boundary conservative floor)');
+});
+
+TestRunner::run('stake-cap: straight + longshot contexts (2026-07-09 extension)', function (): void {
+    mwcWithCap('5000', function (): void {
+        // Straight (plain, non-outright) now capped: +10000 → decimal 101,
+        // a $60 stake wins $6,000 → rejects, suggesting $50.
+        $threw = false;
+        try {
+            SportsbookBetSupport::assertWinWithinCap(60.0 * (mwcDec(10000) - 1.0), mwcDec(10000), 'straight');
+        } catch (ApiException $e) {
+            $threw = true;
+            // Assert on the message (universally available); the loaded
+            // ApiException across the full suite is whichever mock a prior test
+            // defined, so structured extra()/payload() access isn't portable.
+            TestRunner::assertTrue(str_contains($e->getMessage(), '$50'), 'message names the $50 allowed stake at +10000');
+            TestRunner::assertTrue(str_contains($e->getMessage(), '5,000'), 'message names the $5,000 cap');
+        }
+        TestRunner::assertTrue($threw, 'straight +10000 over-stake rejects');
+        // $50 exactly wins $5,000 → passes.
+        SportsbookBetSupport::assertWinWithinCap(50.0 * (mwcDec(10000) - 1.0), mwcDec(10000), 'straight');
+
+        // Extreme longshot: even $1 busts the cap → allowedStake 0, message
+        // says no stake fits (frontend blocks the selection entirely).
+        $threw = false;
+        try {
+            SportsbookBetSupport::assertWinWithinCap(6000.0, mwcDec(600000), 'straight');
+        } catch (ApiException $e) {
+            $threw = true;
+            TestRunner::assertTrue(str_contains($e->getMessage(), 'any stake'), 'message says no stake fits (allowedStake 0 → block)');
+        }
+        TestRunner::assertTrue($threw, 'extreme longshot rejects at any stake');
+    });
+});
+
+// ── Cap-overrides-min-bet (PO 2026-07-09): when floor(cap/(dec−1)) < minBet,
+// the bet is allowed down to the cap-limited stake instead of blocked. This
+// mirrors the BetsController min-bet override condition exactly. ─────────────
+TestRunner::run('cap overrides min-bet when the capped stake falls below the floor', function (): void {
+    mwcWithCap('5000', function (): void {
+        $cap = SportsbookBetSupport::maxTicketWinCap();
+        // +25000 → decimal 251 → floor(5000/250) = $20 max stake, below a $25 min.
+        $dec = mwcDec(25000);
+        $capMaxRisk = SportsbookBetSupport::allowedStakeForWinCap($cap, $dec);
+        TestRunner::assertEqualsFloat(20.0, $capMaxRisk, '+25000 → $20 max stake');
+        $minBet = 25.0;
+        $totalRisk = 20.0; // client auto-capped to the cap-limited stake
+        $capOverridesMin = $cap > 0 && $capMaxRisk >= 1.0 && $capMaxRisk < $minBet && $totalRisk >= 1.0 && $totalRisk <= $capMaxRisk;
+        TestRunner::assertTrue($capOverridesMin, '$20 risk on a $25-min +25000 selection is allowed (cap overrides min)');
+        // A $25 risk on the same selection would win > cap and is NOT an
+        // override case (it exceeds capMaxRisk) → the cap reject still fires.
+        TestRunner::assertTrue(!(25.0 <= $capMaxRisk), '$25 risk exceeds the cap-limited stake');
+        // Normal under-min (favorite, cap not binding) is still rejected: −110
+        // allows a $5,500 stake, far above any sane min, so capMaxRisk >= minBet
+        // and the override does NOT apply.
+        $favDec = mwcDec(-110);
+        $favCapMax = SportsbookBetSupport::allowedStakeForWinCap($cap, $favDec);
+        $favOverride = $cap > 0 && $favCapMax >= 1.0 && $favCapMax < $minBet && 10.0 <= $favCapMax;
+        TestRunner::assertTrue(!$favOverride, 'a $10 bet under $25 min on −110 is NOT cap-overridden (normal min reject stands)');
+    });
 });
 
 TestRunner::run('floor tightness sweep — suggestion never busts the cap, and $1 more always would', function (): void {
@@ -111,7 +192,7 @@ TestRunner::run('assertWinWithinCap — exactly-at-cap passes, above rejects wit
             SportsbookBetSupport::assertWinWithinCap(5000.01, 51.0, 'parlay');
         } catch (ApiException $e) {
             $threw = true;
-            TestRunner::assertEquals(400, $e->getCode(), 'HTTP 400');
+            TestRunner::assertEquals(400, mwcStatus($e), 'HTTP 400');
             TestRunner::assertTrue(str_contains($e->getMessage(), '$100'), 'message carries the computed stake ($100 at +5000)');
         }
         TestRunner::assertTrue($threw, 'win above cap rejects');

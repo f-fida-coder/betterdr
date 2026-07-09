@@ -972,6 +972,11 @@ final class AuthController
             'freeplayExpiresAt' => $freeplayExpiresAt,
             'minBet' => $minBet,
             'maxBet' => $maxBet,
+            // House absolute max-WIN cap (MAX_PARLAY_PAYOUT, default $5,000;
+            // 0 = disabled). Surfaced so the betslip can live-cap the stake to
+            // the amount that wins exactly the cap. DISPLAY/UX only — the
+            // server re-enforces it authoritatively at placement.
+            'maxWinCap' => SportsbookBetSupport::maxTicketWinCap(),
             'unlimitedBalance' => (bool) ($user['unlimitedBalance'] ?? false),
             'isSuperAdmin' => (bool) ($user['isSuperAdmin'] ?? false),
             'totalWinnings' => (float) round($this->num($user['totalWinnings'] ?? 0)),
@@ -1027,6 +1032,11 @@ final class AuthController
             'freeplayExpiresAt' => $freeplayExpiresAt,
             'minBet' => $minBet,
             'maxBet' => $maxBet,
+            // House absolute max-WIN cap (MAX_PARLAY_PAYOUT, default $5,000;
+            // 0 = disabled). Surfaced so the betslip can live-cap the stake to
+            // the amount that wins exactly the cap. DISPLAY/UX only — the
+            // server re-enforces it authoritatively at placement.
+            'maxWinCap' => SportsbookBetSupport::maxTicketWinCap(),
             'unlimitedBalance' => (bool) ($user['unlimitedBalance'] ?? false),
             'isSuperAdmin' => (bool) ($user['isSuperAdmin'] ?? false),
             'totalWinnings' => (float) round($this->num($user['totalWinnings'] ?? 0)),

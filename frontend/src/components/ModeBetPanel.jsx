@@ -4,6 +4,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal, roundCombinedToAmericanDecimal } from '../utils/odds';
 import { computeMidQuickStakes } from '../utils/money';
+import { maxStakeForWinCap, maxStakeNote, cannotFitCapNote } from '../utils/maxWinCap';
 import { formatSiteDateTime } from '../utils/timezone';
 import { isMlbSportKey, formatPitcherLabel } from '../utils/pitchers';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
@@ -1006,9 +1007,53 @@ const ModeBetPanel = ({
     //     "Max bet $2000 — 'Pirates vs Giants' risks $2500".
     //   - violatingIds: Set of selection IDs whose Risk trips a
     //     limit, used to flag the offending card with a red border.
+    // ── Max-WIN stake cap ────────────────────────────────────────────────
+    // Mirror of the server house win ceiling (user.maxWinCap = MAX_PARLAY_PAYOUT).
+    // Live-caps the stake to the amount that wins EXACTLY the cap so a customer
+    // can't over-risk a high-plus-money selection for no extra upside. Server
+    // re-enforces at placement — this is UX only. `maxStake` is in the units the
+    // player types (the wager); reverse doubles the risk per wager. Round Robin
+    // is left to its own per-child server cap (its stake maps to N combos).
+    const winCapState = useMemo(() => {
+        const cap = Number(user?.maxWinCap);
+        if (!Number.isFinite(cap) || cap <= 0 || normalizedMode === 'round_robin') {
+            return { cap: cap > 0 ? cap : 0, maxStake: Infinity, blocked: false };
+        }
+        if (normalizedMode === 'straight') {
+            // Tightest per-selection cap binds the shared stake field. Each
+            // selection is its own bet; the server caps each individually.
+            let maxStake = Infinity;
+            let blocked = false;
+            for (const sel of selections) {
+                const ms = maxStakeForWinCap(cap, Number(sel?.odds || 0));
+                if (ms < 1) blocked = true;
+                if (ms < maxStake) maxStake = ms;
+            }
+            return { cap, maxStake, blocked };
+        }
+        const d = Number(ticketDecimalOdds || 0);
+        if (!(d > 1)) return { cap, maxStake: Infinity, blocked: false };
+        const riskFactor = normalizedMode === 'reverse' ? 2 : 1; // totalRisk = wager × riskFactor
+        const maxRisk = maxStakeForWinCap(cap, d);               // max total risk under the cap
+        const maxStake = Number.isFinite(maxRisk) ? Math.floor(maxRisk / riskFactor) : Infinity;
+        return { cap, maxStake, blocked: Number.isFinite(maxStake) && maxStake < 1 };
+    }, [user?.maxWinCap, normalizedMode, selections, ticketDecimalOdds]);
+
+    // Clamp any wager to the cap-limited stake (auto-cap). Identity when the
+    // cap doesn't bind. Used at placement so the server receives a compliant
+    // stake; `capStakeForSelection` caps a single straight leg by its own odds.
+    const capStakeForSelection = React.useCallback((sel, amount) => {
+        const cap = Number(user?.maxWinCap);
+        if (!Number.isFinite(cap) || cap <= 0) return amount;
+        const ms = maxStakeForWinCap(cap, Number(sel?.odds || 0));
+        return Number.isFinite(ms) ? Math.min(amount, ms) : amount;
+    }, [user?.maxWinCap]);
+
     const limitFlags = useMemo(() => {
         const violatingIds = new Set();
-        const messages = { min: null, max: null, capInfo: null };
+        const messages = { min: null, max: null, capInfo: null, winCap: null };
+        const winCap = Number(user?.maxWinCap) > 0 ? Number(user.maxWinCap) : 0;
+        const capMaxStakeFor = (odds) => (winCap > 0 ? maxStakeForWinCap(winCap, Number(odds || 0)) : Infinity);
         const minBet = Number(user?.minBet);
         const maxBet = Number(user?.maxBet);
         const hasMin = Number.isFinite(minBet) && minBet > 0;
@@ -1029,13 +1074,31 @@ const ModeBetPanel = ({
             for (const sel of selections) {
                 const { risk, win } = effectiveStakeForSelection(sel);
                 if (!(risk > 0) && !(win > 0)) continue;
-                const minBreach = hasMin && risk > 0 && risk < minBet;
+                const selCapMax = capMaxStakeFor(sel?.odds); // Infinity when cap off / not binding
+                // Selection can't fit under the cap at any stake (extreme
+                // longshot) → hard block with a clear message.
+                if (selCapMax < 1) {
+                    if (!messages.winCap) messages.winCap = cannotFitCapNote(winCap);
+                    violatingIds.add(sel.id);
+                    continue;
+                }
+                // Cap-overrides-min (PO 2026-07-09): when the cap forces the max
+                // stake below the player's min bet, a sub-min stake is ALLOWED —
+                // don't flag it as a min breach. Only genuine under-min (where the
+                // cap isn't the binding reason) still breaches.
+                const capOverridesMin = Number.isFinite(selCapMax) && selCapMax < minBet && risk <= selCapMax;
+                const minBreach = hasMin && risk > 0 && risk < minBet && !capOverridesMin;
                 const maxBreach = hasMax && risk > maxBet;
                 if (minBreach && !messages.min) {
                     messages.min = `Min bet $${minBet} — ${labelFor(sel)} risks only $${fmt(risk)}`;
                 }
                 if (maxBreach && !messages.max) {
                     messages.max = `Max bet $${maxBet} — ${labelFor(sel)} risks $${fmt(risk)}`;
+                }
+                // Over the cap-limited stake → informational note (non-blocking;
+                // the stake auto-caps at placement).
+                if (Number.isFinite(selCapMax) && risk > selCapMax && !messages.winCap) {
+                    messages.winCap = maxStakeNote(selCapMax, winCap);
                 }
                 if (minBreach || maxBreach) violatingIds.add(sel.id);
             }
@@ -1050,7 +1113,16 @@ const ModeBetPanel = ({
             // they're just capped, and we surface an informational
             // "winnings capped" note instead of a hard block.
             const parlayPayoutCap = hasMax ? maxBet * 3 : 0;
-            if (hasMin && effectiveCombinedRisk < minBet) {
+            // Max-win cap on the combined ticket. Reverse stakes 2× the wager,
+            // so its cap-limited wager is half the cap-limited total risk.
+            const riskFactor = normalizedMode === 'reverse' ? 2 : 1;
+            const capMaxRisk = winCap > 0 ? maxStakeForWinCap(winCap, Number(ticketDecimalOdds || 0)) : Infinity;
+            const capMaxStake = Number.isFinite(capMaxRisk) ? Math.floor(capMaxRisk / riskFactor) : Infinity;
+            const capOverridesMin = Number.isFinite(capMaxStake) && capMaxStake < minBet && effectiveCombinedRisk <= capMaxStake;
+            if (winCap > 0 && capMaxStake < 1) {
+                messages.winCap = cannotFitCapNote(winCap);
+            }
+            if (hasMin && effectiveCombinedRisk < minBet && !capOverridesMin) {
                 messages.min = `Min bet $${minBet} — ticket risks only $${fmt(effectiveCombinedRisk)}`;
             }
             if (hasMax && effectiveCombinedRisk > maxBet) {
@@ -1059,9 +1131,14 @@ const ModeBetPanel = ({
             if (parlayPayoutCap > 0 && winValue > parlayPayoutCap) {
                 messages.capInfo = `Max parlay payout $${fmt(parlayPayoutCap)} — winnings capped (uncapped: $${fmt(winValue)})`;
             }
+            // Max-win note takes precedence over the 3×maxBet capInfo when it
+            // binds tighter — it's the reason the stake is limited.
+            if (Number.isFinite(capMaxStake) && capMaxStake >= 1 && effectiveCombinedRisk > capMaxStake && !messages.winCap) {
+                messages.winCap = maxStakeNote(capMaxStake, winCap);
+            }
         }
         return { violatingIds, messages };
-    }, [normalizedMode, selections, effectiveStakeForSelection, effectiveCombinedRisk, ticketDecimalOdds, user?.minBet, user?.maxBet]);
+    }, [normalizedMode, selections, effectiveStakeForSelection, effectiveCombinedRisk, ticketDecimalOdds, user?.minBet, user?.maxBet, user?.maxWinCap]);
 
     // ── Round Robin derived state ────────────────────────────────────
     // Available "By X's" sizes given the current selection count. Round
@@ -1264,8 +1341,12 @@ const ModeBetPanel = ({
         }
         if (limitFlags.messages.min) errors.push(limitFlags.messages.min);
         if (limitFlags.messages.max) errors.push(limitFlags.messages.max);
+        // Max-win cap BLOCK (a selection can't fit under the cap at any stake).
+        // The over-cap note is non-blocking — it auto-caps at placement — so
+        // only the hard block enters validationErrors and gates the button.
+        if (winCapState.blocked && limitFlags.messages.winCap) errors.push(limitFlags.messages.winCap);
         return errors;
-    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, limitFlags, roundRobinSizes, roundRobinStakePerParlay, roundRobinParlayCount, roundRobinMaxParlays, activeTeaserPointOptions, slipTeaserGroups, selectedTeaserType, teaserTypeRequired, teaserTypeReady, isOpenParlay, openParlayTargetLegs]);
+    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, limitFlags, winCapState, roundRobinSizes, roundRobinStakePerParlay, roundRobinParlayCount, roundRobinMaxParlays, activeTeaserPointOptions, slipTeaserGroups, selectedTeaserType, teaserTypeRequired, teaserTypeReady, isOpenParlay, openParlayTargetLegs]);
 
     const ticketSignature = useMemo(() => JSON.stringify({
         type: normalizedMode,
@@ -1408,9 +1489,12 @@ const ModeBetPanel = ({
         } else {
             rawWin = Math.max(0, potentialPayout - totalRisk);
         }
-        if (parlayPayoutCap > 0 && rawWin > parlayPayoutCap) return parlayPayoutCap;
+        if (parlayPayoutCap > 0 && rawWin > parlayPayoutCap) rawWin = parlayPayoutCap;
+        // House absolute max-win cap: the displayed To-Win never exceeds it, so
+        // the number matches the payout the auto-capped stake will actually win.
+        if (winCapState.cap > 0 && rawWin > winCapState.cap) rawWin = winCapState.cap;
         return rawWin;
-    }, [stakeMode, wagerAmount, legCount, normalizedMode, potentialPayout, totalRisk, parlayPayoutCap, ticketDecimalOdds, isOpenParlay]);
+    }, [stakeMode, wagerAmount, legCount, normalizedMode, potentialPayout, totalRisk, parlayPayoutCap, ticketDecimalOdds, isOpenParlay, winCapState]);
     // Use the same pool the top bar's AVAILABLE tile shows: creditAvailable
     // for credit accounts, availableBalance for cash accounts. Otherwise the
     // bet-placement guard rejects with "Insufficient balance: $0.00" while
@@ -1435,7 +1519,7 @@ const ModeBetPanel = ({
     // is present.
     const amountWarning = validationErrors.find((e) =>
         typeof e === 'string' && (e.startsWith('Min bet') || e.startsWith('Max bet'))
-    ) || limitFlags.messages.capInfo || '';
+    ) || limitFlags.messages.winCap || limitFlags.messages.capInfo || '';
     const hasSelections = legCount > 0;
     const [isOpen, setIsOpen] = useState(false);
 
@@ -1812,7 +1896,14 @@ const ModeBetPanel = ({
                 // stay in the slip as untouched so the user can come back
                 // to them without re-adding.
                 const legsToSubmit = selections
-                    .map((sel) => ({ sel, amount: wagerForSelection(sel), requestedWin: winForSelection(sel) }))
+                    // Auto-cap each leg's stake to the max that wins the house
+                    // cap (per-selection odds). The server re-enforces; capping
+                    // here means the player is charged the compliant stake and
+                    // the receipt matches the note they saw.
+                    .map((sel) => {
+                        const amount = capStakeForSelection(sel, wagerForSelection(sel));
+                        return { sel, amount, requestedWin: Math.min(winForSelection(sel), Number(user?.maxWinCap) > 0 ? Number(user.maxWinCap) : Infinity) };
+                    })
                     .filter(({ amount }) => amount > 0);
                 // Collect each leg's placement response so the Wager
                 // Confirmed sheet can show one ticket card per leg —
@@ -1943,12 +2034,21 @@ const ModeBetPanel = ({
             const combinedRequestedWin = combinedSmartMode === 'win' && Number.isFinite(Number(wager)) && Number(wager) > 0
                 ? Math.round(Number(wager))
                 : 0;
+            // Auto-cap the combined-ticket stake to the max that wins the house
+            // cap (Round Robin caps per-child server-side, so leave its stake).
+            // Server re-enforces regardless.
+            const cappedCombinedRisk = (winCapState.cap > 0 && Number.isFinite(winCapState.maxStake))
+                ? Math.min(effectiveCombinedRisk, winCapState.maxStake)
+                : effectiveCombinedRisk;
+            const cappedCombinedRequestedWin = winCapState.cap > 0
+                ? Math.min(combinedRequestedWin, winCapState.cap)
+                : combinedRequestedWin;
             const payload = {
                 type: normalizedMode,
-                amount: normalizedMode === 'round_robin' ? roundRobinStakePerParlay : effectiveCombinedRisk,
+                amount: normalizedMode === 'round_robin' ? roundRobinStakePerParlay : cappedCombinedRisk,
                 ...(normalizedMode === 'round_robin'
                     ? { sizes: [...roundRobinSizes].sort((a, b) => a - b) }
-                    : (combinedRequestedWin > 0 ? { requestedWin: combinedRequestedWin } : {})),
+                    : (cappedCombinedRequestedWin > 0 ? { requestedWin: cappedCombinedRequestedWin } : {})),
                 teaserPoints: normalizedMode === 'teaser' ? teaserPointValue : 0,
                 // Picked teaser variant id. Backend uses this to pick
                 // the type-specific payout multipliers AND to snapshot
@@ -2004,6 +2104,20 @@ const ModeBetPanel = ({
                 requestStateRef.current = { requestId: '', signature: '' };
             }
             if (handleOddsChanged(error)) {
+                return;
+            }
+            // Max-win cap rejection (authoritative server guard). The betslip
+            // auto-caps the stake, so this normally only fires if the odds moved
+            // between entry and submit or on an exotic multi-selection edge the
+            // live UI didn't pre-cap. Surface the server's own message (it names
+            // the exact allowed stake), falling back to a generic cap line.
+            if (String(error?.code || '') === 'MAX_WIN_EXCEEDED') {
+                const capText = error.message
+                    || (Number(error?.allowedStake) >= 1
+                        ? `Max payout reached — reduce your stake to $${Math.floor(Number(error.allowedStake)).toLocaleString('en-US')} or less.`
+                        : 'This selection exceeds the maximum payout limit.');
+                setMessage({ type: 'error', text: capText });
+                showToast(capText, 'error');
                 return;
             }
             const errorText = error.message || 'Failed to place bet';
