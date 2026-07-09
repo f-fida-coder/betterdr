@@ -72,14 +72,23 @@ $ts = gmdate(DATE_ATOM);
 try {
     $db = new SqlRepository('mysql-native', $dbName);
     $result = BetSettlementService::settlePendingMatches($db, 250, 'cron-sweep');
+    // Safety net for the approval-timeout sweep too (in case the worker daemon
+    // is down). Same idempotent reject path; no-op while dormant.
+    $approvalExpired = BetApprovalService::sweepExpired(
+        $db,
+        SportsbookBetSupport::betApprovalTimeoutMinutes(),
+        SportsbookBetSupport::betApprovalTimeoutMinutesFutures(),
+        200
+    );
     $elapsedMs = (int) round((microtime(true) - $startedAt) * 1000);
     fwrite(STDOUT, sprintf(
-        "[%s] settlement-sweep ok checked=%d settled=%d bets=%d errors=%d elapsedMs=%d\n",
+        "[%s] settlement-sweep ok checked=%d settled=%d bets=%d errors=%d approvalExpired=%d elapsedMs=%d\n",
         $ts,
         (int) ($result['matchesChecked'] ?? 0),
         (int) ($result['matchesSettled'] ?? 0),
         (int) ($result['betsSettled'] ?? 0),
         (int) ($result['errors'] ?? 0),
+        (int) $approvalExpired,
         $elapsedMs
     ));
     exit(0);

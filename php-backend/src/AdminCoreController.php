@@ -8225,6 +8225,18 @@ final class AdminCoreController
                 $updates['unlimitedBalance'] = (bool) $body['unlimitedBalance'];
             }
 
+            // Admin-only house risk control: the per-agent bet-approval threshold
+            // read for this agent's players. Already kept OUT of the non-admin
+            // self-edit allowlist above; gated to admin here as defense-in-depth
+            // so an agent can never raise/lower their own downline's threshold.
+            if ($actorRole === 'admin' && isset($body['settings']) && is_array($body['settings'])
+                && array_key_exists('betApprovalThreshold', $body['settings'])) {
+                $existingSettings = is_array($agent['settings'] ?? null) ? $agent['settings'] : [];
+                $t = $body['settings']['betApprovalThreshold'];
+                $existingSettings['betApprovalThreshold'] = is_numeric($t) ? max(0.0, (float) $t) : null;
+                $updates['settings'] = $existingSettings;
+            }
+
             $this->db->beginTransaction();
             try {
                 $this->db->updateOne('agents', ['id' => SqlRepository::id($id)], $updates);

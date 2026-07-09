@@ -12,7 +12,7 @@ function AgentAdminView() {
   const [selectedAgent, setSelectedAgent] = useState(null);
 
   const [newAgent, setNewAgent] = useState({ username: '', phoneNumber: '', password: '', agentPrefix: '' });
-  const [editForm, setEditForm] = useState({ id: '', phoneNumber: '', password: '', agentBillingRate: '', agentBillingStatus: 'paid' });
+  const [editForm, setEditForm] = useState({ id: '', phoneNumber: '', password: '', agentBillingRate: '', agentBillingStatus: 'paid', betApprovalThreshold: '' });
   const [error, setError] = useState(null);
   const [creatorFilter, setCreatorFilter] = useState('all'); // 'all', 'admin', 'master_agent'
   const [cleanupLoading, setCleanupLoading] = useState(false);
@@ -114,7 +114,8 @@ function AgentAdminView() {
       password: '', // Don't show existing hash
       agentBillingRate: agent.agentBillingRate ?? '',
       agentBillingStatus: agent.agentBillingStatus || 'paid',
-      unlimitedBalance: agent.unlimitedBalance || false
+      unlimitedBalance: agent.unlimitedBalance || false,
+      betApprovalThreshold: agent.settings?.betApprovalThreshold != null ? String(agent.settings.betApprovalThreshold) : ''
     });
     setSelectedAgent(agent);
     setShowEditModal(true);
@@ -129,6 +130,9 @@ function AgentAdminView() {
       if (!token) throw new Error('No token found');
 
       const updateData = { phoneNumber: editForm.phoneNumber, agentBillingRate: editForm.agentBillingRate, agentBillingStatus: editForm.agentBillingStatus, unlimitedBalance: editForm.unlimitedBalance };
+      // Per-agent approval threshold for this agent's players (backend applies
+      // it admin-only; ignored for a non-admin actor).
+      updateData.settings = { betApprovalThreshold: editForm.betApprovalThreshold === '' ? null : Math.max(0, Number(editForm.betApprovalThreshold) || 0) };
       if (editForm.password) updateData.password = editForm.password;
 
       await updateAgent(editForm.id, updateData, token);
@@ -302,6 +306,15 @@ function AgentAdminView() {
                   min="0"
                   value={editForm.agentBillingRate}
                   onChange={e => setEditForm({ ...editForm, agentBillingRate: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Bet-Approval Threshold ($ — 0/blank = off)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editForm.betApprovalThreshold}
+                  onChange={e => setEditForm({ ...editForm, betApprovalThreshold: e.target.value })}
                 />
               </div>
               <div className="form-group">

@@ -1334,7 +1334,9 @@ function CustomerAdminView({ onViewChange }) {
       status: (customer.status || 'active').toLowerCase(),
       sports: customer.settings?.sports ?? true,
       casino: customer.settings?.casino ?? true,
-      racebook: customer.settings?.racebook ?? true
+      racebook: customer.settings?.racebook ?? true,
+      requiresBetApproval: customer.settings?.requiresBetApproval ?? false,
+      betApprovalThreshold: customer.settings?.betApprovalThreshold != null ? String(customer.settings.betApprovalThreshold) : ''
     };
   };
 
@@ -1373,6 +1375,19 @@ function CustomerAdminView({ onViewChange }) {
     const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token) return;
 
+    const settings = {
+      ...(customer.settings || {}),
+      sports: !!draft.sports,
+      casino: !!draft.casino,
+      racebook: !!draft.racebook
+    };
+    // House risk controls — admin-only. Never included on the agent save path
+    // (the backend also ignores them there), so an agent can't flag/unflag.
+    if (currentRole === 'admin') {
+      settings.requiresBetApproval = !!draft.requiresBetApproval;
+      const t = Number(draft.betApprovalThreshold);
+      settings.betApprovalThreshold = Number.isFinite(t) && t > 0 ? t : null;
+    }
     const payload = {
       firstName: draft.firstName.trim(),
       lastName: draft.lastName.trim(),
@@ -1383,12 +1398,7 @@ function CustomerAdminView({ onViewChange }) {
       creditLimit: Number(draft.creditLimit || 0),
       balanceOwed: Number(draft.settleLimit || 0),
       status: draft.status,
-      settings: {
-        ...(customer.settings || {}),
-        sports: !!draft.sports,
-        casino: !!draft.casino,
-        racebook: !!draft.racebook
-      }
+      settings
     };
 
     try {
@@ -2218,6 +2228,8 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                       <div className="detail-line"><span>Sportsbook</span><span>{isInlineEdit ? <label className="switch-mini"><input type="checkbox" checked={!!detailDraft.sports} onChange={() => updateRowDetailDraft(customer, 'sports', !detailDraft.sports)} /><span className="slider-mini"></span></label> : (customer.settings?.sports ?? true ? 'On' : 'Off')}</span></div>
                                       <div className="detail-line"><span>Casino</span><span>{isInlineEdit ? <label className="switch-mini"><input type="checkbox" checked={!!detailDraft.casino} onChange={() => updateRowDetailDraft(customer, 'casino', !detailDraft.casino)} /><span className="slider-mini"></span></label> : (customer.settings?.casino ?? true ? 'On' : 'Off')}</span></div>
                                       <div className="detail-line"><span>Horses</span><span>{isInlineEdit ? <label className="switch-mini"><input type="checkbox" checked={!!detailDraft.racebook} onChange={() => updateRowDetailDraft(customer, 'racebook', !detailDraft.racebook)} /><span className="slider-mini"></span></label> : (customer.settings?.racebook ?? true ? 'On' : 'Off')}</span></div>
+                                      <div className="detail-line"><span>Require Approval</span><span>{isInlineEdit && currentRole === 'admin' ? <label className="switch-mini"><input type="checkbox" checked={!!detailDraft.requiresBetApproval} onChange={() => updateRowDetailDraft(customer, 'requiresBetApproval', !detailDraft.requiresBetApproval)} /><span className="slider-mini"></span></label> : ((customer.settings?.requiresBetApproval ? 'On' : 'Off') + (currentRole !== 'admin' ? ' (admin-only)' : ''))}</span></div>
+                                      <div className="detail-line"><span>Approval Threshold ($)</span><span>{isInlineEdit && currentRole === 'admin' ? <input type="number" min="0" value={detailDraft.betApprovalThreshold} onChange={(e) => updateRowDetailDraft(customer, 'betApprovalThreshold', e.target.value)} /> : (Number(customer.settings?.betApprovalThreshold) > 0 ? `$${Number(customer.settings.betApprovalThreshold).toLocaleString('en-US')}` : '—')}</span></div>
                                     </div>
                                   </div>
                                 </td>

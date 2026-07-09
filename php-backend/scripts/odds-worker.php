@@ -77,6 +77,7 @@ $prematchBatch            = max(1,   (int) Env::get('PREMATCH_MAX_SPORTS_PER_TIC
 // lean for live scores + settlement).
 $prematchDedicated        = strtolower((string) Env::get('PREMATCH_DEDICATED_WORKER', 'false')) === 'true';
 $settleEveryTicks         = max(1,   (int) Env::get('RUNDOWN_SETTLE_EVERY_N_TICKS', '12'));           // ~60s
+$approvalSweepEveryTicks  = max(1,   (int) Env::get('BET_APPROVAL_SWEEP_EVERY_N_TICKS', '12'));       // ~60s
 $logEveryTicks            = max(1,   (int) Env::get('RUNDOWN_LOG_EVERY_N_TICKS', '12'));              // ~60s
 $maxRuntimeSeconds        = max(60,  (int) Env::get('RUNDOWN_WORKER_MAX_RUNTIME_SECONDS', '21600'));  // 6h then voluntary restart
 // Full-coverage sweep (periods + props for the board). OFF by default —
@@ -345,6 +346,23 @@ while (!$shutdown) {
                 $settleResult = BetSettlementService::settlePendingMatches($repo, 250, 'worker');
             } catch (Throwable $e) {
                 Logger::warning('odds-worker settlement sweep failed', ['error' => $e->getMessage()], 'sportsbook');
+            }
+        }
+
+        // ── 3a2. Bet-approval timeout sweep ─────────────────────────
+        // Auto-reject + refund holds past their window so a queued bet never
+        // ties up a player's stake indefinitely. No-op while dormant (no
+        // pending_approval rows). Env cached at startup — restart to change.
+        if ($tick % $approvalSweepEveryTicks === 0) {
+            try {
+                BetApprovalService::sweepExpired(
+                    $repo,
+                    SportsbookBetSupport::betApprovalTimeoutMinutes(),
+                    SportsbookBetSupport::betApprovalTimeoutMinutesFutures(),
+                    200
+                );
+            } catch (Throwable $e) {
+                Logger::warning('odds-worker approval-timeout sweep failed', ['error' => $e->getMessage()], 'sportsbook');
             }
         }
 

@@ -15,6 +15,16 @@ declare(strict_types=1);
  */
 final class BetApprovalService
 {
+    /** Reserved actor id for system-initiated (timeout-sweep) rejects. A real
+     *  auth token can NEVER yield this: protectRoles() gates actor.id to a
+     *  24-hex string, and 'system' is not 24-hex. */
+    private const SYSTEM_ACTOR_ID = 'system';
+
+    private static function systemActor(): array
+    {
+        return ['id' => self::SYSTEM_ACTOR_ID, 'role' => 'system', 'username' => 'timeout-sweep'];
+    }
+
     /** Approve: release a held ticket live at its already-frozen submit odds. */
     public static function approve(SqlRepository $db, string $betId, array $actor): array
     {
@@ -61,7 +71,7 @@ final class BetApprovalService
     }
 
     /** Reject: reverse the exact submit-time hold and mark the ticket rejected. */
-    public static function reject(SqlRepository $db, string $betId, array $actor, string $reason = ''): array
+    public static function reject(SqlRepository $db, string $betId, array $actor, string $reason = '', string $auditAction = 'bet_approval_reject'): array
     {
         if ($betId === '' || preg_match('/^[a-f0-9]{24}$/i', $betId) !== 1) {
             return ['ok' => false, 'error' => 'invalid_bet_id', 'status' => 400];
@@ -132,7 +142,7 @@ final class BetApprovalService
             throw $e;
         }
         self::postCommit($db, (string) ($bet['userId'] ?? ''), $betId, 'rejected');
-        self::audit($db, $actor, 'bet_approval_reject', $betId, (string) ($bet['userId'] ?? ''), $reason);
+        self::audit($db, $actor, $auditAction, $betId, (string) ($bet['userId'] ?? ''), $reason);
         return ['ok' => true, 'betId' => $betId, 'status' => 'rejected'];
     }
 
@@ -197,6 +207,10 @@ final class BetApprovalService
     /** null = allowed; otherwise a 403 result array. Mirrors canActorDeleteUserTransaction. */
     private static function scopeDenial(SqlRepository $db, array $actor, array $bet): ?array
     {
+        // System-initiated (timeout sweep) — allowed before any DB/owner lookup.
+        // Unreachable from HTTP: no token can produce actor.id === 'system'
+        // (protectRoles gates actor.id to a 24-hex string).
+        if (($actor['id'] ?? '') === self::SYSTEM_ACTOR_ID) return null;
         if (strtolower((string) ($actor['role'] ?? '')) === 'admin') return null;
         $owner = $db->findOne('users', ['id' => SqlRepository::id((string) ($bet['userId'] ?? ''))], ['projection' => ['agentId' => 1]]);
         $ownerAgentId = trim((string) ($owner['agentId'] ?? ''));
@@ -228,6 +242,63 @@ final class BetApprovalService
             }
         }
         return array_keys($seen);
+    }
+
+    /** A ticket is "futures" if ANY leg is an outright (mixed parlay counts). */
+    public static function isFuturesBet(array $bet): bool
+    {
+        if (($bet['marketType'] ?? '') === 'outrights' || !empty($bet['isOutright'])) return true;
+        foreach ((is_array($bet['selections'] ?? null) ? $bet['selections'] : []) as $sel) {
+            if (is_array($sel) && (($sel['marketType'] ?? '') === 'outrights' || !empty($sel['isOutright']))) return true;
+        }
+        return false;
+    }
+
+    /** Applicable timeout window (minutes) for this ticket; 0 = disabled. Any
+     *  futures leg → the LONGER futures window (a mixed ticket must not expire
+     *  on the live clock while a futures leg is still under review). */
+    public static function timeoutWindowMinutes(array $bet, int $liveMin, int $futuresMin): int
+    {
+        return self::isFuturesBet($bet) ? max(0, $futuresMin) : max(0, $liveMin);
+    }
+
+    /** Pure cutoff check — true only when the hold is past its window. */
+    public static function isExpired(array $bet, int $nowTs, int $liveMin, int $futuresMin): bool
+    {
+        $window = self::timeoutWindowMinutes($bet, $liveMin, $futuresMin);
+        if ($window <= 0) return false;
+        $createdTs = strtotime((string) ($bet['createdAt'] ?? ($bet['approvalRequestedAt'] ?? '')));
+        if ($createdTs === false || $createdTs <= 0) return false;
+        return $createdTs <= $nowTs - $window * 60;
+    }
+
+    /**
+     * Auto-reject holds past their timeout. Reuses the SINGLE reject() path so
+     * the refund is byte-identical to an admin reject (BetVoidRefund), with a
+     * distinct audit action ('bet_approval_timeout') + reason ('timeout').
+     * Idempotent/race-safe by construction: reject() row-locks and re-checks
+     * status='pending_approval', so an admin action in the gap wins and the
+     * sweep no-ops (409). Returns the count expired.
+     */
+    public static function sweepExpired(SqlRepository $db, int $liveMin, int $futuresMin, int $limit = 200): int
+    {
+        if ($liveMin <= 0 && $futuresMin <= 0) return 0; // both windows disabled
+        $candidates = $db->findMany('bets', ['status' => SportsbookBetSupport::STATUS_PENDING_APPROVAL], ['limit' => max(1, $limit), 'sort' => ['createdAt' => 1]]);
+        $nowTs = time();
+        $expired = 0;
+        foreach (is_array($candidates) ? $candidates : [] as $bet) {
+            if (!is_array($bet) || !self::isExpired($bet, $nowTs, $liveMin, $futuresMin)) continue;
+            $betId = (string) ($bet['id'] ?? '');
+            if ($betId === '' || preg_match('/^[a-f0-9]{24}$/i', $betId) !== 1) continue;
+            try {
+                $res = self::reject($db, $betId, self::systemActor(), 'timeout', 'bet_approval_timeout');
+                if (!empty($res['ok'])) $expired++;
+                // 409 not_pending_approval = admin/another sweep beat us — benign.
+            } catch (Throwable $e) {
+                Logger::warning('bet-approval timeout reject failed', ['betId' => $betId, 'error' => $e->getMessage()], 'sportsbook');
+            }
+        }
+        return $expired;
     }
 
     /** Post-commit best-effort: cache purge + realtime nudge. Never rolls back money. */

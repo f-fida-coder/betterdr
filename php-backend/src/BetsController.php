@@ -4091,7 +4091,10 @@ final class BetsController
         $agentT = null;
         $agentId = $userDoc['agentId'] ?? null;
         if ($agentId !== null && $agentId !== '') {
-            $a = $this->db->findOne('users', ['id' => SqlRepository::id((string) $agentId)], ['projection' => ['settings' => 1]]);
+            // Agents live in the 'agents' collection (a player's agentId targets
+            // it), NOT 'users' — reading 'users' here silently returned null so
+            // the per-agent threshold never resolved (fell back to env).
+            $a = $this->db->findOne('agents', ['id' => SqlRepository::id((string) $agentId)], ['projection' => ['settings' => 1]]);
             $as = is_array($a['settings'] ?? null) ? $a['settings'] : [];
             if (isset($as['betApprovalThreshold']) && is_numeric($as['betApprovalThreshold'])) {
                 $agentT = (float) $as['betApprovalThreshold'];

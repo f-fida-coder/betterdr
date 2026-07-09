@@ -292,6 +292,22 @@ final class SportsbookBetSupport
         return $v > 0 ? $v : 0.0;
     }
 
+    /** Approval-queue timeout ($minutes). 0 = never expire. */
+    public const DEFAULT_BET_APPROVAL_TIMEOUT_MINUTES = 10;          // live / near-game
+    public const DEFAULT_BET_APPROVAL_TIMEOUT_MINUTES_FUTURES = 1440; // futures ~24h
+
+    public static function betApprovalTimeoutMinutes(): int
+    {
+        $raw = Env::get('BET_APPROVAL_TIMEOUT_MINUTES', (string) self::DEFAULT_BET_APPROVAL_TIMEOUT_MINUTES);
+        return is_numeric($raw) ? max(0, (int) $raw) : self::DEFAULT_BET_APPROVAL_TIMEOUT_MINUTES;
+    }
+
+    public static function betApprovalTimeoutMinutesFutures(): int
+    {
+        $raw = Env::get('BET_APPROVAL_TIMEOUT_MINUTES_FUTURES', (string) self::DEFAULT_BET_APPROVAL_TIMEOUT_MINUTES_FUTURES);
+        return is_numeric($raw) ? max(0, (int) $raw) : self::DEFAULT_BET_APPROVAL_TIMEOUT_MINUTES_FUTURES;
+    }
+
     /**
      * Pure gate: force-flag (per-player) OR stake/payout >= effective threshold.
      * Threshold precedence: player override -> agent -> env. No DB, unit-testable.
