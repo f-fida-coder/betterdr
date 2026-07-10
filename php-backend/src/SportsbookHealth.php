@@ -483,8 +483,30 @@ final class SportsbookHealth
         $sync = self::healthDoc($db, self::SYNC_DOC_ID);
         $settlement = self::healthDoc($db, self::SETTLEMENT_DOC_ID);
         $staleAfterSeconds = self::staleAfterSeconds();
-        $lastOddsSuccessAt = self::firstTimestamp($sync['lastOddsSuccessAt'] ?? null, self::fallbackLatestMatchTimestamp($db, 'lastOddsSyncAt'), self::fallbackLatestMatchTimestamp($db, 'lastUpdated'));
-        $lastScoresSuccessAt = self::firstTimestamp($sync['lastScoresSuccessAt'] ?? null, self::fallbackLatestMatchTimestamp($db, 'lastScoreSyncAt'), self::fallbackLatestMatchTimestamp($db, 'updatedAt'));
+        // LAZY fallbacks — PHP evaluates call arguments eagerly, so the old
+        // one-liner firstTimestamp($sync[...], fallback(), fallback()) ran the
+        // fallback queries on EVERY snapshot rebuild even though the health
+        // doc timestamp is present in steady state. Each fallback sorts the
+        // whole matches table by a JSON-extracted field (no generated column)
+        // — ~1.5s apiece, four of them per rebuild = the perpetual
+        // database:query:matches breaker warnings and much of every worker
+        // tick that crossed the snapshot TTL. Only reach for the table scan
+        // when the health doc really has no timestamp (fresh install / doc
+        // wiped).
+        $lastOddsSuccessAt = self::firstTimestamp($sync['lastOddsSuccessAt'] ?? null);
+        if ($lastOddsSuccessAt === null) {
+            $lastOddsSuccessAt = self::firstTimestamp(
+                self::fallbackLatestMatchTimestamp($db, 'lastOddsSyncAt'),
+                self::fallbackLatestMatchTimestamp($db, 'lastUpdated')
+            );
+        }
+        $lastScoresSuccessAt = self::firstTimestamp($sync['lastScoresSuccessAt'] ?? null);
+        if ($lastScoresSuccessAt === null) {
+            $lastScoresSuccessAt = self::firstTimestamp(
+                self::fallbackLatestMatchTimestamp($db, 'lastScoreSyncAt'),
+                self::fallbackLatestMatchTimestamp($db, 'updatedAt')
+            );
+        }
         $oddsAgeSeconds = self::ageSeconds($lastOddsSuccessAt);
         $scoresAgeSeconds = self::ageSeconds($lastScoresSuccessAt);
         $oddsFeedStale = $oddsAgeSeconds === null || $oddsAgeSeconds > $staleAfterSeconds;
