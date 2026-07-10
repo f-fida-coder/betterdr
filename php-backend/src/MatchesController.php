@@ -361,10 +361,22 @@ final class MatchesController
 
         // (status, active, payloadMode). '' status + '' active == the default
         // public landing board; 'core' is the frontend default, 'full' covers
-        // the detail-weight callers.
+        // the detail-weight callers. The other rows are the variants the
+        // frontend ACTUALLY polls (useMatches call sites, 2026-07-10):
+        // mobile/desktop board = live-upcoming+core, Live Now = live+core,
+        // Up Next = upcoming+core, props landing = live-upcoming+light.
+        // Warming them matters because every odds write invalidates the
+        // whole namespace (~each 5s tick), so any variant NOT re-warmed here
+        // is a guaranteed cache miss — the request then pays the full
+        // compute (~0.3-0.5s) instead of a warm read (~ms). Cache keys
+        // deliberately exclude ?limit, so one warm copy serves every limit.
         $variants = [
             ['', '', 'core'],
             ['', '', 'full'],
+            ['live-upcoming', '', 'core'],
+            ['live-upcoming', '', 'light'],
+            ['live', '', 'core'],
+            ['upcoming', '', 'core'],
         ];
 
         $summary = [];
