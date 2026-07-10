@@ -106,12 +106,12 @@ try {
 
 $tick            = max(5, (int) Env::get('ODDS_API_WORKER_TICK_SECONDS', '30'));
 $maxRuntime      = max(300, (int) Env::get('ODDS_API_WORKER_MAX_RUNTIME_SECONDS', '21600')); // 6h then voluntary restart
-$soccerMinutes   = max(1, (int) Env::get('ODDS_API_POLL_SOCCER_MINUTES', '10'));
-$nearMinutes     = max(0, (int) Env::get('ODDS_API_POLL_SOCCER_NEAR_KICKOFF_MINUTES', '5')); // 0 = no tightening
+$soccerMinutes   = max(1, (int) Env::get('ODDS_API_POLL_SOCCER_MINUTES', '3'));
+$nearMinutes     = max(0, (int) Env::get('ODDS_API_POLL_SOCCER_NEAR_KICKOFF_MINUTES', '2')); // 0 = no tightening
 $nearWindowHours = max(1, (int) Env::get('ODDS_API_NEAR_KICKOFF_WINDOW_HOURS', '2'));
-$outrightMinutes = max(5, (int) Env::get('ODDS_API_POLL_OUTRIGHTS_MINUTES', '10'));
-$cardsMinutes    = max(5, (int) Env::get('ODDS_API_POLL_CARDS_MINUTES', '10'));
-$lowVolMinutes   = max(5, (int) Env::get('ODDS_API_POLL_LOWVOLUME_MINUTES', '10'));
+$outrightMinutes = max(1, (int) Env::get('ODDS_API_POLL_OUTRIGHTS_MINUTES', '3'));
+$cardsMinutes    = max(1, (int) Env::get('ODDS_API_POLL_CARDS_MINUTES', '3'));
+$lowVolMinutes   = max(1, (int) Env::get('ODDS_API_POLL_LOWVOLUME_MINUTES', '3'));
 
 $shutdown = false;
 if (function_exists('pcntl_signal')) {
