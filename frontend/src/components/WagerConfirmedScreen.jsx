@@ -133,6 +133,14 @@ const WagerConfirmedScreen = ({
     const { oddsFormat } = useOddsFormat();
     if (!open || bets.length === 0) return null;
 
+    // Approval-queue tickets are HELD (stake reserved) but not live until an
+    // agent/admin approves. Surface that as a distinct amber state — never the
+    // green "Bet Confirmed" (green = a live, confirmed wager). Neutral/amber
+    // matches the sportsbook's pending-action color language.
+    const awaitingApproval = bets.some(
+        (b) => String(b?.status || '').toLowerCase() === 'pending_approval'
+    );
+
     return (
         <div
             role="dialog"
@@ -183,7 +191,7 @@ const WagerConfirmedScreen = ({
 
                 <div
                     style={{
-                        background: '#15803d',
+                        background: awaitingApproval ? '#b45309' : '#15803d',
                         color: '#fff',
                         textAlign: 'center',
                         padding: '14px 16px',
@@ -194,8 +202,26 @@ const WagerConfirmedScreen = ({
                         borderRadius: 6,
                     }}
                 >
-                    Bet Confirmed
+                    {awaitingApproval ? 'Awaiting Approval' : 'Bet Confirmed'}
                 </div>
+                {awaitingApproval && (
+                    <div
+                        style={{
+                            textAlign: 'center',
+                            color: '#92400e',
+                            background: '#fffbeb',
+                            border: '1px solid #fde68a',
+                            padding: '8px 12px',
+                            margin: '8px 12px 0',
+                            borderRadius: 6,
+                            fontSize: 12.5,
+                            lineHeight: 1.35,
+                        }}
+                    >
+                        Your stake is held. This bet isn't live until an agent or
+                        admin approves it — you'll see it under Pending until then.
+                    </div>
+                )}
 
                 <div style={{ padding: '12px 16px 16px' }}>
                     {bets.map((bet, idx) => {

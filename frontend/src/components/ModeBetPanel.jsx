@@ -2004,6 +2004,11 @@ const ModeBetPanel = ({
                 // straight mode places N independent tickets, all of
                 // which are receipts the user expects to see.
                 const placedTickets = [];
+                // True if ANY placed leg was routed to the approval queue
+                // (settings.requiresBetApproval / threshold). A queued bet is a
+                // distinct outcome from a live placement and must NOT read as a
+                // green "placed" — the backend returns approvalPending per leg.
+                let anyApprovalPending = false;
                 for (const { sel, amount, requestedWin } of legsToSubmit) {
                     const payload = {
                         type: 'straight',
@@ -2053,6 +2058,7 @@ const ModeBetPanel = ({
                         // eslint-disable-next-line no-await-in-loop
                         const legResult = await placeBet(payload, token, { requestId });
                         placed.push(sel);
+                        if (legResult?.approvalPending) anyApprovalPending = true;
                         if (Array.isArray(legResult?.bets)) {
                             placedTickets.push(...legResult.bets);
                         }
@@ -2065,11 +2071,18 @@ const ModeBetPanel = ({
                 requestStateRef.current = { requestId: '', signature: '' };
 
                 if (failed.length === 0) {
-                    const text = placed.length === 1
-                        ? 'Bet placed successfully'
-                        : `${placed.length} straight bets placed`;
-                    setMessage({ type: 'success', text });
-                    showToast(text, 'success');
+                    // A queued (approval-required) bet is surfaced as info, not
+                    // a green "placed" success — the stake is held but the bet
+                    // is not live until an agent/admin approves it.
+                    const text = anyApprovalPending
+                        ? (placed.length === 1
+                            ? 'Bet submitted — awaiting approval.'
+                            : `${placed.length} straight bets submitted — awaiting approval.`)
+                        : (placed.length === 1
+                            ? 'Bet placed successfully'
+                            : `${placed.length} straight bets placed`);
+                    setMessage({ type: anyApprovalPending ? 'info' : 'success', text });
+                    showToast(text, anyApprovalPending ? 'info' : 'success');
                     // Show the post-placement receipt screen (Wager
                     // Confirmed) before clearing — gives the user proof
                     // their ticket(s) landed and a one-tap path to view
