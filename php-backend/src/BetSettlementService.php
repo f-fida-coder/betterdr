@@ -135,6 +135,31 @@ final class BetSettlementService
                     $betStatus = (string) ($bet['status'] ?? '');
                     $isOpenParlayTicket = OpenParlayService::isGradableOpenTicket($bet);
                     if ($betStatus !== 'pending' && !$isOpenParlayTicket) {
+                        // A ticket that is already TERMINAL can still hold
+                        // 'pending' selection ROWS (a decisive-loss settle or a
+                        // whole-ticket void ends the ticket before every leg's
+                        // game finishes). Those rows are grade-dead — no money
+                        // can ever move for them — but left pending they pin
+                        // their matches into every sweep's candidate set forever
+                        // (2026-07-10 fossil loop: ~26 finished matches
+                        // re-checked every pass since June). Close them so the
+                        // match ages out; the bet doc (the display source) is
+                        // untouched and no balance/ledger write happens here.
+                        // Legacy open tickets (status 'open', no targetLegs) are
+                        // NOT terminal and keep their rows for manual grading.
+                        if (in_array($betStatus, ['won', 'lost', 'void'], true)) {
+                            $closed = self::closePendingSelectionRowsForTerminalTicket($db, $betId);
+                            if ($closed > 0) {
+                                $db->commit();
+                                Logger::info('closed orphan pending legs of terminal ticket', [
+                                    'betId' => $betId,
+                                    'betStatus' => $betStatus,
+                                    'matchId' => $matchId,
+                                    'rowsClosed' => $closed,
+                                ], 'settlement');
+                                continue;
+                            }
+                        }
                         $db->rollback();
                         continue;
                     }
@@ -430,6 +455,13 @@ final class BetSettlementService
                         'combinedOdds'  => SportsbookBetSupport::combinedOdds($riskAmount, $ticketPayout),
                         'updatedAt'     => $now,
                     ]);
+
+                    // Ticket is now terminal. A decisive loss can end it while
+                    // sibling legs on OTHER matches are still ungraded — close
+                    // those rows (same transaction) so their matches don't sit
+                    // in the sweep's candidate set forever. Not a grade; the
+                    // bet doc above already carries the final leg statuses.
+                    self::closePendingSelectionRowsForTerminalTicket($db, $betId);
 
                     $userUpdate       = ['pendingBalance' => $newPendingBalance, 'updatedAt' => $now];
                     $transactionType  = $isFreeplay ? 'fp_bet_lost' : 'bet_lost';
@@ -1181,6 +1213,11 @@ final class BetSettlementService
                 'updatedAt'       => $now,
             ]);
 
+            // The unfinished sibling legs are what made this ticket reach this
+            // path at all — close their rows (same transaction) so their
+            // matches leave the settlement sweep's candidate set for good.
+            self::closePendingSelectionRowsForTerminalTicket($db, $betId);
+
             $userUpdate        = ['pendingBalance' => $newPendingBalance, 'updatedAt' => $now];
             $transactionType   = $isFreeplay ? 'fp_bet_lost' : 'bet_lost';
             $transactionAmount = $riskAmount;
@@ -1256,6 +1293,33 @@ final class BetSettlementService
             $db->rollback();
             throw $e;
         }
+    }
+
+    /**
+     * Close every still-'pending' selection ROW of a ticket that has reached a
+     * terminal status. betselections is the settlement sweep's discovery index
+     * — a leg row left 'pending' after its ticket died keeps that leg's match
+     * in settlePendingMatches' candidate set on every pass, forever (the
+     * 2026-07-10 fossil-loop incident). Status 'closed' is deliberately NOT a
+     * grade: no money moves, graders never read rows of terminal tickets, and
+     * the bet doc's selections array (what My Bets renders) is not touched.
+     * Runs inside the caller's open transaction so the stamp commits (or rolls
+     * back) atomically with the settlement. Filter uses the j_bet_id/j_status
+     * generated columns — indexed, bounded by the ticket's leg count.
+     */
+    private static function closePendingSelectionRowsForTerminalTicket(SqlRepository $db, string $betId): int
+    {
+        if ($betId === '' || preg_match('/^[a-f0-9]{24}$/i', $betId) !== 1) {
+            return 0;
+        }
+        return $db->updateMany('betselections', [
+            'betId' => SqlRepository::id($betId),
+            'status' => 'pending',
+        ], [
+            'status' => 'closed',
+            'gradeReason' => 'ticket_terminal',
+            'updatedAt' => SqlRepository::nowUtc(),
+        ]);
     }
 
     private static function assertValidMatchId(string $matchId): void

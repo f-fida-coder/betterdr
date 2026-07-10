@@ -376,7 +376,9 @@ while (!$shutdown) {
         // for manual review instead.
         $fossilEveryTicks = max(1, (int) Env::get('LIVE_FOSSIL_SWEEP_EVERY_N_TICKS', '720')); // ~1h @ 5s
         $fossilAgeSeconds = max(3600, (int) Env::get('LIVE_FOSSIL_EXPIRE_SECONDS', '86400'));
-        if ($tick % $fossilEveryTicks === 0) {
+        // Also fires on the FIRST tick after boot so a restart clears any
+        // fossil backlog immediately instead of waiting out the hourly slot.
+        if ($tick === 1 || $tick % $fossilEveryTicks === 0) {
             try {
                 $fossilCutoff = time() - $fossilAgeSeconds;
                 $fossilExpired = 0;
@@ -423,6 +425,86 @@ while (!$shutdown) {
                 }
             } catch (Throwable $e) {
                 Logger::warning('stale-live janitor failed', ['error' => $e->getMessage()], 'sportsbook');
+            }
+
+            // ── Scheduled-fossil janitor (same hourly slot) ──────────────
+            // A row stuck status='scheduled' whose kickoff passed long ago is
+            // a fixture the feed abandoned (league left the plan, event id
+            // vanished, season-sweep stub never played). Nothing ever flips
+            // it, so these accumulated to 3,550 rows (back to February) —
+            // 80% of the board query's row set, ~8MB of dead JSON decoded
+            // EVERY 5s tick by the cache warmer (the 1.5-3.4s
+            // database:query:matches breaker warnings). Guards, mirroring the
+            // stale-live janitor:
+            //   • kickoff ≥ SCHEDULED_FOSSIL_EXPIRE_SECONDS in the past
+            //     (default 48h — a delayed real game re-upserts from the feed
+            //     and would be untouched anyway via the freshness guard)
+            //   • row untouched for ≥ the same stale window as live fossils
+            //     (an active fixture is re-stamped by every prematch pass)
+            //   • matches carrying pending/open bets are never expired —
+            //     logged for manual review instead (bets prefetched in ONE
+            //     query, not per-candidate).
+            // 'expired' is display-only here: these rows were already
+            // invisible (PHP visibility filters) and unbettable (past
+            // kickoff); settlement discovery reads betselections, not match
+            // status, so nothing money-touching changes.
+            $schedFossilSeconds = max(86400, (int) Env::get('SCHEDULED_FOSSIL_EXPIRE_SECONDS', '172800')); // 48h past kickoff
+            try {
+                $kickoffCutoff = time() - $schedFossilSeconds;
+                $touchCutoff   = time() - $fossilAgeSeconds;
+                $schedExpired = 0;
+                $schedSkippedWithBets = 0;
+
+                // One query: every matchId referenced by a live ticket.
+                $activeBetMatchIds = [];
+                foreach ($repo->findMany('bets', [
+                    'status' => ['$in' => ['pending', 'open']],
+                ], ['projection' => ['matchId' => 1, 'selections' => 1], 'limit' => 2000]) as $activeBet) {
+                    $mid = (string) ($activeBet['matchId'] ?? '');
+                    if ($mid !== '') $activeBetMatchIds[$mid] = true;
+                    foreach ((array) ($activeBet['selections'] ?? []) as $sel) {
+                        $smid = is_array($sel) ? (string) ($sel['matchId'] ?? '') : '';
+                        if ($smid !== '') $activeBetMatchIds[$smid] = true;
+                    }
+                }
+
+                foreach ($repo->findMany('matches', ['status' => 'scheduled'], ['limit' => 4000]) as $schedRow) {
+                    $startTs = strtotime((string) ($schedRow['startTime'] ?? ''));
+                    if ($startTs === false || $startTs <= 0 || $startTs > $kickoffCutoff) continue;
+                    $newestTouch = 0;
+                    foreach (['updatedAt', 'lastUpdated', 'lastOddsSyncAt'] as $touchField) {
+                        if (!empty($schedRow[$touchField])) {
+                            $touchTs = (int) strtotime((string) $schedRow[$touchField]);
+                            if ($touchTs > $newestTouch) $newestTouch = $touchTs;
+                        }
+                    }
+                    if ($newestTouch >= $touchCutoff) continue;
+                    $schedId = (string) ($schedRow['id'] ?? '');
+                    if ($schedId === '') continue;
+                    if (isset($activeBetMatchIds[$schedId])) {
+                        $schedSkippedWithBets++;
+                        Logger::warning('scheduled-fossil janitor: row has live bets — left for manual review', [
+                            'matchId' => $schedId,
+                            'matchup' => ($schedRow['homeTeam'] ?? '?') . ' vs ' . ($schedRow['awayTeam'] ?? '?'),
+                            'startTime' => $schedRow['startTime'] ?? null,
+                        ], 'sportsbook');
+                        continue;
+                    }
+                    $repo->updateOne('matches', ['id' => SqlRepository::id($schedId)], [
+                        'status'     => 'expired',
+                        'statusNote' => 'scheduled-fossil janitor',
+                    ]);
+                    $schedExpired++;
+                }
+                if ($schedExpired > 0 || $schedSkippedWithBets > 0) {
+                    Logger::info('scheduled-fossil janitor', [
+                        'expired'         => $schedExpired,
+                        'skippedWithBets' => $schedSkippedWithBets,
+                        'kickoffOlderThanSeconds' => $schedFossilSeconds,
+                    ], 'sportsbook');
+                }
+            } catch (Throwable $e) {
+                Logger::warning('scheduled-fossil janitor failed', ['error' => $e->getMessage()], 'sportsbook');
             }
         }
 
