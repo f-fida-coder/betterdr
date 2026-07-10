@@ -2285,7 +2285,21 @@ final class MatchesController
                         // Bust shared caches so the client's follow-up refetch
                         // (scheduled ~4s after the initial response) returns the
                         // newly synced odds instead of the stale cached payload.
+                        // Then RE-WARM immediately (we're post-response, so this
+                        // costs the player nothing): a bare wipe left the
+                        // namespace empty until the worker's next 5s warm, and
+                        // because some sport is almost always near its
+                        // freshness edge these deferred busts fired on most
+                        // requests — a self-sustaining bust loop that made
+                        // every player request a cache MISS (~0.3-0.5s
+                        // recompute) despite the warmer running.
                         self::clearSharedPublicCaches();
+                        try {
+                            $this->warmPublicBoardCache();
+                        } catch (Throwable $_) {
+                            // Warm failure is non-fatal — the worker's next
+                            // tick re-warms; requests fall back to compute.
+                        }
                     } catch (Throwable $e) {
                         $finishedAt = SqlRepository::nowUtc();
                         $this->writePublicRefreshState($state, [
@@ -2542,7 +2556,16 @@ final class MatchesController
                 // (scheduled ~4 s after the initial response by the
                 // matches:sync-deferred handler in api.js) returns the
                 // newly synced odds instead of the stale cached payload.
+                // Then RE-WARM immediately (deferred/post-response) — see the
+                // async public-refresh path above: a bare wipe here fired on
+                // most requests and kept the namespace empty, defeating the
+                // worker's warm cache entirely.
                 self::clearSharedPublicCaches();
+                try {
+                    $this->warmPublicBoardCache();
+                } catch (Throwable $_) {
+                    // Non-fatal — worker re-warms on its next tick.
+                }
             }
         };
 
