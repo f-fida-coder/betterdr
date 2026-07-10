@@ -12,7 +12,6 @@ import {
 import { logoUrlForTeam, fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
-import MatchDetailView from './MatchDetailView';
 import PropBuilderModal from './PropBuilderModal';
 
 /**
@@ -108,7 +107,6 @@ const SearchMatchPopup = ({ match, onClose }) => {
         }));
     };
 
-    const [detailOpen, setDetailOpen] = useState(false);
     const [propsOpen, setPropsOpen] = useState(false);
 
     // Shared dismiss behavior: ESC / browser Back close this popup (only
@@ -188,38 +186,31 @@ const SearchMatchPopup = ({ match, onClose }) => {
                 })}
 
                 <div style={actionRowStyle}>
-                    <button
-                        type="button"
-                        onClick={() => setDetailOpen(true)}
-                        style={addAllBtnStyle}
-                        title="All game markets"
-                    >+ All markets</button>
+                    {/* One button now: the Props modal opens with
+                        includeGameMarkets, so player props AND the game-market
+                        sections live in a single sheet (the old separate
+                        "+ All markets" MatchDetailView door is gone). */}
                     <button
                         type="button"
                         onClick={() => setPropsOpen(true)}
                         style={propsBtnStyle}
-                        title="Player props"
-                    >P+ Player props</button>
+                        title="Player props & game markets"
+                    >P+ Props & markets</button>
                 </div>
             </div>
         </div>
 
-        {/* Secondary modals are SIBLINGS of the SearchMatchPopup overlay
-            (not children) so a click on their dim background can only
-            close THEM — the bubble path no longer reaches this popup's
-            overlay onClose. Effect: back from "All markets" lands the
+        {/* The props modal is a SIBLING of the SearchMatchPopup overlay
+            (not a child) so a click on its dim background can only
+            close IT — the bubble path no longer reaches this popup's
+            overlay onClose. Effect: back from the props sheet lands the
             player back on this popup, not all the way out to the sports
             grid. */}
-        {detailOpen && (
-            <MatchDetailView
-                match={modalMatch}
-                onClose={() => setDetailOpen(false)}
-            />
-        )}
         {propsOpen && (
             <PropBuilderModal
                 match={modalMatch}
                 onClose={() => setPropsOpen(false)}
+                includeGameMarkets
             />
         )}
         </>
@@ -439,19 +430,6 @@ const actionRowStyle = {
     padding: '12px',
     background: '#f8fafc',
     borderTop: '1px solid #e2e8f0',
-};
-
-const addAllBtnStyle = {
-    flex: 1,
-    background: '#d0451b',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 6,
-    padding: '10px',
-    fontSize: 12,
-    fontWeight: 800,
-    letterSpacing: '0.04em',
-    cursor: 'pointer',
 };
 
 const propsBtnStyle = {

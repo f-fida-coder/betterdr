@@ -28,7 +28,6 @@ import {
     scanMarketsForSuffixes,
 } from '../utils/periods';
 import PropBuilderModal from './PropBuilderModal';
-import MatchDetailView from './MatchDetailView';
 import OddsAge from './OddsAge';
 
 // How many alternate-spread rungs to show per team in the inline board
@@ -227,7 +226,6 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     // Mutually exclusive with the TT (team totals) mode — selecting one clears
     // the other.
     const [altSpreadByMatch, setAltSpreadByMatch] = useState({});
-    const [detailOpenMatch, setDetailOpenMatch] = useState(null);
     const attemptedLogoFetchesRef = React.useRef(new Set());
 
     const [content, setContent] = useState({ name: '', icon: '', matches: [] });
@@ -1389,35 +1387,9 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                         <OddsAge timestamp={match.rawMatch?.lastOddsSyncAt} live={(match.status || '').toString().toUpperCase() === 'LIVE' || (match.rawMatch?.status || '').toString().toLowerCase() === 'live'} style={{ marginLeft: 8 }} />
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <button
-                                            type="button"
-                                            className="main-bets-btn"
-                                            onClick={() => setDetailOpenMatch((prev) => (prev?.id === match.id ? null : {
-                                                id: match.id,
-                                                externalId: match.rawMatch?.externalId,
-                                                homeTeam: match.team2.name,
-                                                awayTeam: match.team1.name,
-                                                homeTeamFull: match.team2.fullName,
-                                                awayTeamFull: match.team1.fullName,
-                                                odds: match.rawMatch?.odds,
-                                            }))}
-                                            disabled={match.rawMatch?.isBettable === false}
-                                            style={{
-                                                background: '#d0451b',
-                                                color: '#fff',
-                                                border: 'none',
-                                                borderRadius: 6,
-                                                padding: '4px 10px',
-                                                fontSize: 13,
-                                                fontWeight: 700,
-                                                lineHeight: 1,
-                                                cursor: match.rawMatch?.isBettable === false ? 'not-allowed' : 'pointer',
-                                                opacity: match.rawMatch?.isBettable === false ? 0.5 : 1,
-                                            }}
-                                            aria-label="Open all markets"
-                                        >
-                                            +
-                                        </button>
+                                        {/* The old "+" (More Bets) button is gone: the Props
+                                            modal below opens with includeGameMarkets, so one
+                                            button carries player props AND game markets. */}
                                         <button
                                             type="button"
                                             className="prop-builder-btn"
@@ -1937,13 +1909,6 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                             : 'Click any odds to place your bet'}
                                     </span>
                                 </div>
-                                {detailOpenMatch?.id === match.id && (
-                                    <MatchDetailView
-                                        match={detailOpenMatch}
-                                        onClose={() => setDetailOpenMatch(null)}
-                                        betMode={normalizedMode}
-                                    />
-                                )}
                             </div>
                             </React.Fragment>
                         );
@@ -2003,7 +1968,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             )}
 
             {propsOpenMatch && (
-                <PropBuilderModal match={propsOpenMatch} onClose={() => setPropsOpenMatch(null)} betMode={normalizedMode} />
+                <PropBuilderModal match={propsOpenMatch} onClose={() => setPropsOpenMatch(null)} betMode={normalizedMode} includeGameMarkets />
             )}
         </div>
     );

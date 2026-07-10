@@ -1037,13 +1037,15 @@ const PropBuilderModal = ({ match, onClose, betMode = 'straight', includeGameMar
                         </div>
                     )}
                     {!loading && !error && visibleCategories.map(renderCategory)}
-                    {/* Merged game markets (mobile only). Rendered after the
-                        prop categories — the button says "Props", so props
-                        lead. When the match has no player props (common on
-                        soccer), the "No player props" note above stays
-                        accurate and these sections still make the panel
-                        useful. Gated on !loading so two spinners never
-                        stack. */}
+                    {/* Merged game markets — every surface (mobile board,
+                        desktop board, search popup) opens this modal with
+                        includeGameMarkets since the standalone "+" button was
+                        retired. Rendered after the prop categories — the
+                        button says "Props", so props lead. When the match has
+                        no player props (common on soccer), the "No player
+                        props" note above stays accurate and these sections
+                        still make the panel useful. Gated on !loading so two
+                        spinners never stack. */}
                     {includeGameMarkets && !loading && (
                         <MatchDetailView match={match} betMode={betMode} embedded />
                     )}
