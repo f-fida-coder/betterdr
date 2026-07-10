@@ -31,8 +31,12 @@ import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamL
 const SECTION_HEADER_HEIGHT = 44;
 
 const SECTION_DEFS = [
-    { key: 'alternate_spreads', label: 'Alt Game Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals', label: 'Alt Game Total', kind: 'alt-lines' },
+    // Full-game alternate_spreads / alternate_totals / team_totals are
+    // deliberately ABSENT: the board row that opens this sheet already renders
+    // those ladders inline (alt-spread rungs stacked in the Spread column, the
+    // Total column's Total ⇄ TT ⇄ Alt Tot pill), so listing them here showed
+    // every line twice. Period/half variants and Alt Team Totals below have no
+    // board equivalent and stay.
     // Soccer card markets (The Odds API supplemental). The props endpoint
     // merges them into extendedMarkets ONLY while servable (betting flag on,
     // prematch, fresh) — so these sections self-hide at kickoff/staleness.
@@ -40,7 +44,6 @@ const SECTION_DEFS = [
     { key: 'alternate_spreads_cards', label: 'Card Handicap', kind: 'alt-lines' },
     { key: 'alternate_totals_corners', label: 'Total Corners', kind: 'alt-lines' },
     { key: 'alternate_spreads_corners', label: 'Corner Handicap', kind: 'alt-lines' },
-    { key: 'team_totals', label: 'Team Totals', kind: 'team-totals' },
     { key: 'alternate_team_totals', label: 'Alt Team Totals', kind: 'team-totals' },
 
     { key: 'alternate_spreads_h1', label: 'Alt 1st Half Spread', kind: 'alt-lines' },
@@ -129,15 +132,11 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState('');
     const [payload, setPayload] = React.useState({ extendedMarkets: [], playerProps: [], cached: false });
-    // Default-expand the alt sections — they're the reason this modal exists.
-    // Game spreads/ML/totals are already visible on the row that opened the
-    // modal, so collapsing them here cuts noise. Sections that don't have a
-    // market for this game stay invisible regardless (filtered by
-    // `availableSections` below).
+    // Default-expand Alt Team Totals — the first section players can't reach
+    // from the board row (full-game alt/TT lines live on the row itself, see
+    // the SECTION_DEFS note). Sections that don't have a market for this game
+    // stay invisible regardless (filtered by `availableSections` below).
     const [expanded, setExpanded] = React.useState({
-        alternate_spreads: true,
-        alternate_totals: true,
-        team_totals: true,
         alternate_team_totals: true,
     });
     const [selectedKeys, setSelectedKeys] = React.useState(() => new Set());
