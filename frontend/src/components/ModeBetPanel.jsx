@@ -4,7 +4,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal, roundCombinedToAmericanDecimal } from '../utils/odds';
 import { computeMidQuickStakes } from '../utils/money';
-import { maxStakeForWinCap, maxStakeNote, cannotFitCapNote } from '../utils/maxWinCap';
+import { maxStakeForWinCap, maxStakeNote, cannotFitCapNote, winTargetCappedNote } from '../utils/maxWinCap';
 import { formatSiteDateTime } from '../utils/timezone';
 import { isMlbSportKey, formatPitcherLabel } from '../utils/pitchers';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
@@ -632,6 +632,15 @@ const ModeBetPanel = ({
     // as a number for arithmetic but kept untouched in `wager` so React
     // doesn't fight the user mid-typing ("10.", "1.5", etc.).
     const wagerAmount = Number(wager);
+    // Explicit WIN-pill parlays (Nicky product sign-off 2026-07-11 — the one
+    // sanctioned exception to his risk-only parlay rule): the
+    // typed number is a
+    // To-Win target and the canonical Risk is back-solved from it. ONLY the
+    // explicit WIN pill qualifies — Bet-mode smart resolution stays
+    // risk-anchored for parlays (that path caused the original gross-up
+    // bug), and open parlays stay risk-anchored because their combined odds
+    // aren't final until all declared legs fill.
+    const parlayWinAnchored = normalizedMode === 'parlay' && !isOpenParlay && stakeMode === 'win';
     const teaserPointValue = Number(teaserPoints || 0);
 
     // Map a leg's sportKey to its teaser sport group. Mirrors
@@ -958,61 +967,6 @@ const ModeBetPanel = ({
     }, [normalizedMode, selections, wagerForSelection]);
     const hasAnyStraightAmount = normalizedMode === 'straight' && straightTotalRisk > 0;
 
-    // Combined-mode resolved Risk: the actual stake the backend sees
-    // after Bet/Risk/Win mode conversion against the ticket's combined
-    // decimal odds. `bet` and `risk` pass straight through; `win` flips
-    // the user-typed amount from "I want to win this much" into the
-    // back-calculated Risk that produces that profit.
-    //
-    // Reverse is special: a 2-leg reverse is two if-bets (A→B and B→A),
-    // each staking `unitStake`. Total risk = 2 × unitStake; total max
-    // win = 2 × unitStake × (decAB − 1). The user types ONE number
-    // (`wager`) and expects it to be the *total* — i.e. typing $1000 in
-    // RISK mode should risk $1000, not $2000. So derive the per-direction
-    // unitStake from half the wager, which is what the backend stores
-    // as `amount` and doubles back to total risk.
-    const effectiveCombinedRisk = useMemo(() => {
-        if (normalizedMode === 'straight') return 0;
-        // Nicky's rule: "a parlay always risks the base amount they choose."
-        // For parlay (and open parlay → normalizedMode === 'parlay') the typed
-        // number IS the risk — never the Bet-mode To-Win anchor, which grossed
-        // up the stake on minus odds (typed $1,000 → risk $1,040 at ~-104) and
-        // both displayed AND debited that inflated number. Risk-anchor here so
-        // the typed base is exactly what's charged, regardless of the Bet/Risk/
-        // Win pill, and To-Win is derived downstream (risk × combined decimal).
-        // Other combined modes (teaser/if_bet/reverse) keep their To-Win
-        // conversion unchanged.
-        if (normalizedMode === 'parlay') {
-            return Number.isFinite(wagerAmount) && wagerAmount > 0 ? wagerAmount : 0;
-        }
-        const sourceWager = normalizedMode === 'reverse' ? wagerAmount / 2 : wagerAmount;
-        const { risk } = resolveStake(stakeMode, sourceWager, ticketDecimalOdds);
-        return Number.isFinite(risk) && risk > 0 ? risk : 0;
-    }, [normalizedMode, stakeMode, wagerAmount, ticketDecimalOdds]);
-
-    // Per-account min/max bet limits from /auth/me payload. Backend
-    // already enforces these (BetsController::placeBet) — checking
-    // client-side too gives instant feedback instead of a round-trip
-    // error after the user clicks Place Bet.
-    //
-    // Risk-anchored semantics (matches what mainstream sportsbooks
-    // mean by "max bet"): both min and max gate the player's stake,
-    // not the operator's payout. A $2k max bet means "you can put
-    // down at most $2k on one ticket" — the win can be whatever the
-    // odds resolve to, including $20k on a +900 underdog. This used
-    // to be win-anchored, but that blocked otherwise-legal underdog
-    // tickets the player expected to be allowed.
-    //
-    // Available credit is enforced separately at submit time (see the
-    // totalRisk vs effectiveAvailableBalance check below) — that's
-    // a wallet-level guard, not a per-ticket limit.
-    //
-    // Returns:
-    //   - messages: { min, max } risk-anchored context strings that
-    //     name the offending leg + actual numbers, e.g.
-    //     "Max bet $2000 — 'Pirates vs Giants' risks $2500".
-    //   - violatingIds: Set of selection IDs whose Risk trips a
-    //     limit, used to flag the offending card with a red border.
     // ── Max-WIN stake cap ────────────────────────────────────────────────
     // Mirror of the server house win ceiling (user.maxWinCap = MAX_PARLAY_PAYOUT).
     // Live-caps the stake to the amount that wins EXACTLY the cap so a customer
@@ -1020,6 +974,8 @@ const ModeBetPanel = ({
     // re-enforces at placement — this is UX only. `maxStake` is in the units the
     // player types (the wager); reverse doubles the risk per wager. Round Robin
     // is left to its own per-child server cap (its stake maps to N combos).
+    // Declared BEFORE effectiveCombinedRisk, which clamps win-anchored parlay
+    // stakes with it (hooks are consts — referencing it earlier is a TDZ crash).
     const winCapState = useMemo(() => {
         const cap = Number(user?.maxWinCap);
         if (!Number.isFinite(cap) || cap <= 0 || normalizedMode === 'round_robin') {
@@ -1045,6 +1001,77 @@ const ModeBetPanel = ({
         return { cap, maxStake, blocked: Number.isFinite(maxStake) && maxStake < 1 };
     }, [user?.maxWinCap, normalizedMode, selections, ticketDecimalOdds]);
 
+    // Combined-mode resolved Risk: the actual stake the backend sees
+    // after Bet/Risk/Win mode conversion against the ticket's combined
+    // decimal odds. `bet` and `risk` pass straight through; `win` flips
+    // the user-typed amount from "I want to win this much" into the
+    // back-calculated Risk that produces that profit.
+    //
+    // Reverse is special: a 2-leg reverse is two if-bets (A→B and B→A),
+    // each staking `unitStake`. Total risk = 2 × unitStake; total max
+    // win = 2 × unitStake × (decAB − 1). The user types ONE number
+    // (`wager`) and expects it to be the *total* — i.e. typing $1000 in
+    // RISK mode should risk $1000, not $2000. So derive the per-direction
+    // unitStake from half the wager, which is what the backend stores
+    // as `amount` and doubles back to total risk.
+    const effectiveCombinedRisk = useMemo(() => {
+        if (normalizedMode === 'straight') return 0;
+        // Nicky's rule: "a parlay always risks the base amount they choose."
+        // For parlay (and open parlay → normalizedMode === 'parlay') the typed
+        // number IS the risk — never the Bet-mode To-Win anchor, which grossed
+        // up the stake on minus odds (typed $1,000 → risk $1,040 at ~-104) and
+        // both displayed AND debited that inflated number. Risk-anchor here so
+        // the typed base is exactly what's charged, and To-Win is derived
+        // downstream (risk × combined decimal). ONE sanctioned exception
+        // (Nicky sign-off 2026-07-11): the explicit WIN pill on a
+        // CLOSED parlay makes the
+        // typed number a To-Win target and back-solves the canonical Risk on
+        // the same American-int basis every other mode uses (resolveStake).
+        // Bet-mode smart resolution still risk-anchors (it caused the original
+        // gross-up bug) and open parlays still risk-anchor (odds not final).
+        // Other combined modes (teaser/if_bet/reverse) keep their To-Win
+        // conversion unchanged.
+        if (normalizedMode === 'parlay') {
+            if (parlayWinAnchored) {
+                const { risk } = resolveStake('win', wagerAmount, ticketDecimalOdds);
+                if (!(Number.isFinite(risk) && risk > 0)) return 0;
+                // Clamp to the cap-limited stake HERE, not just at placement,
+                // so the Risk box, all limit gates, and the debited amount are
+                // the same number (no display/wire divergence at the cap edge,
+                // where the back-solved 2dp risk can exceed the whole-dollar
+                // floor placement would send).
+                return Number.isFinite(winCapState.maxStake) ? Math.min(risk, winCapState.maxStake) : risk;
+            }
+            return Number.isFinite(wagerAmount) && wagerAmount > 0 ? wagerAmount : 0;
+        }
+        const sourceWager = normalizedMode === 'reverse' ? wagerAmount / 2 : wagerAmount;
+        const { risk } = resolveStake(stakeMode, sourceWager, ticketDecimalOdds);
+        return Number.isFinite(risk) && risk > 0 ? risk : 0;
+    }, [normalizedMode, stakeMode, wagerAmount, ticketDecimalOdds, parlayWinAnchored, winCapState]);
+
+    // Per-account min/max bet limits from /auth/me payload. Backend
+    // already enforces these (BetsController::placeBet) — checking
+    // client-side too gives instant feedback instead of a round-trip
+    // error after the user clicks Place Bet.
+    //
+    // Risk-anchored semantics (matches what mainstream sportsbooks
+    // mean by "max bet"): both min and max gate the player's stake,
+    // not the operator's payout. A $2k max bet means "you can put
+    // down at most $2k on one ticket" — the win can be whatever the
+    // odds resolve to, including $20k on a +900 underdog. This used
+    // to be win-anchored, but that blocked otherwise-legal underdog
+    // tickets the player expected to be allowed.
+    //
+    // Available credit is enforced separately at submit time (see the
+    // totalRisk vs effectiveAvailableBalance check below) — that's
+    // a wallet-level guard, not a per-ticket limit.
+    //
+    // Returns:
+    //   - messages: { min, max } risk-anchored context strings that
+    //     name the offending leg + actual numbers, e.g.
+    //     "Max bet $2000 — 'Pirates vs Giants' risks $2500".
+    //   - violatingIds: Set of selection IDs whose Risk trips a
+    //     limit, used to flag the offending card with a red border.
     // Clamp any wager to the cap-limited stake (auto-cap). Identity when the
     // cap doesn't bind. Used at placement so the server receives a compliant
     // stake; `capStakeForSelection` caps a single straight leg by its own odds.
@@ -1456,6 +1483,35 @@ const ModeBetPanel = ({
         return Number.isFinite(maxBet) && maxBet > 0 ? maxBet * 3 : 0;
     }, [normalizedMode, user?.maxBet]);
 
+    // Tightest win ceiling that applies to this ticket — the 3×maxBet parlay
+    // payout cap and/or the house absolute max-win cap. 0 = no cap configured.
+    const effectiveWinCap = useMemo(() => {
+        const caps = [parlayPayoutCap, winCapState.cap].filter((c) => Number.isFinite(c) && c > 0);
+        return caps.length ? Math.min(...caps) : 0;
+    }, [parlayPayoutCap, winCapState.cap]);
+
+    // Single write path for the typed Bet Amount (input + quick-stake chips).
+    // Win-anchored parlays clamp an over-cap To-Win target at the WRITE, so
+    // the STORED anchor is the clamped value — re-quotes then re-solve risk
+    // from the clamped target instead of re-solving the over-cap number and
+    // re-clamping on every odds move. Everything else passes through as-is
+    // (typed-RISK semantics unchanged: whole dollars, digits only).
+    const applyTypedWager = React.useCallback((raw) => {
+        if (parlayWinAnchored && effectiveWinCap > 0 && Number(raw) > effectiveWinCap) {
+            onWagerChange(String(Math.floor(effectiveWinCap)));
+            return;
+        }
+        onWagerChange(raw);
+    }, [parlayWinAnchored, effectiveWinCap, onWagerChange]);
+
+    // Informational (non-blocking) note when the win-anchored target sits at
+    // the cap — after the write-clamp above, "typed over the cap" and "typed
+    // exactly the cap" are the same stored state, and the message is honest
+    // for both. Derived, not stored, so it can never go stale.
+    const winAnchorCapNote = parlayWinAnchored && effectiveWinCap > 0 && wagerAmount >= effectiveWinCap
+        ? winTargetCappedNote(effectiveWinCap)
+        : '';
+
     // Display win = profit on full payoff. For combined modes, clamp at
     // the parlay payout cap so the user sees the same number the book
     // will actually credit.
@@ -1487,10 +1543,25 @@ const ModeBetPanel = ({
         // filled. So bypass the Win-mode pin for open parlays.
         // Parlays risk-anchor (Nicky's rule): the typed number is the RISK, so
         // To-Win is always the derived payout (risk × combined odds − risk),
-        // never the typed value. Open parlay is already excluded via
-        // !isOpenParlay; excluding normalizedMode 'parlay' also covers closed
-        // parlays. Teaser/if_bet/reverse keep typed-Win pinning.
-        if (!isOpenParlay && normalizedMode !== 'parlay' && summarySmartMode === 'win' && wagerAmount > 0 && legCount > 0 && normalizedMode !== 'straight') {
+        // never the typed value — EXCEPT the sanctioned WIN-pill case
+        // (Nicky sign-off 2026-07-11): a closed parlay with the
+        // explicit WIN pill pins the
+        // typed To-Win target, exactly like teaser/if_bet/reverse Win mode.
+        // The receipt matches because placement sends requestedWin and the
+        // backend pins potentialPayout = risk + requestedWin (±$2 guard) —
+        // showing the back-computed value instead would resurrect the
+        // "$1000 typed renders $999.79" drift this pin exists to kill.
+        // Open parlay stays derived-only (odds not final while legs fill);
+        // Bet-mode parlays stay risk-anchored so rawWin is derived for them.
+        // The pin only holds while the typed target is actually achievable:
+        // when the cap clamps the back-solved risk (totalRisk < solved risk),
+        // pinning the typed value would overstate the payout by up to
+        // (d−1) dollars, so fall through to the derived win from the ACTUAL
+        // stored risk instead.
+        const parlayWinPin = parlayWinAnchored && summarySmartMode === 'win'
+            && Math.abs(resolveStake('win', wagerAmount, ticketDecimalOdds).risk - totalRisk) < 0.005;
+        const otherModeWinPin = !isOpenParlay && normalizedMode !== 'parlay' && normalizedMode !== 'straight' && summarySmartMode === 'win';
+        if ((parlayWinPin || otherModeWinPin) && wagerAmount > 0 && legCount > 0) {
             rawWin = wagerAmount;
         } else {
             rawWin = Math.max(0, potentialPayout - totalRisk);
@@ -1500,7 +1571,7 @@ const ModeBetPanel = ({
         // the number matches the payout the auto-capped stake will actually win.
         if (winCapState.cap > 0 && rawWin > winCapState.cap) rawWin = winCapState.cap;
         return rawWin;
-    }, [stakeMode, wagerAmount, legCount, normalizedMode, potentialPayout, totalRisk, parlayPayoutCap, ticketDecimalOdds, isOpenParlay, winCapState]);
+    }, [stakeMode, wagerAmount, legCount, normalizedMode, potentialPayout, totalRisk, parlayPayoutCap, ticketDecimalOdds, isOpenParlay, winCapState, parlayWinAnchored]);
     // Use the same pool the top bar's AVAILABLE tile shows: creditAvailable
     // for credit accounts, availableBalance for cash accounts. Otherwise the
     // bet-placement guard rejects with "Insufficient balance: $0.00" while
@@ -1525,7 +1596,7 @@ const ModeBetPanel = ({
     // is present.
     const amountWarning = validationErrors.find((e) =>
         typeof e === 'string' && (e.startsWith('Min bet') || e.startsWith('Max bet'))
-    ) || limitFlags.messages.winCap || limitFlags.messages.capInfo || '';
+    ) || limitFlags.messages.winCap || winAnchorCapNote || limitFlags.messages.capInfo || '';
     const hasSelections = legCount > 0;
     const [isOpen, setIsOpen] = useState(false);
 
@@ -1715,8 +1786,12 @@ const ModeBetPanel = ({
     // send, so the server prices the identical ticket (odds are read from the
     // slip, which patchSlipToQuote reconciles to the quote before Confirm).
     const buildQuotePayload = () => {
+        // Parlays: risk-anchored unless the explicit WIN pill is active
+        // (parlayWinAnchored — the Nicky-sanctioned exception; Bet-mode never
+        // win-resolves for parlays). MUST match placement's combinedSmartMode
+        // below or the quoted ticket and the booked ticket diverge.
         const combinedSmartMode = normalizedMode === 'parlay'
-            ? 'risk'
+            ? (parlayWinAnchored ? 'win' : 'risk')
             : (stakeMode === 'bet' ? resolveBetSmartMode(ticketDecimalOdds) : stakeMode);
         const requestedWin = combinedSmartMode === 'win' && Number.isFinite(Number(wager)) && Number(wager) > 0
             ? Math.round(Number(wager)) : 0;
@@ -2134,9 +2209,14 @@ const ModeBetPanel = ({
             // Parlays risk-anchor (Nicky's rule): the typed number is the RISK,
             // not a To-Win target, so never pin requestedWin for them — let the
             // backend back-compute payout from risk × combined decimal odds.
+            // ONE exception (Nicky sign-off 2026-07-11): the explicit
+            // WIN pill on a closed
+            // parlay (parlayWinAnchored) sends the typed To-Win target as
+            // requestedWin so the backend's ±$2 pin books exactly the number
+            // the slip showed. Bet-mode never win-resolves for parlays.
             // Other combined modes keep Bet/Win To-Win pinning.
             const combinedSmartMode = normalizedMode === 'parlay'
-                ? 'risk'
+                ? (parlayWinAnchored ? 'win' : 'risk')
                 : (stakeMode === 'bet' ? resolveBetSmartMode(ticketDecimalOdds) : stakeMode);
             const combinedRequestedWin = combinedSmartMode === 'win' && Number.isFinite(Number(wager)) && Number(wager) > 0
                 ? Math.round(Number(wager))
@@ -2528,14 +2608,22 @@ const ModeBetPanel = ({
                                     // Round Robin needs a single risk-per-parlay number; both Win and Bet
                                     // depend on combined odds and each child parlay has different odds,
                                     // so the smart-mode interpretation has no single answer. Lock both.
-                                    const lockedOut = normalizedMode === 'round_robin' && (m.id === 'win' || m.id === 'bet');
+                                    // Open parlay locks WIN too: its combined odds aren't final until
+                                    // every declared leg fills, so a To-Win target is undefined — the
+                                    // committed stake is always the risk.
+                                    const lockedOut = (normalizedMode === 'round_robin' && (m.id === 'win' || m.id === 'bet'))
+                                        || (isOpenParlay && m.id === 'win');
                                     return (
                                         <button
                                             key={m.id}
                                             type="button"
                                             onClick={() => { if (!lockedOut) setStakeMode(m.id); }}
                                             disabled={lockedOut}
-                                            title={lockedOut ? 'Not available for Round Robin — use stake per parlay' : undefined}
+                                            title={lockedOut
+                                                ? (isOpenParlay
+                                                    ? 'Open parlays are risk-based — odds aren\'t final until all legs fill'
+                                                    : 'Not available for Round Robin — use stake per parlay')
+                                                : undefined}
                                             style={{
                                                 background: lockedOut
                                                     ? '#cbd5e1'
@@ -2586,7 +2674,7 @@ const ModeBetPanel = ({
                                     inputMode="numeric"
                                     placeholder="Bet Amount"
                                     value={wager}
-                                    onChange={(e) => onWagerChange(String(e.target.value).replace(/\D/g, ''))}
+                                    onChange={(e) => applyTypedWager(String(e.target.value).replace(/\D/g, ''))}
                                     onFocus={(e) => { e.currentTarget.parentElement.style.borderColor = palette.accent; }}
                                     onBlur={(e) => { e.currentTarget.parentElement.style.borderColor = palette.cardBorder; }}
                                     style={{
@@ -2675,7 +2763,7 @@ const ModeBetPanel = ({
                                         style={{ flex: '1 1 0', minWidth: 54, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
                                     >
                                         <button
-                                            onClick={() => onWagerChange(String(v))}
+                                            onClick={() => applyTypedWager(String(v))}
                                             style={{
                                                 padding: '7px 6px',
                                                 border: `1px solid ${active ? palette.headerBg : palette.cardBorder}`,

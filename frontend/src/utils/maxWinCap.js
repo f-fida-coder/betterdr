@@ -59,3 +59,10 @@ export const cannotFitCapNote = (cap) => (
 export const stakeAutoCappedNote = (maxStake, cap) => (
     `Stake capped to ${dollars(maxStake)} — the most that wins the ${dollars(cap)} maximum payout.`
 );
+
+// Shown when a typed To-Win target sits at the ticket's win ceiling
+// (win-anchored parlays: the WIN pill makes the typed number a payout target,
+// and over-cap targets are clamped to the cap at the input).
+export const winTargetCappedNote = (cap) => (
+    `To-Win capped at ${dollars(cap)} — the maximum payout on this ticket.`
+);
