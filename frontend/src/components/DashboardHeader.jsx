@@ -655,15 +655,6 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                     </div>
                     <div
                         className="dash-nav-item"
-                        onClick={() => onViewChange && onViewChange('live-casino')}
-                    >
-                        <span>LIVE CASINO</span>
-                        <div className="dash-nav-icon">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="4" /><circle cx="12" cy="12" r="2" /></svg>
-                        </div>
-                    </div>
-                    <div
-                        className="dash-nav-item"
                         onMouseEnter={() => setShowMoreMenu(true)}
                         onMouseLeave={() => setShowMoreMenu(false)}
                         style={{ position: 'relative', overflow: 'visible' }}
@@ -693,12 +684,6 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                                 </div>
                             </div>
                         )}
-                    </div>
-                    <div className="dash-nav-item" style={{ color: '#ffd700', cursor: 'pointer' }} onClick={() => onViewChange && onViewChange('bonus')}>
-                        <span>BONUS</span>
-                        <div className="dash-nav-icon">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 12V8H6a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h2" /><path d="M4 6h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" /></svg>
-                        </div>
                     </div>
                     <div className="dash-nav-item" style={{ cursor: 'pointer' }} onClick={() => onViewChange && onViewChange('tutorials')}>
                         <span>TUTORIALS</span>
@@ -806,7 +791,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
             </div>
 
 
-            {currentView !== 'rules' && currentView !== 'bonus' && (
+            {currentView !== 'rules' && (
                 <>
 
 

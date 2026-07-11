@@ -19,7 +19,6 @@ const STYLE_FLEX_SCROLL = { flex: 1, overflowY: 'auto', display: 'flex', flexDir
 const STYLE_FLEX_INNER = { flex: 1 };
 const STYLE_FLEX_SCROLL_TOUCH = { flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', display: 'flex', flexDirection: 'column' };
 const STYLE_CASINO_WRAP = { flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' };
-const STYLE_LIVE_CASINO_WRAP = { flex: 1, backgroundColor: '#505050', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' };
 const STYLE_FUTURES_WRAP = { flex: 1, overflowY: 'auto' };
 const STYLE_FEEDBACK = {
   position: 'fixed',
@@ -36,11 +35,9 @@ const STYLE_FEEDBACK = {
 };
 
 const CasinoView = React.lazy(() => import('./CasinoView'));
-const LiveCasinoView = React.lazy(() => import('./LiveCasinoView'));
 const PropsView = React.lazy(() => import('./PropsView'));
 const PropBuilderView = React.lazy(() => import('./PropBuilderView'));
 const RulesView = React.lazy(() => import('./RulesView'));
-const BonusView = React.lazy(() => import('./BonusView'));
 const TutorialsView = React.lazy(() => import('./TutorialsView'));
 const SupportView = React.lazy(() => import('./SupportView'));
 const MyBetsView = React.lazy(() => import('./MyBetsView'));
@@ -219,12 +216,6 @@ function UserDashboardShell({
             </div>
           )}
 
-          {dashboardView === 'live-casino' && (
-            <div style={STYLE_LIVE_CASINO_WRAP}>
-              <LiveCasinoView />
-            </div>
-          )}
-
           {dashboardView === 'props' && <PropsView />}
           {dashboardView === 'prop-builder' && (
             <div style={STYLE_FLEX_SCROLL_TOUCH}>
@@ -232,7 +223,6 @@ function UserDashboardShell({
             </div>
           )}
           {dashboardView === 'rules' && <RulesView />}
-          {dashboardView === 'bonus' && <BonusView />}
           {dashboardView === 'tutorials' && <TutorialsView />}
           {dashboardView === 'support' && <SupportView />}
           {dashboardView === 'my-bets' && (

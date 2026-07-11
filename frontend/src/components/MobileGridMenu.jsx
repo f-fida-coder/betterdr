@@ -4,10 +4,7 @@ const MobileGridMenu = ({ onClose, onViewChange }) => {
     const menuItems = [
         { id: 'sports', label: 'Sports', icon: 'fa-solid fa-shield-halved' },
         { id: 'casino', label: 'Casino', icon: 'fa-solid fa-dice' },
-        { id: 'live-casino', label: 'Live Casino', icon: 'fa-solid fa-circle-dot' },
         { id: 'prop-builder', label: 'Prop Builder', icon: 'fa-solid fa-arrow-down-1-9' },
-        { id: 'world-365', label: 'World 365', icon: 'fa-solid fa-futbol' },
-        { id: 'horses', label: 'Horses', icon: 'fa-solid fa-horse-head' },
         { id: 'parlay-boosts', label: 'Parlay Boosts', icon: 'fa-solid fa-bolt-lightning' },
         { id: 'rules', label: 'Rules', icon: 'fa-solid fa-whistle' },
         { id: 'tutorials', label: 'Tutorials', icon: 'fa-solid fa-book-open' },
@@ -17,8 +14,6 @@ const MobileGridMenu = ({ onClose, onViewChange }) => {
     const handleClick = (id) => {
         if (id === 'sports') {
             onViewChange('dashboard');
-        } else if (id === 'live-casino') {
-            onViewChange('live-casino');
         } else if (id === 'tutorials') {
         } else {
             onViewChange(id);

@@ -2014,19 +2014,6 @@ const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {}, onNavigateToT
                         navigation handler is wired so the row stays
                         purely informational in any host that mounts
                         FiguresTab on its own. */}
-                    <div
-                        className={`figures-row${onNavigateToTransactions ? ' expandable' : ''}`}
-                        role={onNavigateToTransactions ? 'button' : undefined}
-                        tabIndex={onNavigateToTransactions ? 0 : undefined}
-                        onClick={onNavigateToTransactions ? () => onNavigateToTransactions() : undefined}
-                        onKeyDown={onNavigateToTransactions ? (e) => {
-                            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigateToTransactions(); }
-                        } : undefined}
-                        aria-label={onNavigateToTransactions ? 'View deposits and withdrawals' : undefined}
-                    >
-                        <span className="figures-label">Deposits / Withdrawals</span>
-                        {renderAmount(data.transactions)}
-                    </div>
                     <div className="figures-row figures-row-total">
                         <span className="figures-label">End balance</span>
                         <span className={`figures-amount${Number(data.endBalance || 0) > 0 ? ' positive' : Number(data.endBalance || 0) < 0 ? ' negative' : ''}`}>

@@ -159,10 +159,6 @@ const Header = ({ onLogin, isLoggedIn }) => {
                             <i className="fa-solid fa-magnifying-glass"></i>
                             <span>SEARCH</span>
                         </div>
-                        <div className="icon-btn">
-                            <i className="fa-solid fa-cash-register"></i>
-                            <span>CASHIER</span>
-                        </div>
                         <div className="mobile-user-trigger" onClick={() => setShowMobileLogin(!showMobileLogin)}>
                             <div style={{ width: '30px', height: '30px', background: '#00ff66', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'black', fontWeight: 'bold' }}>
                                 {username ? username.charAt(0).toUpperCase() : 'U'}
