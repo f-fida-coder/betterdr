@@ -19,13 +19,6 @@ const LOCAL_GAME_META = {
         poster: '/games/baccarat/assets/menuscreen.webp',
         themeColor: '#1a0a2e',
     },
-    blackjack: {
-        id: 'local-blackjack',
-        provider: 'In-House',
-        url: '/games/blackjack/index.html?v=20260309f',
-        poster: '/games/blackjack/src/images/misc/table.png',
-        themeColor: '#0b5563',
-    },
     craps: {
         id: 'local-craps',
         provider: 'In-House',
@@ -48,13 +41,6 @@ const LOCAL_GAME_META = {
         themeColor: '#166534',
         minBet: 1,
         maxBet: 5000,
-    },
-    'arabian-treasure': {
-        id: 'local-arabian-treasure',
-        provider: 'In-House',
-        url: '/games/arabian/index.html?v=20260311a',
-        poster: '/games/arabian/sprites/200x200.jpg',
-        themeColor: '#7e22ce',
     },
     '3card-poker': {
         id: 'local-3card-poker',
@@ -891,10 +877,12 @@ const CasinoView = () => {
         [localGames]
     );
 
-    const catalogGames = useMemo(
-        () => games.filter((game) => !(game?.slug && LOCAL_GAME_META[game.slug])),
-        [games]
-    );
+    // Only our in-house (iframe-playable) games are offered. Every other game
+    // in the backend catalog is an external/placeholder title that isn't wired
+    // up, so it must never be shown to players — force the catalog list empty
+    // rather than render un-launchable tiles. localGames (the working games) is
+    // derived separately from the same fetch and is unaffected.
+    const catalogGames = useMemo(() => [], []);
 
     return (
         <div className="casino-wrapper">
@@ -1167,7 +1155,6 @@ const CasinoView = () => {
                         >
                             <option value="">All</option>
                             <option value="baccarat">Baccarat</option>
-                            <option value="blackjack">Blackjack</option>
                             <option value="craps">Craps</option>
                             <option value="arabian">Arabian Game</option>
                             <option value="jurassic-run">Jurassic Run</option>
