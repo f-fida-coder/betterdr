@@ -1490,14 +1490,22 @@ const ModeBetPanel = ({
         return caps.length ? Math.min(...caps) : 0;
     }, [parlayPayoutCap, winCapState.cap]);
 
-    // Single write path for the typed Bet Amount (input + quick-stake chips).
-    // Win-anchored parlays clamp an over-cap To-Win target at the WRITE, so
-    // the STORED anchor is the clamped value — re-quotes then re-solve risk
-    // from the clamped target instead of re-solving the over-cap number and
-    // re-clamping on every odds move. Everything else passes through as-is
-    // (typed-RISK semantics unchanged: whole dollars, digits only).
-    const applyTypedWager = React.useCallback((raw) => {
-        if (parlayWinAnchored && effectiveWinCap > 0 && Number(raw) > effectiveWinCap) {
+    // Single write path for a typed stake (Bet Amount input, quick-stake
+    // chips, AND the editable parlay summary boxes). Win-anchored writes
+    // clamp an over-cap To-Win target at the WRITE, so the STORED anchor is
+    // the clamped value — re-quotes then re-solve risk from the clamped
+    // target instead of re-solving the over-cap number and re-clamping on
+    // every odds move. Everything else passes through as-is (typed-RISK
+    // semantics unchanged: whole dollars, digits only).
+    //
+    // `asWin` defaults to the current render's anchor for the legacy callers
+    // (input/chips, where the mode isn't changing mid-event). The Win summary
+    // box passes `true` EXPLICITLY: its edit flips stakeMode to 'win' in the
+    // same event, so the closure's parlayWinAnchored is stale-false on the
+    // first keystroke and the clamp would be skipped for e.g. a pasted
+    // over-cap value.
+    const applyTypedWager = React.useCallback((raw, asWin = parlayWinAnchored) => {
+        if (asWin && effectiveWinCap > 0 && Number(raw) > effectiveWinCap) {
             onWagerChange(String(Math.floor(effectiveWinCap)));
             return;
         }
@@ -3636,44 +3644,114 @@ const ModeBetPanel = ({
                                 {ticketDecimalOdds ? formatOddsSign(ticketDecimalOdds) : '—'}
                             </span>
                         </div>
+                        {/* Risk / Win summary boxes. CLOSED parlays make both
+                            EDITABLE (PO follow-up 2026-07-11): each box is a
+                            second writer to the SAME (stakeMode, wager) state
+                            the BET/RISK/WIN pill drives — editing Risk ≡
+                            clicking RISK + typing that value, editing Win ≡
+                            clicking WIN + typing. The pill highlight follows
+                            automatically and the back-solve / cap clamp /
+                            requestedWin / gates all run off the shared
+                            derivation, so a box edit can't bypass anything the
+                            pill path doesn't. Display follows the straight-card
+                            convention (see the per-card inputs above): the
+                            ANCHORED box shows the raw typed string so it
+                            doesn't snap to a formatted value mid-type; the
+                            derived box shows the formatted computed value.
+                            Teaser / if_bet / reverse and OPEN parlay keep
+                            read-only spans — open parlay's odds aren't final
+                            until all declared legs fill, and the other modes
+                            anchor via the pill only. */}
                         <div style={{
                             display: 'grid',
                             gridTemplateColumns: '1fr 1fr',
                             gap: 8,
                         }}>
-                            <div style={{
-                                background: '#f8fafc',
-                                border: `1px solid ${palette.cardBorder}`,
-                                borderRadius: 6,
-                                padding: '6px 10px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: 6,
-                            }}>
-                                <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Risk:</span>
-                                <span style={{ fontSize: 13, fontWeight: 800, color: totalRisk > 0 ? palette.textPrimary : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
-                                    ${formatMoney2dp(totalRisk)}
-                                </span>
-                            </div>
-                            <div style={{
-                                background: '#f8fafc',
-                                border: `1px solid ${palette.cardBorder}`,
-                                borderRadius: 6,
-                                padding: '6px 10px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: 6,
-                            }}>
-                                <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Win:</span>
-                                <span style={{ fontSize: 13, fontWeight: 800, color: displayWinAmount > 0 ? palette.success : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
-                                    ${formatMoney2dp(displayWinAmount)}
-                                    {parlayPayoutCap > 0 && displayWinAmount >= parlayPayoutCap && (
-                                        <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, marginLeft: 4 }}>(max)</span>
-                                    )}
-                                </span>
-                            </div>
+                            {[
+                                { id: 'risk', label: 'Risk:', anchored: !parlayWinAnchored, display: formatMoney2dp(totalRisk), positive: totalRisk > 0, color: palette.textPrimary, capChip: false },
+                                { id: 'win', label: 'Win:', anchored: parlayWinAnchored, display: formatMoney2dp(displayWinAmount), positive: displayWinAmount > 0, color: palette.success, capChip: parlayPayoutCap > 0 && displayWinAmount >= parlayPayoutCap },
+                            ].map((box) => {
+                                const editable = normalizedMode === 'parlay' && !isOpenParlay;
+                                const valueColor = box.positive ? box.color : palette.textFaint;
+                                const boxStyle = {
+                                    background: '#f8fafc',
+                                    border: `1px solid ${palette.cardBorder}`,
+                                    borderRadius: 6,
+                                    padding: '6px 10px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 6,
+                                };
+                                if (!editable) {
+                                    return (
+                                        <div key={box.id} style={boxStyle}>
+                                            <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>{box.label}</span>
+                                            <span style={{ fontSize: 13, fontWeight: 800, color: valueColor, fontVariantNumeric: 'tabular-nums' }}>
+                                                ${box.display}
+                                                {box.capChip && (
+                                                    <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, marginLeft: 4 }}>(max)</span>
+                                                )}
+                                            </span>
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <label key={box.id} style={{ ...boxStyle, cursor: 'text' }}>
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>{box.label}</span>
+                                        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 2, minWidth: 0 }}>
+                                            <span style={{ fontSize: 13, fontWeight: 800, color: valueColor }}>$</span>
+                                            <input
+                                                type="text"
+                                                inputMode="numeric"
+                                                value={box.anchored ? wager : box.display}
+                                                onFocus={() => {
+                                                    // Clear-on-tap (PO 2026-07-11): focusing the
+                                                    // box that is NOT the current anchor switches
+                                                    // the anchor to this box's unit and clears the
+                                                    // wager so the user types a fresh value —
+                                                    // never a silent reinterpretation of the old
+                                                    // number in the new unit (Risk $50 must not
+                                                    // become a $50 To-Win target). Focusing the
+                                                    // box that already IS the anchor edits the
+                                                    // existing value in place, nothing wiped.
+                                                    if (!box.anchored) {
+                                                        setStakeMode(box.id === 'win' ? 'win' : 'risk');
+                                                        onWagerChange('');
+                                                    }
+                                                }}
+                                                onChange={(e) => {
+                                                    // Whole-dollar amounts only — same digit
+                                                    // strip as every other stake entry point.
+                                                    const cleaned = String(e.target.value).replace(/\D/g, '');
+                                                    setStakeMode(box.id === 'win' ? 'win' : 'risk');
+                                                    // Explicit asWin: stakeMode just flipped in
+                                                    // this same event, so the closure's default
+                                                    // would be stale on the first keystroke.
+                                                    applyTypedWager(cleaned, box.id === 'win');
+                                                }}
+                                                placeholder="0"
+                                                style={{
+                                                    width: 84,
+                                                    border: 'none',
+                                                    outline: 'none',
+                                                    background: 'transparent',
+                                                    fontSize: 13,
+                                                    fontWeight: 800,
+                                                    color: valueColor,
+                                                    textAlign: 'right',
+                                                    fontVariantNumeric: 'tabular-nums',
+                                                    padding: 0,
+                                                    margin: 0,
+                                                }}
+                                            />
+                                            {box.capChip && (
+                                                <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, marginLeft: 4 }}>(max)</span>
+                                            )}
+                                        </span>
+                                    </label>
+                                );
+                            })}
                         </div>
                     </div>
                 )}
