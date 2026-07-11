@@ -578,6 +578,27 @@
     flex-direction: column;
 }
 
+/* Landscape-only casino tables (craps, arabian, 3-card poker) tagged with
+   `landscape` in LOCAL_GAME_META. The app manifest is orientation-locked to
+   portrait-primary, so the device can't rotate to landscape — instead, on a
+   portrait touch screen we rotate the whole game overlay 90° so the game and
+   its Exit control fill the screen in landscape, and the player turns the
+   phone to view it. Games that are already portrait-responsive (baccarat,
+   jurassic-run) are NOT tagged and render normally. Desktop (fine pointer) is
+   excluded so a portrait desktop window is never rotated. */
+@media screen and (orientation: portrait) and (pointer: coarse) {
+    .game-iframe-overlay--force-landscape {
+        inset: auto;
+        top: 0;
+        left: 0;
+        width: 100vh;
+        height: 100vw;
+        transform: rotate(90deg);
+        transform-origin: top left;
+        margin-left: 100vw;
+    }
+}
+
 .game-iframe-close-btn {
     position: absolute;
     top: calc(env(safe-area-inset-top, 0px) + 12px);

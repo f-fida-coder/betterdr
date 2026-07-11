@@ -25,6 +25,10 @@ const LOCAL_GAME_META = {
         url: '/games/craps/index.html?v=20260310b',
         poster: '/games/craps/sprites/board_table.jpg',
         themeColor: '#0a4f3a',
+        // Landscape-only table game. The app is orientation-locked to portrait
+        // (manifest portrait-primary) so the device can't rotate; on touch
+        // devices we present it rotated 90° to fill the screen in landscape.
+        landscape: true,
     },
     arabian: {
         id: 'local-arabian',
@@ -32,6 +36,7 @@ const LOCAL_GAME_META = {
         url: '/games/arabian/index.html?v=20260311a',
         poster: '/games/arabian/sprites/200x200.jpg',
         themeColor: '#7e22ce',
+        landscape: true,
     },
     'jurassic-run': {
         id: 'local-jurassic-run',
@@ -48,6 +53,7 @@ const LOCAL_GAME_META = {
         url: '/games/3-card-poker/index.html?v=20260314c',
         poster: '/games/3-card-poker/sprites/200x200.jpg',
         themeColor: '#1a3a5c',
+        landscape: true,
     },
 };
 
@@ -888,7 +894,7 @@ const CasinoView = () => {
         <div className="casino-wrapper">
             {/* ── Fullscreen game overlay ──────────────────────── */}
             {activeLocalGame && (
-                <div className="game-iframe-overlay">
+                <div className={`game-iframe-overlay${activeLocalGame?.landscape ? ' game-iframe-overlay--force-landscape' : ''}`}>
                     <button
                         className="game-iframe-close-btn"
                         onClick={handleLocalGameClose}

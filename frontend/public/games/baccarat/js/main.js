@@ -13,7 +13,11 @@ const config = {
   height,
   backgroundColor: '#000000ff',
   scale: {
-    mode: Phaser.Scale.FIT,
+    // RESIZE (not FIT) so the canvas tracks the real container size instead of
+    // letterboxing a fixed 1920×1080 landscape frame into a thin strip on
+    // portrait phones. The scenes already position everything proportionally
+    // (scale.width/height * fraction), so they lay out correctly at any aspect.
+    mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
     width: 1920,
     height: 1080,
