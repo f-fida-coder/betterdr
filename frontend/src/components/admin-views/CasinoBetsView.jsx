@@ -116,6 +116,122 @@ function BaccaratPayoutSettings({ token }) {
   );
 }
 
+// Server-enforced clamp ranges for bogeyman's payout config (see
+// BOGEYMAN_PAYOUT_SPEC). payoutScale multiplies every line pay (floored per
+// hit): RTP ~94.9% at 1.00 down to ~75.9% at 0.80. The freeSpins maxima are
+// deliberately tight — the 3-scatter award dominates RTP and larger values
+// would push the game player-positive.
+const BOGEYMAN_PAYOUT_LIMITS = {
+  payoutScale: { min: 0.8, max: 1, step: 0.01, label: 'Payout scale ×' },
+  freeSpins3: { min: 3, max: 6, step: 1, label: '3-scatter free spins' },
+  freeSpins4: { min: 5, max: 20, step: 1, label: '4-scatter free spins' },
+  freeSpins5: { min: 10, max: 40, step: 1, label: '5-scatter free spins' },
+};
+
+function BogeymanPayoutSettings({ token }) {
+  const [game, setGame] = useState(null);
+  const [values, setValues] = useState({ payoutScale: '', freeSpins3: '', freeSpins4: '', freeSpins5: '' });
+  const [status, setStatus] = useState({ kind: '', text: '' });
+  const [saving, setSaving] = useState(false);
+
+  const loadGame = useCallback(async () => {
+    try {
+      const payload = await getCasinoGames({ token, category: 'slots', limit: 100 });
+      const row = (payload?.games || []).find((g) => String(g?.slug || '') === 'bogeyman');
+      if (!row) return;
+      setGame(row);
+      const cfg = row?.metadata?.payoutConfig || {};
+      setValues({
+        payoutScale: String(cfg.payoutScale ?? 1),
+        freeSpins3: String(cfg.freeSpins3 ?? 5),
+        freeSpins4: String(cfg.freeSpins4 ?? 10),
+        freeSpins5: String(cfg.freeSpins5 ?? 20),
+      });
+    } catch (err) {
+      setStatus({ kind: 'error', text: err.message || 'Failed to load Bogeyman payout config' });
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadGame();
+  }, [loadGame]);
+
+  const invalid = (key) => {
+    const limits = BOGEYMAN_PAYOUT_LIMITS[key];
+    const num = Number(values[key]);
+    if (!Number.isFinite(num) || num < limits.min || num > limits.max) return true;
+    // Free-spin awards are whole spins.
+    return key !== 'payoutScale' && !Number.isInteger(num);
+  };
+  const anyInvalid = Object.keys(BOGEYMAN_PAYOUT_LIMITS).some(invalid);
+
+  const save = async () => {
+    if (!game || anyInvalid) return;
+    try {
+      setSaving(true);
+      setStatus({ kind: '', text: '' });
+      const updated = await updateAdminCasinoGame(game.id, {
+        metadata: {
+          ...(game.metadata || {}),
+          payoutConfig: {
+            payoutScale: Number(values.payoutScale),
+            freeSpins3: Number(values.freeSpins3),
+            freeSpins4: Number(values.freeSpins4),
+            freeSpins5: Number(values.freeSpins5),
+          },
+        },
+      }, token);
+      const applied = updated?.metadata?.payoutConfig || {};
+      setStatus({
+        kind: 'ok',
+        text: `Saved — live from the next spin: scale ${applied.payoutScale ?? values.payoutScale}×, free spins ${applied.freeSpins3 ?? values.freeSpins3}/${applied.freeSpins4 ?? values.freeSpins4}/${applied.freeSpins5 ?? values.freeSpins5}`,
+      });
+      setGame(updated || game);
+    } catch (err) {
+      setStatus({ kind: 'error', text: err.message || 'Failed to save payout config' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!game) return null;
+
+  return (
+    <div className="casino-bets-filters casino-payout-settings">
+      {Object.entries(BOGEYMAN_PAYOUT_LIMITS).map(([key, limits], idx) => (
+        <div className="filter-group" key={key}>
+          <label>{idx === 0 ? 'Bogeyman Payout — ' : ''}{limits.label} ({limits.min}–{limits.max})</label>
+          <input
+            type="number"
+            min={limits.min}
+            max={limits.max}
+            step={limits.step}
+            value={values[key]}
+            onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
+            style={invalid(key) ? { borderColor: '#dc2626' } : undefined}
+          />
+        </div>
+      ))}
+      <div className="filter-group">
+        <label>&nbsp;</label>
+        <button
+          type="button"
+          className="btn-small btn-accent"
+          onClick={save}
+          disabled={saving || anyInvalid}
+        >
+          {saving ? 'Saving…' : 'Save Payout Config'}
+        </button>
+      </div>
+      {status.text && (
+        <div className="filter-group" style={{ alignSelf: 'flex-end', color: status.kind === 'error' ? '#dc2626' : '#16a34a' }}>
+          {status.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const EMPTY_FILTERS = {
   game: '',
   username: '',
@@ -214,7 +330,10 @@ function CasinoBetsView() {
   const formatMoney = (value) => {
     const num = Number(value || 0);
     if (Number.isNaN(num)) return '$0';
-    return `$${Math.round(num)}`;
+    // Whole dollars stay whole; cent-level amounts (Bogeyman's chips go down
+    // to $0.01) keep their cents instead of rounding $0.50 up to "$1".
+    const hasCents = Math.abs(num - Math.round(num)) >= 0.005;
+    return `$${hasCents ? num.toFixed(2) : Math.round(num)}`;
   };
 
   const formatDateTime = (value) => {
@@ -239,6 +358,8 @@ function CasinoBetsView() {
         return 'Arabian Game';
       case 'jurassic-run':
         return 'Jurassic Run';
+      case 'bogeyman':
+        return 'Bogeyman';
       case 'arabian-treasure':
         return 'Arabian Game';
       case '3card-poker':
@@ -308,6 +429,17 @@ function CasinoBetsView() {
       const parts = [];
       if (jackpotPayout > 0) parts.push(`Jackpot ${formatMoney(jackpotPayout)}`);
       else if (totalWin > 0) parts.push(`Win ${formatMoney(totalWin)}`);
+      if (freeSpinsAwarded > 0) parts.push(`+${freeSpinsAwarded} FS`);
+      if (parts.length > 0) return parts.join(' | ');
+      if (isFreeSpinRound) return 'Free Spin';
+    }
+
+    if (String(row.game || '').toLowerCase() === 'bogeyman') {
+      const totalWin = Number(row?.roundData?.totalWin ?? row?.totalReturn ?? 0);
+      const freeSpinsAwarded = Number(row?.roundData?.freeSpinsAwarded ?? 0);
+      const isFreeSpinRound = !!row?.roundData?.isFreeSpinRound;
+      const parts = [];
+      if (totalWin > 0) parts.push(`Win ${formatMoney(totalWin)}`);
       if (freeSpinsAwarded > 0) parts.push(`+${freeSpinsAwarded} FS`);
       if (parts.length > 0) return parts.join(' | ');
       if (isFreeSpinRound) return 'Free Spin';
@@ -427,6 +559,7 @@ function CasinoBetsView() {
         {!loading && !error && (
           <>
             {localStorage.getItem('userRole') === 'admin' && <BaccaratPayoutSettings token={token} />}
+            {localStorage.getItem('userRole') === 'admin' && <BogeymanPayoutSettings token={token} />}
             <div className="casino-bets-kpi-grid">
               {summaryCards.map((card) => (
                 <div className={`casino-kpi-card tone-${card.tone}`} key={card.label}>
@@ -569,6 +702,7 @@ function CasinoBetsView() {
                   <option value="craps">Craps</option>
                   <option value="arabian">Arabian Game</option>
                   <option value="jurassic-run">Jurassic Run</option>
+                  <option value="bogeyman">Bogeyman</option>
                   <option value="3card-poker">3-Card Poker</option>
                 </select>
               </div>
@@ -784,6 +918,8 @@ function CasinoBetsView() {
                             ? 'Spin'
                             : selectedDetail.game === 'jurassic-run'
                               ? 'Spin'
+                            : selectedDetail.game === 'bogeyman'
+                              ? 'Spin'
                             : selectedDetail.game === '3card-poker'
                               ? 'Bet Breakdown'
                               : 'Cards'}
@@ -829,6 +965,19 @@ function CasinoBetsView() {
                         <div className="casino-detail-row"><span>Jackpot Payout</span><strong>{formatMoney(selectedDetail?.roundData?.jackpotPayout ?? 0)}</strong></div>
                         <div className="casino-detail-row"><span>Jackpot Before</span><strong>{formatMoney(selectedDetail?.roundData?.jackpotBefore ?? 0)}</strong></div>
                         <div className="casino-detail-row"><span>Jackpot After</span><strong>{formatMoney(selectedDetail?.roundData?.jackpotAfter ?? 0)}</strong></div>
+                        <div className="casino-detail-row"><span>Free Spins Before</span><span>{selectedDetail?.roundData?.freeSpinsBefore ?? '0'}</span></div>
+                        <div className="casino-detail-row"><span>Free Spins Awarded</span><span>{selectedDetail?.roundData?.freeSpinsAwarded ?? '0'}</span></div>
+                        <div className="casino-detail-row"><span>Free Spins After</span><span>{selectedDetail?.roundData?.freeSpinsAfter ?? '0'}</span></div>
+                        <div className="casino-detail-row"><span>Free Spin Round</span><span>{selectedDetail?.roundData?.isFreeSpinRound ? 'Yes' : 'No'}</span></div>
+                      </>
+                    ) : selectedDetail.game === 'bogeyman' ? (
+                      <>
+                        <div className="casino-detail-row"><span>Lines</span><strong>{selectedDetail?.roundData?.lineCount ?? selectedDetail?.bets?.lines ?? '—'}</strong></div>
+                        <div className="casino-detail-row"><span>Coin Value</span><strong>{formatMoney(selectedDetail?.roundData?.coinValue ?? selectedDetail?.bets?.coinValue ?? 0)}</strong></div>
+                        <div className="casino-detail-row"><span>Total Spin Bet</span><strong>{formatMoney(selectedDetail?.roundData?.totalBet ?? selectedDetail?.bets?.totalBet ?? selectedDetail?.totalWager ?? 0)}</strong></div>
+                        <div className="casino-detail-row"><span>Coins Won</span><strong>{selectedDetail?.roundData?.coinsWon ?? '0'}</strong></div>
+                        <div className="casino-detail-row"><span>Line Win</span><strong>{formatMoney(selectedDetail?.roundData?.lineWin ?? 0)}</strong></div>
+                        <div className="casino-detail-row"><span>Scatters</span><span>{selectedDetail?.roundData?.scatterCount ?? '0'}</span></div>
                         <div className="casino-detail-row"><span>Free Spins Before</span><span>{selectedDetail?.roundData?.freeSpinsBefore ?? '0'}</span></div>
                         <div className="casino-detail-row"><span>Free Spins Awarded</span><span>{selectedDetail?.roundData?.freeSpinsAwarded ?? '0'}</span></div>
                         <div className="casino-detail-row"><span>Free Spins After</span><span>{selectedDetail?.roundData?.freeSpinsAfter ?? '0'}</span></div>
@@ -1007,6 +1156,36 @@ function CasinoBetsView() {
                     </section>
                   )}
 
+                  {selectedDetail.game === 'bogeyman' && (
+                    <section className="casino-detail-card">
+                      <h4>Bogeyman Spin Data</h4>
+                      <div className="casino-detail-stack">
+                        <span>Winning Lines</span>
+                        <div className="casino-card-list">
+                          {Array.isArray(selectedDetail?.roundData?.winningLines) && selectedDetail.roundData.winningLines.length > 0
+                            ? selectedDetail.roundData.winningLines.map((line, idx) => (
+                              <span className="casino-card-chip" key={`bogeyman-line-${idx}`}>
+                                L{line?.line ?? '?'} {line?.count ?? '?'}×{line?.symbol || '—'} {line?.coins ?? '?'} coins
+                              </span>
+                            ))
+                            : <span>No winning lines</span>}
+                        </div>
+                      </div>
+                      <div className="casino-detail-stack">
+                        <span>Reel Windows</span>
+                        <div className="casino-card-list">
+                          {Array.isArray(selectedDetail?.roundData?.reels) && selectedDetail.roundData.reels.length > 0
+                            ? selectedDetail.roundData.reels.map((window, idx) => (
+                              <span className="casino-card-chip" key={`bogeyman-reel-${idx}`}>
+                                R{idx + 1}: {String(window).split('').join('-')}
+                              </span>
+                            ))
+                            : <span>—</span>}
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
                   {selectedDetail.game === 'jurassic-run' && (
                     <section className="casino-detail-card">
                       <h4>Jurassic Run Spin Data</h4>
@@ -1088,6 +1267,16 @@ function CasinoBetsView() {
                     {selectedDetail.dealerHand && <div className="casino-detail-row"><span>Dealer Hand</span><span>{selectedDetail.dealerHand}</span></div>}
                     {selectedDetail.dealerQualifies !== null && selectedDetail.dealerQualifies !== undefined && (
                       <div className="casino-detail-row"><span>Dealer Qualifies</span><span>{selectedDetail.dealerQualifies ? 'Yes' : 'No'}</span></div>
+                    )}
+                    {selectedDetail.payoutApplied && typeof selectedDetail.payoutApplied === 'object' && (
+                      <div className="casino-detail-row">
+                        <span>Payout Config Applied</span>
+                        <code>
+                          {Object.entries(selectedDetail.payoutApplied)
+                            .map(([key, value]) => `${key}=${value}`)
+                            .join(' ')}
+                        </code>
+                      </div>
                     )}
                     <div className="casino-detail-row"><span>Integrity Hash</span><code>{selectedDetail.integrityHash || '—'}</code></div>
                   </section>

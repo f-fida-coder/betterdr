@@ -54,6 +54,20 @@ const LOCAL_GAME_META = {
         minBet: 1,
         maxBet: 5000,
     },
+    bogeyman: {
+        id: 'local-bogeyman',
+        provider: 'In-House',
+        // SL5R client launch params (getUrlVars uppercases keys): dummy session
+        // marker (auth lives with the parent), vendor cashier/history surfaces
+        // off, cents-precision USD formatting (this slot has a $0.01 chip).
+        url: '/games/bogeyman/index.html?v=20260712a&GAMESESSION=platform&GAMECODE=SL5R-BM&SHOWCASHIER=0&SHOWHISTORY=0&SHOWTYPE=1&CURRENCY=USD,%24,%C2%A2,p,5,2&LANG=en',
+        poster: '/games/bogeyman/images/bg/complete-bg.jpg',
+        themeColor: '#4c1d95',
+        minBet: 0.01,
+        maxBet: 50,
+        // Fixed-canvas landscape slot — rides the rotate overlay on phones.
+        landscape: true,
+    },
     '3card-poker': {
         id: 'local-3card-poker',
         provider: 'In-House',
@@ -85,6 +99,7 @@ const normalizeEmbeddedGameSlug = (value) => {
     if (normalized.includes('craps')) return 'craps';
     if (normalized.includes('arabian')) return 'arabian';
     if (normalized.includes('jurassic') || normalized.includes('jurrasic')) return 'jurassic-run';
+    if (normalized.includes('bogeyman') || normalized.includes('boggey')) return 'bogeyman';
     if (normalized.includes('3card') || normalized.includes('3-card') || normalized === 'poker') return '3card-poker';
     return '';
 };
@@ -158,7 +173,16 @@ const resolveLocalGameOrigin = (gameLike) => {
 
 const buildRoundResultSummary = (r) => {
     if (!r) return null;
-    const fmt = (v) => `$${Math.round(Math.abs(Number(v) || 0)).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+    // Whole dollars stay whole; sub-dollar amounts (Bogeyman's cent chips)
+    // keep their cents instead of rounding $0.50 up to "$1".
+    const fmt = (v) => {
+        const amount = Math.abs(Number(v) || 0);
+        const hasCents = Math.abs(amount - Math.round(amount)) >= 0.005;
+        return `$${amount.toLocaleString('en-US', {
+            minimumFractionDigits: hasCents ? 2 : 0,
+            maximumFractionDigits: hasCents ? 2 : 0,
+        })}`;
+    };
     if (r.jackpotWon) {
         return { label: 'JACKPOT!', detail: `+${fmt(r.jackpotPayout)}`, type: 'jackpot' };
     }
@@ -306,12 +330,14 @@ const CasinoView = () => {
                 || activeLocalGameRef.current?.name
                 || activeLocalGameRef.current?.id
             );
-            if (activeSlug === 'jurassic-run') {
+            if (activeSlug === 'jurassic-run' || activeSlug === 'bogeyman') {
+                // Per-user server state (free spins / locked bonus bet) so the
+                // game resumes a bonus correctly after a reload.
                 try {
                     const statePayload = await getCasinoGameState(activeSlug, token);
                     gameState = statePayload?.state || null;
                 } catch (stateErr) {
-                    console.error('Failed to fetch Jurassic Run state:', stateErr);
+                    console.error(`Failed to fetch ${activeSlug} state:`, stateErr);
                 }
             }
             sendToGame({
@@ -473,10 +499,12 @@ const CasinoView = () => {
                     await syncGameBalance();
                 };
 
-                if (requestedGame === 'jurassic-run' || requestedGame === 'baccarat-classic') {
+                if (requestedGame === 'jurassic-run' || requestedGame === 'baccarat-classic' || requestedGame === 'bogeyman') {
                     const safetyMs = requestedGame === 'baccarat-classic' ? 9000 : 15000;
                     pendingRoundResultRef.current = roundResult;
-                    if (requestedGame === 'baccarat-classic') {
+                    if (requestedGame === 'baccarat-classic' || requestedGame === 'bogeyman') {
+                        // Hold the balance change until the reveal too, so it
+                        // lands with the cards/reels — not on server settle.
                         pendingBalanceFinalizeRef.current = finalizeBalanceDisplay;
                     }
                     spinCompleteTimerRef.current = setTimeout(() => {
@@ -497,9 +525,10 @@ const CasinoView = () => {
                 // History can refresh now (it's not the visible balance).
                 await loadCasinoHistory();
 
-                // Baccarat holds its balance update for 'spinComplete' (the reveal);
-                // every other game updates it right away.
-                if (requestedGame !== 'baccarat-classic') {
+                // Baccarat and Bogeyman hold their balance update for
+                // 'spinComplete' (the reveal); every other game updates it
+                // right away.
+                if (requestedGame !== 'baccarat-classic' && requestedGame !== 'bogeyman') {
                     await finalizeBalanceDisplay();
                 }
             } catch (err) {

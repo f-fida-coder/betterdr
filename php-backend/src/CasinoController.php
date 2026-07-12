@@ -15,6 +15,7 @@ final class CasinoController
     private const CRAPS_GAME_SLUG = 'craps';
     private const ARABIAN_GAME_SLUG = 'arabian';
     private const JURASSIC_RUN_GAME_SLUG = 'jurassic-run';
+    private const BOGEYMAN_GAME_SLUG = 'bogeyman';
     private const THREE_CARD_POKER_GAME_SLUG = '3card-poker';
     private const LEGACY_ARABIAN_TREASURE_GAME_SLUG = 'arabian-treasure';
     private const ROULETTE_GAME_SLUG = 'roulette';
@@ -30,6 +31,7 @@ final class CasinoController
     private const CRAPS_SOURCE_TYPE = 'casino_craps';
     private const ARABIAN_SOURCE_TYPE = 'casino_arabian';
     private const JURASSIC_RUN_SOURCE_TYPE = 'casino_jurassic_run';
+    private const BOGEYMAN_SOURCE_TYPE = 'casino_bogeyman';
     private const THREE_CARD_POKER_SOURCE_TYPE = 'casino_3card_poker';
     private const ROULETTE_SOURCE_TYPE = 'casino_roulette';
     private const STUD_POKER_SOURCE_TYPE = 'casino_stud_poker';
@@ -44,6 +46,11 @@ final class CasinoController
     private const CRAPS_RNG_VERSION = 'server-rules-v1';
     private const ARABIAN_RNG_VERSION = 'server-slot-v1';
     private const JURASSIC_RUN_RNG_VERSION = 'jurassic-slot-v1';
+    private const BOGEYMAN_RNG_VERSION = 'bogeyman-slot-v1';
+    // Phase 3: commit-reveal seeded stops (Option A rotating chain, like
+    // baccarat-classic). Same strips/evaluation/payout — only the entropy
+    // source changed, and it is committed before the spin.
+    private const BOGEYMAN_FAIR_RNG_VERSION = 'commit-reveal-hmac-slot-v1';
     private const THREE_CARD_POKER_RNG_VERSION = 'server-cards-server-rules-v3';
     private const ROULETTE_RNG_VERSION = 'csprng-wheel-v2';
     private const STUD_POKER_RNG_VERSION = 'stud-house-v1';
@@ -55,6 +62,7 @@ final class CasinoController
         self::ARABIAN_GAME_SLUG => 'Arabian Game is available only from the in-house casino table.',
         self::JURASSIC_RUN_GAME_SLUG => 'Jurassic Run is available only from the in-house casino table.',
         self::THREE_CARD_POKER_GAME_SLUG => '3-Card Poker is available only from the in-house casino table.',
+        self::BOGEYMAN_GAME_SLUG => 'Bogeyman is available only from the in-house casino table.',
     ];
     private const REQUEST_ID_PATTERN = '/^[A-Za-z0-9_-]{8,128}$/';
     private const ROULETTE_RED_NUMBERS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
@@ -166,6 +174,51 @@ final class CasinoController
         [0, 2, 0, 2, 0],
     ];
 
+    // ── Bogeyman (SL5R-bm) game math ─────────────────────────────────────
+    // Reel strips, payline paths and paytable are the CAPTURED values from the
+    // original white-label server's Init.aspx (verified against 16 captured
+    // real spins). They are fixed, uniform game math — never per-player.
+    private const BOGEYMAN_REELS = 5;
+    private const BOGEYMAN_ROWS = 3;
+    private const BOGEYMAN_MAX_LINES = 25;
+    private const BOGEYMAN_MAX_FREE_SPINS = 500;
+    private const BOGEYMAN_WILD_SYMBOL = 'W';
+    private const BOGEYMAN_SCATTER_SYMBOL = 'X';
+    // The in-game chip ladder (coin value per line). Cent-precise by design;
+    // total wager = lines x coin value, so the floor bet is 1 line x $0.01.
+    private const BOGEYMAN_COIN_VALUES = [0.01, 0.05, 0.10, 0.25, 0.50, 1.00, 2.00];
+    // Scatter X count => free spins awarded (3/4/5-of-anywhere).
+    private const BOGEYMAN_FREESPIN_AWARDS = [3 => 5, 4 => 10, 5 => 20];
+    private const BOGEYMAN_REEL_STRIPS = [
+        'EGDBHFEGWHFCDEGABHFXEGCDHFWEGBHFAEGDCXHFEGWBHFDEGACHFEGXDBHFCEGWAHFDEGCBHFXEGADHFWEGCBHFEGDXHFAEGCHF',
+        'EGDBHFEGXHFCDEGABHFEGCDWHFXEGBHFAEGDCHFEGXBHFDWEGACHFEGDBHFCEGXAHFDEGWCBHFEGADHFXEGCBHFEGDWHFAEGCHF',
+        'EGDBHFEGXHFCDEGABHFEGCDWHFXEGBHFAEGDCHFEGXBHFDWEGACHFEGDBHFCEGXAHFDEGWCBHFEGADHFXEGCBHFEGDWHFAEGCHF',
+        'EGDBHFEGXHFCDEGABHFEGCDHFEGXBHFAWEGDCHFEGBHFDEGACHFXEGDBHFWCEGAHFDEGCBHFEGXADHFEGCBHFWEGDHFAEGCHF',
+        'EGDBHFEGXHFCDEGABHFEGCDHFEGXBHFAEGDCHFEGWBHFDEGACHFXEGDBHFCEGAHFDEGCBHFEGXADHFWEGCBHFEGDHFAEGCHF',
+    ];
+    // Payline paths as row digits (1=top, 2=middle, 3=bottom) per reel — the
+    // exact vendor strings; hit tokens sent to the client are prefixes of these.
+    private const BOGEYMAN_PATHS = [
+        '22222', '11111', '33333', '12321', '32123',
+        '11211', '33233', '21112', '23332', '11233',
+        '33211', '21232', '23212', '12121', '32323',
+        '12221', '32223', '21212', '23232', '22122',
+        '22322', '13331', '31113', '13131', '31313',
+    ];
+    // Line pays in coins ("<count><symbol>" => coins). Scatter free-spin
+    // entries (3X/4X/5X) live in BOGEYMAN_FREESPIN_AWARDS, not here.
+    private const BOGEYMAN_PAYTABLE = [
+        '2A' => 10, '3A' => 35, '4A' => 250, '5A' => 1000,
+        '3B' => 30, '4B' => 150, '5B' => 750,
+        '3C' => 25, '4C' => 120, '5C' => 500,
+        '3D' => 20, '4D' => 90, '5D' => 300,
+        '3E' => 10, '4E' => 30, '5E' => 100,
+        '3F' => 10, '4F' => 30, '5F' => 100,
+        '3G' => 10, '4G' => 30, '5G' => 100,
+        '3H' => 10, '4H' => 30, '5H' => 100,
+        '2W' => 15, '3W' => 75, '4W' => 500, '5W' => 3000,
+    ];
+
     private const DEFAULT_CASINO_GAMES = [
         ['provider' => 'internal', 'name' => 'Single Hand ($1-$100)', 'slug' => 'single-hand-1-100', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#115e59', 'icon' => 'fa-solid fa-diamond', 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Baccarat', 'slug' => 'baccarat-classic', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#9f1239', 'icon' => 'fa-solid fa-gem', 'imageUrl' => '/games/baccarat-classic/images/background.png', 'tags' => ['table games', 'baccarat', 'in-house'], 'isFeatured' => true],
@@ -173,6 +226,7 @@ final class CasinoController
         ['provider' => 'internal', 'name' => 'Craps', 'slug' => 'craps', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0a4f3a', 'icon' => 'fa-solid fa-dice-six', 'imageUrl' => '/games/craps/sprites/board_table.jpg', 'tags' => ['table games', 'craps', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Arabian Game', 'slug' => 'arabian', 'category' => 'slots', 'minBet' => 0.3, 'maxBet' => 30, 'themeColor' => '#7e22ce', 'icon' => 'fa-solid fa-scroll', 'imageUrl' => '/games/arabian/sprites/200x200.jpg', 'tags' => ['slots', 'arabian', 'in-house', 'server settled'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Jurassic Run', 'slug' => 'jurassic-run', 'category' => 'slots', 'minBet' => 1, 'maxBet' => 5000, 'rtp' => 95.0, 'volatility' => 'medium', 'themeColor' => '#166534', 'icon' => 'fa-solid fa-dragon', 'imageUrl' => '/games/jurassic-run/assets/images/background_middle.webp', 'tags' => ['slots', 'jurassic', 'in-house', 'server settled', 'progressive jackpot'], 'isFeatured' => true, 'metadata' => ['paylines' => 10, 'reels' => 5, 'rows' => 3, 'jackpotType' => 'progressive', 'jackpotContributionPercent' => 5, 'freeSpinAwards' => [3 => 2, 4 => 3, 5 => 4], 'rngVersion' => 'jurassic-slot-v1', 'fairness' => ['outcomeSource' => 'server_rng', 'spinIndependence' => true], 'features' => ['wild', 'free_spins', 'progressive_jackpot']]],
+        ['provider' => 'internal', 'name' => 'Bogeyman', 'slug' => 'bogeyman', 'category' => 'slots', 'minBet' => 0.01, 'maxBet' => 50, 'rtp' => 94.7, 'volatility' => 'medium', 'themeColor' => '#4c1d95', 'icon' => 'fa-solid fa-ghost', 'imageUrl' => '/games/bogeyman/images/bg/complete-bg.jpg', 'tags' => ['slots', 'bogeyman', 'in-house', 'server settled'], 'isFeatured' => true, 'metadata' => ['paylines' => 25, 'reels' => 5, 'rows' => 3, 'coinValues' => [0.01, 0.05, 0.10, 0.25, 0.50, 1.00, 2.00], 'freeSpinAwards' => [3 => 5, 4 => 10, 5 => 20], 'rngVersion' => 'bogeyman-slot-v1', 'fairness' => ['outcomeSource' => 'server_rng', 'spinIndependence' => true], 'features' => ['wild', 'free_spins']]],
         ['provider' => 'internal', 'name' => '3-Card Poker', 'slug' => '3card-poker', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 300, 'themeColor' => '#1a3a5c', 'icon' => 'fa-solid fa-cards', 'imageUrl' => '/games/3-card-poker/sprites/200x200.jpg', 'tags' => ['table games', 'poker', '3-card poker', 'in-house'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Jacks or Better', 'slug' => 'jacks-or-better', 'category' => 'video_poker', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#be123c', 'icon' => 'fa-solid fa-cards'],
         ['provider' => 'internal', 'name' => 'Video Keno', 'slug' => 'video-keno', 'category' => 'specialty_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#0ea5e9', 'icon' => 'fa-solid fa-table-cells-large'],
@@ -602,6 +656,24 @@ final class CasinoController
                             'totalJackpotsHit' => (int) ($progressiveState['totalJackpotsHit'] ?? 0),
                         ],
                         'gameConfig' => self::jurassicRunPublicMetadata(),
+                    ],
+                ]);
+                return;
+            }
+
+            if ($slug === self::BOGEYMAN_GAME_SLUG) {
+                // Per-user free-spin state so a mid-bonus reload resumes with
+                // the server-locked trigger bet (values are display hints; the
+                // bet endpoint re-reads state under the user-row lock).
+                $state = $this->getUserBogeymanState($actor);
+                Response::json([
+                    'game' => $slug,
+                    'state' => [
+                        'freeSpinsRemaining' => (int) ($state['freeSpinsRemaining'] ?? 0),
+                        'freeSpinLineCount' => $state['freeSpinLineCount'] ?? null,
+                        'freeSpinCoinValue' => $state['freeSpinCoinValue'] ?? null,
+                        'bonusRoundActive' => ((int) ($state['freeSpinsRemaining'] ?? 0)) > 0,
+                        'gameConfig' => self::bogeymanPublicMetadata(),
                     ],
                 ]);
                 return;
@@ -1122,6 +1194,10 @@ final class CasinoController
                 $this->placeJurassicRunBet($actor, $body, $requestId, $startedAt);
                 return;
             }
+            if ($game === self::BOGEYMAN_GAME_SLUG) {
+                $this->placeBogeymanBet($actor, $body, $requestId, $startedAt);
+                return;
+            }
             if ($game === self::THREE_CARD_POKER_GAME_SLUG) {
                 $this->place3CardPokerBet($actor, $body, $requestId, $startedAt);
                 return;
@@ -1240,7 +1316,9 @@ final class CasinoController
                 // FAIL LOUD — never silently re-init or fall back to unseeded RNG.
                 $shoeDecks = self::BACCARAT_SHOE_DECKS;
                 $chainId = $this->baccaratSeedChainId($userId, $game);
-                $chain = $this->db->findOne('casino_seed_chains', ['id' => $chainId]);
+                // Row-lock the chain itself as well as the user row: even if an
+                // outer serialization ever failed, read->rotate stays atomic.
+                $chain = $this->db->findOneForUpdate('casino_seed_chains', ['id' => $chainId]);
                 if ($chain === null || !isset($chain['serverSeed']) || (string) $chain['serverSeed'] === '') {
                     $this->db->rollback();
                     $this->writeCasinoAuditLog('baccarat_seed_chain_missing', [
@@ -3592,6 +3670,931 @@ final class CasinoController
         }
 
         return [-1, 0.0];
+    }
+
+    // ════════════════════════════════════════════════════════
+    //  BOGEYMAN (SL5R-bm) SLOT — server-authoritative engine
+    // ════════════════════════════════════════════════════════
+    //
+    // Money precision: this branch settles in CENTS (round to 2dp), matching
+    // the sportsbook convention (BetsController) — the game's chip ladder goes
+    // down to a $0.01 coin, so the whole-dollar rounding used by the other
+    // casino branches would debit $0 for sub-dollar wagers. It therefore uses
+    // its own 2dp snapshot/ledger-entry helpers below instead of the shared
+    // integer-rounding ones; the transaction structure is otherwise identical.
+
+    private function placeBogeymanBet(array $actor, array $body, string $requestId, float $startedAt): void
+    {
+        $userId = (string) ($actor['id'] ?? '');
+
+        try {
+            $gameRow = $this->requireActiveCasinoGame(self::BOGEYMAN_GAME_SLUG);
+            // Effective admin payout config: clamped on read (never trusted
+            // raw) and stamped onto the round as payoutApplied below.
+            $payoutConfig = $this->resolveBogeymanPayoutConfig($gameRow);
+
+            $clientBets = is_array($body['bets'] ?? null) ? $body['bets'] : [];
+            $payloadMeta = is_array($body['payload'] ?? null) ? $body['payload'] : [];
+            $requestedLineCount = $this->parseBogeymanLineCount(
+                $clientBets['lines'] ?? $clientBets['lineCount'] ?? $payloadMeta['lines'] ?? null
+            );
+            $requestedCoinValue = $this->parseBogeymanCoinValue(
+                $clientBets['coinValue'] ?? $clientBets['coin'] ?? $clientBets['betPerLine'] ?? $payloadMeta['coinValue'] ?? null
+            );
+            $declaredTotalBet = $this->parseBogeymanMoneyValue(
+                $clientBets['totalBet'] ?? $clientBets['bet'] ?? 0,
+                'bets.totalBet'
+            );
+            $clientDeclaredFreeSpin = (string) ($payloadMeta['clientFs'] ?? '') === '1';
+            $requestedTotalBet = round($requestedCoinValue * $requestedLineCount, 2);
+
+            if ($requestedTotalBet <= 0) {
+                Response::json(['message' => 'Bogeyman spin bet must be greater than zero'], 400);
+                return;
+            }
+
+            [$gameMinBet, $gameMaxBet] = $this->resolveBogeymanBetLimits();
+            $this->db->beginTransaction();
+            try {
+                $lockedUser = $this->loadLockedCasinoUser($userId);
+                $betLimits = $this->buildBogeymanBetLimits($lockedUser, $gameMinBet, $gameMaxBet);
+
+                $existingRound = $this->db->findOne('casino_bets', [
+                    'userId' => $userId,
+                    'requestId' => $requestId,
+                    'game' => self::BOGEYMAN_GAME_SLUG,
+                ]);
+                if ($existingRound !== null) {
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['id'] ?? '');
+                    $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+                    if (!is_array($existingRound['betLimits'] ?? null)) {
+                        $existingRound['betLimits'] = $betLimits;
+                    }
+                    $this->writeCasinoAuditLog('bogeyman_round_idempotent', [
+                        'requestId' => $requestId,
+                        'roundId' => $roundId,
+                        'userId' => $userId,
+                        'username' => (string) ($lockedUser['username'] ?? ''),
+                        'idempotent' => true,
+                    ]);
+                    $this->db->commit();
+                    Response::json($this->formatCasinoBetResponse($existingRound, $ledgerEntries, true));
+                    return;
+                }
+
+                $stateBefore = $this->getUserBogeymanState($lockedUser);
+                $isFreeSpinRound = ($stateBefore['freeSpinsRemaining'] ?? 0) > 0;
+                $lineCount = $requestedLineCount;
+                $coinValue = $requestedCoinValue;
+                $lockedLineCount = $stateBefore['freeSpinLineCount'] ?? null;
+                $lockedCoinValue = $stateBefore['freeSpinCoinValue'] ?? null;
+                if (
+                    $isFreeSpinRound
+                    && is_int($lockedLineCount)
+                    && is_numeric($lockedCoinValue)
+                    && $lockedLineCount >= 1
+                    && $lockedLineCount <= self::BOGEYMAN_MAX_LINES
+                    && $this->num($lockedCoinValue) > 0
+                ) {
+                    // Free spins replay the TRIGGER spin's bet — a changed bet
+                    // from the client is overridden and audited, never honored.
+                    $lineCount = $lockedLineCount;
+                    $coinValue = round($this->num($lockedCoinValue), 2);
+                }
+
+                $baseTotalBet = round($coinValue * $lineCount, 2);
+                $totalWager = $isFreeSpinRound ? 0.0 : $baseTotalBet;
+                if ($isFreeSpinRound && ($lineCount !== $requestedLineCount || abs($coinValue - $requestedCoinValue) > 0.001)) {
+                    $this->writeCasinoAuditLog('bogeyman_freespin_bet_locked', [
+                        'requestId' => $requestId,
+                        'userId' => $userId,
+                        'username' => (string) ($lockedUser['username'] ?? ''),
+                        'requestedLines' => $requestedLineCount,
+                        'requestedCoinValue' => $requestedCoinValue,
+                        'lockedLines' => $lineCount,
+                        'lockedCoinValue' => $coinValue,
+                    ]);
+                }
+
+                if ($baseTotalBet > $gameMaxBet) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Maximum Bogeyman wager is $' . number_format($gameMaxBet, 2)], 400);
+                    return;
+                }
+
+                if (!$isFreeSpinRound) {
+                    if ($totalWager < $gameMinBet) {
+                        $this->db->rollback();
+                        Response::json(['message' => 'Minimum Bogeyman wager is $' . number_format($gameMinBet, 2)], 400);
+                        return;
+                    }
+                    if ($totalWager > $gameMaxBet) {
+                        $this->db->rollback();
+                        Response::json(['message' => 'Maximum Bogeyman wager is $' . number_format($gameMaxBet, 2)], 400);
+                        return;
+                    }
+
+                    // Account MAX (exposure ceiling) still applies; the account
+                    // minBet is a sportsbook limit and is not applied to casino.
+                    $this->assertUserWagerWithinLimits($lockedUser, $totalWager);
+                    $this->assertCasinoLossLimits($lockedUser, $totalWager);
+                }
+
+                $balanceSnapshot = $this->getBogeymanBalanceSnapshot($lockedUser);
+                if ($totalWager > $balanceSnapshot['availableBalance']) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Insufficient balance. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                    return;
+                }
+
+                $roundId = $this->deterministicRoundId(self::BOGEYMAN_GAME_SLUG, $userId, $requestId);
+
+                // ── Commit-reveal fairness (Option A: stored rotating chain) ──
+                // Read the CURRENT seed from the chain under the SAME user-row
+                // lock held since loadLockedCasinoUser above, so read+rotate is
+                // serialized with placement — two near-simultaneous spins can't
+                // fork or skip the chain. The seed's hash was already committed
+                // to the client (fairness/state on open, or the prior spin's
+                // serverSeedHashNext). Free spins are spins: each one reads and
+                // rotates too. If the row is missing where it must exist, FAIL
+                // LOUD — never silently re-init, never fall back to unseeded RNG.
+                $chainId = $this->baccaratSeedChainId($userId, self::BOGEYMAN_GAME_SLUG);
+                // Row-lock the chain itself as well as the user row: even if an
+                // outer serialization ever failed, read->rotate stays atomic.
+                $chain = $this->db->findOneForUpdate('casino_seed_chains', ['id' => $chainId]);
+                if ($chain === null || !isset($chain['serverSeed']) || (string) $chain['serverSeed'] === '') {
+                    $this->db->rollback();
+                    $this->writeCasinoAuditLog('bogeyman_seed_chain_missing', [
+                        'requestId' => $requestId,
+                        'userId' => $userId,
+                        'game' => self::BOGEYMAN_GAME_SLUG,
+                    ]);
+                    Response::json(['message' => 'Fairness is not initialized for this session. Please reload the game and try again.'], 409);
+                    return;
+                }
+                $serverSeed = (string) $chain['serverSeed'];
+                $serverSeedHash = (string) ($chain['serverSeedHash'] ?? hash('sha256', $serverSeed));
+                $nonce = (int) ($chain['nonce'] ?? 0);
+                $clientSeed = $this->resolveClientSeed($body);
+
+                $settlement = $this->settleBogeymanSpin($coinValue, $lineCount, $stateBefore, $payoutConfig, $serverSeed, $clientSeed, $nonce);
+
+                // Rotate the chain to a fresh unrevealed seed for the NEXT spin,
+                // in this same transaction (rolled back with everything else if
+                // the spin fails). Only the next seed's HASH ever leaves the
+                // server; the seed stays secret until that spin is played.
+                $nextServerSeed = bin2hex(random_bytes(32));
+                $serverSeedHashNext = hash('sha256', $nextServerSeed);
+                $this->db->updateOne('casino_seed_chains', ['id' => $chainId], [
+                    'serverSeed' => $nextServerSeed,
+                    'serverSeedHash' => $serverSeedHashNext,
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce + 1,
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ]);
+                $totalReturn = round($this->num($settlement['totalReturn'] ?? 0), 2);
+                $netResult = round($totalReturn - $totalWager, 2);
+                $profit = round(max(0, $netResult), 2);
+                $result = (string) ($settlement['result'] ?? ($totalReturn > 0 ? 'Win' : 'Lose'));
+                $resultType = (string) ($settlement['resultType'] ?? '');
+                $roundData = is_array($settlement['roundData'] ?? null) ? $settlement['roundData'] : [];
+                $stateAfter = is_array($settlement['stateAfter'] ?? null) ? $settlement['stateAfter'] : ['freeSpinsRemaining' => 0];
+
+                $now = SqlRepository::nowUtc();
+                $ipAddress = IpUtils::clientIp();
+                $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
+                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager, 2);
+                $balanceAfter = round($balanceAfterDebit + $totalReturn, 2);
+                $availableBalanceAfter = $this->bogeymanAvailableCredit($balanceAfter, $balanceSnapshot['pendingBalance'], $lockedUser);
+
+                $debitEntry = null;
+                $debitEntryId = null;
+                if ($totalWager > 0) {
+                    $debitEntry = $this->buildBogeymanTransactionEntry(
+                        $userId,
+                        $totalWager,
+                        $roundId,
+                        'DEBIT',
+                        'casino_bet_debit',
+                        $balanceSnapshot['balanceBefore'],
+                        $balanceAfterDebit,
+                        'CASINO_BOGEYMAN_WAGER',
+                        'Bogeyman spin wager charged',
+                        $now,
+                        $ipAddress,
+                        $userAgent
+                    );
+                    $debitEntryId = $this->db->insertOne('transactions', $debitEntry);
+                }
+
+                $creditEntry = null;
+                $creditEntryId = null;
+                if ($totalReturn > 0) {
+                    $creditEntry = $this->buildBogeymanTransactionEntry(
+                        $userId,
+                        $totalReturn,
+                        $roundId,
+                        'CREDIT',
+                        'casino_bet_credit',
+                        $balanceAfterDebit,
+                        $balanceAfter,
+                        'CASINO_BOGEYMAN_PAYOUT',
+                        'Bogeyman spin payout credited',
+                        $now,
+                        $ipAddress,
+                        $userAgent
+                    );
+                    $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
+                }
+
+                $stateAfter['updatedAt'] = $now;
+                $stateAfter['lastRoundId'] = $roundId;
+                $stateAfter['lastSpinAt'] = $now;
+
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
+                    'balance' => $balanceAfter,
+                    'casinoBogeymanState' => $stateAfter,
+                    'updatedAt' => $now,
+                ]);
+
+                $serverDecisionAt = SqlRepository::nowUtc();
+                $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
+                $integrityHash = $this->buildIntegrityHash([
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::BOGEYMAN_GAME_SLUG,
+                    'coinValue' => $coinValue,
+                    'lineCount' => $lineCount,
+                    'requestedCoinValue' => $requestedCoinValue,
+                    'requestedLineCount' => $requestedLineCount,
+                    'clientDeclaredFreeSpin' => $clientDeclaredFreeSpin,
+                    'isFreeSpinRound' => $isFreeSpinRound,
+                    'declaredTotalBet' => $declaredTotalBet,
+                    'payoutApplied' => $payoutConfig,
+                    'serverSeedHash' => $serverSeedHash,
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce,
+                    'stripsHash' => self::bogeymanStripsHash(),
+                    'totalWager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'netResult' => $netResult,
+                    'stops' => $roundData['stops'] ?? [],
+                    'reels' => $roundData['reels'] ?? [],
+                    'winningLines' => $roundData['winningLines'] ?? [],
+                    'scatterCount' => $roundData['scatterCount'] ?? 0,
+                    'freeSpinsBefore' => $roundData['freeSpinsBefore'] ?? 0,
+                    'freeSpinsAfter' => $roundData['freeSpinsAfter'] ?? 0,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'serverDecisionAt' => $serverDecisionAt,
+                ]);
+
+                $ledgerRefs = [];
+                if ($debitEntryId !== null) {
+                    $ledgerRefs['debit'] = $debitEntryId;
+                }
+                if ($creditEntryId !== null) {
+                    $ledgerRefs['credit'] = $creditEntryId;
+                }
+
+                $betDetails = [
+                    'winningLines' => is_array($roundData['winningLines'] ?? null) ? $roundData['winningLines'] : [],
+                    'lineWin' => round($this->num($roundData['lineWin'] ?? 0), 2),
+                    'coinsWon' => (int) ($roundData['coinsWon'] ?? 0),
+                    'scatterCount' => (int) ($roundData['scatterCount'] ?? 0),
+                    'freeSpinsBefore' => (int) ($roundData['freeSpinsBefore'] ?? 0),
+                    'freeSpinsAwarded' => (int) ($roundData['freeSpinsAwarded'] ?? 0),
+                    'freeSpinsAfter' => (int) ($roundData['freeSpinsAfter'] ?? 0),
+                    'isFreeSpinRound' => (bool) ($roundData['isFreeSpinRound'] ?? false),
+                ];
+
+                $betRecord = [
+                    'id' => $roundId,
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? $actor['username'] ?? ''),
+                    'game' => self::BOGEYMAN_GAME_SLUG,
+                    'bets' => [
+                        'lines' => $lineCount,
+                        'coinValue' => $coinValue,
+                        'totalBet' => $baseTotalBet,
+                        'clientRequestedLines' => $requestedLineCount,
+                        'clientRequestedCoinValue' => $requestedCoinValue,
+                        'clientDeclaredTotalBet' => $declaredTotalBet,
+                        'isFreeSpinRound' => $isFreeSpinRound,
+                    ],
+                    'result' => $result,
+                    'resultType' => $resultType,
+                    'totalWager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'profit' => $profit,
+                    'netResult' => $netResult,
+                    // The exact clamped config this round settled with — stays
+                    // provably-this even after an admin later changes config.
+                    'payoutApplied' => $payoutConfig,
+                    // Commit-reveal: REVEALED seed for THIS spin + the committed
+                    // hash it fulfilled + the NEXT spin's commitment. No secret
+                    // is included, derivable, or logged (Option A has none).
+                    'serverSeed' => $serverSeed,
+                    'serverSeedHash' => $serverSeedHash,
+                    'serverSeedHashNext' => $serverSeedHashNext,
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce,
+                    'stripsHash' => self::bogeymanStripsHash(),
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'availableBalanceBefore' => $balanceSnapshot['availableBalance'],
+                    'availableBalanceAfter' => $availableBalanceAfter,
+                    'pendingBalanceSnapshot' => $balanceSnapshot['pendingBalance'],
+                    'ledgerEntries' => $ledgerRefs,
+                    'rngVersion' => self::BOGEYMAN_FAIR_RNG_VERSION,
+                    'outcomeSource' => 'server_rng',
+                    'betLimits' => $betLimits,
+                    'betDetails' => $betDetails,
+                    'roundData' => $roundData,
+                    'integrityHash' => $integrityHash,
+                    'serverDecisionAt' => $serverDecisionAt,
+                    'latencyMs' => $latencyMs,
+                    'roundStatus' => 'settled',
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ];
+                $this->db->insertOne('casino_bets', $betRecord);
+
+                $this->db->insertOne('casino_round_audit', [
+                    'id' => $roundId,
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::BOGEYMAN_GAME_SLUG,
+                    'rngVersion' => self::BOGEYMAN_FAIR_RNG_VERSION,
+                    'outcomeSource' => 'server_rng',
+                    'bets' => $betRecord['bets'],
+                    'payoutApplied' => $payoutConfig,
+                    'serverSeedHash' => $serverSeedHash,
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce,
+                    'stripsHash' => self::bogeymanStripsHash(),
+                    'result' => $result,
+                    'resultType' => $resultType,
+                    'betDetails' => $betDetails,
+                    'roundData' => $roundData,
+                    'integrityHash' => $integrityHash,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+
+                $this->db->commit();
+
+                $ledgerEntries = [];
+                if (is_array($debitEntry) && $debitEntryId !== null) {
+                    $ledgerEntries[] = array_merge($debitEntry, ['id' => $debitEntryId]);
+                }
+                if (is_array($creditEntry) && $creditEntryId !== null) {
+                    $ledgerEntries[] = array_merge($creditEntry, ['id' => $creditEntryId]);
+                }
+
+                $this->writeCasinoAuditLog('bogeyman_round_settled', [
+                    'requestId' => $requestId,
+                    'roundId' => $roundId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? ''),
+                    'coinValue' => $coinValue,
+                    'lines' => $lineCount,
+                    'isFreeSpinRound' => $isFreeSpinRound,
+                    'wager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'netResult' => $netResult,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'scatterCount' => (int) ($roundData['scatterCount'] ?? 0),
+                    'freeSpinsBefore' => (int) ($roundData['freeSpinsBefore'] ?? 0),
+                    'freeSpinsAfter' => (int) ($roundData['freeSpinsAfter'] ?? 0),
+                ]);
+                Response::json($this->formatCasinoBetResponse($betRecord, $ledgerEntries, false));
+            } catch (Throwable $txErr) {
+                $this->db->rollback();
+                throw $txErr;
+            }
+        } catch (InvalidArgumentException $e) {
+            $this->writeCasinoAuditLog('bogeyman_round_validation_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            $this->writeCasinoAuditLog('bogeyman_round_server_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => 'Server error placing Bogeyman bet'], 500);
+        }
+    }
+
+    /**
+     * @return array{freeSpinsRemaining:int,freeSpinLineCount:?int,freeSpinCoinValue:?float}
+     */
+    private function getUserBogeymanState(array $user): array
+    {
+        $raw = is_array($user['casinoBogeymanState'] ?? null) ? $user['casinoBogeymanState'] : [];
+        $freeSpinsRaw = $this->safeNumber($raw['freeSpinsRemaining'] ?? null, 0);
+        $freeSpins = max(0, min(self::BOGEYMAN_MAX_FREE_SPINS, (int) round($freeSpinsRaw ?? 0)));
+
+        $lineCountRaw = $this->safeNumber($raw['freeSpinLineCount'] ?? null, null);
+        $freeSpinLineCount = null;
+        if ($lineCountRaw !== null) {
+            $candidate = (int) round($lineCountRaw);
+            if (abs($lineCountRaw - $candidate) <= 0.00001 && $candidate >= 1 && $candidate <= self::BOGEYMAN_MAX_LINES) {
+                $freeSpinLineCount = $candidate;
+            }
+        }
+
+        $coinValueRaw = $this->safeNumber($raw['freeSpinCoinValue'] ?? null, null);
+        $freeSpinCoinValue = null;
+        if ($coinValueRaw !== null && $coinValueRaw > 0 && $coinValueRaw <= 2.0) {
+            $freeSpinCoinValue = round($coinValueRaw, 2);
+        }
+
+        return [
+            'freeSpinsRemaining' => $freeSpins,
+            'freeSpinLineCount' => $freeSpinLineCount,
+            'freeSpinCoinValue' => $freeSpinCoinValue,
+        ];
+    }
+
+    private function parseBogeymanLineCount(mixed $value): int
+    {
+        if ($value === null || $value === '') {
+            throw new InvalidArgumentException('bets.lines is required');
+        }
+        if (!is_numeric($value)) {
+            throw new InvalidArgumentException('bets.lines must be numeric');
+        }
+
+        $raw = (float) $value;
+        $lineCount = (int) round($raw);
+        if (abs($raw - $lineCount) > 0.00001) {
+            throw new InvalidArgumentException('bets.lines must be an integer');
+        }
+        if ($lineCount < 1 || $lineCount > self::BOGEYMAN_MAX_LINES) {
+            throw new InvalidArgumentException('bets.lines must be between 1 and ' . self::BOGEYMAN_MAX_LINES);
+        }
+
+        return $lineCount;
+    }
+
+    private function parseBogeymanCoinValue(mixed $value): float
+    {
+        $coinValue = $this->parseBogeymanMoneyValue($value, 'bets.coinValue');
+        $coinCents = (int) round($coinValue * 100);
+        foreach (self::BOGEYMAN_COIN_VALUES as $allowed) {
+            if ((int) round($allowed * 100) === $coinCents) {
+                return round($allowed, 2);
+            }
+        }
+        throw new InvalidArgumentException('bets.coinValue must be one of the game chip values');
+    }
+
+    // Cent-precise money parser (the shared parseMoneyValue enforces whole
+    // dollars, which would reject this game's sub-dollar chips).
+    private function parseBogeymanMoneyValue(mixed $value, string $fieldName): float
+    {
+        if ($value === null || $value === '') {
+            return 0.0;
+        }
+        if (!is_numeric($value)) {
+            throw new InvalidArgumentException($fieldName . ' must be numeric');
+        }
+        $amount = (float) $value;
+        if (!is_finite($amount) || $amount < 0) {
+            throw new InvalidArgumentException($fieldName . ' must be a valid non-negative amount');
+        }
+        $rounded = round($amount, 2);
+        if (abs($amount - $rounded) > 0.00001) {
+            throw new InvalidArgumentException($fieldName . ' must have at most 2 decimal places');
+        }
+        return $rounded;
+    }
+
+    /**
+     * @return array{0: float, 1: float}
+     */
+    private function resolveBogeymanBetLimits(): array
+    {
+        // Cent-precise variant of resolveGameBetLimits (which integer-rounds
+        // and would collapse the $0.01 chip floor to $0).
+        $game = $this->db->findOne('casinogames', ['slug' => self::BOGEYMAN_GAME_SLUG]);
+        $min = $this->safeNumber($game['minBet'] ?? null, 0.01);
+        $max = $this->safeNumber($game['maxBet'] ?? null, 50.0);
+        $resolvedMin = ($min !== null && $min > 0) ? round($min, 2) : 0.01;
+        $resolvedMax = ($max !== null && $max > 0) ? round($max, 2) : 50.0;
+        if ($resolvedMax < $resolvedMin) {
+            $resolvedMax = $resolvedMin;
+        }
+
+        return [$resolvedMin, $resolvedMax];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildBogeymanBetLimits(array $lockedUser, float $gameMinBet, float $gameMaxBet): array
+    {
+        $accountMinRaw = $this->safeNumber($lockedUser['minBet'] ?? null, null);
+        $accountMaxRaw = $this->safeNumber($lockedUser['maxBet'] ?? null, null);
+        $accountMinBet = ($accountMinRaw !== null && $accountMinRaw > 0) ? round($accountMinRaw, 2) : null;
+        $accountMaxBet = ($accountMaxRaw !== null && $accountMaxRaw > 0) ? round($accountMaxRaw, 2) : null;
+
+        // Casino min = the game's own chip floor only (account minBet is a
+        // sportsbook limit). Account MAX still caps exposure.
+        $effectiveMinBet = $gameMinBet;
+        $effectiveMaxBet = $accountMaxBet !== null ? min($gameMaxBet, $accountMaxBet) : $gameMaxBet;
+        if ($effectiveMaxBet < $effectiveMinBet) {
+            $effectiveMaxBet = $effectiveMinBet;
+        }
+
+        return [
+            'accountMinBet' => $accountMinBet,
+            'accountMaxBet' => $accountMaxBet,
+            'gameMinBet' => round($gameMinBet, 2),
+            'gameMaxBet' => round($gameMaxBet, 2),
+            'effectiveMinBet' => round($effectiveMinBet, 2),
+            'effectiveMaxBet' => round($effectiveMaxBet, 2),
+            'lineMin' => 1,
+            'lineMax' => self::BOGEYMAN_MAX_LINES,
+            'coinValues' => self::BOGEYMAN_COIN_VALUES,
+        ];
+    }
+
+    // Cent-precise mirror of availableCredit(): same credit-line rule, 2dp.
+    private function bogeymanAvailableCredit(float $balance, float $pending, array $user): float
+    {
+        $role = strtolower(trim((string) ($user['role'] ?? 'user')));
+        $creditLimit = $this->num($user['creditLimit'] ?? 0);
+        $base = ($role === 'user' && $creditLimit > 0) ? ($creditLimit + $balance) : $balance;
+
+        return round(max(0, $base - $pending), 2);
+    }
+
+    /**
+     * Cent-precise mirror of getUserBalanceSnapshot(). The shared snapshot
+     * integer-rounds, which would misstate balanceBefore for the fractional
+     * balances this game creates and overstate available credit by up to 49c.
+     *
+     * @return array{balanceBefore: float, pendingBalance: float, availableBalance: float}
+     */
+    private function getBogeymanBalanceSnapshot(array $lockedUser): array
+    {
+        $balanceBefore = round($this->num($lockedUser['balance'] ?? 0), 2);
+        $pendingBalance = round($this->num($lockedUser['pendingBalance'] ?? 0), 2);
+        $availableBalance = $this->bogeymanAvailableCredit($balanceBefore, $pendingBalance, $lockedUser);
+
+        return [
+            'balanceBefore' => $balanceBefore,
+            'pendingBalance' => $pendingBalance,
+            'availableBalance' => $availableBalance,
+        ];
+    }
+
+    /**
+     * Cent-precise mirror of buildCasinoTransactionEntry (same ledger shape;
+     * only the rounding differs — see the branch precision note above).
+     *
+     * @return array<string, mixed>
+     */
+    private function buildBogeymanTransactionEntry(
+        string $userId,
+        float $amount,
+        string $roundId,
+        string $entrySide,
+        string $type,
+        float $balanceBefore,
+        float $balanceAfter,
+        string $reason,
+        string $description,
+        string $now,
+        ?string $ipAddress,
+        ?string $userAgent
+    ): array {
+        return [
+            'userId' => $userId,
+            'amount' => round($amount, 2),
+            'type' => $type,
+            'entrySide' => $entrySide,
+            'entryGroupId' => $roundId,
+            'sourceType' => self::BOGEYMAN_SOURCE_TYPE,
+            'sourceId' => $roundId,
+            'status' => 'completed',
+            'balanceBefore' => round($balanceBefore, 2),
+            'balanceAfter' => round($balanceAfter, 2),
+            'referenceType' => 'CasinoRound',
+            'referenceId' => $roundId,
+            'reason' => $reason,
+            'description' => $description,
+            'ipAddress' => $ipAddress,
+            'userAgent' => $userAgent,
+            'createdAt' => $now,
+            'updatedAt' => $now,
+        ];
+    }
+
+    /**
+     * Effective Bogeyman payout config: the generic resolver clamps every key
+     * to its spec range (and logs payout_config_clamped when it corrects a
+     * stored value); this wrapper additionally normalizes the free-spin
+     * counts to integers — the same normalization the display surfaces apply,
+     * so display == payout even for a hand-written fractional value.
+     *
+     * @return array{payoutScale: float, freeSpins3: int, freeSpins4: int, freeSpins5: int}
+     */
+    private function resolveBogeymanPayoutConfig(?array $gameRow): array
+    {
+        $cfg = $this->resolveGamePayoutConfig(self::BOGEYMAN_GAME_SLUG, $gameRow);
+
+        return [
+            'payoutScale' => round($this->num($cfg['payoutScale'] ?? 1.0), 2),
+            'freeSpins3' => (int) round($this->num($cfg['freeSpins3'] ?? 5)),
+            'freeSpins4' => (int) round($this->num($cfg['freeSpins4'] ?? 10)),
+            'freeSpins5' => (int) round($this->num($cfg['freeSpins5'] ?? 20)),
+        ];
+    }
+
+    /**
+     * Deal + settle one Bogeyman spin. Every number here is pure game math on
+     * the captured strips/paths/paytable; the CSPRNG picks 5 reel stops.
+     *
+     * The reel stops come from the committed-seed derivation — there is no
+     * unseeded path. Callers must supply the (serverSeed, clientSeed, nonce)
+     * tuple whose hash was committed before this spin.
+     *
+     * @param array{freeSpinsRemaining:int,freeSpinLineCount:?int,freeSpinCoinValue:?float} $stateBefore
+     * @param array{payoutScale: float, freeSpins3: int, freeSpins4: int, freeSpins5: int}|null $payoutConfig
+     * @return array{
+     *   totalReturn: float,
+     *   result: string,
+     *   resultType: string,
+     *   roundData: array<string, mixed>,
+     *   stateAfter: array<string, mixed>
+     * }
+     */
+    private function settleBogeymanSpin(float $coinValue, int $lineCount, array $stateBefore, ?array $payoutConfig, string $serverSeed, string $clientSeed, int $nonce): array
+    {
+        // Defensive re-clamp at the payout site (mirrors calculateBaccaratPayout):
+        // even a caller passing a raw value cannot pay outside the spec range.
+        $payoutScale = self::clampPayoutValue($payoutConfig['payoutScale'] ?? null, self::BOGEYMAN_PAYOUT_SPEC['payoutScale']);
+        $freeSpinAwards = [
+            3 => (int) round(self::clampPayoutValue($payoutConfig['freeSpins3'] ?? null, self::BOGEYMAN_PAYOUT_SPEC['freeSpins3'])),
+            4 => (int) round(self::clampPayoutValue($payoutConfig['freeSpins4'] ?? null, self::BOGEYMAN_PAYOUT_SPEC['freeSpins4'])),
+            5 => (int) round(self::clampPayoutValue($payoutConfig['freeSpins5'] ?? null, self::BOGEYMAN_PAYOUT_SPEC['freeSpins5'])),
+        ];
+        $freeSpinsBefore = max(0, (int) ($stateBefore['freeSpinsRemaining'] ?? 0));
+        $isFreeSpinRound = $freeSpinsBefore > 0;
+        $freeSpinsAfter = $isFreeSpinRound ? ($freeSpinsBefore - 1) : $freeSpinsBefore;
+        $lockedLineCountBefore = is_int($stateBefore['freeSpinLineCount'] ?? null) ? (int) $stateBefore['freeSpinLineCount'] : null;
+        $lockedCoinValueBefore = is_numeric($stateBefore['freeSpinCoinValue'] ?? null) ? round($this->num($stateBefore['freeSpinCoinValue']), 2) : null;
+
+        [$stops, $windows] = $this->bogeymanSeededStops($serverSeed, $clientSeed, $nonce);
+        $evaluation = $this->evaluateBogeymanWindows($windows, $lineCount, $payoutScale);
+        $coinsWon = (int) $evaluation['coins'];
+        $hitTokens = $evaluation['tokens'];
+        $winningLines = $evaluation['winningLines'];
+        $lineWin = round($coinsWon * $coinValue, 2);
+
+        // Scatter X pays free spins only (no coins), counted anywhere in view.
+        $scatterCount = 0;
+        foreach ($windows as $window) {
+            $scatterCount += substr_count($window, self::BOGEYMAN_SCATTER_SYMBOL);
+        }
+        $freeSpinsAwarded = 0;
+        if ($scatterCount >= 3) {
+            $freeSpinsAwarded = (int) ($freeSpinAwards[min(5, $scatterCount)] ?? 0);
+            // Vendor scatter token: S.<count>X.FS<award> — display marker only.
+            $hitTokens[] = 'S.' . $scatterCount . self::BOGEYMAN_SCATTER_SYMBOL . '.FS' . $freeSpinsAwarded;
+        }
+        // Retriggers allowed: awards stack during the bonus, capped hard.
+        $freeSpinsAfter = max(0, min(self::BOGEYMAN_MAX_FREE_SPINS, $freeSpinsAfter + $freeSpinsAwarded));
+
+        $nextLockedLineCount = null;
+        $nextLockedCoinValue = null;
+        if ($freeSpinsAfter > 0) {
+            if ($isFreeSpinRound) {
+                $nextLockedLineCount = $lockedLineCountBefore !== null ? $lockedLineCountBefore : $lineCount;
+                $nextLockedCoinValue = $lockedCoinValueBefore !== null ? $lockedCoinValueBefore : $coinValue;
+            } else {
+                $nextLockedLineCount = $lineCount;
+                $nextLockedCoinValue = $coinValue;
+            }
+        }
+
+        $totalReturn = $lineWin;
+        $result = $totalReturn > 0 ? 'Win' : ($isFreeSpinRound ? 'Free Spin' : 'Lose');
+        $resultType = $totalReturn > 0
+            ? ($freeSpinsAwarded > 0 ? 'spin_win_freespins' : 'spin_win')
+            : ($freeSpinsAwarded > 0 ? 'scatter_freespins' : ($isFreeSpinRound ? 'freespin_no_win' : 'spin_loss'));
+
+        $roundData = [
+            'lineCount' => $lineCount,
+            'coinValue' => $coinValue,
+            'totalBet' => round($coinValue * $lineCount, 2),
+            'payoutScale' => $payoutScale,
+            'freeSpinAwardsApplied' => $freeSpinAwards,
+            'isFreeSpinRound' => $isFreeSpinRound,
+            'freeSpinsBefore' => $freeSpinsBefore,
+            'freeSpinsAwarded' => $freeSpinsAwarded,
+            'freeSpinsAfter' => $freeSpinsAfter,
+            'freeSpinLockedLineCount' => $nextLockedLineCount,
+            'freeSpinLockedCoinValue' => $nextLockedCoinValue,
+            'scatterCount' => $scatterCount,
+            'stops' => $stops,
+            'reels' => $windows,
+            'coinsWon' => $coinsWon,
+            'lineWin' => $lineWin,
+            'totalWin' => $totalReturn,
+            'winningLines' => $winningLines,
+            // Vendor wire format for the iframe bridge (display only).
+            'vendorReels' => '|' . implode('|', $windows) . '|',
+            'vendorHits' => implode(',', $hitTokens),
+        ];
+
+        $stateAfter = [
+            'freeSpinsRemaining' => $freeSpinsAfter,
+        ];
+        if ($nextLockedLineCount !== null && $nextLockedCoinValue !== null) {
+            $stateAfter['freeSpinLineCount'] = $nextLockedLineCount;
+            $stateAfter['freeSpinCoinValue'] = $nextLockedCoinValue;
+        }
+
+        return [
+            'totalReturn' => $totalReturn,
+            'result' => $result,
+            'resultType' => $resultType,
+            'roundData' => $roundData,
+            'stateAfter' => $stateAfter,
+        ];
+    }
+
+    /**
+     * SHA256 identity of the fixed public strip set, stamped on every round so
+     * a verifier can pin exactly which strips were in force.
+     */
+    private static function bogeymanStripsHash(): string
+    {
+        return hash('sha256', implode(',', self::BOGEYMAN_REEL_STRIPS));
+    }
+
+    /**
+     * Committed-seed reel-stop derivation (the signed-off spec, normative):
+     *
+     *   keystream  = HMAC-SHA256(key=serverSeed, msg=clientSeed":"nonce":"counter),
+     *                counter = 0,1,2,… — consumed as consecutive BIG-ENDIAN
+     *                uint32s, continuing into the next block when exhausted.
+     *   stops      = drawn in fixed reel order 0→4 from that ONE keystream;
+     *                each draw is rejection-sampled against its own strip
+     *                length (reject v >= floor(2^32/L)*L, rejected draws are
+     *                CONSUMED), then stop = (v mod L) + 1 (1-based).
+     *   window     = 3 consecutive strip symbols from the stop, wrapping.
+     *
+     * Identical keystream primitive to the baccarat seeded shuffle. Same
+     * (serverSeed, clientSeed, nonce) => same stops => same windows => same
+     * outcome via the public evaluation. Uniform over stops — no bias.
+     *
+     * @return array{0: array<int, int>, 1: array<int, string>}
+     */
+    private function bogeymanSeededStops(string $serverSeed, string $clientSeed, int $nonce): array
+    {
+        $message = $clientSeed . ':' . $nonce . ':';
+        $buffer = '';
+        $bufPos = 0;
+        $counter = 0;
+        $nextUint32 = static function () use (&$buffer, &$bufPos, &$counter, $serverSeed, $message): int {
+            if ($bufPos + 4 > strlen($buffer)) {
+                $buffer = hash_hmac('sha256', $message . $counter, $serverSeed, true);
+                $counter++;
+                $bufPos = 0;
+            }
+            /** @var array{1: int} $unpacked */
+            $unpacked = unpack('N', substr($buffer, $bufPos, 4));
+            $bufPos += 4;
+            return $unpacked[1];
+        };
+
+        $stops = [];
+        $windows = [];
+        foreach (self::BOGEYMAN_REEL_STRIPS as $strip) {
+            $length = strlen($strip);
+            // Largest multiple of $length that fits in uint32; values at/above
+            // it are rejected so every stop is equally likely (no modulo bias).
+            $limit = intdiv(0x100000000, $length) * $length;
+            do {
+                $value = $nextUint32();
+            } while ($value >= $limit);
+            $index = $value % $length;
+            $stops[] = $index + 1;
+            $windows[] = $strip[$index] . $strip[($index + 1) % $length] . $strip[($index + 2) % $length];
+        }
+
+        return [$stops, $windows];
+    }
+
+    /**
+     * Exact mirror of the captured SL5R evaluator (verified against 16 real
+     * captured spins): per active payline, the base symbol is the first
+     * non-wild on the line (all-wild lines pay as wilds), scatter-led lines
+     * pay nothing, the win is the longest left-to-right run >= 2 of
+     * base-or-wild that exists in the paytable, one win per line.
+     *
+     * With a payoutScale below 1.0 every selected line pay becomes
+     * floor(baseCoins x scale) at integer-coin level (house-safe floor, the
+     * jurassic-scale model made config-driven). Hit tokens carry the SCALED
+     * coins, so the client's win boxes always display exactly what was paid.
+     *
+     * @param array<int, string> $windows
+     * @return array{coins: int, tokens: array<int, string>, winningLines: array<int, array<string, mixed>>}
+     */
+    private function evaluateBogeymanWindows(array $windows, int $lineCount, float $payoutScale = 1.0): array
+    {
+        $coinsTotal = 0;
+        $tokens = [];
+        $winningLines = [];
+        $maxLines = min(max(1, $lineCount), count(self::BOGEYMAN_PATHS));
+
+        for ($lineIndex = 0; $lineIndex < $maxLines; $lineIndex++) {
+            $path = self::BOGEYMAN_PATHS[$lineIndex];
+            $lineSymbols = [];
+            for ($reel = 0; $reel < self::BOGEYMAN_REELS; $reel++) {
+                $row = (int) $path[$reel]; // 1 = top row
+                $lineSymbols[] = $windows[$reel][$row - 1];
+            }
+
+            $base = null;
+            foreach ($lineSymbols as $symbol) {
+                if ($symbol !== self::BOGEYMAN_WILD_SYMBOL) {
+                    $base = $symbol;
+                    break;
+                }
+            }
+            if ($base === null) {
+                $base = self::BOGEYMAN_WILD_SYMBOL;
+            }
+            if ($base === self::BOGEYMAN_SCATTER_SYMBOL) {
+                continue;
+            }
+
+            $runLength = 0;
+            foreach ($lineSymbols as $symbol) {
+                if ($symbol === $base || $symbol === self::BOGEYMAN_WILD_SYMBOL) {
+                    $runLength++;
+                } else {
+                    break;
+                }
+            }
+
+            for ($count = $runLength; $count >= 2; $count--) {
+                $key = $count . $base;
+                if (isset(self::BOGEYMAN_PAYTABLE[$key])) {
+                    $coins = (int) floor(((int) self::BOGEYMAN_PAYTABLE[$key]) * $payoutScale);
+                    if ($coins <= 0) {
+                        // Unreachable within the clamp range (min pay 10 x 0.80
+                        // floors to 8) — a zero-coin hit is not a win.
+                        break;
+                    }
+                    $coinsTotal += $coins;
+                    // Vendor hit token: <path prefix>.<count><symbol>.<coins>
+                    $tokens[] = substr($path, 0, min($count + 1, 5)) . '.' . $key . '.' . $coins;
+                    $winningLines[] = [
+                        'line' => $lineIndex + 1,
+                        'path' => $path,
+                        'count' => $count,
+                        'symbol' => $base,
+                        'coins' => $coins,
+                    ];
+                    break;
+                }
+            }
+        }
+
+        return ['coins' => $coinsTotal, 'tokens' => $tokens, 'winningLines' => $winningLines];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function bogeymanPublicMetadata(): array
+    {
+        return [
+            'paylines' => self::BOGEYMAN_MAX_LINES,
+            'reels' => self::BOGEYMAN_REELS,
+            'rows' => self::BOGEYMAN_ROWS,
+            'coinValues' => self::BOGEYMAN_COIN_VALUES,
+            'freeSpinAwards' => self::BOGEYMAN_FREESPIN_AWARDS,
+            'rngVersion' => self::BOGEYMAN_RNG_VERSION,
+            'fairness' => ['outcomeSource' => 'server_rng', 'spinIndependence' => true],
+            'features' => ['wild', 'free_spins'],
+        ];
     }
 
     private function placeJurassicRunBet(array $actor, array $body, string $requestId, float $startedAt): void
@@ -6528,8 +7531,24 @@ final class CasinoController
         'bankerCommissionPct' => [5.0, 2.5, 10.0],
         'tiePayout' => [8.0, 7.0, 9.0],
     ];
+    // Bogeyman levers (uniform game math only — the reel strips never change):
+    // - payoutScale: every line pay becomes floor(baseCoins x scale), applied
+    //   per winning line at integer-coin level. RTP ~94.9% at 1.00, ~75.9% at
+    //   0.80 (flooring makes RTP fall FASTER than the scale — see Phase-2 doc).
+    // - freeSpins3/4/5: scatter awards. The 3-scatter award dominates RTP
+    //   (~+2% per extra spin); maxima are chosen so the WORST-CASE combo
+    //   (scale 1.00 + 6/20/40) stays house-positive at ~99% RTP. Raising
+    //   freeSpins3 above 6 can push total RTP past 100% — do not widen it
+    //   without recomputing the corner.
+    private const BOGEYMAN_PAYOUT_SPEC = [
+        'payoutScale' => [1.00, 0.80, 1.00],
+        'freeSpins3' => [5, 3, 6],
+        'freeSpins4' => [10, 5, 20],
+        'freeSpins5' => [20, 10, 40],
+    ];
     private const GAME_PAYOUT_SPECS = [
         self::BACCARAT_CLASSIC_GAME_SLUG => self::BACCARAT_CLASSIC_PAYOUT_SPEC,
+        self::BOGEYMAN_GAME_SLUG => self::BOGEYMAN_PAYOUT_SPEC,
     ];
 
     /** @param array{0: float, 1: float, 2: float} $spec [default, min, max] */
@@ -6855,6 +7874,10 @@ final class CasinoController
             if ($actor === null) {
                 return;
             }
+            if ($game === self::BOGEYMAN_GAME_SLUG) {
+                $this->getBogeymanFairnessState($actor);
+                return;
+            }
             if ($game !== self::BACCARAT_CLASSIC_GAME_SLUG) {
                 Response::json(['message' => 'Fairness is not available for game "' . $game . '"'], 400);
                 return;
@@ -6903,16 +7926,79 @@ final class CasinoController
     }
 
     /**
-     * GET /api/casino/fairness/verify?serverSeed=&clientSeed=&nonce=&shoeSize=
+     * Bogeyman fairness state: same chain machinery (the chain helpers are
+     * game-parametric), slot-shaped lastRound payload. This endpoint is the
+     * SOLE creator of the chain — the commitment exists before any spin.
+     *
+     * @param array<string, mixed> $actor
+     */
+    private function getBogeymanFairnessState(array $actor): void
+    {
+        $userId = (string) ($actor['id'] ?? '');
+        $chain = $this->ensureBaccaratSeedChain($userId, self::BOGEYMAN_GAME_SLUG);
+        $nextNonce = (int) ($chain['nonce'] ?? 0);
+        $commitment = (string) ($chain['serverSeedHash'] ?? hash('sha256', (string) $chain['serverSeed']));
+
+        $lastRound = null;
+        $rows = $this->db->findMany(
+            'casino_bets',
+            ['userId' => $userId, 'game' => self::BOGEYMAN_GAME_SLUG],
+            ['sort' => ['createdAt' => -1], 'limit' => 1]
+        );
+        $last = $rows[0] ?? null;
+        if (is_array($last) && isset($last['serverSeed'])) {
+            $roundData = is_array($last['roundData'] ?? null) ? $last['roundData'] : [];
+            $payoutApplied = is_array($last['payoutApplied'] ?? null) ? $last['payoutApplied'] : [];
+            $lastRound = [
+                'roundId' => (string) ($last['roundId'] ?? $last['id'] ?? ''),
+                'serverSeed' => (string) $last['serverSeed'],
+                'serverSeedHash' => (string) ($last['serverSeedHash'] ?? ''),
+                'clientSeed' => (string) ($last['clientSeed'] ?? ''),
+                'nonce' => (int) ($last['nonce'] ?? 0),
+                'stripsHash' => (string) ($last['stripsHash'] ?? ''),
+                'stops' => is_array($roundData['stops'] ?? null) ? array_values(array_map('intval', $roundData['stops'])) : [],
+                'reels' => is_array($roundData['reels'] ?? null) ? array_values(array_map('strval', $roundData['reels'])) : [],
+                'lineCount' => (int) ($roundData['lineCount'] ?? 0),
+                'coinsWon' => (int) ($roundData['coinsWon'] ?? 0),
+                'vendorHits' => (string) ($roundData['vendorHits'] ?? ''),
+                'payoutScale' => round($this->num($payoutApplied['payoutScale'] ?? 1.0), 2),
+                'result' => (string) ($last['result'] ?? ''),
+            ];
+        }
+
+        $stripLengths = array_map('strlen', self::BOGEYMAN_REEL_STRIPS);
+        Response::json([
+            'game' => self::BOGEYMAN_GAME_SLUG,
+            'nextNonce' => $nextNonce,
+            'serverSeedHash' => $commitment,
+            'stripLengths' => array_values($stripLengths),
+            'stripsHash' => self::bogeymanStripsHash(),
+            'algorithm' => self::BOGEYMAN_FAIR_RNG_VERSION,
+            'lastRound' => $lastRound,
+        ]);
+    }
+
+    /**
+     * GET /api/casino/fairness/verify?game=&serverSeed=&clientSeed=&nonce=&…
      * Convenience recompute from player-supplied, already-revealed inputs. Pure
      * function: no DB, no money, no secret. The same result is reproducible
      * offline from the published algorithm — this endpoint is not authoritative.
+     * game absent => baccarat-classic (backward compatible).
      */
     private function verifyCasinoFairness(): void
     {
         try {
             $actor = $this->protect();
             if ($actor === null) {
+                return;
+            }
+            $game = strtolower(trim((string) ($_GET['game'] ?? self::BACCARAT_CLASSIC_GAME_SLUG)));
+            if ($game === self::BOGEYMAN_GAME_SLUG) {
+                $this->verifyBogeymanFairness();
+                return;
+            }
+            if ($game !== self::BACCARAT_CLASSIC_GAME_SLUG) {
+                Response::json(['message' => 'Fairness verify is not available for game "' . $game . '"'], 400);
                 return;
             }
             $serverSeed = trim((string) ($_GET['serverSeed'] ?? ''));
@@ -6958,6 +8044,81 @@ final class CasinoController
         } catch (Throwable $e) {
             Response::serverError('Server error verifying fairness', $e);
         }
+    }
+
+    /**
+     * Bogeyman fairness recompute: derive the 5 stops + windows from a revealed
+     * tuple and (optionally, given lines + payoutScale) re-evaluate the hits so
+     * the paid amounts reproduce too. Pure function — no DB, no money, no
+     * secret; the caller supplies an already-revealed serverSeed.
+     */
+    private function verifyBogeymanFairness(): void
+    {
+        $serverSeed = trim((string) ($_GET['serverSeed'] ?? ''));
+        $clientSeed = trim((string) ($_GET['clientSeed'] ?? ''));
+        $nonce = (int) ($_GET['nonce'] ?? -1);
+        $lines = (int) ($_GET['lines'] ?? self::BOGEYMAN_MAX_LINES);
+        $payoutScaleRaw = $_GET['payoutScale'] ?? null;
+
+        if (preg_match('/^[a-f0-9]{64}$/i', $serverSeed) !== 1) {
+            Response::json(['message' => 'serverSeed must be a 64-char hex string (the revealed seed from a past spin)'], 400);
+            return;
+        }
+        if ($clientSeed === '' || preg_match('/^[A-Za-z0-9._:-]{1,128}$/', $clientSeed) !== 1) {
+            Response::json(['message' => 'clientSeed is required (1-128 chars: letters, numbers, . _ : -)'], 400);
+            return;
+        }
+        if ($nonce < 0) {
+            Response::json(['message' => 'nonce must be a non-negative integer'], 400);
+            return;
+        }
+        if ($lines < 1 || $lines > self::BOGEYMAN_MAX_LINES) {
+            Response::json(['message' => 'lines must be between 1 and ' . self::BOGEYMAN_MAX_LINES], 400);
+            return;
+        }
+        // Same clamps the engine applies — a stored round's payoutApplied
+        // values are always inside these ranges, so the recompute always
+        // reproduces the round exactly (incl. the scatter free-spin token).
+        $payoutScale = self::clampPayoutValue(is_numeric($payoutScaleRaw) ? (float) $payoutScaleRaw : null, self::BOGEYMAN_PAYOUT_SPEC['payoutScale']);
+        $freeSpinAwards = [
+            3 => (int) round(self::clampPayoutValue(is_numeric($_GET['freeSpins3'] ?? null) ? (float) $_GET['freeSpins3'] : null, self::BOGEYMAN_PAYOUT_SPEC['freeSpins3'])),
+            4 => (int) round(self::clampPayoutValue(is_numeric($_GET['freeSpins4'] ?? null) ? (float) $_GET['freeSpins4'] : null, self::BOGEYMAN_PAYOUT_SPEC['freeSpins4'])),
+            5 => (int) round(self::clampPayoutValue(is_numeric($_GET['freeSpins5'] ?? null) ? (float) $_GET['freeSpins5'] : null, self::BOGEYMAN_PAYOUT_SPEC['freeSpins5'])),
+        ];
+
+        [$stops, $windows] = $this->bogeymanSeededStops($serverSeed, $clientSeed, $nonce);
+        $evaluation = $this->evaluateBogeymanWindows($windows, $lines, $payoutScale);
+        $scatterCount = 0;
+        foreach ($windows as $window) {
+            $scatterCount += substr_count($window, self::BOGEYMAN_SCATTER_SYMBOL);
+        }
+        $hitTokens = $evaluation['tokens'];
+        $freeSpinsAwarded = 0;
+        if ($scatterCount >= 3) {
+            $freeSpinsAwarded = (int) ($freeSpinAwards[min(5, $scatterCount)] ?? 0);
+            $hitTokens[] = 'S.' . $scatterCount . self::BOGEYMAN_SCATTER_SYMBOL . '.FS' . $freeSpinsAwarded;
+        }
+
+        Response::json([
+            'game' => self::BOGEYMAN_GAME_SLUG,
+            'inputs' => [
+                'serverSeed' => $serverSeed,
+                'serverSeedHash' => hash('sha256', $serverSeed),
+                'clientSeed' => $clientSeed,
+                'nonce' => $nonce,
+                'lines' => $lines,
+                'payoutScale' => $payoutScale,
+            ],
+            'stripsHash' => self::bogeymanStripsHash(),
+            'stripLengths' => array_values(array_map('strlen', self::BOGEYMAN_REEL_STRIPS)),
+            'stops' => $stops,
+            'reels' => $windows,
+            'scatterCount' => $scatterCount,
+            'freeSpinsAwarded' => $freeSpinsAwarded,
+            'coinsWon' => (int) $evaluation['coins'],
+            'vendorHits' => implode(',', $hitTokens),
+            'winningLines' => $evaluation['winningLines'],
+        ]);
     }
 
     /**
@@ -9398,6 +10559,8 @@ final class CasinoController
             'betLimits' => is_array($bet['betLimits'] ?? null) ? $bet['betLimits'] : null,
             'betDetails' => is_array($bet['betDetails'] ?? null) ? $bet['betDetails'] : null,
             'roundData' => is_array($bet['roundData'] ?? null) ? $bet['roundData'] : null,
+            // The clamped payout config the round settled with (admin audit).
+            'payoutApplied' => is_array($bet['payoutApplied'] ?? null) ? $bet['payoutApplied'] : null,
             'outcomeSource' => (string) ($bet['outcomeSource'] ?? ''),
             'playerOutcome' => $this->deriveCasinoPlayerOutcome($bet),
             'result' => (string) ($bet['result'] ?? ''),
@@ -9492,6 +10655,9 @@ final class CasinoController
                 'nonce' => (int) ($betRecord['nonce'] ?? 0),
                 'shoeSize' => (int) ($betRecord['shoeSize'] ?? self::BACCARAT_SHOE_DECKS),
                 'deckHash' => (string) ($betRecord['deckHash'] ?? ''),
+                // Slot rounds: identity of the fixed public strip set (null on
+                // card games, which commit to the shoe via deckHash instead).
+                'stripsHash' => isset($betRecord['stripsHash']) ? (string) $betRecord['stripsHash'] : null,
             ] : null,
             'dealerCards' => is_array($betRecord['dealerCards'] ?? null) ? $betRecord['dealerCards'] : [],
             'dealerUpCard' => $betRecord['dealerUpCard'] ?? null,

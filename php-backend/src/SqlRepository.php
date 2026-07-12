@@ -622,6 +622,18 @@ final class SqlRepository
             unset(self::$tableEnsuredCache[$table]);
         }
 
+        // NEVER run DDL inside an open transaction: MySQL DDL causes an
+        // IMPLICIT COMMIT, which silently commits any pending money writes and
+        // releases every held row lock (e.g. the user-row lock that serializes
+        // casino bets and the fairness seed chain). All tables exist in an
+        // initialized environment; if one truly doesn't, the following query
+        // fails loudly and the transaction rolls back — strictly safer than
+        // breaking atomicity. The table is (re-)ensured on the next
+        // out-of-transaction touch.
+        if ($this->pdo->inTransaction()) {
+            return;
+        }
+
         $sql = "CREATE TABLE IF NOT EXISTS `{$table}` (
 `id` VARCHAR(64) NOT NULL,
 `doc` JSON NOT NULL,

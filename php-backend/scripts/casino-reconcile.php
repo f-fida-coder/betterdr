@@ -113,8 +113,12 @@ foreach ($rows as $row) {
     $ledgerNet = round($credit - $debit, 2);
 
     $roundErrors = [];
-    if (count($entries) < 2) {
-        $roundErrors[] = 'Expected at least 2 ledger entries';
+    // Slot rounds book only the entries that moved money: a losing paid spin
+    // has just the debit, a free spin debits nothing, and a no-win free spin
+    // books no entries at all (the casino_bets row marks settlement).
+    $expectedEntries = ($totalWager > 0 ? 1 : 0) + ($totalReturn > 0 ? 1 : 0);
+    if (count($entries) < $expectedEntries) {
+        $roundErrors[] = 'Expected at least ' . $expectedEntries . ' ledger entries';
     }
     if (abs(round($debit, 2) - round($totalWager, 2)) > 0.001) {
         $roundErrors[] = 'Debit sum mismatch (ledger=' . round($debit, 2) . ', bet=' . round($totalWager, 2) . ')';
