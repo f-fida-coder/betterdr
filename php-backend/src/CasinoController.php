@@ -22,6 +22,7 @@ final class CasinoController
         self::LEGACY_ARABIAN_TREASURE_GAME_SLUG,
         self::ROULETTE_GAME_SLUG,
         self::STUD_POKER_GAME_SLUG,
+        self::BACCARAT_GAME_SLUG,
     ];
     private const BACCARAT_SOURCE_TYPE = 'casino_baccarat';
     private const BLACKJACK_SOURCE_TYPE = 'casino_blackjack';
@@ -162,7 +163,6 @@ final class CasinoController
 
     private const DEFAULT_CASINO_GAMES = [
         ['provider' => 'internal', 'name' => 'Single Hand ($1-$100)', 'slug' => 'single-hand-1-100', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#115e59', 'icon' => 'fa-solid fa-diamond', 'isFeatured' => true],
-        ['provider' => 'internal', 'name' => 'Baccarat', 'slug' => 'baccarat', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#9f1239', 'icon' => 'fa-solid fa-gem', 'imageUrl' => '/games/baccarat/assets/menuscreen.webp', 'tags' => ['table games', 'baccarat', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Blackjack', 'slug' => 'blackjack', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0b5563', 'icon' => 'fa-solid fa-club', 'imageUrl' => '/games/blackjack/src/images/misc/table.png', 'tags' => ['table games', 'blackjack', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Craps', 'slug' => 'craps', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0a4f3a', 'icon' => 'fa-solid fa-dice-six', 'imageUrl' => '/games/craps/sprites/board_table.jpg', 'tags' => ['table games', 'craps', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Arabian Game', 'slug' => 'arabian', 'category' => 'slots', 'minBet' => 0.3, 'maxBet' => 30, 'themeColor' => '#7e22ce', 'icon' => 'fa-solid fa-scroll', 'imageUrl' => '/games/arabian/sprites/200x200.jpg', 'tags' => ['slots', 'arabian', 'in-house', 'server settled'], 'isFeatured' => true],

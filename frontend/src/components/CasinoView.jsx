@@ -12,13 +12,6 @@ import {
 import { formatSiteDateTime } from '../utils/timezone';
 
 const LOCAL_GAME_META = {
-    baccarat: {
-        id: 'local-baccarat',
-        provider: 'In-House',
-        url: '/games/baccarat/index.html?v=20260309e',
-        poster: '/games/baccarat/assets/menuscreen.webp',
-        themeColor: '#1a0a2e',
-    },
     craps: {
         id: 'local-craps',
         provider: 'In-House',
