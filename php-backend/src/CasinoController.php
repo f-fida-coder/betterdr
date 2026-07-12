@@ -10,6 +10,7 @@ final class CasinoController
 
     private const CASINO_CATEGORIES = ['lobby', 'table_games', 'slots', 'video_poker', 'specialty_games'];
     private const BACCARAT_GAME_SLUG = 'baccarat';
+    private const BACCARAT_CLASSIC_GAME_SLUG = 'baccarat-classic';
     private const BLACKJACK_GAME_SLUG = 'blackjack';
     private const CRAPS_GAME_SLUG = 'craps';
     private const ARABIAN_GAME_SLUG = 'arabian';
@@ -32,7 +33,10 @@ final class CasinoController
     private const THREE_CARD_POKER_SOURCE_TYPE = 'casino_3card_poker';
     private const ROULETTE_SOURCE_TYPE = 'casino_roulette';
     private const STUD_POKER_SOURCE_TYPE = 'casino_stud_poker';
-    private const BACCARAT_RNG_VERSION = 'csprng-v1';
+    private const BACCARAT_RNG_VERSION = 'commit-reveal-hmac-v1';
+    // Real punto banco uses an 8-deck (416-card) shoe. Fed to the same seeded
+    // shuffle; duplicate cards across decks map to the same 1-52 client code.
+    private const BACCARAT_SHOE_DECKS = 8;
     private const BLACKJACK_RNG_VERSION = 'server-sim-v3';
     private const BLACKJACK_DEFAULT_DECK_COUNT = 6;
     private const BLACKJACK_MIN_DECK_COUNT = 2;
@@ -45,6 +49,7 @@ final class CasinoController
     private const STUD_POKER_RNG_VERSION = 'stud-house-v1';
     private const IN_HOUSE_OVERLAY_ONLY_GAME_MESSAGES = [
         self::BACCARAT_GAME_SLUG => 'Baccarat is available only from the in-house casino table.',
+        self::BACCARAT_CLASSIC_GAME_SLUG => 'Baccarat is available only from the in-house casino table.',
         self::BLACKJACK_GAME_SLUG => 'Blackjack is available only from the in-house casino table.',
         self::CRAPS_GAME_SLUG => 'Craps is available only from the in-house casino table.',
         self::ARABIAN_GAME_SLUG => 'Arabian Game is available only from the in-house casino table.',
@@ -163,6 +168,7 @@ final class CasinoController
 
     private const DEFAULT_CASINO_GAMES = [
         ['provider' => 'internal', 'name' => 'Single Hand ($1-$100)', 'slug' => 'single-hand-1-100', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#115e59', 'icon' => 'fa-solid fa-diamond', 'isFeatured' => true],
+        ['provider' => 'internal', 'name' => 'Baccarat', 'slug' => 'baccarat-classic', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#9f1239', 'icon' => 'fa-solid fa-gem', 'imageUrl' => '/games/baccarat-classic/images/background.png', 'tags' => ['table games', 'baccarat', 'in-house'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Blackjack', 'slug' => 'blackjack', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0b5563', 'icon' => 'fa-solid fa-club', 'imageUrl' => '/games/blackjack/src/images/misc/table.png', 'tags' => ['table games', 'blackjack', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Craps', 'slug' => 'craps', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0a4f3a', 'icon' => 'fa-solid fa-dice-six', 'imageUrl' => '/games/craps/sprites/board_table.jpg', 'tags' => ['table games', 'craps', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Arabian Game', 'slug' => 'arabian', 'category' => 'slots', 'minBet' => 0.3, 'maxBet' => 30, 'themeColor' => '#7e22ce', 'icon' => 'fa-solid fa-scroll', 'imageUrl' => '/games/arabian/sprites/200x200.jpg', 'tags' => ['slots', 'arabian', 'in-house', 'server settled'], 'isFeatured' => true],
@@ -340,6 +346,16 @@ final class CasinoController
         }
         if ($method === 'POST' && $path === '/api/casino/admin/sync') {
             $this->syncCasinoGamesFromProvider();
+            return true;
+        }
+
+        // ── Provably-fair (commit-reveal) surfaces ─────────
+        if ($method === 'GET' && preg_match('#^/api/casino/fairness/state/([a-z0-9-]+)$#', $path, $m) === 1) {
+            $this->getCasinoFairnessState(strtolower($m[1]));
+            return true;
+        }
+        if ($method === 'GET' && $path === '/api/casino/fairness/verify') {
+            $this->verifyCasinoFairness();
             return true;
         }
 
@@ -733,6 +749,17 @@ final class CasinoController
                 }
             }
 
+            // Payout config is money policy: changing it is admin-only and
+            // range-checked, even though canManageCasino admits agents for the
+            // rest of this endpoint. Scoped to the payoutConfig key alone.
+            if (array_key_exists('metadata', $updates)) {
+                $payoutError = $this->payoutConfigUpdateError($actor, $existing, $updates['metadata']);
+                if ($payoutError !== null) {
+                    Response::json(['message' => (string) $payoutError['message']], (int) $payoutError['status']);
+                    return;
+                }
+            }
+
             if (array_key_exists('category', $body)) {
                 $updates['category'] = $this->normalizeCategory((string) $body['category']);
             }
@@ -1011,6 +1038,13 @@ final class CasinoController
 
     private function toPublicGame(array $game): array
     {
+        $metadata = is_array($game['metadata'] ?? null) ? $game['metadata'] : [];
+        $slug = strtolower(trim((string) ($game['slug'] ?? '')));
+        if (isset(self::GAME_PAYOUT_SPECS[$slug])) {
+            // Players only ever see the CLAMPED effective config — the same
+            // values the payout calc uses — never the raw stored blob.
+            $metadata['payoutConfig'] = $this->resolveGamePayoutConfig($slug, $game);
+        }
         return [
             'id' => $game['id'] ?? null,
             'externalGameId' => $game['externalGameId'] ?? null,
@@ -1025,7 +1059,7 @@ final class CasinoController
             'maxBet' => $game['maxBet'] ?? null,
             'rtp' => $game['rtp'] ?? null,
             'volatility' => $game['volatility'] ?? null,
-            'metadata' => is_array($game['metadata'] ?? null) ? $game['metadata'] : new stdClass(),
+            'metadata' => $metadata === [] ? new stdClass() : $metadata,
             'tags' => is_array($game['tags'] ?? null) ? $game['tags'] : [],
             'isFeatured' => (bool) ($game['isFeatured'] ?? false),
             'status' => $game['status'] ?? null,
@@ -1096,12 +1130,14 @@ final class CasinoController
                 Response::json(['message' => 'Game has been removed: ' . $game], 410);
                 return;
             }
-            if ($game !== self::BACCARAT_GAME_SLUG) {
+            // The classic (BAC HTML5) client is the only live baccarat surface; the
+            // legacy 'baccarat' slug stays delisted via REMOVED_GAME_SLUGS above.
+            if ($game !== self::BACCARAT_CLASSIC_GAME_SLUG) {
                 Response::json(['message' => 'Unsupported game: ' . $game], 400);
                 return;
             }
 
-            $gameConfig = $this->db->findOne('casinogames', ['slug' => self::BACCARAT_GAME_SLUG]);
+            $gameConfig = $this->db->findOne('casinogames', ['slug' => $game]);
             if ($gameConfig !== null) {
                 $gameStatus = strtolower(trim((string) ($gameConfig['status'] ?? 'active')));
                 if ($gameStatus !== '' && $gameStatus !== 'active') {
@@ -1109,6 +1145,10 @@ final class CasinoController
                     return;
                 }
             }
+            // Effective payout config, read fresh each round: admin edits take
+            // effect on the NEXT round, no restart. Missing row/config => the
+            // shipped defaults (5% commission, 8x tie).
+            $payoutConfig = $this->resolveGamePayoutConfig($game, $gameConfig);
 
             $bets = is_array($body['bets'] ?? null) ? $body['bets'] : [];
             $playerBet = $this->parseMoneyValue($bets['Player'] ?? 0, 'bets.Player');
@@ -1121,7 +1161,7 @@ final class CasinoController
                 return;
             }
 
-            [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::BACCARAT_GAME_SLUG, 1.0, 100.0);
+            [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits($game, 1.0, 100.0);
             if ($totalWager < $gameMinBet) {
                 Response::json(['message' => 'Minimum baccarat wager is $' . round($gameMinBet)], 400);
                 return;
@@ -1151,7 +1191,7 @@ final class CasinoController
                 $existingRound = $this->db->findOne('casino_bets', [
                     'userId' => $userId,
                     'requestId' => $requestId,
-                    'game' => self::BACCARAT_GAME_SLUG,
+                    'game' => $game,
                 ]);
                 if ($existingRound !== null) {
                     $roundId = (string) ($existingRound['roundId'] ?? $existingRound['id'] ?? '');
@@ -1192,9 +1232,50 @@ final class CasinoController
                 }
 
                 $roundId = $this->newRoundId();
-                $roundData = $this->dealBaccaratRound();
+
+                // ── Commit-reveal fairness (Option A: stored rotating chain) ──
+                // Read the CURRENT seed from the chain under the SAME user-row
+                // lock held since findOneForUpdate above, so the read+rotate is
+                // serialized with placement — two near-simultaneous rounds can't
+                // fork or skip the chain. The seed's hash was already committed
+                // to the client (fairness/state on open, or the prior round's
+                // serverSeedHashNext). If the row is missing where it must exist,
+                // FAIL LOUD — never silently re-init or fall back to unseeded RNG.
+                $shoeDecks = self::BACCARAT_SHOE_DECKS;
+                $chainId = $this->baccaratSeedChainId($userId, $game);
+                $chain = $this->db->findOne('casino_seed_chains', ['id' => $chainId]);
+                if ($chain === null || !isset($chain['serverSeed']) || (string) $chain['serverSeed'] === '') {
+                    $this->db->rollback();
+                    $this->writeCasinoAuditLog('baccarat_seed_chain_missing', [
+                        'requestId' => $requestId,
+                        'userId' => $userId,
+                        'game' => $game,
+                    ]);
+                    Response::json(['message' => 'Fairness is not initialized for this session. Please reload the game and try again.'], 409);
+                    return;
+                }
+                $serverSeed = (string) $chain['serverSeed'];
+                $serverSeedHash = (string) ($chain['serverSeedHash'] ?? hash('sha256', $serverSeed));
+                $nonce = (int) ($chain['nonce'] ?? 0);
+                $clientSeed = $this->resolveClientSeed($body);
+
+                $roundData = $this->dealBaccaratRound($serverSeed, $clientSeed, $nonce, $shoeDecks);
+
+                // Rotate the chain to a fresh unrevealed seed for the NEXT round,
+                // in this same transaction (rolled back with everything else if
+                // the round fails). Only the next seed's HASH ever leaves the
+                // server; the seed stays secret until that round is played.
+                $nextServerSeed = bin2hex(random_bytes(32));
+                $serverSeedHashNext = hash('sha256', $nextServerSeed);
+                $this->db->updateOne('casino_seed_chains', ['id' => $chainId], [
+                    'serverSeed' => $nextServerSeed,
+                    'serverSeedHash' => $serverSeedHashNext,
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce + 1,
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ]);
                 $result = (string) ($roundData['result'] ?? 'Tie');
-                $payout = $this->calculateBaccaratPayout($playerBet, $bankerBet, $tieBet, $result);
+                $payout = $this->calculateBaccaratPayout($playerBet, $bankerBet, $tieBet, $result, $payoutConfig);
 
                 $totalReturn = $payout['totalReturn'];
                 $profit = $payout['profit'];
@@ -1257,15 +1338,14 @@ final class CasinoController
                     'updatedAt' => $now,
                 ]);
 
-                $deckCodes = is_array($roundData['deckCodes'] ?? null) ? $roundData['deckCodes'] : [];
-                $deckHash = hash('sha256', implode(',', $deckCodes));
+                $deckHash = (string) ($roundData['deckHash'] ?? '');
                 $serverDecisionAt = SqlRepository::nowUtc();
                 $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
                 $integrityHash = $this->buildIntegrityHash([
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
-                    'game' => self::BACCARAT_GAME_SLUG,
+                    'game' => $game,
                     'bets' => ['Player' => $playerBet, 'Banker' => $bankerBet, 'Tie' => $tieBet],
                     'playerCards' => $roundData['playerCards'] ?? [],
                     'bankerCards' => $roundData['bankerCards'] ?? [],
@@ -1277,6 +1357,11 @@ final class CasinoController
                     'balanceBefore' => $balanceBefore,
                     'balanceAfter' => $balanceAfter,
                     'deckHash' => $deckHash,
+                    // Seed tuple binds the round to its committed fairness inputs.
+                    'serverSeedHash' => $serverSeedHash,
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce,
+                    'shoeSize' => $shoeDecks,
                     'serverDecisionAt' => $serverDecisionAt,
                 ]);
 
@@ -1286,17 +1371,22 @@ final class CasinoController
                     'requestId' => $requestId,
                     'userId' => $userId,
                     'username' => (string) ($lockedUser['username'] ?? $actor['username'] ?? ''),
-                    'game' => self::BACCARAT_GAME_SLUG,
+                    'game' => $game,
                     'bets' => ['Player' => $playerBet, 'Banker' => $bankerBet, 'Tie' => $tieBet],
                     'totalWager' => $totalWager,
                     'playerCards' => $roundData['playerCards'] ?? [],
                     'bankerCards' => $roundData['bankerCards'] ?? [],
+                    'playerCardCodes' => self::baccaratClientCardCodes($roundData['playerCards'] ?? []),
+                    'bankerCardCodes' => self::baccaratClientCardCodes($roundData['bankerCards'] ?? []),
                     'playerTotal' => (int) ($roundData['playerTotal'] ?? 0),
                     'bankerTotal' => (int) ($roundData['bankerTotal'] ?? 0),
                     'result' => $result,
                     'totalReturn' => $totalReturn,
                     'profit' => $profit,
                     'netResult' => $netResult,
+                    // The exact config this round settled with — history stays
+                    // verifiable against config as it changes over time.
+                    'payoutApplied' => $payoutConfig,
                     'balanceBefore' => $balanceBefore,
                     'balanceAfter' => $balanceAfter,
                     'availableBalanceBefore' => $availableBalance,
@@ -1306,6 +1396,15 @@ final class CasinoController
                     'rngVersion' => self::BACCARAT_RNG_VERSION,
                     'deckHash' => $deckHash,
                     'integrityHash' => $integrityHash,
+                    // Commit-reveal record: serverSeed is REVEALED here; its hash
+                    // was committed before the deal; nextHash commits the next
+                    // round. clientSeed/nonce/shoeSize complete the verify tuple.
+                    'serverSeed' => $serverSeed,
+                    'serverSeedHash' => $serverSeedHash,
+                    'serverSeedHashNext' => $serverSeedHashNext,
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce,
+                    'shoeSize' => $shoeDecks,
                     'serverDecisionAt' => $serverDecisionAt,
                     'latencyMs' => $latencyMs,
                     'roundStatus' => 'settled',
@@ -1319,14 +1418,22 @@ final class CasinoController
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
-                    'game' => self::BACCARAT_GAME_SLUG,
+                    'game' => $game,
                     'rngVersion' => self::BACCARAT_RNG_VERSION,
-                    'deckCodes' => $deckCodes,
+                    // No full deckCodes: the shoe is reproducible from the seed
+                    // tuple below, so we store the hash + inputs, not 416 entries.
                     'deckHash' => $deckHash,
                     'integrityHash' => $integrityHash,
+                    'serverSeed' => $serverSeed,
+                    'serverSeedHash' => $serverSeedHash,
+                    'serverSeedHashNext' => $serverSeedHashNext,
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce,
+                    'shoeSize' => $shoeDecks,
                     'playerCards' => $roundData['playerCards'] ?? [],
                     'bankerCards' => $roundData['bankerCards'] ?? [],
                     'result' => $result,
+                    'payoutApplied' => $payoutConfig,
                     'createdAt' => $now,
                     'updatedAt' => $now,
                 ]);
@@ -6408,7 +6515,156 @@ final class CasinoController
         fclose($stream);
     }
 
+    // ── Per-game payout config (admin-tunable house edge) ─────────────
+    //
+    // Each entry: key => [default, min, max]. Defaults MUST equal the payout
+    // math that shipped before the config existed, so deploying the mechanism
+    // changes the edge for nobody until an admin deliberately edits it. The
+    // clamps are a hard footgun guard: enforced on write (admin PUT rejects
+    // out-of-range) AND re-applied on read at payout time (stored values are
+    // never trusted raw). The ONLY lever here is the uniform payout table —
+    // never the deal, never anything per-player.
+    private const BACCARAT_CLASSIC_PAYOUT_SPEC = [
+        'bankerCommissionPct' => [5.0, 2.5, 10.0],
+        'tiePayout' => [8.0, 7.0, 9.0],
+    ];
+    private const GAME_PAYOUT_SPECS = [
+        self::BACCARAT_CLASSIC_GAME_SLUG => self::BACCARAT_CLASSIC_PAYOUT_SPEC,
+    ];
+
+    /** @param array{0: float, 1: float, 2: float} $spec [default, min, max] */
+    private static function clampPayoutValue(mixed $raw, array $spec): float
+    {
+        [$default, $min, $max] = $spec;
+        $value = is_numeric($raw) ? (float) $raw : $default;
+        return min($max, max($min, $value));
+    }
+
+    /**
+     * Effective (clamped) payout config for a game row. This is THE single
+     * source both the payout calc and every player-facing echo read from.
+     * Returns [] for games without a payout spec.
+     *
+     * @return array<string, float>
+     */
+    private function resolveGamePayoutConfig(string $slug, ?array $gameRow): array
+    {
+        $spec = self::GAME_PAYOUT_SPECS[$slug] ?? null;
+        if ($spec === null) {
+            return [];
+        }
+        $metadata = is_array($gameRow['metadata'] ?? null) ? $gameRow['metadata'] : [];
+        $stored = is_array($metadata['payoutConfig'] ?? null) ? $metadata['payoutConfig'] : [];
+
+        $effective = [];
+        $clampedKeys = [];
+        foreach ($spec as $key => $bounds) {
+            $raw = $stored[$key] ?? null;
+            $value = self::clampPayoutValue($raw, $bounds);
+            if (is_numeric($raw) && abs($value - (float) $raw) > 1e-9) {
+                $clampedKeys[$key] = ['stored' => (float) $raw, 'applied' => $value];
+            }
+            $effective[$key] = $value;
+        }
+        if ($clampedKeys !== []) {
+            $this->writeCasinoAuditLog('payout_config_clamped', [
+                'game' => $slug,
+                'clamped' => $clampedKeys,
+            ]);
+        }
+        return $effective;
+    }
+
+    /**
+     * Validation gate for payoutConfig edits through the admin games PUT.
+     * Scoped to the payoutConfig key only — every other metadata key keeps the
+     * endpoint's existing verbatim behavior. Returns ['status', 'message'] to
+     * send, or null when the update may proceed.
+     *
+     * Rules: unchanged config (effective-value comparison, so re-echoing what
+     * GET returned is a no-op) passes for any caller the endpoint already
+     * allows; a CHANGED config requires role === 'admin' (agents/master/super
+     * agents are rejected for this key specifically) and every value must be
+     * a number inside the spec range — out-of-range is rejected with the
+     * allowed range, never clamped silently on write.
+     */
+    private function payoutConfigUpdateError(array $actor, array $existing, mixed $incomingMetadata): ?array
+    {
+        if (!is_array($incomingMetadata) || !array_key_exists('payoutConfig', $incomingMetadata)) {
+            return null;
+        }
+        $slug = strtolower(trim((string) ($existing['slug'] ?? '')));
+        $spec = self::GAME_PAYOUT_SPECS[$slug] ?? null;
+        if ($spec === null) {
+            return ['status' => 400, 'message' => 'payoutConfig is not supported for game "' . $slug . '"'];
+        }
+        $incoming = $incomingMetadata['payoutConfig'];
+        if (!is_array($incoming)) {
+            return ['status' => 400, 'message' => 'payoutConfig must be an object of {' . implode(', ', array_keys($spec)) . '}'];
+        }
+        foreach ($incoming as $key => $value) {
+            if (!isset($spec[$key])) {
+                return ['status' => 400, 'message' => 'Unknown payoutConfig key "' . $key . '" — allowed: ' . implode(', ', array_keys($spec))];
+            }
+            [, $min, $max] = $spec[$key];
+            if (!is_numeric($value) || (float) $value < $min || (float) $value > $max) {
+                return ['status' => 400, 'message' => 'payoutConfig.' . $key . ' must be a number between ' . $min . ' and ' . $max];
+            }
+        }
+
+        $effectiveIncoming = [];
+        foreach ($spec as $key => $bounds) {
+            $effectiveIncoming[$key] = self::clampPayoutValue($incoming[$key] ?? null, $bounds);
+        }
+        if ($effectiveIncoming == $this->resolveGamePayoutConfig($slug, $existing)) {
+            return null; // no effective change — echoing the current config is not an edit
+        }
+        if ((string) ($actor['role'] ?? '') !== 'admin') {
+            return ['status' => 403, 'message' => 'Only admin can change payout configuration'];
+        }
+        return null;
+    }
+
     // ── Baccarat helpers ──────────────────────────────────
+
+    // Numeric card codes for the BAC HTML5 table client: four 13-card suit
+    // blocks D(1-13) H(14-26) S(27-39) C(40-52), ranks A..K ascending within
+    // each block. This order is fixed by the bundled card artwork
+    // (games/baccarat-classic/images/Cards/<code>.png) — do not reorder.
+    private const BACCARAT_CLIENT_SUIT_BASE = ['D' => 0, 'H' => 13, 'S' => 26, 'C' => 39];
+    private const BACCARAT_CLIENT_RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+
+    public static function baccaratClientCardCode(string $card): int
+    {
+        $suit = substr($card, -1);
+        $rank = substr($card, 0, -1);
+        $rankIdx = array_search($rank, self::BACCARAT_CLIENT_RANKS, true);
+        if ($rankIdx === false || !isset(self::BACCARAT_CLIENT_SUIT_BASE[$suit])) {
+            throw new InvalidArgumentException('Unknown baccarat card: ' . $card);
+        }
+        return self::BACCARAT_CLIENT_SUIT_BASE[$suit] + $rankIdx + 1;
+    }
+
+    public static function baccaratCardFromClientCode(int $code): string
+    {
+        if ($code < 1 || $code > 52) {
+            throw new InvalidArgumentException('Baccarat client card code out of range: ' . $code);
+        }
+        $suit = (string) array_search(intdiv($code - 1, 13) * 13, self::BACCARAT_CLIENT_SUIT_BASE, true);
+        return self::BACCARAT_CLIENT_RANKS[($code - 1) % 13] . $suit;
+    }
+
+    /**
+     * @param array<int, string> $cards
+     * @return array<int, int>
+     */
+    private static function baccaratClientCardCodes(array $cards): array
+    {
+        return array_values(array_map(
+            static fn($card): int => self::baccaratClientCardCode((string) $card),
+            $cards
+        ));
+    }
 
     /** @return array<int, array{r: string, s: string, code: string}> */
     private function buildShuffledDeck(): array
@@ -6431,19 +6687,312 @@ final class CasinoController
         return $deck;
     }
 
+    // ── Provably-fair (commit-reveal) shoe for baccarat-classic ─────────
+    //
+    // The fairness lever is the committed seed; the edge lever is the Phase-2
+    // payout config. They are fully separate — the seeded shuffle changes only
+    // HOW cards are produced, never the payout math or the txn boundary. There
+    // is NO per-player, adaptive, or target-win-rate term anywhere: the deal is
+    // a pure deterministic function of (serverSeed, clientSeed, nonce, decks).
+    //
+    // Seed storage = Option A (stored rotating chain). Each (userId, game) has
+    // ONE casino_seed_chains row holding the CURRENT unrevealed serverSeed. The
+    // seed is fresh random_bytes(32) per rotation — NOT derived from any secret;
+    // there is no global fairness secret in this design. Past rounds verify from
+    // their STORED revealed serverSeed, never re-derived (inherently
+    // rotation-safe: there is nothing to rotate).
+
+    // Deterministic chain id => the doc primary key enforces exactly one row per
+    // (userId, game), making create race-safe via INSERT IGNORE.
+    private function baccaratSeedChainId(string $userId, string $game): string
+    {
+        return hash('sha256', 'seedchain|' . $userId . '|' . $game);
+    }
+
     /**
+     * Find-or-create the seed chain for (userId, game). This is the SOLE creator
+     * of a chain row (the bet path only reads + rotates, and loud-fails if the
+     * row is missing). Creation is race-safe: INSERT IGNORE on the deterministic
+     * id means concurrent creates collapse to one row, then we read it back.
+     *
+     * @return array<string, mixed>
+     */
+    private function ensureBaccaratSeedChain(string $userId, string $game): array
+    {
+        $chainId = $this->baccaratSeedChainId($userId, $game);
+        $existing = $this->db->findOne('casino_seed_chains', ['id' => $chainId]);
+        if ($existing !== null && isset($existing['serverSeed'])) {
+            return $existing;
+        }
+        $now = SqlRepository::nowUtc();
+        $serverSeed = bin2hex(random_bytes(32));
+        $this->db->insertOneIfAbsent('casino_seed_chains', [
+            'id' => $chainId,
+            'userId' => $userId,
+            'game' => $game,
+            'serverSeed' => $serverSeed,
+            'serverSeedHash' => hash('sha256', $serverSeed),
+            'clientSeed' => '',
+            'nonce' => 0,
+            'createdAt' => $now,
+            'updatedAt' => $now,
+        ]);
+        // Re-read: whether we won or lost the create race, this returns the row.
+        $row = $this->db->findOne('casino_seed_chains', ['id' => $chainId]);
+        if ($row === null || !isset($row['serverSeed'])) {
+            throw new RuntimeException('Failed to initialize fairness seed chain');
+        }
+        return $row;
+    }
+
+    /**
+     * Canonical (unshuffled) shoe: `decks` copies of the 52-card block in a
+     * fixed order (suit H,D,C,S outer, rank A..K inner). This order is part of
+     * the published verification recipe — do not reorder.
+     *
+     * @return array<int, array{r: string, s: string, code: string}>
+     */
+    private function buildCanonicalShoe(int $decks): array
+    {
+        $suits = ['H', 'D', 'C', 'S'];
+        $ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+        $shoe = [];
+        for ($d = 0; $d < $decks; $d++) {
+            foreach ($suits as $s) {
+                foreach ($ranks as $r) {
+                    $shoe[] = ['r' => $r, 's' => $s, 'code' => $r . $s];
+                }
+            }
+        }
+        return $shoe;
+    }
+
+    /**
+     * Deterministic Fisher-Yates over the canonical shoe. Keystream =
+     * HMAC-SHA256(key=serverSeed, msg="clientSeed:nonce:counter") for
+     * counter=0,1,2,… (raw bytes, concatenated). Each swap index is drawn from
+     * the next big-endian uint32, using rejection sampling to eliminate modulo
+     * bias. Same (serverSeed, clientSeed, nonce, shoe size) ⇒ same order, so any
+     * third party can reproduce it. Documented verbatim in the fairness panel.
+     *
+     * @param array<int, array{r: string, s: string, code: string}> $shoe
+     * @return array<int, array{r: string, s: string, code: string}>
+     */
+    private function seededShuffleShoe(array $shoe, string $serverSeed, string $clientSeed, int $nonce): array
+    {
+        $message = $clientSeed . ':' . $nonce . ':';
+        $buffer = '';
+        $bufPos = 0;
+        $counter = 0;
+        $nextUint32 = static function () use (&$buffer, &$bufPos, &$counter, $serverSeed, $message): int {
+            if ($bufPos + 4 > strlen($buffer)) {
+                $buffer = hash_hmac('sha256', $message . $counter, $serverSeed, true);
+                $counter++;
+                $bufPos = 0;
+            }
+            /** @var array{1: int} $unpacked */
+            $unpacked = unpack('N', substr($buffer, $bufPos, 4));
+            $bufPos += 4;
+            return $unpacked[1];
+        };
+
+        for ($i = count($shoe) - 1; $i > 0; $i--) {
+            $range = $i + 1;
+            // Largest multiple of $range that fits in uint32; values at/above it
+            // are rejected so every residue is equally likely (no modulo bias).
+            $limit = intdiv(0x100000000, $range) * $range;
+            do {
+                $value = $nextUint32();
+            } while ($value >= $limit);
+            $j = $value % $range;
+            [$shoe[$i], $shoe[$j]] = [$shoe[$j], $shoe[$i]];
+        }
+
+        return $shoe;
+    }
+
+    /**
+     * Sanitized client seed. A well-behaved client always sends a fresh,
+     * unpredictable seed (generated in-browser at session start). If it is
+     * missing or malformed we substitute fresh server randomness — never an
+     * unseeded RNG and never a predictable constant. The value is revealed in
+     * the round response, so it is not a secret.
+     */
+    private function resolveClientSeed(array $body): string
+    {
+        $payload = is_array($body['payload'] ?? null) ? $body['payload'] : [];
+        $raw = trim((string) ($payload['clientSeed'] ?? $body['clientSeed'] ?? ''));
+        if ($raw !== '' && preg_match('/^[A-Za-z0-9._:-]{1,128}$/', $raw) === 1) {
+            return $raw;
+        }
+        return bin2hex(random_bytes(16));
+    }
+
+    /**
+     * Pure recompute used by the verify endpoint: derive the exact shoe from a
+     * (serverSeed, clientSeed, nonce, decks) tuple, deal it with the same
+     * pop/third-card logic, and return the cards + result. No DB, no money, no
+     * secret — the caller supplies an already-revealed serverSeed.
+     *
+     * @return array{deckHash: string, playerCards: array<int,string>, bankerCards: array<int,string>, playerTotal: int, bankerTotal: int, result: string, shoeSize: int}
+     */
+    private function recomputeBaccaratRound(string $serverSeed, string $clientSeed, int $nonce, int $decks): array
+    {
+        $shoe = $this->seededShuffleShoe($this->buildCanonicalShoe($decks), $serverSeed, $clientSeed, $nonce);
+        return $this->dealFromShoe($shoe, $decks);
+    }
+
+    /**
+     * GET /api/casino/fairness/state/{game}
+     * The player's current commitment (hash of the seed their NEXT round will
+     * use + reveal) plus their last revealed round, so the client can show and
+     * verify the chain. Never returns an unrevealed serverSeed or the secret.
+     */
+    private function getCasinoFairnessState(string $game): void
+    {
+        try {
+            $actor = $this->protect();
+            if ($actor === null) {
+                return;
+            }
+            if ($game !== self::BACCARAT_CLASSIC_GAME_SLUG) {
+                Response::json(['message' => 'Fairness is not available for game "' . $game . '"'], 400);
+                return;
+            }
+            $userId = (string) ($actor['id'] ?? '');
+            // Find-or-create the chain (this endpoint is the SOLE creator). The
+            // commitment is the hash of the current unrevealed seed — exactly
+            // what the player's next round will use and then reveal.
+            $chain = $this->ensureBaccaratSeedChain($userId, $game);
+            $nextNonce = (int) ($chain['nonce'] ?? 0);
+            $commitment = (string) ($chain['serverSeedHash'] ?? hash('sha256', (string) $chain['serverSeed']));
+
+            $lastRound = null;
+            $rows = $this->db->findMany(
+                'casino_bets',
+                ['userId' => $userId, 'game' => $game],
+                ['sort' => ['createdAt' => -1], 'limit' => 1]
+            );
+            $last = $rows[0] ?? null;
+            if (is_array($last) && isset($last['serverSeed'])) {
+                $lastRound = [
+                    'roundId' => (string) ($last['roundId'] ?? $last['id'] ?? ''),
+                    'serverSeed' => (string) $last['serverSeed'],
+                    'serverSeedHash' => (string) ($last['serverSeedHash'] ?? ''),
+                    'clientSeed' => (string) ($last['clientSeed'] ?? ''),
+                    'nonce' => (int) ($last['nonce'] ?? 0),
+                    'shoeSize' => (int) ($last['shoeSize'] ?? self::BACCARAT_SHOE_DECKS),
+                    'deckHash' => (string) ($last['deckHash'] ?? ''),
+                    'playerCards' => is_array($last['playerCards'] ?? null) ? array_values($last['playerCards']) : [],
+                    'bankerCards' => is_array($last['bankerCards'] ?? null) ? array_values($last['bankerCards']) : [],
+                    'result' => (string) ($last['result'] ?? ''),
+                ];
+            }
+
+            Response::json([
+                'game' => $game,
+                'nextNonce' => $nextNonce,
+                'serverSeedHash' => $commitment,
+                'shoeSize' => self::BACCARAT_SHOE_DECKS,
+                'algorithm' => self::BACCARAT_RNG_VERSION,
+                'lastRound' => $lastRound,
+            ]);
+        } catch (Throwable $e) {
+            Response::serverError('Server error loading fairness state', $e);
+        }
+    }
+
+    /**
+     * GET /api/casino/fairness/verify?serverSeed=&clientSeed=&nonce=&shoeSize=
+     * Convenience recompute from player-supplied, already-revealed inputs. Pure
+     * function: no DB, no money, no secret. The same result is reproducible
+     * offline from the published algorithm — this endpoint is not authoritative.
+     */
+    private function verifyCasinoFairness(): void
+    {
+        try {
+            $actor = $this->protect();
+            if ($actor === null) {
+                return;
+            }
+            $serverSeed = trim((string) ($_GET['serverSeed'] ?? ''));
+            $clientSeed = trim((string) ($_GET['clientSeed'] ?? ''));
+            $nonce = (int) ($_GET['nonce'] ?? -1);
+            $shoeSize = (int) ($_GET['shoeSize'] ?? self::BACCARAT_SHOE_DECKS);
+
+            if (preg_match('/^[a-f0-9]{64}$/i', $serverSeed) !== 1) {
+                Response::json(['message' => 'serverSeed must be a 64-char hex string (the revealed seed from a past round)'], 400);
+                return;
+            }
+            if ($clientSeed === '' || preg_match('/^[A-Za-z0-9._:-]{1,128}$/', $clientSeed) !== 1) {
+                Response::json(['message' => 'clientSeed is required (1-128 chars: letters, numbers, . _ : -)'], 400);
+                return;
+            }
+            if ($nonce < 0) {
+                Response::json(['message' => 'nonce must be a non-negative integer'], 400);
+                return;
+            }
+            if ($shoeSize < 1 || $shoeSize > 8) {
+                Response::json(['message' => 'shoeSize must be between 1 and 8'], 400);
+                return;
+            }
+
+            $round = $this->recomputeBaccaratRound($serverSeed, $clientSeed, $nonce, $shoeSize);
+            Response::json([
+                'inputs' => [
+                    'serverSeed' => $serverSeed,
+                    'serverSeedHash' => hash('sha256', $serverSeed),
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce,
+                    'shoeSize' => $shoeSize,
+                ],
+                'deckHash' => (string) ($round['deckHash'] ?? ''),
+                'playerCards' => $round['playerCards'] ?? [],
+                'bankerCards' => $round['bankerCards'] ?? [],
+                'playerCardCodes' => self::baccaratClientCardCodes($round['playerCards'] ?? []),
+                'bankerCardCodes' => self::baccaratClientCardCodes($round['bankerCards'] ?? []),
+                'playerTotal' => (int) ($round['playerTotal'] ?? 0),
+                'bankerTotal' => (int) ($round['bankerTotal'] ?? 0),
+                'result' => (string) ($round['result'] ?? ''),
+            ]);
+        } catch (Throwable $e) {
+            Response::serverError('Server error verifying fairness', $e);
+        }
+    }
+
+    /**
+     * Deal a baccarat round from a committed seed tuple. The shoe is produced
+     * by the deterministic seeded shuffle, so the whole round is reproducible
+     * by anyone holding (serverSeed, clientSeed, nonce, decks).
+     *
      * @return array{
-     *   deckCodes: array<int, string>,
+     *   deckHash: string,
      *   playerCards: array<int, string>,
      *   bankerCards: array<int, string>,
      *   playerTotal: int,
      *   bankerTotal: int,
-     *   result: string
+     *   result: string,
+     *   shoeSize: int
      * }
      */
-    private function dealBaccaratRound(): array
+    private function dealBaccaratRound(string $serverSeed, string $clientSeed, int $nonce, int $decks): array
     {
-        $deck = $this->buildShuffledDeck();
+        $shoe = $this->seededShuffleShoe($this->buildCanonicalShoe($decks), $serverSeed, $clientSeed, $nonce);
+        return $this->dealFromShoe($shoe, $decks);
+    }
+
+    /**
+     * Deal + third-card rules over an already-ordered shoe. This is the exact
+     * logic that shipped before commit-reveal — only the shoe's entropy source
+     * changed (seeded shuffle vs random_int). Cards are dealt by popping the
+     * END of the shoe (P,B,P,B, then third-card draws).
+     *
+     * @param array<int, array{r: string, s: string, code: string}> $shoe
+     * @return array{deckHash: string, playerCards: array<int,string>, bankerCards: array<int,string>, playerTotal: int, bankerTotal: int, result: string, shoeSize: int}
+     */
+    private function dealFromShoe(array $shoe, int $decks): array
+    {
+        $deck = $shoe;
         $deckCodes = array_map(static fn(array $card): string => (string) ($card['code'] ?? ''), $deck);
 
         $playerCards = [];
@@ -6500,37 +7049,57 @@ final class CasinoController
         }
 
         return [
-            'deckCodes' => $deckCodes,
+            // Hash of the full shoe order (integrity anchor). We do NOT persist
+            // the 416-entry shoe itself — verification recomputes it exactly
+            // from the seed tuple, and reconcile/audit never read it.
+            'deckHash' => hash('sha256', implode(',', $deckCodes)),
             'playerCards' => array_values(array_map(static fn(array $c): string => (string) ($c['code'] ?? ''), $playerCards)),
             'bankerCards' => array_values(array_map(static fn(array $c): string => (string) ($c['code'] ?? ''), $bankerCards)),
             'playerTotal' => $pFinal,
             'bankerTotal' => $bFinal,
             'result' => $result,
+            'shoeSize' => $decks,
         ];
     }
 
-    private function calculateBaccaratPayout(float $playerBet, float $bankerBet, float $tieBet, string $result): array
+    private function calculateBaccaratPayout(float $playerBet, float $bankerBet, float $tieBet, string $result, ?array $payoutConfig = null): array
     {
+        // Re-clamp here as well — the calc defends itself even if handed a raw
+        // array. null/missing keys fall back to the shipped defaults (5% / 8x),
+        // which reproduce the pre-config payouts bit for bit.
+        $commissionPct = self::clampPayoutValue($payoutConfig['bankerCommissionPct'] ?? null, self::BACCARAT_CLASSIC_PAYOUT_SPEC['bankerCommissionPct']);
+        $tiePayout = self::clampPayoutValue($payoutConfig['tiePayout'] ?? null, self::BACCARAT_CLASSIC_PAYOUT_SPEC['tiePayout']);
+
         $totalWager = round($playerBet + $bankerBet + $tieBet);
         $totalReturn = 0.0;
         $profit = 0.0;
 
         if ($result === 'Player') {
             if ($playerBet > 0) {
+                // Player pays 1:1 always — not part of the configurable edge.
                 $totalReturn += $playerBet * 2;
                 $profit += $playerBet;
             }
         } elseif ($result === 'Banker') {
             if ($bankerBet > 0) {
-                // floor() so whole-dollar rounding can never erase the 5% commission
-                $bankerReturn = floor($bankerBet * 1.95);
+                // floor() so whole-dollar rounding can never erase the commission
+                // (multiplier 2 - pct/100; 5% => the original 1.95x).
+                $bankerReturn = floor($bankerBet * (2 - $commissionPct / 100));
                 $totalReturn += $bankerReturn;
                 $profit += $bankerReturn - $bankerBet;
             }
         } else {
             if ($tieBet > 0) {
-                $totalReturn += $tieBet * 9;
-                $profit += $tieBet * 8;
+                // Integer multipliers (incl. the default 8x) reproduce the
+                // pre-config arithmetic bit for bit; a fractional multiplier
+                // floors the win portion so it can never round in the
+                // player's favor.
+                $tieWin = $tieBet * $tiePayout;
+                if (floor($tiePayout) !== $tiePayout) {
+                    $tieWin = floor($tieWin);
+                }
+                $totalReturn += $tieWin + $tieBet;
+                $profit += $tieWin;
             }
             if ($playerBet > 0) {
                 $totalReturn += $playerBet;
@@ -8907,6 +9476,21 @@ final class CasinoController
             'result' => (string) ($betRecord['result'] ?? ''),
             'playerCards' => is_array($betRecord['playerCards'] ?? null) ? $betRecord['playerCards'] : [],
             'bankerCards' => is_array($betRecord['bankerCards'] ?? null) ? $betRecord['bankerCards'] : [],
+            'playerCardCodes' => is_array($betRecord['playerCardCodes'] ?? null) ? array_values(array_map('intval', $betRecord['playerCardCodes'])) : [],
+            'bankerCardCodes' => is_array($betRecord['bankerCardCodes'] ?? null) ? array_values(array_map('intval', $betRecord['bankerCardCodes'])) : [],
+            'payoutApplied' => is_array($betRecord['payoutApplied'] ?? null) ? $betRecord['payoutApplied'] : null,
+            // Provably-fair reveal (null on pre-Phase-3 rows). serverSeed is the
+            // now-revealed seed for THIS round; serverSeedHashNext commits the
+            // next. The server secret is never included, derivable, or logged.
+            'fairness' => isset($betRecord['serverSeed']) ? [
+                'serverSeed' => (string) $betRecord['serverSeed'],
+                'serverSeedHash' => (string) ($betRecord['serverSeedHash'] ?? ''),
+                'serverSeedHashNext' => (string) ($betRecord['serverSeedHashNext'] ?? ''),
+                'clientSeed' => (string) ($betRecord['clientSeed'] ?? ''),
+                'nonce' => (int) ($betRecord['nonce'] ?? 0),
+                'shoeSize' => (int) ($betRecord['shoeSize'] ?? self::BACCARAT_SHOE_DECKS),
+                'deckHash' => (string) ($betRecord['deckHash'] ?? ''),
+            ] : null,
             'dealerCards' => is_array($betRecord['dealerCards'] ?? null) ? $betRecord['dealerCards'] : [],
             'dealerUpCard' => $betRecord['dealerUpCard'] ?? null,
             'playerTotal' => (int) ($betRecord['playerTotal'] ?? 0),

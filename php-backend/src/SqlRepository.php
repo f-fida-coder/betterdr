@@ -755,7 +755,7 @@ KEY `idx_updated_at` (`updated_at`)
 
     private function supportsSqlReadOptimization(string $collection): bool
     {
-        return in_array($collection, ['casino_bets', 'casino_round_audit', 'transactions', 'casinogames', 'users', 'agents', 'bets', 'betselections', 'matches', 'messages', 'iplogs', 'master_agents', 'admins', 'admin_audit_log', 'rate_limits', 'betrequests', 'betmoderules', 'faqs', 'manualsections', 'feedbacks', 'login_failures'], true);
+        return in_array($collection, ['casino_bets', 'casino_round_audit', 'casino_seed_chains', 'transactions', 'casinogames', 'users', 'agents', 'bets', 'betselections', 'matches', 'messages', 'iplogs', 'master_agents', 'admins', 'admin_audit_log', 'rate_limits', 'betrequests', 'betmoderules', 'faqs', 'manualsections', 'feedbacks', 'login_failures'], true);
     }
 
     /**
@@ -1084,6 +1084,10 @@ KEY `idx_updated_at` (`updated_at`)
                 'userId' => 'j_user_id',
                 'game' => 'j_game',
                 'action' => 'j_action',
+            ],
+            'casino_seed_chains' => [
+                'userId' => 'j_user_id',
+                'game' => 'j_game',
             ],
             'users' => [
                 'username' => 'j_username',
@@ -1595,6 +1599,34 @@ KEY `idx_updated_at` (`updated_at`)
             $indexes = [
                 'idx_betrequests_user_request' => "ALTER TABLE `{$table}` ADD KEY `idx_betrequests_user_request` (`j_user_id`, `j_request_id`)",
                 'idx_betrequests_status' => "ALTER TABLE `{$table}` ADD KEY `idx_betrequests_status` (`j_status`)",
+            ];
+            foreach ($indexes as $index => $sql) {
+                if (!$this->indexExists($table, $index)) {
+                    $this->pdo->exec($sql);
+                    self::$indexExistsCache[$table . '.' . $index] = true;
+                }
+            }
+        }
+
+        if ($collection === 'casino_seed_chains') {
+            // Provably-fair (Option A) rotating seed chain: one row per
+            // (userId, game). The doc `id` is a deterministic hash of the pair
+            // (primary key => exactly one row per pair, race-safe on INSERT
+            // IGNORE). These generated columns let admin/audit queries filter
+            // by user/game; the hot path looks up by primary-key id.
+            $columns = [
+                'j_user_id' => "ALTER TABLE `{$table}` ADD COLUMN `j_user_id` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.userId'))) STORED",
+                'j_game' => "ALTER TABLE `{$table}` ADD COLUMN `j_game` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.game'))) STORED",
+            ];
+            foreach ($columns as $column => $sql) {
+                if (!$this->columnExists($table, $column)) {
+                    $this->pdo->exec($sql);
+                    self::$columnExistsCache[$table . '.' . $column] = true;
+                }
+            }
+
+            $indexes = [
+                'idx_casino_seed_chains_user_game' => "ALTER TABLE `{$table}` ADD KEY `idx_casino_seed_chains_user_game` (`j_user_id`, `j_game`)",
             ];
             foreach ($indexes as $index => $sql) {
                 if (!$this->indexExists($table, $index)) {

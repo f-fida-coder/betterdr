@@ -1064,6 +1064,21 @@ export const getCasinoGameState = async (game, token) => {
     return response.json();
 };
 
+// Provably-fair state for a casino game: the current commitment (hash of the
+// seed the player's next round will use + reveal) and their last revealed round.
+// Never returns the server secret or an unrevealed seed.
+export const getCasinoFairnessState = async (game, token) => {
+    const safeGame = String(game || '').trim().toLowerCase();
+    const response = await fetch(buildApiUrl(`/casino/fairness/state/${encodeURIComponent(safeGame)}`), {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch fairness state');
+    }
+    return response.json();
+};
+
 export const launchCasinoGame = async (gameId, token) => {
     const response = await fetch(buildApiUrl(`/casino/games/${gameId}/launch`), {
         method: 'POST',
@@ -1175,6 +1190,19 @@ export const downloadAdminCasinoBetsCsv = async (params = {}, token) => {
     a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
+};
+
+export const updateAdminCasinoGame = async (gameId, updates, token) => {
+    const response = await fetch(buildApiUrl(`/casino/admin/games/${gameId}`), {
+        method: 'PUT',
+        headers: getHeaders(token),
+        body: JSON.stringify(updates)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to update casino game');
+    }
+    return response.json();
 };
 
 export const getAdminCasinoBetDetail = async (roundId, token) => {

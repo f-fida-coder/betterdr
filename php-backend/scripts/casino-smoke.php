@@ -105,7 +105,7 @@ try {
     $requestId = 'smoke_' . $seed;
     $place = req('POST', $baseUrl . '/casino/bet', [
         'requestId' => $requestId,
-        'game' => 'baccarat',
+        'game' => 'baccarat-classic',
         'bets' => ['Player' => 5, 'Banker' => 0, 'Tie' => 0],
     ], $token);
     assertOk($place['status'] === 200, 'First casino bet failed');
@@ -120,7 +120,7 @@ try {
     echo "4) Replay same requestId (idempotency)...\n";
     $replay = req('POST', $baseUrl . '/casino/bet', [
         'requestId' => $requestId,
-        'game' => 'baccarat',
+        'game' => 'baccarat-classic',
         'bets' => ['Player' => 5, 'Banker' => 0, 'Tie' => 0],
     ], $token);
     assertOk($replay['status'] === 200, 'Replay request failed');
@@ -290,7 +290,7 @@ try {
 
     $blockedByCoolingOff = req('POST', $baseUrl . '/casino/bet', [
         'requestId' => 'smoke_cooldown_' . $seed,
-        'game' => 'baccarat',
+        'game' => 'baccarat-classic',
         'bets' => ['Player' => 5, 'Banker' => 0, 'Tie' => 0],
     ], $token);
     assertOk($blockedByCoolingOff['status'] === 403, 'Cooling-off period should block casino betting');

@@ -4,6 +4,7 @@ import {
     getCasinoCategories,
     getCasinoGames,
     getCasinoGameState,
+    getCasinoFairnessState,
     launchCasinoGame,
     getBalance,
     placeCasinoBet,
@@ -12,6 +13,19 @@ import {
 import { formatSiteDateTime } from '../utils/timezone';
 
 const LOCAL_GAME_META = {
+    'baccarat-classic': {
+        id: 'local-baccarat-classic',
+        provider: 'In-House',
+        // Launch params consumed by the BAC client (getUrlVars): dummy session
+        // marker (the bridge never uses it for auth), chip denominations, and
+        // whole-dollar USD formatting. SHOWCASHIER/SHOWHISTORY keep the vendor
+        // cashier/history surfaces off — the platform wallet + history own those.
+        url: '/games/baccarat-classic/index.html?v=20260712a&GAMESESSION=platform&GAMECODE=BAC&SHOWCASHIER=0&SHOWHISTORY=0&SHOWCHIPS=1,5,25,100,500&CURRENCY=USD,%24,%C2%A2,p,5,0&LANG=en',
+        poster: '/games/baccarat-classic/images/background.png',
+        themeColor: '#9f1239',
+        // Fixed 855x640 landscape table — rides the rotate overlay on phones.
+        landscape: true,
+    },
     craps: {
         id: 'local-craps',
         provider: 'In-House',
@@ -64,6 +78,9 @@ const createRequestId = () =>
 const normalizeEmbeddedGameSlug = (value) => {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized.includes('blackjack')) return 'blackjack';
+    // Must match before the bare-baccarat check: the legacy 'baccarat' slug is
+    // delisted server-side, so letting it swallow 'baccarat-classic' would 410.
+    if (normalized.includes('baccarat-classic')) return 'baccarat-classic';
     if (normalized.includes('baccarat')) return 'baccarat';
     if (normalized.includes('craps')) return 'craps';
     if (normalized.includes('arabian')) return 'arabian';
@@ -276,6 +293,10 @@ const CasinoView = () => {
                 gameMaxBet: betLimits.gameMaxBet,
                 betLimits,
                 gameState,
+                // Effective (server-clamped) payout config from the catalog row —
+                // the same values the backend settles with. Games display these;
+                // no payout number is ever hardcoded client-side.
+                payoutConfig: activeLocalGameRef.current?.metadata?.payoutConfig || null,
             });
             setGameDisplayBalance(availableBalance);
             setGameBetLimits(betLimits);
@@ -319,6 +340,25 @@ const CasinoView = () => {
         if (msg.type === 'getBalance') {
             const requestId = String(msg.requestId || '');
             await syncGameBalance(requestId);
+            return;
+        }
+
+        if (msg.type === 'getFairness') {
+            const requestId = String(msg.requestId || '');
+            const gameSlug = normalizeEmbeddedGameSlug(
+                activeLocalGameRef.current?.slug || activeLocalGameRef.current?.name || activeLocalGameRef.current?.id
+            );
+            if (!token || !gameSlug) {
+                sendToGame({ type: 'fairnessState', requestId, error: 'Fairness state unavailable.' });
+                return;
+            }
+            try {
+                const state = await getCasinoFairnessState(gameSlug, token);
+                sendToGame({ type: 'fairnessState', requestId, state });
+            } catch (err) {
+                console.error('Failed to fetch fairness state:', err);
+                sendToGame({ type: 'fairnessState', requestId, error: err.message });
+            }
             return;
         }
 
@@ -580,6 +620,7 @@ const CasinoView = () => {
             case 'blackjack':
                 return 'Blackjack';
             case 'baccarat':
+            case 'baccarat-classic':
                 return 'Baccarat';
             case 'craps':
                 return 'Craps';
@@ -718,7 +759,7 @@ const CasinoView = () => {
     };
     const formatBetDetails = (row) => {
         const game = String(row?.game || '').toLowerCase();
-        if (game === 'baccarat') {
+        if (game === 'baccarat' || game === 'baccarat-classic') {
             const bets = row?.bets && typeof row.bets === 'object' ? row.bets : {};
             return `P ${formatMoney(bets.Player)} | B ${formatMoney(bets.Banker)} | T ${formatMoney(bets.Tie)}`;
         }
@@ -1153,7 +1194,8 @@ const CasinoView = () => {
                             }}
                         >
                             <option value="">All</option>
-                            <option value="baccarat">Baccarat</option>
+                            <option value="baccarat-classic">Baccarat</option>
+                            <option value="baccarat">Baccarat (Legacy)</option>
                             <option value="craps">Craps</option>
                             <option value="arabian">Arabian Game</option>
                             <option value="jurassic-run">Jurassic Run</option>

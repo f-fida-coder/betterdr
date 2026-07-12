@@ -3,13 +3,16 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/Env.php';
+require_once __DIR__ . '/../src/ConnectionPool.php';
+require_once __DIR__ . '/../src/CircuitBreaker.php';
 require_once __DIR__ . '/../src/SqlRepository.php';
 
 $projectRoot = dirname(__DIR__, 2);
 $phpBackendDir = dirname(__DIR__);
 Env::load($projectRoot, $phpBackendDir);
 
-$opts = getopt('', ['from::', 'to::', 'user-id::', 'username::', 'limit::', 'include-legacy']);
+$opts = getopt('', ['from::', 'to::', 'user-id::', 'username::', 'limit::', 'include-legacy', 'game::']);
+$gameFilter = trim((string) ($opts['game'] ?? 'baccarat-classic'));
 $fromRaw = trim((string) ($opts['from'] ?? ''));
 $toRaw = trim((string) ($opts['to'] ?? ''));
 $userIdFilter = trim((string) ($opts['user-id'] ?? ''));
@@ -39,7 +42,7 @@ if ($toRaw !== '') {
 
 $repo = new SqlRepository('mysql-native', (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'sports_betting')));
 
-$query = ['game' => 'baccarat'];
+$query = ['game' => $gameFilter];
 if ($userIdFilter !== '') {
     $query['userId'] = $userIdFilter;
 }

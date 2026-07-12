@@ -19,6 +19,8 @@ require_once __DIR__ . '/TestRunner.php';
 // Running them in the shared process would skip their mocks — the real classes
 // are already autoloaded — and fatal (e.g. Response::reset() not found).
 const ISOLATED_SUITES = [
+    'BaccaratCardCodeTest.php',     // mocks CasinoController deps to test the baccarat-classic card-code adapter sans DB
+    'BaccaratFairnessTest.php',     // mocks CasinoController deps (mutable Env secret) to test the commit-reveal seeded shoe sans DB
     'BaccaratPayoutTest.php',       // mocks CasinoController deps to test calculateBaccaratPayout sans DB
     'JurassicRunMathTest.php',      // mocks Response/SqlRepository to test CasinoController::spin sans DB
     'ManualBetGradingTest.php',     // needs an INSTANCE-method SqlRepository double for the grading money block

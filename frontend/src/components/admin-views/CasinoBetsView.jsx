@@ -1,5 +1,120 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { downloadAdminCasinoBetsCsv, getAdminCasinoBetDetail, getAdminCasinoBets, getAdminCasinoSummary } from '../../api';
+import { downloadAdminCasinoBetsCsv, getAdminCasinoBetDetail, getAdminCasinoBets, getAdminCasinoSummary, getCasinoGames, updateAdminCasinoGame } from '../../api';
+
+// Server-enforced clamp ranges for baccarat-classic's payout config — shown and
+// pre-validated here, but the backend PUT is the source of truth (rejects
+// out-of-range with 400; changing values requires role admin).
+const BACCARAT_PAYOUT_LIMITS = {
+  bankerCommissionPct: { min: 2.5, max: 10, label: 'Banker commission %' },
+  tiePayout: { min: 7, max: 9, label: 'Tie payout ×' },
+};
+
+function BaccaratPayoutSettings({ token }) {
+  const [game, setGame] = useState(null);
+  const [commission, setCommission] = useState('');
+  const [tiePayout, setTiePayout] = useState('');
+  const [status, setStatus] = useState({ kind: '', text: '' });
+  const [saving, setSaving] = useState(false);
+
+  const loadGame = useCallback(async () => {
+    try {
+      const payload = await getCasinoGames({ token, category: 'table_games', limit: 100 });
+      const row = (payload?.games || []).find((g) => String(g?.slug || '') === 'baccarat-classic');
+      if (!row) return;
+      setGame(row);
+      const cfg = row?.metadata?.payoutConfig || {};
+      setCommission(String(cfg.bankerCommissionPct ?? 5));
+      setTiePayout(String(cfg.tiePayout ?? 8));
+    } catch (err) {
+      setStatus({ kind: 'error', text: err.message || 'Failed to load baccarat payout config' });
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadGame();
+  }, [loadGame]);
+
+  const outOfRange = (value, limits) => {
+    const num = Number(value);
+    return !Number.isFinite(num) || num < limits.min || num > limits.max;
+  };
+  const commissionInvalid = outOfRange(commission, BACCARAT_PAYOUT_LIMITS.bankerCommissionPct);
+  const tieInvalid = outOfRange(tiePayout, BACCARAT_PAYOUT_LIMITS.tiePayout);
+
+  const save = async () => {
+    if (!game || commissionInvalid || tieInvalid) return;
+    try {
+      setSaving(true);
+      setStatus({ kind: '', text: '' });
+      const updated = await updateAdminCasinoGame(game.id, {
+        metadata: {
+          ...(game.metadata || {}),
+          payoutConfig: {
+            bankerCommissionPct: Number(commission),
+            tiePayout: Number(tiePayout),
+          },
+        },
+      }, token);
+      const applied = updated?.metadata?.payoutConfig || {};
+      setStatus({
+        kind: 'ok',
+        text: `Saved — live from the next round: commission ${applied.bankerCommissionPct ?? commission}%, tie ${applied.tiePayout ?? tiePayout}×`,
+      });
+      setGame(updated || game);
+    } catch (err) {
+      setStatus({ kind: 'error', text: err.message || 'Failed to save payout config' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!game) return null;
+
+  return (
+    <div className="casino-bets-filters casino-payout-settings">
+      <div className="filter-group">
+        <label>Baccarat Payout — {BACCARAT_PAYOUT_LIMITS.bankerCommissionPct.label} ({BACCARAT_PAYOUT_LIMITS.bankerCommissionPct.min}–{BACCARAT_PAYOUT_LIMITS.bankerCommissionPct.max})</label>
+        <input
+          type="number"
+          min={BACCARAT_PAYOUT_LIMITS.bankerCommissionPct.min}
+          max={BACCARAT_PAYOUT_LIMITS.bankerCommissionPct.max}
+          step="0.5"
+          value={commission}
+          onChange={(e) => setCommission(e.target.value)}
+          style={commissionInvalid ? { borderColor: '#dc2626' } : undefined}
+        />
+      </div>
+      <div className="filter-group">
+        <label>{BACCARAT_PAYOUT_LIMITS.tiePayout.label} ({BACCARAT_PAYOUT_LIMITS.tiePayout.min}–{BACCARAT_PAYOUT_LIMITS.tiePayout.max})</label>
+        <input
+          type="number"
+          min={BACCARAT_PAYOUT_LIMITS.tiePayout.min}
+          max={BACCARAT_PAYOUT_LIMITS.tiePayout.max}
+          step="0.5"
+          value={tiePayout}
+          onChange={(e) => setTiePayout(e.target.value)}
+          style={tieInvalid ? { borderColor: '#dc2626' } : undefined}
+        />
+      </div>
+      <div className="filter-group">
+        <label>&nbsp;</label>
+        <button
+          type="button"
+          className="btn-small btn-accent"
+          onClick={save}
+          disabled={saving || commissionInvalid || tieInvalid}
+        >
+          {saving ? 'Saving…' : 'Save Payout Config'}
+        </button>
+      </div>
+      {status.text && (
+        <div className="filter-group" style={{ alignSelf: 'flex-end', color: status.kind === 'error' ? '#dc2626' : '#16a34a' }}>
+          {status.text}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const EMPTY_FILTERS = {
   game: '',
@@ -116,6 +231,7 @@ function CasinoBetsView() {
       case 'blackjack':
         return 'Blackjack';
       case 'baccarat':
+      case 'baccarat-classic':
         return 'Baccarat';
       case 'craps':
         return 'Craps';
@@ -310,6 +426,7 @@ function CasinoBetsView() {
         {error && <div className="casino-bets-error">{error}</div>}
         {!loading && !error && (
           <>
+            {localStorage.getItem('userRole') === 'admin' && <BaccaratPayoutSettings token={token} />}
             <div className="casino-bets-kpi-grid">
               {summaryCards.map((card) => (
                 <div className={`casino-kpi-card tone-${card.tone}`} key={card.label}>
@@ -446,7 +563,8 @@ function CasinoBetsView() {
                 <label>Game</label>
                 <select value={filters.game} onChange={(e) => applyFilter('game', e.target.value)}>
                   <option value="">All</option>
-                  <option value="baccarat">Baccarat</option>
+                  <option value="baccarat-classic">Baccarat</option>
+                  <option value="baccarat">Baccarat (Legacy)</option>
                   <option value="blackjack">Blackjack</option>
                   <option value="craps">Craps</option>
                   <option value="arabian">Arabian Game</option>
@@ -765,7 +883,7 @@ function CasinoBetsView() {
                       <>
                         <div className="casino-detail-stack">
                           <span>
-                            {selectedDetail.game === 'baccarat' ? `Player (${selectedDetail.playerTotal})` : 'Player'}
+                            {selectedDetail.game === 'baccarat' || selectedDetail.game === 'baccarat-classic' ? `Player (${selectedDetail.playerTotal})` : 'Player'}
                           </span>
                           <div className="casino-card-list">
                             {(selectedDetail.playerCards || []).length > 0
@@ -773,7 +891,7 @@ function CasinoBetsView() {
                               : <span>—</span>}
                           </div>
                         </div>
-                        {selectedDetail.game === 'baccarat' ? (
+                        {selectedDetail.game === 'baccarat' || selectedDetail.game === 'baccarat-classic' ? (
                           <div className="casino-detail-stack">
                             <span>Banker ({selectedDetail.bankerTotal})</span>
                             <div className="casino-card-list">
