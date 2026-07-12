@@ -416,16 +416,22 @@ const CasinoView = () => {
                     balanceAfter: settledPlayableBalance ?? Number(result?.availableBalanceAfter ?? result?.availableBalance ?? 0),
                     playerOutcome: String(result?.playerOutcome || result?.result || ''),
                 };
-                // For Jurassic Run, defer result banner until spinComplete message arrives.
-                // The 15s timeout is a safety net — normally spinComplete fires within 4-5s.
-                if (requestedGame === 'jurassic-run') {
+                // Defer the result banner until the game signals its reveal is
+                // done ('spinComplete'), so the Win/Lose/Push announcement lands
+                // AFTER the cards/animation — not the instant Deal is clicked.
+                // Jurassic Run fires spinComplete after its spin; baccarat-classic
+                // fires it when the cards land + winner is highlighted. The timeout
+                // is a safety net if that signal never arrives (baccarat's reveal
+                // is ~3-4s, Jurassic's ~4-5s).
+                if (requestedGame === 'jurassic-run' || requestedGame === 'baccarat-classic') {
+                    const safetyMs = requestedGame === 'baccarat-classic' ? 9000 : 15000;
                     pendingRoundResultRef.current = roundResult;
                     spinCompleteTimerRef.current = setTimeout(() => {
                         if (pendingRoundResultRef.current) {
                             setLastRoundResult(pendingRoundResultRef.current);
                             pendingRoundResultRef.current = null;
                         }
-                    }, 15000);
+                    }, safetyMs);
                 } else {
                     setLastRoundResult(roundResult);
                 }

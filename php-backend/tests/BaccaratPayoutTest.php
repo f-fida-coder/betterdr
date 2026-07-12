@@ -118,25 +118,42 @@ function baccaratPayoutConfigUpdateError(array $actor, array $existing, mixed $i
     return $method->invoke($controller, $actor, $existing, $incomingMetadata);
 }
 
-TestRunner::run('Baccarat banker returns are floored — commission never erased', function (): void {
-    $expectedReturns = [1 => 1, 2 => 3, 3 => 5, 4 => 7, 5 => 9, 6 => 11, 7 => 13, 8 => 15, 9 => 17, 10 => 19];
+TestRunner::run('Baccarat banker win pays at least even money — commission floored, never a $0 push', function (): void {
+    // return = 2*bet - floor(bet*5%). A winning banker bet always returns MORE
+    // than the stake (the old floor(bet*1.95) paid exactly the stake on $1-$4,
+    // showing a win as a $0 "push"). At 5% the commission floors to 0 below $20,
+    // so those pay even money; it bites in whole dollars from $20 up.
+    $expectedReturns = [1 => 2, 2 => 4, 3 => 6, 4 => 8, 5 => 10, 6 => 12, 7 => 14, 8 => 16, 9 => 18, 10 => 20,
+                        19 => 38, 20 => 39, 40 => 78, 100 => 195];
     foreach ($expectedReturns as $bet => $expected) {
         $payout = baccaratPayout(0.0, (float) $bet, 0.0, 'Banker');
         TestRunner::assertEqualsFloat((float) $expected, (float) $payout['totalReturn'], "banker \${$bet} totalReturn = \${$expected}", 0.0);
         TestRunner::assertEqualsFloat((float) ($expected - $bet), (float) $payout['profit'], "banker \${$bet} profit = \$" . ($expected - $bet), 0.0);
         TestRunner::assertEqualsFloat((float) ($expected - $bet), (float) $payout['netResult'], "banker \${$bet} netResult = \$" . ($expected - $bet), 0.0);
+        // A win must always return strictly more than the stake.
+        TestRunner::assertEquals(true, (float) $payout['totalReturn'] > (float) $bet, "banker \${$bet} win returns more than the stake (not a push)");
     }
 });
 
-TestRunner::run('Baccarat banker return never exceeds exact 1.95x (house-safe $1-$100)', function (): void {
-    $violations = [];
+TestRunner::run('Baccarat banker return is house-safe: never more than even money, commission never over-charged ($1-$100)', function (): void {
+    $overEvenMoney = [];
+    $overCharged = [];
     for ($bet = 1; $bet <= 100; $bet++) {
         $payout = baccaratPayout(0.0, (float) $bet, 0.0, 'Banker');
-        if ((float) $payout['totalReturn'] > 1.95 * $bet) {
-            $violations[] = $bet;
+        $ret = (float) $payout['totalReturn'];
+        // Ceiling: never pay a banker win more than even money (2x).
+        if ($ret > 2 * $bet) {
+            $overEvenMoney[] = $bet;
+        }
+        // The commission taken (2*bet - return) is floored down, so it must be
+        // <= the exact 5% commission — the house never charges MORE than 5%.
+        $commissionTaken = 2 * $bet - $ret;
+        if ($commissionTaken > $bet * 0.05 + 1e-9) {
+            $overCharged[] = $bet;
         }
     }
-    TestRunner::assertEquals([], $violations, 'no banker bet $1-$100 returns more than exact 1.95x');
+    TestRunner::assertEquals([], $overEvenMoney, 'no banker win pays more than even money (2x)');
+    TestRunner::assertEquals([], $overCharged, 'commission floored down — house never over-charges the 5%');
 });
 
 TestRunner::run('Baccarat player pays exactly 1:1 (unchanged)', function (): void {
@@ -178,15 +195,17 @@ TestRunner::run('Default config reproduces the no-config payout bit for bit', fu
     }
 });
 
-TestRunner::run('Configured banker commission drives floor(bet x (2 - pct/100))', function (): void {
+TestRunner::run('Configured banker commission = 2*bet - floor(bet*pct%)', function (): void {
     $at = fn(float $pct): array => baccaratPayout(0.0, 100.0, 0.0, 'Banker', ['bankerCommissionPct' => $pct, 'tiePayout' => 8.0]);
-    TestRunner::assertEqualsFloat(195.0, (float) $at(5.0)['totalReturn'], '5% on $100 = 195 (unchanged)', 0.0);
-    TestRunner::assertEqualsFloat(193.0, (float) $at(7.0)['totalReturn'], '7% on $100 = floor(193) = 193', 0.0);
-    TestRunner::assertEqualsFloat(190.0, (float) $at(10.0)['totalReturn'], '10% on $100 = 190 (max clamp boundary)', 0.0);
-    TestRunner::assertEqualsFloat(197.0, (float) $at(2.5)['totalReturn'], '2.5% on $100 = floor(197.5) = 197 (min boundary, floored)', 0.0);
+    TestRunner::assertEqualsFloat(195.0, (float) $at(5.0)['totalReturn'], '5% on $100 = 200 - floor(5) = 195', 0.0);
+    TestRunner::assertEqualsFloat(193.0, (float) $at(7.0)['totalReturn'], '7% on $100 = 200 - floor(7) = 193', 0.0);
+    TestRunner::assertEqualsFloat(190.0, (float) $at(10.0)['totalReturn'], '10% on $100 = 200 - floor(10) = 190 (max clamp)', 0.0);
+    TestRunner::assertEqualsFloat(198.0, (float) $at(2.5)['totalReturn'], '2.5% on $100 = 200 - floor(2.5) = 198 (min clamp)', 0.0);
 
+    // Small banker win pays even money (commission floors to 0 below the
+    // whole-dollar threshold), never a $0 push.
     $small = baccaratPayout(0.0, 7.0, 0.0, 'Banker', ['bankerCommissionPct' => 7.0, 'tiePayout' => 8.0]);
-    TestRunner::assertEqualsFloat(13.0, (float) $small['totalReturn'], '7% on $7 = floor(13.51) = 13', 0.0);
+    TestRunner::assertEqualsFloat(14.0, (float) $small['totalReturn'], '7% on $7 = 14 - floor(0.49) = 14 (even money)', 0.0);
 });
 
 TestRunner::run('Configured tie payout drives return; fractional multipliers floor the win', function (): void {
@@ -201,8 +220,8 @@ TestRunner::run('Configured tie payout drives return; fractional multipliers flo
 TestRunner::run('Calc re-clamps raw config values (read-side defense)', function (): void {
     $banker = fn(array $cfg): float => (float) baccaratPayout(0.0, 100.0, 0.0, 'Banker', $cfg)['totalReturn'];
     $tie = fn(array $cfg): float => (float) baccaratPayout(0.0, 0.0, 5.0, 'Tie', $cfg)['totalReturn'];
-    TestRunner::assertEqualsFloat(190.0, $banker(['bankerCommissionPct' => 50]), 'commission 50 clamps to 10% => 190', 0.0);
-    TestRunner::assertEqualsFloat(197.0, $banker(['bankerCommissionPct' => 0.1]), 'commission 0.1 clamps to 2.5% => 197', 0.0);
+    TestRunner::assertEqualsFloat(190.0, $banker(['bankerCommissionPct' => 50]), 'commission 50 clamps to 10% => 200 - floor(10) = 190', 0.0);
+    TestRunner::assertEqualsFloat(198.0, $banker(['bankerCommissionPct' => 0.1]), 'commission 0.1 clamps to 2.5% => 200 - floor(2.5) = 198', 0.0);
     TestRunner::assertEqualsFloat(195.0, $banker(['bankerCommissionPct' => 'junk']), 'non-numeric commission falls back to default 5%', 0.0);
     TestRunner::assertEqualsFloat(50.0, $tie(['tiePayout' => 20]), 'tie 20 clamps to 9x => 50', 0.0);
     TestRunner::assertEqualsFloat(40.0, $tie(['tiePayout' => 1]), 'tie 1 clamps to 7x => 40', 0.0);

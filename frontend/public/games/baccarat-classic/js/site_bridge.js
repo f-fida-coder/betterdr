@@ -380,6 +380,13 @@
         doChiptransferCashOutAction: function () {}
     };
 
+    // Called by bac.js the moment the deal + winner reveal finishes on screen.
+    // Relayed as 'spinComplete' so the parent shows its result banner AFTER the
+    // cards land (the parent defers the banner for baccarat-classic).
+    window.BetterdrOnRoundRevealed = function () {
+        sendToParent({ type: 'spinComplete' });
+    };
+
     // web-connector.js used to define these parent-window helpers.
     window.UpdateBalanceWrapper = function () {};
     window.UpdatePorcentage = function () {};

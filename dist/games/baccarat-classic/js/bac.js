@@ -1352,7 +1352,14 @@ function drawCards() {
                 $("#btn-clear").show();
 
                 GameStatus = 'WaitingRebet';
-                
+
+                // Betterdr: the deal + winner reveal is now on screen. Signal the
+                // parent so the site's result banner appears AFTER the cards land,
+                // not the instant Deal is clicked.
+                if (typeof window.BetterdrOnRoundRevealed === 'function') {
+                    window.BetterdrOnRoundRevealed();
+                }
+
             },timeWinnerSound);
                      
             

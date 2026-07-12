@@ -7082,11 +7082,18 @@ final class CasinoController
             }
         } elseif ($result === 'Banker') {
             if ($bankerBet > 0) {
-                // floor() so whole-dollar rounding can never erase the commission
-                // (multiplier 2 - pct/100; 5% => the original 1.95x).
-                $bankerReturn = floor($bankerBet * (2 - $commissionPct / 100));
+                // Banker pays 1:1 minus commission. Floor the COMMISSION only
+                // (not the whole payout) so a winning banker bet always returns
+                // at least even money — whole-dollar rounding can never turn a
+                // win into a $0 "push" (the old floor(bet*1.95) paid $0 on a $1
+                // win). The commission is floored down (house-safe: never
+                // over-charged) and only bites at whole-dollar amounts — at 5%
+                // it starts at $20. Return is capped at even money (2*bet), so
+                // the house never pays a banker win MORE than 1:1.
+                $commission = floor($bankerBet * $commissionPct / 100);
+                $bankerReturn = 2 * $bankerBet - $commission;
                 $totalReturn += $bankerReturn;
-                $profit += $bankerReturn - $bankerBet;
+                $profit += $bankerReturn - $bankerBet; // = bankerBet - commission
             }
         } else {
             if ($tieBet > 0) {
