@@ -219,6 +219,10 @@ const CasinoView = () => {
     const gameReadyTimerRef = useRef(null);
     const pendingRoundResultRef = useRef(null);
     const spinCompleteTimerRef = useRef(null);
+    // For games that reveal an outcome (baccarat-classic), the on-screen balance
+    // update is held here and applied on 'spinComplete' so the balance moves WITH
+    // the result reveal, not the instant the bet settles server-side.
+    const pendingBalanceFinalizeRef = useRef(null);
 
     useEffect(() => {
         activeLocalGameRef.current = activeLocalGame;
@@ -334,6 +338,12 @@ const CasinoView = () => {
                 setLastRoundResult(pendingRoundResultRef.current);
                 pendingRoundResultRef.current = null;
             }
+            // Apply the held balance update WITH the result reveal.
+            if (pendingBalanceFinalizeRef.current) {
+                const finalize = pendingBalanceFinalizeRef.current;
+                pendingBalanceFinalizeRef.current = null;
+                finalize();
+            }
             return;
         }
 
@@ -423,25 +433,47 @@ const CasinoView = () => {
                 // fires it when the cards land + winner is highlighted. The timeout
                 // is a safety net if that signal never arrives (baccarat's reveal
                 // is ~3-4s, Jurassic's ~4-5s).
+                // The on-screen balance update. Runs immediately for most games,
+                // but is HELD until the reveal for baccarat-classic (below) so the
+                // balance changes in step with the cards + result banner — not the
+                // instant the bet settles server-side.
+                const finalizeBalanceDisplay = async () => {
+                    if (Number.isFinite(settledPlayableBalance)) {
+                        setGameDisplayBalance(settledPlayableBalance);
+                    }
+                    window.dispatchEvent(new Event('user:refresh'));
+                    await syncGameBalance();
+                };
+
                 if (requestedGame === 'jurassic-run' || requestedGame === 'baccarat-classic') {
                     const safetyMs = requestedGame === 'baccarat-classic' ? 9000 : 15000;
                     pendingRoundResultRef.current = roundResult;
+                    if (requestedGame === 'baccarat-classic') {
+                        pendingBalanceFinalizeRef.current = finalizeBalanceDisplay;
+                    }
                     spinCompleteTimerRef.current = setTimeout(() => {
                         if (pendingRoundResultRef.current) {
                             setLastRoundResult(pendingRoundResultRef.current);
                             pendingRoundResultRef.current = null;
                         }
+                        if (pendingBalanceFinalizeRef.current) {
+                            const finalize = pendingBalanceFinalizeRef.current;
+                            pendingBalanceFinalizeRef.current = null;
+                            finalize();
+                        }
                     }, safetyMs);
                 } else {
                     setLastRoundResult(roundResult);
                 }
-                if (Number.isFinite(settledPlayableBalance)) {
-                    setGameDisplayBalance(settledPlayableBalance);
-                }
-                // Refresh header balance
-                window.dispatchEvent(new Event('user:refresh'));
+
+                // History can refresh now (it's not the visible balance).
                 await loadCasinoHistory();
-                await syncGameBalance();
+
+                // Baccarat holds its balance update for 'spinComplete' (the reveal);
+                // every other game updates it right away.
+                if (requestedGame !== 'baccarat-classic') {
+                    await finalizeBalanceDisplay();
+                }
             } catch (err) {
                 console.error('Casino bet failed:', err);
                 sendToGame({ type: 'betError', requestId, error: err.message });
