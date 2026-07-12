@@ -591,11 +591,25 @@
         inset: auto;
         top: 0;
         left: 0;
+        overflow: hidden;
+        /* Rotated 90°, so the box WIDTH becomes the phone's vertical extent and
+           HEIGHT becomes the horizontal. Plain vh/vw span the area BEHIND the
+           mobile browser chrome (URL bar) and system nav bar, so the game gets
+           clipped. Fit the VISIBLE viewport instead, layered for every browser:
+           vh/vw fallback -> dvh/dvw (modern) -> JS-measured px (--casino-vp*,
+           set from window.inner* on resize/orientationchange) which is exact
+           even on browsers without dvh. */
         width: 100vh;
+        width: 100dvh;
+        width: var(--casino-vp-h, 100dvh);
         height: 100vw;
+        height: 100dvw;
+        height: var(--casino-vp-w, 100dvw);
         transform: rotate(90deg);
         transform-origin: top left;
         margin-left: 100vw;
+        margin-left: 100dvw;
+        margin-left: var(--casino-vp-w, 100dvw);
     }
 }
 

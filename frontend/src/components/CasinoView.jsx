@@ -228,6 +228,34 @@ const CasinoView = () => {
         activeLocalGameRef.current = activeLocalGame;
     }, [activeLocalGame]);
 
+    // Mobile rotated overlay: pin the force-landscape game to the VISIBLE viewport
+    // so it's never clipped behind the browser URL bar or the system nav bar.
+    // window.innerHeight/innerWidth exclude that chrome and update as the URL bar
+    // shows/hides; the CSS (--casino-vp-*) uses these exact pixels, with dvh/dvw
+    // and vh/vw fallbacks for older browsers.
+    useEffect(() => {
+        if (!activeLocalGame?.landscape) {
+            document.documentElement.style.removeProperty('--casino-vp-h');
+            document.documentElement.style.removeProperty('--casino-vp-w');
+            return undefined;
+        }
+        const applyViewport = () => {
+            document.documentElement.style.setProperty('--casino-vp-h', `${window.innerHeight}px`);
+            document.documentElement.style.setProperty('--casino-vp-w', `${window.innerWidth}px`);
+        };
+        applyViewport();
+        window.addEventListener('resize', applyViewport);
+        window.addEventListener('orientationchange', applyViewport);
+        if (window.visualViewport) window.visualViewport.addEventListener('resize', applyViewport);
+        return () => {
+            window.removeEventListener('resize', applyViewport);
+            window.removeEventListener('orientationchange', applyViewport);
+            if (window.visualViewport) window.visualViewport.removeEventListener('resize', applyViewport);
+            document.documentElement.style.removeProperty('--casino-vp-h');
+            document.documentElement.style.removeProperty('--casino-vp-w');
+        };
+    }, [activeLocalGame]);
+
     const loadCasinoHistory = useCallback(async () => {
         if (!token) {
             setHistoryRows([]);
