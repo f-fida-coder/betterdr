@@ -548,17 +548,13 @@
   margin-left: -8px;
 }
 
-.my-bets-table-leg-text {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Futures/outright rows wrap instead of ellipsizing: "Vikings to win
-   Super Bowl +5000" must stay fully readable at 375px — truncating the
-   competition is exactly the confusion the label exists to fix. The row
-   grid's fixed Risk / To Win columns are unaffected; the description
-   cell just grows a second line. */
+/* Leg descriptions wrap instead of ellipsizing (PO 2026-07-12): a prop leg
+   like "Braden Shewmake Under 1.5 Hits + Runs + RBIs" rendered "Braden
+   Shewmake Under …" at 375px, hiding the side and the line — the two facts
+   the ticket exists to show. The row grid's fixed Risk / To Win columns are
+   unaffected; the description cell just grows a second line. The `.wrap`
+   modifier (outright legs) is retained as a no-op for the JSX that adds it. */
+.my-bets-table-leg-text,
 .my-bets-table-leg-text.wrap {
   white-space: normal;
   overflow: visible;

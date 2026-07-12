@@ -35,8 +35,11 @@ const SECTION_DEFS = [
     // deliberately ABSENT: the board row that opens this sheet already renders
     // those ladders inline (alt-spread rungs stacked in the Spread column, the
     // Total column's Total ⇄ TT ⇄ Alt Tot pill), so listing them here showed
-    // every line twice. Period/half variants and Alt Team Totals below have no
-    // board equivalent and stay.
+    // every line twice. 2026-07-12 (PO): ALL remaining alt-line ladders and the
+    // half/quarter/period/inning totals ladders are gone too — the sheet keeps
+    // only market TYPES the board can't express (cards/corners, 3-way ML,
+    // BTTS, Draw No Bet, Double Chance, first/last to score). Re-add a key
+    // below to bring a section back; the data still flows in extendedMarkets.
     // Soccer card markets (The Odds API supplemental). The props endpoint
     // merges them into extendedMarkets ONLY while servable (betting flag on,
     // prematch, fresh) — so these sections self-hide at kickoff/staleness.
@@ -44,62 +47,15 @@ const SECTION_DEFS = [
     { key: 'alternate_spreads_cards', label: 'Card Handicap', kind: 'alt-lines' },
     { key: 'alternate_totals_corners', label: 'Total Corners', kind: 'alt-lines' },
     { key: 'alternate_spreads_corners', label: 'Corner Handicap', kind: 'alt-lines' },
-    { key: 'alternate_team_totals', label: 'Alt Team Totals', kind: 'team-totals' },
 
-    { key: 'alternate_spreads_h1', label: 'Alt 1st Half Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_h1', label: 'Alt 1st Half Total', kind: 'alt-lines' },
-    { key: 'team_totals_h1', label: '1st Half Team Totals', kind: 'team-totals' },
-    { key: 'alternate_spreads_h2', label: 'Alt 2nd Half Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_h2', label: 'Alt 2nd Half Total', kind: 'alt-lines' },
-    { key: 'team_totals_h2', label: '2nd Half Team Totals', kind: 'team-totals' },
-
-    { key: 'alternate_spreads_q1', label: 'Alt 1st Quarter Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_q1', label: 'Alt 1st Quarter Total', kind: 'alt-lines' },
-    { key: 'team_totals_q1', label: '1st Quarter Team Totals', kind: 'team-totals' },
-    { key: 'alternate_spreads_q2', label: 'Alt 2nd Quarter Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_q2', label: 'Alt 2nd Quarter Total', kind: 'alt-lines' },
-    { key: 'team_totals_q2', label: '2nd Quarter Team Totals', kind: 'team-totals' },
-    { key: 'alternate_spreads_q3', label: 'Alt 3rd Quarter Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_q3', label: 'Alt 3rd Quarter Total', kind: 'alt-lines' },
-    { key: 'team_totals_q3', label: '3rd Quarter Team Totals', kind: 'team-totals' },
-    { key: 'alternate_spreads_q4', label: 'Alt 4th Quarter Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_q4', label: 'Alt 4th Quarter Total', kind: 'alt-lines' },
-    { key: 'team_totals_q4', label: '4th Quarter Team Totals', kind: 'team-totals' },
-
-    { key: 'alternate_team_totals_q1', label: 'Alt 1st Quarter Team Totals', kind: 'team-totals' },
-    { key: 'alternate_team_totals_q2', label: 'Alt 2nd Quarter Team Totals', kind: 'team-totals' },
-    { key: 'alternate_team_totals_q3', label: 'Alt 3rd Quarter Team Totals', kind: 'team-totals' },
-    { key: 'alternate_team_totals_q4', label: 'Alt 4th Quarter Team Totals', kind: 'team-totals' },
     { key: 'h2h_3_way_q1', label: 'Moneyline 3-Way (1Q)', kind: 'alt-lines' },
     { key: 'h2h_3_way_q2', label: 'Moneyline 3-Way (2Q)', kind: 'alt-lines' },
     { key: 'h2h_3_way_q3', label: 'Moneyline 3-Way (3Q)', kind: 'alt-lines' },
     { key: 'h2h_3_way_q4', label: 'Moneyline 3-Way (4Q)', kind: 'alt-lines' },
-
-    { key: 'alternate_spreads_p1', label: 'Alt 1st Period Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_p1', label: 'Alt 1st Period Total', kind: 'alt-lines' },
-    { key: 'team_totals_p1', label: '1st Period Team Totals', kind: 'team-totals' },
-    { key: 'alternate_team_totals_p1', label: 'Alt 1st Period Team Totals', kind: 'team-totals' },
     { key: 'h2h_3_way_p1', label: 'Moneyline 3-Way (1st Period)', kind: 'alt-lines' },
-    { key: 'alternate_spreads_p2', label: 'Alt 2nd Period Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_p2', label: 'Alt 2nd Period Total', kind: 'alt-lines' },
-    { key: 'team_totals_p2', label: '2nd Period Team Totals', kind: 'team-totals' },
-    { key: 'alternate_team_totals_p2', label: 'Alt 2nd Period Team Totals', kind: 'team-totals' },
     { key: 'h2h_3_way_p2', label: 'Moneyline 3-Way (2nd Period)', kind: 'alt-lines' },
-    { key: 'alternate_spreads_p3', label: 'Alt 3rd Period Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_p3', label: 'Alt 3rd Period Total', kind: 'alt-lines' },
-    { key: 'team_totals_p3', label: '3rd Period Team Totals', kind: 'team-totals' },
-    { key: 'alternate_team_totals_p3', label: 'Alt 3rd Period Team Totals', kind: 'team-totals' },
     { key: 'h2h_3_way_p3', label: 'Moneyline 3-Way (3rd Period)', kind: 'alt-lines' },
 
-    { key: 'alternate_spreads_1st_1_innings', label: 'Alt 1st Inning Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_1st_1_innings', label: 'Alt 1st Inning Total', kind: 'alt-lines' },
-    { key: 'alternate_spreads_1st_3_innings', label: 'Alt 1st 3 Innings Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_1st_3_innings', label: 'Alt 1st 3 Innings Total', kind: 'alt-lines' },
-    { key: 'alternate_spreads_1st_5_innings', label: 'Alt 1st 5 Innings Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_1st_5_innings', label: 'Alt 1st 5 Innings Total', kind: 'alt-lines' },
-    { key: 'alternate_spreads_1st_7_innings', label: 'Alt 1st 7 Innings Spread', kind: 'alt-lines' },
-    { key: 'alternate_totals_1st_7_innings', label: 'Alt 1st 7 Innings Total', kind: 'alt-lines' },
-    { key: 'team_totals_1st_5_innings', label: '1st 5 Innings Team Totals', kind: 'team-totals' },
     { key: 'h2h_3_way_1st_1_innings', label: 'Moneyline 3-Way (1st Inning)', kind: 'alt-lines' },
     { key: 'h2h_3_way_1st_3_innings', label: 'Moneyline 3-Way (1st 3 Inn)', kind: 'alt-lines' },
     { key: 'h2h_3_way_1st_5_innings', label: 'Moneyline 3-Way (1st 5 Inn)', kind: 'alt-lines' },
@@ -117,9 +73,6 @@ const SECTION_DEFS = [
     { key: 'double_chance', label: 'Double Chance', kind: 'alt-lines' },
     { key: 'double_chance_h1', label: 'Double Chance (1st Half)', kind: 'alt-lines' },
     { key: 'double_chance_h2', label: 'Double Chance (2nd Half)', kind: 'alt-lines' },
-    { key: 'alternate_team_totals_h1', label: 'Alt 1st Half Team Totals', kind: 'team-totals' },
-    { key: 'alternate_team_totals_h2', label: 'Alt 2nd Half Team Totals', kind: 'team-totals' },
-    { key: 'alternate_asian_handicap', label: 'Asian Handicap (Alt Lines)', kind: 'alt-lines' },
     { key: 'first_team_to_score', label: 'First Team to Score', kind: 'alt-lines' },
     { key: 'last_team_to_score', label: 'Last Team to Score', kind: 'alt-lines' },
     // Corner markets live next to the card entries near the top (theoddsapi
@@ -132,12 +85,13 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState('');
     const [payload, setPayload] = React.useState({ extendedMarkets: [], playerProps: [], cached: false });
-    // Default-expand Alt Team Totals — the first section players can't reach
-    // from the board row (full-game alt/TT lines live on the row itself, see
-    // the SECTION_DEFS note). Sections that don't have a market for this game
-    // stay invisible regardless (filtered by `availableSections` below).
+    // Default-expand the soccer cards/corners totals — the lead sheet-only
+    // sections now that the alt/period totals ladders are gone (see the
+    // SECTION_DEFS note). Keys absent for this game are harmless: sections
+    // render only when `availableSections` below finds a live market.
     const [expanded, setExpanded] = React.useState({
-        alternate_team_totals: true,
+        alternate_totals_cards: true,
+        alternate_totals_corners: true,
     });
     const [selectedKeys, setSelectedKeys] = React.useState(() => new Set());
 
