@@ -1208,13 +1208,10 @@ final class CasinoController
                     return;
                 }
 
-                $userMinBet = $this->safeNumber($lockedUser['minBet'] ?? null, null);
+                // Casino is gated by the game's own min (chip floor, checked
+                // above via resolveGameBetLimits) and the game/account MAX — NOT
+                // the account minBet, which is a sportsbook-only limit.
                 $userMaxBet = $this->safeNumber($lockedUser['maxBet'] ?? null, null);
-                if ($userMinBet !== null && $userMinBet > 0 && $totalWager < $userMinBet) {
-                    $this->db->rollback();
-                    Response::json(['message' => 'Minimum bet for your account is $' . round($userMinBet)], 400);
-                    return;
-                }
                 if ($userMaxBet !== null && $userMaxBet > 0 && $totalWager > $userMaxBet) {
                     $this->db->rollback();
                     Response::json(['message' => 'Maximum bet for your account is $' . round($userMaxBet)], 400);
@@ -3325,7 +3322,10 @@ final class CasinoController
         $accountMinBet = ($accountMinRaw !== null && $accountMinRaw > 0) ? round($accountMinRaw) : null;
         $accountMaxBet = ($accountMaxRaw !== null && $accountMaxRaw > 0) ? round($accountMaxRaw) : null;
 
-        $effectiveMinBet = $accountMinBet !== null ? max($gameMinBet, $accountMinBet) : $gameMinBet;
+        // Casino min = the game's own chip floor only; the account minBet
+        // (sportsbook limit) no longer raises it, so this client hint matches
+        // the new server behavior. Account MAX still caps exposure.
+        $effectiveMinBet = $gameMinBet;
         $effectiveMaxBet = $accountMaxBet !== null ? min($gameMaxBet, $accountMaxBet) : $gameMaxBet;
         if ($effectiveMaxBet < $effectiveMinBet) {
             $effectiveMaxBet = $effectiveMinBet;
@@ -7152,17 +7152,12 @@ final class CasinoController
 
     private function assertUserWagerWithinLimits(array $lockedUser, float $totalWager): void
     {
-        $userMinBet = $this->safeNumber($lockedUser['minBet'] ?? null, null);
+        // Casino wagers are gated by the GAME's own min (chip floor) and max
+        // (house exposure), NOT the account-level minBet. The account minBet is
+        // a SPORTSBOOK limit (enforced in BetsController) and is deliberately not
+        // applied to casino games. The account MAX stays as an exposure ceiling.
         $userMaxBet = $this->safeNumber($lockedUser['maxBet'] ?? null, null);
-        $normalizedMinBet = ($userMinBet !== null && $userMinBet > 0) ? round($userMinBet) : null;
         $normalizedMaxBet = ($userMaxBet !== null && $userMaxBet > 0) ? round($userMaxBet) : null;
-        if ($normalizedMinBet !== null && $normalizedMaxBet !== null && $normalizedMaxBet < $normalizedMinBet) {
-            $normalizedMaxBet = $normalizedMinBet;
-        }
-
-        if ($normalizedMinBet !== null && $totalWager < $normalizedMinBet) {
-            throw new InvalidArgumentException('Minimum bet for your account is $' . round($normalizedMinBet));
-        }
         if ($normalizedMaxBet !== null && $totalWager > $normalizedMaxBet) {
             throw new InvalidArgumentException('Maximum bet for your account is $' . round($normalizedMaxBet));
         }
