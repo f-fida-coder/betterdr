@@ -138,7 +138,12 @@ final class BetModeRules
         [
             'mode' => 'parlay',
             'minLegs' => 2,
-            'maxLegs' => 12,
+            // parlay max legs 8 per Nicky, 2026-07-11. This default only
+            // seeds fresh installs — the live limit is the betmoderules DB
+            // row (see BetsController::getModeRule precedence). Frontend
+            // fallback copies (App.jsx / ModeBetPanel.jsx DEFAULTS) must
+            // match this value.
+            'maxLegs' => 8,
             'teaserPointOptions' => [],
             'payoutProfile' => ['type' => 'odds_product'],
             'isActive' => true,

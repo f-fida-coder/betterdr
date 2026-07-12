@@ -40,7 +40,8 @@ const UserDashboardShell = React.lazy(() => import('./components/UserDashboardSh
 // Real values are loaded from /api/betting/rules (DB) on login and merged in below.
 const DEFAULT_BET_MODE_RULES = {
   straight: { minLegs: 1, maxLegs: 12, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
-  parlay:   { minLegs: 2, maxLegs: 12, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
+  // parlay max legs 8 per Nicky, 2026-07-11 — must match BetModeRules.php default.
+  parlay:   { minLegs: 2, maxLegs: 8,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
   teaser:   { minLegs: 2, maxLegs: 6,  teaserPointOptions: [], payoutProfile: { type: 'table_multiplier', multipliers: {} } },
   if_bet:   { minLegs: 2, maxLegs: 2,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
   reverse:  { minLegs: 2, maxLegs: 2,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },

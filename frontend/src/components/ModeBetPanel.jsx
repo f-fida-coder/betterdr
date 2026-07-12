@@ -18,9 +18,10 @@ import { prettyPlayerMarketLabel, isPlayerPropMarket, formatPropSelectionTitle }
 // Real values always come from rulesByMode (loaded from DB via /api/betting/rules).
 const DEFAULT_RULES = {
     // Straight isn't a single-leg limit — each selection is a separate
-    // independent wager. Cap at 12 matches parlay for consistency.
+    // independent wager, so its 12-slip cap is unrelated to parlay's.
     straight:     { minLegs: 1, maxLegs: 12, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
-    parlay:       { minLegs: 2, maxLegs: 12, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
+    // parlay max legs 8 per Nicky, 2026-07-11 — must match BetModeRules.php default.
+    parlay:       { minLegs: 2, maxLegs: 8,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
     teaser:       { minLegs: 2, maxLegs: 6,  teaserPointOptions: [], payoutProfile: { type: 'table_multiplier', multipliers: {} } },
     if_bet:       { minLegs: 2, maxLegs: 2,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
     reverse:      { minLegs: 2, maxLegs: 2,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
