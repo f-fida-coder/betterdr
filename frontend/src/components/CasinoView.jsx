@@ -21,7 +21,7 @@ const LOCAL_GAME_META = {
         // whole-dollar USD formatting. SHOWCASHIER/SHOWHISTORY keep the vendor
         // cashier/history surfaces off — the platform wallet + history own those.
         url: '/games/baccarat-classic/index.html?v=20260712a&GAMESESSION=platform&GAMECODE=BAC&SHOWCASHIER=0&SHOWHISTORY=0&SHOWCHIPS=1,5,25,100,500&CURRENCY=USD,%24,%C2%A2,p,5,0&LANG=en',
-        poster: '/games/baccarat-classic/images/background.png',
+        poster: '/games/baccarat-classic/images/poster.jpg',
         themeColor: '#9f1239',
         // Fixed 855x640 landscape table — rides the rotate overlay on phones.
         landscape: true,
@@ -61,7 +61,7 @@ const LOCAL_GAME_META = {
         // marker (auth lives with the parent), vendor cashier/history surfaces
         // off, cents-precision USD formatting (this slot has a $0.01 chip).
         url: '/games/bogeyman/index.html?v=20260712a&GAMESESSION=platform&GAMECODE=SL5R-BM&SHOWCASHIER=0&SHOWHISTORY=0&SHOWTYPE=1&CURRENCY=USD,%24,%C2%A2,p,5,2&LANG=en',
-        poster: '/games/bogeyman/images/bg/complete-bg.jpg',
+        poster: '/games/bogeyman/images/poster.jpg',
         themeColor: '#4c1d95',
         minBet: 0.01,
         maxBet: 50,
@@ -80,7 +80,7 @@ const LOCAL_GAME_META = {
         id: 'local-american-roulette',
         provider: 'In-House',
         url: '/games/american-roulette/index.html?v=20260713b',
-        poster: '/games/american-roulette/images/roulette-wheel.png',
+        poster: '/games/american-roulette/images/poster.jpg',
         themeColor: '#b91c1c',
         minBet: 1,
         maxBet: 5000,
