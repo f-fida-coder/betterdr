@@ -500,7 +500,17 @@ const CasinoView = () => {
                         newBalance: settledPlayableBalance,
                         balanceSource: 'availableBalance',
                     };
-                sendToGame({ type: 'betResult', requestId, ...gameResult });
+                // The bridge matches this reply by requestId to the pending
+                // request it opened. `requestId` MUST be the one the game sent
+                // us — NOT the round's stored requestId. For a two-stage
+                // video-poker DRAW the backend echoes the ROUND's requestId
+                // (the deal's), so spreading gameResult last would clobber the
+                // draw's id and the bridge would never match the reply →
+                // IsCallingServer stuck true → the table freezes on Draw.
+                // Force type + requestId AFTER the spread. (For one-shot games
+                // the round requestId equals the placeBet id, so this is a
+                // no-op there.)
+                sendToGame({ ...gameResult, type: 'betResult', requestId });
                 // A video-poker DEAL leaves the round open (roundStatus
                 // 'dealt') — no outcome exists yet, so no result banner. The
                 // banner fires on the draw, which settles the round.
