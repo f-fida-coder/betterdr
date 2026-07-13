@@ -3037,6 +3037,9 @@ final class BetsController
         }
     }
 
+    /** Statuses whose stake is still HELD in pendingBalance (live risk). */
+    private const LIVE_STAKE_STATUSES = ['pending', 'open', 'pending_approval'];
+
     private function computeUserBets(string $userId, string $status, int $limit): array
     {
         $query = ['userId' => SqlRepository::id($userId)];
@@ -3048,6 +3051,37 @@ final class BetsController
             'sort' => ['createdAt' => -1],
             'limit' => $limit,
         ]);
+
+        // Live-stake tickets must ALWAYS be in the feed, no matter how much
+        // newer activity exists. The recency window above plus the casino
+        // merge below otherwise bury them: 50+ casino rounds (or newer
+        // sportsbook bets) push a week-old open parlay out of the merged
+        // slice, and the player sees "No pending tickets" while the PENDING
+        // header (a separate, unbounded sum) still shows their held stake.
+        // Union them in up-front so round-robin grouping and enrichment
+        // below treat them exactly like any other row. Cap 200: live risk
+        // is bounded by exposure limits in practice, never unbounded like
+        // history.
+        if ($status === '' || $status === 'all') {
+            $liveRows = $this->db->findMany('bets', [
+                'userId' => SqlRepository::id($userId),
+                'status' => ['$in' => self::LIVE_STAKE_STATUSES],
+            ], [
+                'sort' => ['createdAt' => -1],
+                'limit' => 200,
+            ]);
+            $seenIds = [];
+            foreach ($bets as $bet) {
+                if (is_array($bet) && isset($bet['id'])) {
+                    $seenIds[(string) $bet['id']] = true;
+                }
+            }
+            foreach ($liveRows as $row) {
+                if (is_array($row) && isset($row['id']) && !isset($seenIds[(string) $row['id']])) {
+                    $bets[] = $row;
+                }
+            }
+        }
 
         // Round Robin children carry parentGroupId. They're real parlay
         // rows for accounting purposes (financial truth lives in them),
@@ -3189,9 +3223,28 @@ final class BetsController
         });
 
         if (count($formatted) > $limit) {
-            $formatted = array_slice($formatted, 0, $limit);
+            // The recency cut applies to settled HISTORY only. Live-stake
+            // tickets (money still held) are exempt — truncating them is how
+            // the Pending list went blank under a $664 header. Round-robin
+            // group rows inherit a live aggregate status while any child is
+            // live, so grouped live risk survives the cut too.
+            $live = [];
+            $settled = [];
+            foreach ($formatted as $row) {
+                if (in_array((string) ($row['status'] ?? ''), self::LIVE_STAKE_STATUSES, true)) {
+                    $live[] = $row;
+                } else {
+                    $settled[] = $row;
+                }
+            }
+            $formatted = array_merge($live, array_slice($settled, 0, $limit));
+            usort($formatted, function (array $a, array $b): int {
+                $aTime = strtotime($a['createdAt'] ?? '');
+                $bTime = strtotime($b['createdAt'] ?? '');
+                return $bTime <=> $aTime;
+            });
         }
-        
+
         return $formatted;
     }
 

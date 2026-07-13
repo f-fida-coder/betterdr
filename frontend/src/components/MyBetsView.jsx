@@ -1217,8 +1217,10 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                 const amount = ticketAmount(bet, maxBet);
                 const isMulti = isMultiLegBet(bet);
                 const isExpanded = expandedBetId === betId;
-                const winCell = status === 'pending' ? moneyWhole(ticketPayout) : winCellContent(amount);
-                const winTheme = status === 'pending' ? 'pending' : amount.theme;
+                // Approval-queued tickets show their potential payout like any
+                // pending ticket — there's no settled amount to theme yet.
+                const winCell = (status === 'pending' || status === 'pending_approval') ? moneyWhole(ticketPayout) : winCellContent(amount);
+                const winTheme = (status === 'pending' || status === 'pending_approval') ? 'pending' : amount.theme;
 
                 if (isRoundRobinGroup(bet)) {
                     // Round Robin parent row. Children are lazy-loaded
@@ -1669,14 +1671,16 @@ const MyBetsView = ({ onResumeOpenParlay = null, maxBet = null }) => {
         };
     }, []);
 
-    // Pending view includes open parlays (status 'open') alongside ordinary
-    // pending tickets. An open parlay has its full stake committed and sits in
-    // pendingBalance, so it belongs in the player's pending list while they
-    // fill the remaining legs — it just isn't graded until complete.
+    // Pending view includes open parlays (status 'open') and approval-queued
+    // tickets ('pending_approval') alongside ordinary pending tickets. All
+    // three hold their full stake in pendingBalance, so they belong in the
+    // player's pending list — an approval-queued bet renders with its
+    // "Pending Approval" badge; hiding it left held money with no visible
+    // ticket.
     const pendingBets = useMemo(
         () => bets.filter((bet) => {
             const s = normalizeStatus(bet?.status);
-            return s === 'pending' || s === 'open';
+            return s === 'pending' || s === 'open' || s === 'pending_approval';
         }),
         [bets],
     );
