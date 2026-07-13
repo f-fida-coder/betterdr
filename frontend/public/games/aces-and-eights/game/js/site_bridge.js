@@ -437,6 +437,20 @@
         });
     }
 
+    // Benign no-op for every other vendor .aspx (messages, collect, double,
+    // bonus, …). Carries iserr=0 + empty message fields + the current balance,
+    // so the message poller sees "no messages", collect sees the (already
+    // credited) balance, and nothing errors or blocks. No feature we offer
+    // depends on these endpoints doing anything.
+    function buildNoopResponse() {
+        return kv({
+            iserr: 0, errorcode: 0, blocknote: '', messageids: '', mysts: '',
+            errordetails: '', jackpot: '', tcounter: '', availablebalance: '',
+            dbup: 'N', newbalance: moneyStr(lastWallet.balance || 0),
+            GameBalance: moneyStr(lastWallet.balance || 0)
+        });
+    }
+
     /* ── $.ajax interception (same seam the vendor framework rides) ─────── */
 
     function install($) {
@@ -459,6 +473,15 @@
             else if (url.indexOf('deal.aspx') >= 0) route = 'deal';
             else if (url.indexOf('hit.aspx') >= 0) route = 'hit';
             else if (url.indexOf('heartbeat.aspx') >= 0) route = 'heartbeat';
+            // Every OTHER vendor .aspx the engine calls (Messages/Get, Collect,
+            // Double, DoubleUp, BonusRound, BonusPlayerLog, Enter, Chiptransfer,
+            // …) has NO backend here. Left to fall through, it 404s — and some
+            // of these (the message poller especially) treat a non-answer as an
+            // error and pop a blocking "null" message that locks the game after
+            // a round. So we ANSWER them all with a benign no-op success; the
+            // engine reads the fields it needs (none present → safe defaults)
+            // and carries on. Real non-.aspx asset requests still pass through.
+            else if (url.indexOf('.aspx') >= 0) route = 'noop';
             if (route === null) return realAjax.apply(this, arguments);
 
             var dfd = $.Deferred();
@@ -475,7 +498,8 @@
             if (route === 'gamedata') handleGameData(respond);
             else if (route === 'deal') handleDeal(parseBody(opts.data), respond);
             else if (route === 'hit') handleHit(parseBody(opts.data), respond);
-            else handleHeartbeat(respond);
+            else if (route === 'heartbeat') handleHeartbeat(respond);
+            else respond(buildNoopResponse()); // any other vendor .aspx
 
             return dfd.promise();
         };
