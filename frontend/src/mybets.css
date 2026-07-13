@@ -556,6 +556,12 @@
    modifier (outright legs) is retained as a no-op for the JSX that adds it. */
 .my-bets-table-leg-text,
 .my-bets-table-leg-text.wrap {
+  /* Take the full remaining description-column width (badges move to the
+     right edge) so a long leg wraps into 2-3 comfortable lines instead of
+     hugging a narrow column beside a LIVE badge; min-width releases the
+     flex automatic minimum so the text can always shrink-and-wrap. */
+  flex: 1 1 0;
+  min-width: 0;
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
