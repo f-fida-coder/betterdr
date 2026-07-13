@@ -489,4 +489,88 @@
             if (install(window.jQuery) || ++tries > 200) clearInterval(poll);
         }, 10);
     }
+
+    /* ── engine auto-init (works around a broken URL-launch path) ──────────
+     * The VP_Classic engine boots from URL params on $(document).ready, but
+     * its getUrlVars() UPPERCASES every key while the init reads lowercase
+     * (arrayIn.gamesession / .gamecode / .currency) — so GlobalGameSession is
+     * always undefined and afterEnter() (which fires GetGameData → our bridge
+     * → balance/paytable) never runs, leaving the board blank with NaN money.
+     * We can't patch the minified engine, so once it's loaded we call
+     * afterEnter() ourselves with params parsed case-insensitively from our
+     * own launch URL. The session string is opaque (auth lives with the
+     * parent); the engine only needs it non-empty to proceed. Fires exactly
+     * once. */
+    function launchParam(name) {
+        var q = window.location.search.slice(1).split('&');
+        for (var i = 0; i < q.length; i++) {
+            var eq = q[i].indexOf('=');
+            if (eq < 0) continue;
+            if (decodeURIComponent(q[i].slice(0, eq)).toLowerCase() === name) {
+                return decodeURIComponent(q[i].slice(eq + 1));
+            }
+        }
+        return '';
+    }
+
+    var autoInitDone = false;
+    function autoInit() {
+        if (autoInitDone) return true;
+        if (typeof window.afterEnter !== 'function' || !window.jQuery) return false;
+        // Let the engine's own $(document).ready init settle first (it builds
+        // the loading section + wires translation targets); calling afterEnter
+        // mid-setup races its translation pass (null parentNode). Gate on a
+        // fully-parsed document before we kick it.
+        if (document.readyState !== 'complete') return false;
+        autoInitDone = true;
+        // The engine's post-translation pass throws a benign null-parentNode
+        // (an ml-key label target absent in this integration) and surfaces it
+        // as an alert() — cosmetic only; money path, paytable and play are
+        // unaffected. Swallow JUST that one init alert (matched by text) for a
+        // few seconds so the player never sees the popup; every other alert
+        // (e.g. a real deal/draw error) still shows, and normal alerts resume
+        // after the init window.
+        var realAlert = window.alert;
+        window.alert = function (msg) {
+            if (String(msg == null ? '' : msg).indexOf('getTranslations') >= 0) {
+                if (window.console) console.warn('[aces-and-eights bridge] suppressed benign init translation alert');
+                return;
+            }
+            return realAlert.apply(window, arguments);
+        };
+        setTimeout(function () { window.alert = realAlert; }, 8000);
+        // Currency drives the engine's money formatting (it reads the global
+        // `currency`); the URL path would set it from arrayIn.currency.
+        var cur = launchParam('currency');
+        if (cur) { try { window.currency = cur; } catch (e) {} }
+        var session = launchParam('gamesession') || 'platform|VPA8|1|1|PLATFORM|en';
+        var gamecode = launchParam('gamecode') || 'VPA8';
+        var showChips = launchParam('showchips');
+        var showCashier = launchParam('showcashier') || '0';
+        var showHistory = launchParam('showhistory') || '0';
+        var showType = launchParam('showtype') || '1';
+        try {
+            window.afterEnter(session, gamecode, showChips, showCashier, showHistory, showType);
+        } catch (e) {
+            if (window.console) console.error('[aces-and-eights bridge] auto-init failed', e);
+        }
+        return true;
+    }
+    // Poll until the engine has defined afterEnter AND the document is fully
+    // parsed (its own document.ready ran + failed the URL path), then, after a
+    // short settle so the engine's loading/translation setup completes, kick
+    // it once. Give it a generous window.
+    function scheduleAutoInit() {
+        var initTries = 0;
+        var initPoll = setInterval(function () {
+            if (autoInitDone) { clearInterval(initPoll); return; }
+            if (typeof window.afterEnter === 'function' && window.jQuery && document.readyState === 'complete') {
+                clearInterval(initPoll);
+                setTimeout(autoInit, 400); // settle past the engine's own init pass
+            } else if (++initTries > 800) {
+                clearInterval(initPoll);
+            }
+        }, 25);
+    }
+    scheduleAutoInit();
 })();

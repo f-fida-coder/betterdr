@@ -95,7 +95,7 @@ const LOCAL_GAME_META = {
         // cashier/history surfaces off, cents-precision USD formatting (25¢
         // coin). Loads game/index.html DIRECTLY — the captured launcher
         // wrapper was dropped so the bridge's window.parent is CasinoView.
-        url: '/games/aces-and-eights/game/index.html?v=20260713b&GAMESESSION=platform%7CVPA8%7C1%7C1%7CPLATFORM%7Cen&LANG=en&GAMECODE=VPA8&SHOWCASHIER=0&SHOWHISTORY=0&SHOWTYPE=1&CURRENCY=USD,%24,%C2%A2,p,5,2&ACCOUNTID=1&NOEXIT=1',
+        url: '/games/aces-and-eights/game/index.html?v=20260714a&GAMESESSION=platform%7CVPA8%7C1%7C1%7CPLATFORM%7Cen&LANG=en&GAMECODE=VPA8&SHOWCASHIER=0&SHOWHISTORY=0&SHOWTYPE=1&CURRENCY=USD,%24,%C2%A2,p,5,2&ACCOUNTID=1&NOEXIT=1',
         poster: '/games/aces-and-eights/game/_build/img/bkgdVPA8.png',
         themeColor: '#0f766e',
         minBet: 0.25,
