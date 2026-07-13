@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/Env.php';
+require_once __DIR__ . '/../src/ConnectionPool.php';
+require_once __DIR__ . '/../src/CircuitBreaker.php';
 require_once __DIR__ . '/../src/SqlRepository.php';
 
 /**
