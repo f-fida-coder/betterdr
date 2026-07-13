@@ -27,6 +27,7 @@ const ISOLATED_SUITES = [
     'JurassicRunMathTest.php',      // mocks Response/SqlRepository to test CasinoController::spin sans DB
     'ManualBetGradingTest.php',     // needs an INSTANCE-method SqlRepository double for the grading money block
     'ManualBetPlacementTest.php',   // needs an INSTANCE-method SqlRepository double for the placement money block
+    'MyBetsFeedTest.php',           // mocks SqlRepository to prove live-stake tickets never fall out of the my-bets feed
     'OddsApiCardMarketsTest.php',   // needs an INSTANCE-method SqlRepository double (shared-process stub is static-only)
     'SqlRepositoryMergeTest.php',   // loads the REAL SqlRepository (would fatal-redeclare against shared-process stubs)
 ];
