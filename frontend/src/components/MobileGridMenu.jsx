@@ -5,8 +5,9 @@ const MobileGridMenu = ({ onClose, onViewChange }) => {
         { id: 'sports', label: 'Sports', icon: 'fa-solid fa-shield-halved' },
         { id: 'casino', label: 'Casino', icon: 'fa-solid fa-dice' },
         { id: 'prop-builder', label: 'Prop Builder', icon: 'fa-solid fa-arrow-down-1-9' },
-        { id: 'parlay-boosts', label: 'Parlay Boosts', icon: 'fa-solid fa-bolt-lightning' },
-        { id: 'rules', label: 'Rules', icon: 'fa-solid fa-whistle' },
+        // fa-whistle is a Font Awesome PRO glyph — the free kit renders it as
+        // nothing, which is why Rules shipped iconless. scale-balanced is free.
+        { id: 'rules', label: 'Rules', icon: 'fa-solid fa-scale-balanced' },
         { id: 'tutorials', label: 'Tutorials', icon: 'fa-solid fa-book-open' },
         { id: 'support', label: 'Support', icon: 'fa-solid fa-headset' },
     ];
