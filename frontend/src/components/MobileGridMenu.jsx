@@ -15,8 +15,11 @@ const MobileGridMenu = ({ onClose, onViewChange }) => {
     const handleClick = (id) => {
         if (id === 'sports') {
             onViewChange('dashboard');
-        } else if (id === 'tutorials') {
         } else {
+            // Every other tile maps 1:1 onto a dashboardView id (the shell
+            // renders RulesView/TutorialsView/... from the same ids). An
+            // empty 'tutorials' branch here used to swallow the click and
+            // leave the tile dead even though TutorialsView shipped finished.
             onViewChange(id);
         }
         onClose();
