@@ -20,6 +20,7 @@ final class CasinoController
     private const LEGACY_ARABIAN_TREASURE_GAME_SLUG = 'arabian-treasure';
     private const ROULETTE_GAME_SLUG = 'roulette';
     private const AMERICAN_ROULETTE_GAME_SLUG = 'american-roulette';
+    private const ACES_AND_EIGHTS_GAME_SLUG = 'aces-and-eights';
     private const STUD_POKER_GAME_SLUG = 'stud-poker';
     private const REMOVED_GAME_SLUGS = [
         self::LEGACY_ARABIAN_TREASURE_GAME_SLUG,
@@ -40,6 +41,10 @@ final class CasinoController
     // the anchored reason regex ^CASINO_(ROULETTE|STUD_POKER)_ — neither can
     // match this game's rows.
     private const AMERICAN_ROULETTE_SOURCE_TYPE = 'casino_american_roulette';
+    // Like the american-roulette type above: NOT a prefix/suffix of any dead
+    // sourceType, and its CASINO_ACES_AND_EIGHTS_ reasons can't match the
+    // purge script's anchored ^CASINO_(ROULETTE|STUD_POKER)_ regex.
+    private const ACES_AND_EIGHTS_SOURCE_TYPE = 'casino_aces_and_eights';
     private const STUD_POKER_SOURCE_TYPE = 'casino_stud_poker';
     private const BACCARAT_RNG_VERSION = 'commit-reveal-hmac-v1';
     // Real punto banco uses an 8-deck (416-card) shoe. Fed to the same seeded
@@ -66,6 +71,18 @@ final class CasinoController
     // the spin.
     private const AMERICAN_ROULETTE_FAIR_RNG_VERSION = 'commit-reveal-hmac-wheel-v1';
     private const STUD_POKER_RNG_VERSION = 'stud-house-v1';
+    // Phase 1: CSPRNG full-deck shuffle committed at DEAL (deckHash in the
+    // round + audit rows); draw replacements come from that committed order.
+    // Phase 3 swaps the entropy source for the commit-reveal seed chain.
+    private const ACES_AND_EIGHTS_RNG_VERSION = 'vp-a8-csprng-deck-v1';
+    // Phase 3: commit-reveal seeded 52-card shuffle (Option A rotating chain,
+    // like baccarat-classic/bogeyman/roulette). Same deal/draw lifecycle, hand
+    // evaluator and Phase-2 paytable — only the shuffle entropy source changed,
+    // and it is committed before the deal and revealed only at draw settlement.
+    private const ACES_AND_EIGHTS_FAIR_RNG_VERSION = 'commit-reveal-hmac-vp-v1';
+    // The canonical 52-card deck size the seeded shuffle permutes (part of the
+    // published verification recipe — codes 1..52 in natural order).
+    private const ACES_AND_EIGHTS_DECK_SIZE = 52;
     private const IN_HOUSE_OVERLAY_ONLY_GAME_MESSAGES = [
         self::BACCARAT_GAME_SLUG => 'Baccarat is available only from the in-house casino table.',
         self::BACCARAT_CLASSIC_GAME_SLUG => 'Baccarat is available only from the in-house casino table.',
@@ -76,6 +93,7 @@ final class CasinoController
         self::THREE_CARD_POKER_GAME_SLUG => '3-Card Poker is available only from the in-house casino table.',
         self::BOGEYMAN_GAME_SLUG => 'Bogeyman is available only from the in-house casino table.',
         self::AMERICAN_ROULETTE_GAME_SLUG => 'American Roulette is available only from the in-house casino table.',
+        self::ACES_AND_EIGHTS_GAME_SLUG => 'Aces & Eights is available only from the in-house casino table.',
     ];
     private const REQUEST_ID_PATTERN = '/^[A-Za-z0-9_-]{8,128}$/';
     private const ROULETTE_RED_NUMBERS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
@@ -273,6 +291,51 @@ final class CasinoController
         '2W' => 15, '3W' => 75, '4W' => 500, '5W' => 3000,
     ];
 
+    // ── Aces & Eights (VP_Classic_D, VPA8) game math ─────────────────────
+    // Paytable + coin ladder are the CAPTURED values from the original
+    // white-label client, locked as Phase-1 constants (admin config is
+    // Phase 2). Payout = paytable[hand][coinsBet-1] x coinValue. The royal
+    // steps up at max coin (2000 = 400/coin vs 125/coin at 1-4 coins).
+    // Exact optimal-play RTP (scripts/aces-and-eights-rtp-solver.c, validated
+    // against published 9/6 JoB): 96.2474% at 1-4 coins, 96.7963% at 5.
+    // Cards use the engine's own 1..52 codes: suit = floor((n-1)/13),
+    // rank index = (n-1)%13 with 0=Ace. The deck is ALWAYS a uniform 52-card
+    // shuffle — the paytable is the only house-edge math, never the deal.
+    private const ACES_AND_EIGHTS_COIN_VALUES = [0.25, 0.50, 1.00, 2.00, 5.00];
+    private const ACES_AND_EIGHTS_COIN_VALUES_DISPLAY = ['25¢', '50¢', '$1', '$2', '$5'];
+    private const ACES_AND_EIGHTS_MAX_COINS = 5;
+    private const ACES_AND_EIGHTS_PAYTABLE = [
+        'JB'  => [1, 2, 3, 4, 5],
+        '_2P' => [2, 4, 6, 8, 10],
+        '_3K' => [3, 6, 9, 12, 15],
+        'ST'  => [4, 8, 12, 16, 20],
+        'FL'  => [5, 10, 15, 20, 25],
+        'FH'  => [7, 14, 21, 28, 35],
+        '_4K' => [20, 40, 60, 80, 100],      // four 2s-6s, 9s-Ks
+        '_47' => [50, 100, 150, 200, 250],   // four 7s
+        'SF'  => [50, 100, 150, 200, 250],
+        'A8'  => [80, 160, 240, 320, 400],   // four Aces or Eights
+        'NR'  => [125, 250, 375, 500, 2000], // natural royal
+    ];
+    private const ACES_AND_EIGHTS_HAND_NAMES = [
+        'JB' => 'Jacks or Better',
+        '_2P' => 'Two Pair',
+        '_3K' => 'Three of a Kind',
+        'ST' => 'Straight',
+        'FL' => 'Flush',
+        'FH' => 'Full House',
+        '_4K' => 'Four of a Kind',
+        '_47' => 'Four Sevens',
+        'SF' => 'Straight Flush',
+        'A8' => 'Four Aces or Eights',
+        'NR' => 'Natural Royal Flush',
+        '-' => 'No Hand',
+    ];
+    // Abandoned-hand policy (PO-approved): a 'dealt' round left open this long
+    // is force-settled HOLDING ALL FIVE dealt cards — deterministic and
+    // player-neutral (the deck was committed at deal; time reveals nothing).
+    private const ACES_AND_EIGHTS_ABANDON_SECONDS = 86400;
+
     private const DEFAULT_CASINO_GAMES = [
         ['provider' => 'internal', 'name' => 'Single Hand ($1-$100)', 'slug' => 'single-hand-1-100', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#115e59', 'icon' => 'fa-solid fa-diamond', 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Baccarat', 'slug' => 'baccarat-classic', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#9f1239', 'icon' => 'fa-solid fa-gem', 'imageUrl' => '/games/baccarat-classic/images/poster.jpg', 'tags' => ['table games', 'baccarat', 'in-house'], 'isFeatured' => true],
@@ -283,6 +346,7 @@ final class CasinoController
         ['provider' => 'internal', 'name' => 'Bogeyman', 'slug' => 'bogeyman', 'category' => 'slots', 'minBet' => 0.01, 'maxBet' => 50, 'rtp' => 94.7, 'volatility' => 'medium', 'themeColor' => '#4c1d95', 'icon' => 'fa-solid fa-ghost', 'imageUrl' => '/games/bogeyman/images/poster.jpg', 'tags' => ['slots', 'bogeyman', 'in-house', 'server settled'], 'isFeatured' => true, 'metadata' => ['paylines' => 25, 'reels' => 5, 'rows' => 3, 'coinValues' => [0.01, 0.05, 0.10, 0.25, 0.50, 1.00, 2.00], 'freeSpinAwards' => [3 => 5, 4 => 10, 5 => 20], 'rngVersion' => 'bogeyman-slot-v1', 'fairness' => ['outcomeSource' => 'server_rng', 'spinIndependence' => true], 'features' => ['wild', 'free_spins']]],
         ['provider' => 'internal', 'name' => '3-Card Poker', 'slug' => '3card-poker', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 300, 'themeColor' => '#1a3a5c', 'icon' => 'fa-solid fa-cards', 'imageUrl' => '/games/3-card-poker/sprites/200x200.jpg', 'tags' => ['table games', 'poker', '3-card poker', 'in-house'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'American Roulette', 'slug' => 'american-roulette', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 5000, 'themeColor' => '#b91c1c', 'icon' => 'fa-solid fa-circle-notch', 'imageUrl' => '/games/american-roulette/images/poster.jpg', 'tags' => ['table games', 'roulette', 'in-house', 'server settled'], 'isFeatured' => true, 'metadata' => ['wheel' => 'american', 'pockets' => 38, 'rngVersion' => 'csprng-wheel-american-v1', 'fairness' => ['outcomeSource' => 'server_rng', 'spinIndependence' => true], 'positionMax' => ['straight' => 25, 'split' => 50, 'street' => 75, 'basket' => 75, 'corner' => 100, 'fivebet' => 125, 'sixline' => 150, 'dozen' => 100, 'column' => 100, 'color' => 100, 'parity' => 100, 'range' => 100]]],
+        ['provider' => 'internal', 'name' => 'Aces & Eights', 'slug' => 'aces-and-eights', 'category' => 'video_poker', 'minBet' => 0.25, 'maxBet' => 25, 'rtp' => 96.8, 'volatility' => 'high', 'themeColor' => '#0f766e', 'icon' => 'fa-solid fa-cards', 'imageUrl' => '/games/aces-and-eights/game/_build/img/bkgdVPA8.png', 'tags' => ['video poker', 'aces and eights', 'in-house', 'server settled'], 'isFeatured' => true, 'metadata' => ['gameType' => 'video_poker', 'coinValues' => [0.25, 0.50, 1.00, 2.00, 5.00], 'maxCoins' => 5, 'rngVersion' => 'vp-a8-csprng-deck-v1', 'fairness' => ['outcomeSource' => 'server_rng', 'deckCommittedAtDeal' => true]]],
         ['provider' => 'internal', 'name' => 'Jacks or Better', 'slug' => 'jacks-or-better', 'category' => 'video_poker', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#be123c', 'icon' => 'fa-solid fa-cards'],
         ['provider' => 'internal', 'name' => 'Video Keno', 'slug' => 'video-keno', 'category' => 'specialty_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#0ea5e9', 'icon' => 'fa-solid fa-table-cells-large'],
     ];
@@ -729,6 +793,45 @@ final class CasinoController
                         'freeSpinCoinValue' => $state['freeSpinCoinValue'] ?? null,
                         'bonusRoundActive' => ((int) ($state['freeSpinsRemaining'] ?? 0)) > 0,
                         'gameConfig' => self::bogeymanPublicMetadata(),
+                    ],
+                ]);
+                return;
+            }
+
+            if ($slug === self::ACES_AND_EIGHTS_GAME_SLUG) {
+                $userId = (string) ($actor['id'] ?? '');
+                // Enforce the abandoned-hand policy before reporting state, so
+                // a >24h 'dealt' round settles (hold-all) instead of resuming.
+                $this->sweepExpiredAcesAndEightsRounds($userId);
+                $open = $this->findOpenAcesAndEightsRound($userId);
+                $openRound = null;
+                if ($open !== null) {
+                    $roundData = is_array($open['roundData'] ?? null) ? $open['roundData'] : [];
+                    // ONLY the 5 dealt cards ever leave the server for an open
+                    // round — the stored deck order stays private until settle.
+                    $openRound = [
+                        'roundId' => (string) ($open['roundId'] ?? $open['id'] ?? ''),
+                        'dealt' => is_array($roundData['dealt'] ?? null) ? array_values(array_map('intval', $roundData['dealt'])) : [],
+                        'dealtHandCode' => (string) ($roundData['dealtHandCode'] ?? '-'),
+                        'coinsBet' => (int) ($roundData['coinsBet'] ?? 1),
+                        'coinValue' => round($this->num($roundData['coinValue'] ?? 0), 2),
+                        'totalWager' => round($this->num($open['totalWager'] ?? 0), 2),
+                        'dealtAt' => $open['createdAt'] ?? null,
+                    ];
+                }
+                // Single source: the paytable the client DISPLAYS is built
+                // from the SAME clamped config the engine pays from. An open
+                // round shows its DEAL-time stamped table (what it will settle
+                // under); with no open round, the current effective table.
+                $gameRow = $this->db->findOne('casinogames', ['slug' => self::ACES_AND_EIGHTS_GAME_SLUG]);
+                $displayConfig = ($open !== null && is_array($open['payoutApplied'] ?? null))
+                    ? $this->resolveAcesAndEightsPayoutConfig(['metadata' => ['payoutConfig' => $open['payoutApplied']]])
+                    : $this->resolveAcesAndEightsPayoutConfig($gameRow);
+                Response::json([
+                    'game' => $slug,
+                    'state' => [
+                        'openRound' => $openRound,
+                        'gameConfig' => self::acesAndEightsPublicMetadata($displayConfig),
                     ],
                 ]);
                 return;
@@ -1267,6 +1370,10 @@ final class CasinoController
             }
             if ($game === self::AMERICAN_ROULETTE_GAME_SLUG) {
                 $this->placeAmericanRouletteBet($actor, $body, $requestId, $startedAt);
+                return;
+            }
+            if ($game === self::ACES_AND_EIGHTS_GAME_SLUG) {
+                $this->placeAcesAndEightsBet($actor, $body, $requestId, $startedAt);
                 return;
             }
             if (in_array($game, self::REMOVED_GAME_SLUGS, true)) {
@@ -4956,6 +5063,1221 @@ final class CasinoController
         ];
     }
 
+    // ════════════════════════════════════════════════════════
+    //  IN-HOUSE ACES & EIGHTS (video poker, two-stage deal/draw)
+    // ════════════════════════════════════════════════════════
+    //
+    // One logical round in TWO atomic calls, keyed by roundId:
+    //   deal  — debits the FULL wager, shuffles the whole 52-card deck with
+    //           the CSPRNG, stores the COMPLETE order server-side (vpDeck,
+    //           vpPtr=5 — top-level fields no response mapper emits), inserts
+    //           the round as roundStatus='dealt' and returns the 5 dealt
+    //           cards. The outcome is fully determined here: the player's
+    //           later holds select WHICH committed cards get used but cannot
+    //           change the order.
+    //   draw  — loads the round under the user-row lock, requires owner +
+    //           roundStatus='dealt', replaces non-held positions left-to-right
+    //           from the stored order (vendor ptr semantics), evaluates,
+    //           credits, settles. A replayed draw (same actionRequestId)
+    //           returns the settled result; a second draw with different
+    //           holds is rejected — the first draw is final.
+    //
+    // ONE open round per (user, game): a deal while a 'dealt' round exists
+    // returns that round for resume — never a second stake. Abandoned hands
+    // (>24h) are force-settled HOLDING ALL FIVE dealt cards (deterministic,
+    // player-neutral) by sweepExpiredAcesAndEightsRounds — run on state
+    // fetch, on deal, on a late draw, and by the CLI janitor.
+    //
+    // NON-EXPOSURE INVARIANT: while roundStatus='dealt' no endpoint may leak
+    // the undealt deck. The deck lives ONLY in vpDeck/vpPtr, which none of
+    // mapCasinoBetRow / mapCasinoBetDetail / formatCasinoBetResponse /
+    // outputCasinoBetsCsv emit; roundData/betDetails/bets (which DO pass
+    // through) carry only the dealt cards. The audit row gets the full order
+    // ONLY at settle. deckHash (published at deal) is a SHA-256 commitment —
+    // it reveals nothing and lets Phase 3 verify continuity.
+
+    private function placeAcesAndEightsBet(array $actor, array $body, string $requestId, float $startedAt): void
+    {
+        $userId = (string) ($actor['id'] ?? '');
+
+        try {
+            $this->requireActiveCasinoGame(self::ACES_AND_EIGHTS_GAME_SLUG);
+
+            $bets = is_array($body['bets'] ?? null) ? $body['bets'] : [];
+            $action = strtolower(trim((string) ($bets['action'] ?? 'deal')));
+            if ($action === 'draw') {
+                $this->acesAndEightsDraw($actor, $bets, $requestId, $startedAt);
+                return;
+            }
+            if ($action !== 'deal') {
+                Response::json(['message' => 'bets.action must be "deal" or "draw"'], 400);
+                return;
+            }
+            $this->acesAndEightsDeal($actor, $bets, $body, $requestId, $startedAt);
+        } catch (InvalidArgumentException $e) {
+            $this->writeCasinoAuditLog('aces_and_eights_validation_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            $this->writeCasinoAuditLog('aces_and_eights_server_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => 'Server error placing Aces & Eights bet'], 500);
+        }
+    }
+
+    private function acesAndEightsDeal(array $actor, array $bets, array $body, string $requestId, float $startedAt): void
+    {
+        $userId = (string) ($actor['id'] ?? '');
+
+        $coinValue = $this->parseAcesAndEightsCoinValue($bets['coinValue'] ?? null);
+        $coinsBet = $this->parseAcesAndEightsCoinsBet($bets['coinsBet'] ?? null);
+        $totalWager = round($coinValue * $coinsBet, 2);
+
+        [$gameMinBet, $gameMaxBet] = $this->resolveAcesAndEightsBetLimits();
+        if ($totalWager < $gameMinBet) {
+            Response::json(['message' => 'Minimum Aces & Eights wager is $' . number_format($gameMinBet, 2)], 400);
+            return;
+        }
+        if ($totalWager > $gameMaxBet) {
+            Response::json(['message' => 'Maximum Aces & Eights wager is $' . number_format($gameMaxBet, 2)], 400);
+            return;
+        }
+
+        // Abandoned-hand policy first (own transactions): a >24h open round
+        // settles hold-all BEFORE the one-open-round check below, so a player
+        // returning after the window starts a fresh hand instead of resuming.
+        $this->sweepExpiredAcesAndEightsRounds($userId);
+
+        $this->db->beginTransaction();
+        try {
+            $lockedUser = $this->loadLockedCasinoUser($userId);
+            $betLimits = $this->buildAcesAndEightsBetLimits($lockedUser, $gameMinBet, $gameMaxBet);
+
+            // Idempotent replay of THIS deal request (covers the round in
+            // whatever state it has since reached — 'dealt' or 'settled').
+            $existingRound = $this->db->findOne('casino_bets', [
+                'userId' => $userId,
+                'requestId' => $requestId,
+                'game' => self::ACES_AND_EIGHTS_GAME_SLUG,
+            ]);
+            if ($existingRound !== null) {
+                $roundId = (string) ($existingRound['roundId'] ?? $existingRound['id'] ?? '');
+                $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+                $this->writeCasinoAuditLog('aces_and_eights_round_idempotent', [
+                    'requestId' => $requestId,
+                    'roundId' => $roundId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? ''),
+                    'idempotent' => true,
+                ]);
+                $this->db->commit();
+                Response::json($this->formatCasinoBetResponse($existingRound, $ledgerEntries, true));
+                return;
+            }
+
+            // ONE open round per (user, game): resume it, never stake twice.
+            $openRound = $this->findOpenAcesAndEightsRound($userId);
+            if ($openRound !== null) {
+                $roundId = (string) ($openRound['roundId'] ?? $openRound['id'] ?? '');
+                $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+                $roundData = is_array($openRound['roundData'] ?? null) ? $openRound['roundData'] : [];
+                $roundData['resumed'] = true;
+                $openRound['roundData'] = $roundData;
+                $this->writeCasinoAuditLog('aces_and_eights_round_resumed', [
+                    'requestId' => $requestId,
+                    'roundId' => $roundId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? ''),
+                ]);
+                $this->db->commit();
+                Response::json($this->formatCasinoBetResponse($openRound, $ledgerEntries, true));
+                return;
+            }
+
+            // Account MAX (exposure ceiling) still applies; the account minBet
+            // is a sportsbook limit and is deliberately not applied to casino.
+            $this->assertUserWagerWithinLimits($lockedUser, $totalWager);
+            $this->assertCasinoLossLimits($lockedUser, $totalWager);
+
+            $balanceSnapshot = $this->getAcesAndEightsBalanceSnapshot($lockedUser);
+            if ($totalWager > $balanceSnapshot['availableBalance']) {
+                $this->db->rollback();
+                Response::json(['message' => 'Insufficient balance. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                return;
+            }
+
+            $roundId = $this->deterministicRoundId(self::ACES_AND_EIGHTS_GAME_SLUG, $userId, $requestId);
+
+            // Table lock at DEAL: resolve the effective (clamped) paytable NOW
+            // and stamp it onto the round. Settlement AND the 24h janitor pay
+            // from THIS stamped table, so a player is always paid under the
+            // exact table shown when they committed the stake — an admin edit
+            // between this deal and its draw does not change what this hand
+            // pays. Read fresh each deal so a new deal picks up admin edits.
+            $gameRow = $this->db->findOne('casinogames', ['slug' => self::ACES_AND_EIGHTS_GAME_SLUG]);
+            $payoutConfig = $this->resolveAcesAndEightsPayoutConfig($gameRow);
+
+            // ── Commit-reveal fairness (Option A: stored rotating chain) ──
+            // Read the CURRENT seed from the chain under the SAME user-row lock
+            // held since loadLockedCasinoUser above, so read+rotate is
+            // serialized with placement — two near-simultaneous deals can't
+            // fork or skip the chain. The seed's hash was already committed to
+            // the client (fairness/state on open, or the prior round's
+            // serverSeedHashNext). Rotation happens ONCE PER ROUND, here at the
+            // deal — the draw never touches the chain. If the row is missing
+            // where it must exist, FAIL LOUD — never silently re-init, never
+            // fall back to unseeded RNG.
+            $chainId = $this->baccaratSeedChainId($userId, self::ACES_AND_EIGHTS_GAME_SLUG);
+            $chain = $this->db->findOneForUpdate('casino_seed_chains', ['id' => $chainId]);
+            if ($chain === null || !isset($chain['serverSeed']) || (string) $chain['serverSeed'] === '') {
+                $this->db->rollback();
+                $this->writeCasinoAuditLog('aces_and_eights_seed_chain_missing', [
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::ACES_AND_EIGHTS_GAME_SLUG,
+                ]);
+                Response::json(['message' => 'Fairness is not initialized for this session. Please reload the game and try again.'], 409);
+                return;
+            }
+            $serverSeed = (string) $chain['serverSeed'];
+            $serverSeedHash = (string) ($chain['serverSeedHash'] ?? hash('sha256', $serverSeed));
+            $nonce = (int) ($chain['nonce'] ?? 0);
+            $clientSeed = $this->resolveClientSeed($body);
+
+            // The ENTIRE round's entropy, drawn once: a uniform SEEDED shuffle
+            // of all 52 cards from the committed (serverSeed, clientSeed,
+            // nonce). Positions 0-4 are the deal; draw replacements consume
+            // positions 5+ in order. deckHash commits to the shuffled order.
+            $deck = $this->acesAndEightsSeededDeck($serverSeed, $clientSeed, $nonce);
+            $dealt = array_slice($deck, 0, 5);
+            $dealtHandKey = $this->acesAndEightsHandCode($dealt);
+            $deckHash = hash('sha256', implode(',', $deck) . '|' . $roundId);
+
+            // Rotate the chain to a fresh unrevealed seed for the NEXT round, in
+            // this same transaction (rolled back with everything else if the
+            // deal fails). Only the next seed's HASH ever leaves the server; the
+            // seed stays secret until that round is played. The CURRENT seed
+            // ($serverSeed) is revealed for THIS round only at DRAW settlement.
+            $nextServerSeed = bin2hex(random_bytes(32));
+            $serverSeedHashNext = hash('sha256', $nextServerSeed);
+            $this->db->updateOne('casino_seed_chains', ['id' => $chainId], [
+                'serverSeed' => $nextServerSeed,
+                'serverSeedHash' => $serverSeedHashNext,
+                'clientSeed' => $clientSeed,
+                'nonce' => $nonce + 1,
+                'updatedAt' => SqlRepository::nowUtc(),
+            ]);
+
+            $now = SqlRepository::nowUtc();
+            $ipAddress = IpUtils::clientIp();
+            $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
+            $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager, 2);
+            $availableBalanceAfter = $this->acesAndEightsAvailableCredit($balanceAfterDebit, $balanceSnapshot['pendingBalance'], $lockedUser);
+
+            $debitEntry = $this->buildAcesAndEightsTransactionEntry(
+                $userId,
+                $totalWager,
+                $roundId,
+                'DEBIT',
+                'casino_bet_debit',
+                $balanceSnapshot['balanceBefore'],
+                $balanceAfterDebit,
+                'CASINO_ACES_AND_EIGHTS_WAGER',
+                'Aces & Eights hand wager charged',
+                $now,
+                $ipAddress,
+                $userAgent
+            );
+            $debitEntryId = $this->db->insertOne('transactions', $debitEntry);
+
+            $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
+                'balance' => $balanceAfterDebit,
+                'updatedAt' => $now,
+            ]);
+
+            $roundData = [
+                'stage' => 'dealt',
+                'dealt' => $dealt,
+                'dealtHandCode' => self::acesAndEightsWireCode($dealtHandKey),
+                'dealtHandName' => self::ACES_AND_EIGHTS_HAND_NAMES[$dealtHandKey] ?? 'No Hand',
+                'coinsBet' => $coinsBet,
+                'coinValue' => $coinValue,
+                'totalBet' => $totalWager,
+            ];
+
+            $integrityHash = $this->buildIntegrityHash([
+                'roundId' => $roundId,
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'game' => self::ACES_AND_EIGHTS_GAME_SLUG,
+                'stage' => 'dealt',
+                'coinValue' => $coinValue,
+                'coinsBet' => $coinsBet,
+                'totalWager' => $totalWager,
+                'dealt' => $dealt,
+                'deckHash' => $deckHash,
+                // Commitment (NOT the seed) binds the deal to the chain.
+                'serverSeedHash' => $serverSeedHash,
+                'clientSeed' => $clientSeed,
+                'nonce' => $nonce,
+                'payoutApplied' => $payoutConfig,
+                'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                'balanceAfter' => $balanceAfterDebit,
+                'createdAt' => $now,
+            ]);
+
+            $betRecord = [
+                'id' => $roundId,
+                'roundId' => $roundId,
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'username' => (string) ($lockedUser['username'] ?? $actor['username'] ?? ''),
+                'game' => self::ACES_AND_EIGHTS_GAME_SLUG,
+                'bets' => [
+                    'action' => 'deal',
+                    'coinValue' => $coinValue,
+                    'coinsBet' => $coinsBet,
+                    'totalBet' => $totalWager,
+                ],
+                'result' => 'Pending',
+                'resultType' => '',
+                'totalWager' => $totalWager,
+                'totalReturn' => 0.0,
+                'profit' => 0.0,
+                // Truthful while open: the stake is out. Settles to
+                // return - wager at draw, so reconcile's ledger-net check
+                // holds in BOTH states (open: -wager == lone debit).
+                'netResult' => round(-$totalWager, 2),
+                'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                'balanceAfter' => $balanceAfterDebit,
+                'availableBalanceBefore' => $balanceSnapshot['availableBalance'],
+                'availableBalanceAfter' => $availableBalanceAfter,
+                'pendingBalanceSnapshot' => $balanceSnapshot['pendingBalance'],
+                // PRIVATE: full committed deck order + draw pointer. Never in
+                // roundData/betDetails/bets — no response mapper emits these.
+                'vpDeck' => $deck,
+                'vpPtr' => 5,
+                'deckHash' => $deckHash,
+                // ── Commit-reveal, DEFERRED reveal ──
+                // vpServerSeed is the seed THIS round was shuffled from. It is
+                // PRIVATE (like vpDeck) — no mapper emits it — and is copied
+                // into the exposed `serverSeed` field ONLY at draw settlement.
+                // Revealing it while roundStatus='dealt' would let the player
+                // compute the undrawn deck and hold perfectly, so it must stay
+                // hidden until the hand is over.
+                'vpServerSeed' => $serverSeed,
+                // Safe to show at deal: the commitment for THIS round, the next
+                // round's commitment, the player's clientSeed and the nonce.
+                'serverSeedHash' => $serverSeedHash,
+                'serverSeedHashNext' => $serverSeedHashNext,
+                'clientSeed' => $clientSeed,
+                'nonce' => $nonce,
+                'shoeSize' => self::ACES_AND_EIGHTS_DECK_SIZE,
+                // The clamped paytable this round is locked to (deal-time). The
+                // draw + janitor settle from THIS, never the live game row.
+                'payoutApplied' => $payoutConfig,
+                'ledgerEntries' => ['debit' => $debitEntryId],
+                'rngVersion' => self::ACES_AND_EIGHTS_FAIR_RNG_VERSION,
+                'outcomeSource' => 'server_rng',
+                'betLimits' => $betLimits,
+                'betDetails' => [
+                    'coinsBet' => $coinsBet,
+                    'coinValue' => $coinValue,
+                    'dealtHandName' => $roundData['dealtHandName'],
+                ],
+                'roundData' => $roundData,
+                'integrityHash' => $integrityHash,
+                'serverDecisionAt' => $now,
+                'latencyMs' => max(0, (int) round((microtime(true) - $startedAt) * 1000)),
+                'roundStatus' => 'dealt',
+                'createdAt' => $now,
+                'updatedAt' => $now,
+            ];
+            $this->db->insertOne('casino_bets', $betRecord);
+
+            // Audit gets the COMMITMENT at deal; the revealed serverSeed + the
+            // full deck order land ONLY at settle (deferred reveal). Note the
+            // absence of serverSeed here — an in-flight audit row never carries
+            // the seed while the round is open.
+            $this->db->insertOne('casino_round_audit', [
+                'id' => $roundId,
+                'roundId' => $roundId,
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'game' => self::ACES_AND_EIGHTS_GAME_SLUG,
+                'rngVersion' => self::ACES_AND_EIGHTS_FAIR_RNG_VERSION,
+                'outcomeSource' => 'server_rng',
+                'stage' => 'dealt',
+                'bets' => $betRecord['bets'],
+                'deckHash' => $deckHash,
+                'dealt' => $dealt,
+                'serverSeedHash' => $serverSeedHash,
+                'serverSeedHashNext' => $serverSeedHashNext,
+                'clientSeed' => $clientSeed,
+                'nonce' => $nonce,
+                'payoutApplied' => $payoutConfig,
+                'integrityHash' => $integrityHash,
+                'createdAt' => $now,
+                'updatedAt' => $now,
+            ]);
+
+            $this->db->commit();
+
+            $this->writeCasinoAuditLog('aces_and_eights_round_dealt', [
+                'requestId' => $requestId,
+                'roundId' => $roundId,
+                'userId' => $userId,
+                'username' => (string) ($lockedUser['username'] ?? ''),
+                'coinValue' => $coinValue,
+                'coinsBet' => $coinsBet,
+                'wager' => $totalWager,
+                'dealtHandCode' => $roundData['dealtHandCode'],
+                'deckHash' => $deckHash,
+                'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                'balanceAfter' => $balanceAfterDebit,
+            ]);
+
+            $ledgerEntries = [array_merge($debitEntry, ['id' => $debitEntryId])];
+            Response::json($this->formatCasinoBetResponse($betRecord, $ledgerEntries, false));
+        } catch (Throwable $txErr) {
+            $this->db->rollback();
+            throw $txErr;
+        }
+    }
+
+    private function acesAndEightsDraw(array $actor, array $bets, string $requestId, float $startedAt): void
+    {
+        $userId = (string) ($actor['id'] ?? '');
+
+        $roundId = strtolower(trim((string) ($bets['roundId'] ?? '')));
+        if (preg_match('/^[a-f0-9]{24}$/', $roundId) !== 1) {
+            Response::json(['message' => 'bets.roundId is required for the draw'], 400);
+            return;
+        }
+        $holds = $this->parseAcesAndEightsHolds($bets['holds'] ?? null);
+
+        $this->db->beginTransaction();
+        try {
+            $lockedUser = $this->loadLockedCasinoUser($userId);
+
+            $round = $this->db->findOneForUpdate('casino_bets', [
+                'roundId' => $roundId,
+                'userId' => $userId,
+                'game' => self::ACES_AND_EIGHTS_GAME_SLUG,
+            ]);
+            if ($round === null) {
+                $this->db->rollback();
+                Response::json(['message' => 'Aces & Eights round not found'], 404);
+                return;
+            }
+
+            $roundStatus = (string) ($round['roundStatus'] ?? '');
+            if ($roundStatus === 'settled') {
+                $existingActionRequestId = (string) ($round['actionRequestId'] ?? '');
+                $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+                $this->db->commit();
+
+                if ($existingActionRequestId !== '' && $existingActionRequestId === $requestId) {
+                    // Replayed draw: same request, same settled answer.
+                    Response::json($this->formatCasinoBetResponse($round, $ledgerEntries, true));
+                    return;
+                }
+
+                // A SECOND draw (different request / different holds) can
+                // never re-decide the hand — the first draw is final.
+                Response::json(['message' => 'Aces & Eights round is already settled'], 409);
+                return;
+            }
+            if ($roundStatus !== 'dealt') {
+                $this->db->rollback();
+                Response::json(['message' => 'Aces & Eights round cannot be drawn in its current state'], 409);
+                return;
+            }
+
+            // Past the abandon window the policy outcome (hold all five) wins
+            // over the submitted holds, so a late draw and the janitor settle
+            // a given hand IDENTICALLY — never a timing-dependent outcome.
+            $forced = $this->acesAndEightsRoundExpired($round);
+            $effectiveHolds = $forced ? [true, true, true, true, true] : $holds;
+
+            $settled = $this->settleAcesAndEightsRound($round, $lockedUser, $effectiveHolds, $requestId, $forced, $startedAt);
+            $this->db->commit();
+
+            $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+            Response::json($this->formatCasinoBetResponse($settled, $ledgerEntries, false));
+        } catch (Throwable $txErr) {
+            $this->db->rollback();
+            throw $txErr;
+        }
+    }
+
+    /**
+     * Settle an open ('dealt') round inside the CALLER's transaction, with the
+     * user row already locked. Draw replacements come from the stored deck
+     * order only — this method contains no RNG.
+     *
+     * @param array<string, mixed> $round      row (caller loaded FOR UPDATE)
+     * @param array<string, mixed> $lockedUser user row (caller locked)
+     * @param array<int, bool>     $holds      exactly 5 flags, true = keep
+     * @return array<string, mixed> the settled row (merged updates)
+     */
+    private function settleAcesAndEightsRound(array $round, array $lockedUser, array $holds, string $actionRequestId, bool $forced, float $startedAt): array
+    {
+        $userId = (string) ($round['userId'] ?? '');
+        $roundId = (string) ($round['roundId'] ?? $round['id'] ?? '');
+        $roundData = is_array($round['roundData'] ?? null) ? $round['roundData'] : [];
+        $deck = is_array($round['vpDeck'] ?? null) ? array_values(array_map('intval', $round['vpDeck'])) : [];
+        $ptr = (int) ($round['vpPtr'] ?? 5);
+        $dealt = is_array($roundData['dealt'] ?? null) ? array_values(array_map('intval', $roundData['dealt'])) : [];
+        $coinsBet = max(1, min(self::ACES_AND_EIGHTS_MAX_COINS, (int) ($roundData['coinsBet'] ?? 1)));
+        $coinValue = round($this->num($roundData['coinValue'] ?? 0), 2);
+        $totalWager = round($this->num($round['totalWager'] ?? 0), 2);
+
+        // Deferred reveal happens HERE: copy the private deal-time seed into the
+        // exposed serverSeed field. From this point the response/state/history
+        // surfaces reveal it — never before (the round was 'dealt' until now).
+        $revealedServerSeed = (string) ($round['vpServerSeed'] ?? $round['serverSeed'] ?? '');
+
+        if (count($deck) !== 52 || count($dealt) !== 5 || $ptr < 5) {
+            throw new InvalidArgumentException('Aces & Eights round data is incomplete');
+        }
+
+        // Replace non-held positions left-to-right from the committed order —
+        // the exact vendor ptr semantics, reproducible from deckHash later.
+        $final = $dealt;
+        for ($i = 0; $i < 5; $i++) {
+            if (!$holds[$i]) {
+                if ($ptr >= 52) {
+                    throw new InvalidArgumentException('Aces & Eights deck exhausted');
+                }
+                $final[$i] = $deck[$ptr];
+                $ptr++;
+            }
+        }
+
+        $handKey = $this->acesAndEightsHandCode($final);
+        // Pay from the DEAL-time stamped table, re-clamped defensively — never
+        // the live game row. A round with no stamp (pre-Phase-2) falls back to
+        // the shipped default table (which equals the captured Phase-1 table).
+        $stampedConfig = is_array($round['payoutApplied'] ?? null) ? $round['payoutApplied'] : [];
+        $paytable = $this->acesAndEightsPaytableMatrix($stampedConfig);
+        $payoutApplied = $this->resolveAcesAndEightsPayoutConfig(['metadata' => ['payoutConfig' => $stampedConfig]]);
+        $payCoins = ($handKey !== '-' && isset($paytable[$handKey]))
+            ? $paytable[$handKey][$coinsBet - 1]
+            : 0;
+        $totalReturn = round($payCoins * $coinValue, 2);
+        $netResult = round($totalReturn - $totalWager, 2);
+        $profit = round(max(0, $netResult), 2);
+        $handName = self::ACES_AND_EIGHTS_HAND_NAMES[$handKey] ?? 'No Hand';
+
+        $balanceSnapshot = $this->getAcesAndEightsBalanceSnapshot($lockedUser);
+        $balanceAfter = round($balanceSnapshot['balanceBefore'] + $totalReturn, 2);
+        $availableBalanceAfter = $this->acesAndEightsAvailableCredit($balanceAfter, $balanceSnapshot['pendingBalance'], $lockedUser);
+
+        $now = SqlRepository::nowUtc();
+        $ipAddress = IpUtils::clientIp();
+        $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
+
+        $creditEntry = null;
+        $creditEntryId = null;
+        if ($totalReturn > 0) {
+            $creditEntry = $this->buildAcesAndEightsTransactionEntry(
+                $userId,
+                $totalReturn,
+                $roundId,
+                'CREDIT',
+                'casino_bet_credit',
+                $balanceSnapshot['balanceBefore'],
+                $balanceAfter,
+                'CASINO_ACES_AND_EIGHTS_PAYOUT',
+                $forced ? 'Aces & Eights abandoned hand auto-settled (held all cards)' : 'Aces & Eights hand payout credited',
+                $now,
+                $ipAddress,
+                $userAgent
+            );
+            $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
+
+            $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
+                'balance' => $balanceAfter,
+                'updatedAt' => $now,
+            ]);
+        }
+
+        $roundData['stage'] = 'settled';
+        $roundData['holds'] = array_values($holds);
+        $roundData['final'] = $final;
+        $roundData['finalHandCode'] = self::acesAndEightsWireCode($handKey);
+        $roundData['finalHandName'] = $handName;
+        $roundData['replaced'] = $ptr - 5;
+        $roundData['forcedSettle'] = $forced;
+
+        $serverDecisionAt = SqlRepository::nowUtc();
+        $integrityHash = $this->buildIntegrityHash([
+            'roundId' => $roundId,
+            'requestId' => (string) ($round['requestId'] ?? ''),
+            'actionRequestId' => $actionRequestId,
+            'userId' => $userId,
+            'game' => self::ACES_AND_EIGHTS_GAME_SLUG,
+            'stage' => 'settled',
+            'holds' => $roundData['holds'],
+            'final' => $final,
+            'finalHandCode' => $roundData['finalHandCode'],
+            'forcedSettle' => $forced,
+            'deckHash' => (string) ($round['deckHash'] ?? ''),
+            // Reveal binds into the settle hash — the seed is now public.
+            'serverSeed' => $revealedServerSeed,
+            'serverSeedHash' => (string) ($round['serverSeedHash'] ?? ''),
+            'clientSeed' => (string) ($round['clientSeed'] ?? ''),
+            'nonce' => (int) ($round['nonce'] ?? 0),
+            'payoutApplied' => $payoutApplied,
+            'totalWager' => $totalWager,
+            'totalReturn' => $totalReturn,
+            'netResult' => $netResult,
+            'balanceAfter' => $balanceAfter,
+            'serverDecisionAt' => $serverDecisionAt,
+        ]);
+
+        $updates = [
+            'actionRequestId' => $actionRequestId,
+            'totalReturn' => $totalReturn,
+            'profit' => $profit,
+            'netResult' => $netResult,
+            'result' => $totalReturn > 0 ? $handName : 'Lose',
+            'resultType' => $roundData['finalHandCode'],
+            // ── Deferred reveal: the seed becomes public ONLY now, at settle ──
+            // Copy the private deal-time seed into the exposed field; the
+            // commitment (serverSeedHash) + next commitment + clientSeed +
+            // nonce were already stored at deal. verify: hash(serverSeed) must
+            // equal the serverSeedHash committed before the deal.
+            'serverSeed' => $revealedServerSeed,
+            // Re-clamped deal-time table this hand settled under — stays
+            // provably-this even after an admin later changes the config.
+            'payoutApplied' => $payoutApplied,
+            // balanceBefore stays the DEAL-time snapshot (matches the debit
+            // entry); balanceAfter is the post-credit balance at DRAW time
+            // (matches the credit entry) — exactly what reconcile pairs up.
+            'balanceAfter' => $totalReturn > 0 ? $balanceAfter : round($this->num($round['balanceAfter'] ?? $balanceSnapshot['balanceBefore']), 2),
+            'availableBalanceAfter' => $totalReturn > 0 ? $availableBalanceAfter : $this->acesAndEightsAvailableCredit($balanceSnapshot['balanceBefore'], $balanceSnapshot['pendingBalance'], $lockedUser),
+            'ledgerEntries' => array_merge(
+                is_array($round['ledgerEntries'] ?? null) ? $round['ledgerEntries'] : [],
+                $creditEntryId !== null ? ['credit' => $creditEntryId] : []
+            ),
+            'betDetails' => array_merge(
+                is_array($round['betDetails'] ?? null) ? $round['betDetails'] : [],
+                [
+                    'finalHandName' => $handName,
+                    'holdsCount' => count(array_filter($holds)),
+                    'forcedSettle' => $forced,
+                ]
+            ),
+            'roundData' => $roundData,
+            'integrityHash' => $integrityHash,
+            'serverDecisionAt' => $serverDecisionAt,
+            'latencyMs' => max(0, (int) round((microtime(true) - $startedAt) * 1000)),
+            'roundStatus' => 'settled',
+            'updatedAt' => $now,
+        ];
+        $this->db->updateOne('casino_bets', ['id' => SqlRepository::id($roundId)], $updates);
+
+        // The revealed serverSeed + the full committed order become part of
+        // the audit trail only now that nothing about the hand is decidable.
+        $this->db->updateOne('casino_round_audit', ['id' => SqlRepository::id($roundId)], [
+            'stage' => 'settled',
+            'holds' => $roundData['holds'],
+            'final' => $final,
+            'finalHandCode' => $roundData['finalHandCode'],
+            'result' => $updates['result'],
+            'forcedSettle' => $forced,
+            'payoutApplied' => $payoutApplied,
+            'serverSeed' => $revealedServerSeed,
+            'deckOrder' => $deck,
+            'integrityHash' => $integrityHash,
+            'updatedAt' => $now,
+        ]);
+
+        $this->writeCasinoAuditLog($forced ? 'aces_and_eights_round_force_settled' : 'aces_and_eights_round_settled', [
+            'requestId' => $actionRequestId,
+            'roundId' => $roundId,
+            'userId' => $userId,
+            'username' => (string) ($lockedUser['username'] ?? ''),
+            'holds' => $roundData['holds'],
+            'finalHandCode' => $roundData['finalHandCode'],
+            'wager' => $totalWager,
+            'totalReturn' => $totalReturn,
+            'netResult' => $netResult,
+            'forcedSettle' => $forced,
+        ]);
+
+        return array_merge($round, $updates);
+    }
+
+    /**
+     * Abandoned-hand janitor: force-settle every 'dealt' round older than the
+     * abandon window, holding all five dealt cards. Each round settles in its
+     * OWN transaction under the user-row lock, so a mid-sweep failure leaves
+     * every other round untouched. Safe to call from anywhere (deal, state
+     * fetch, CLI cron) — an already-settled round is simply skipped.
+     *
+     * @return array{swept: int, errors: int}
+     */
+    public function sweepExpiredAcesAndEightsRounds(?string $userId = null, int $limit = 200): array
+    {
+        $cutoff = gmdate(DATE_ATOM, time() - self::ACES_AND_EIGHTS_ABANDON_SECONDS);
+        $query = [
+            'game' => self::ACES_AND_EIGHTS_GAME_SLUG,
+            'roundStatus' => 'dealt',
+            'createdAt' => ['$lt' => $cutoff],
+        ];
+        if ($userId !== null && $userId !== '') {
+            $query['userId'] = $userId;
+        }
+
+        $stale = $this->db->findMany('casino_bets', $query, [
+            'sort' => ['createdAt' => 1],
+            'limit' => max(1, min(1000, $limit)),
+        ]);
+
+        $swept = 0;
+        $errors = 0;
+        foreach ($stale as $staleRound) {
+            $roundId = (string) ($staleRound['roundId'] ?? $staleRound['id'] ?? '');
+            $roundUserId = (string) ($staleRound['userId'] ?? '');
+            if ($roundId === '' || $roundUserId === '') {
+                continue;
+            }
+
+            $this->db->beginTransaction();
+            try {
+                $lockedUser = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id($roundUserId)]);
+                if ($lockedUser === null) {
+                    $this->db->rollback();
+                    $errors++;
+                    continue;
+                }
+                $round = $this->db->findOneForUpdate('casino_bets', [
+                    'roundId' => $roundId,
+                    'userId' => $roundUserId,
+                    'game' => self::ACES_AND_EIGHTS_GAME_SLUG,
+                ]);
+                // Re-check under the lock: a concurrent draw may have settled it.
+                if ($round === null || (string) ($round['roundStatus'] ?? '') !== 'dealt') {
+                    $this->db->rollback();
+                    continue;
+                }
+                $this->settleAcesAndEightsRound(
+                    $round,
+                    $lockedUser,
+                    [true, true, true, true, true],
+                    'janitor_' . $roundId,
+                    true,
+                    microtime(true)
+                );
+                $this->db->commit();
+                $swept++;
+            } catch (Throwable $e) {
+                $this->db->rollback();
+                $errors++;
+                $this->writeCasinoAuditLog('aces_and_eights_janitor_error', [
+                    'roundId' => $roundId,
+                    'userId' => $roundUserId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return ['swept' => $swept, 'errors' => $errors];
+    }
+
+    /**
+     * @return array<string, mixed>|null the user's open ('dealt') round
+     */
+    private function findOpenAcesAndEightsRound(string $userId): ?array
+    {
+        if ($userId === '') {
+            return null;
+        }
+
+        return $this->db->findOne('casino_bets', [
+            'userId' => $userId,
+            'game' => self::ACES_AND_EIGHTS_GAME_SLUG,
+            'roundStatus' => 'dealt',
+        ]);
+    }
+
+    private function acesAndEightsRoundExpired(array $round): bool
+    {
+        $createdAt = strtotime((string) ($round['createdAt'] ?? ''));
+        if ($createdAt === false) {
+            return false;
+        }
+
+        return (time() - $createdAt) >= self::ACES_AND_EIGHTS_ABANDON_SECONDS;
+    }
+
+    /**
+     * Uniform CSPRNG Fisher-Yates over the engine's 1..52 card codes.
+     * random_int() is unbiased; the WHOLE deck is committed here — nothing
+     * about the draw is decided later.
+     *
+     * @return array<int, int>
+     */
+    private function acesAndEightsShuffledDeck(): array
+    {
+        $deck = range(1, 52);
+        for ($i = 51; $i > 0; $i--) {
+            $j = random_int(0, $i);
+            [$deck[$i], $deck[$j]] = [$deck[$j], $deck[$i]];
+        }
+
+        return $deck;
+    }
+
+    /**
+     * Phase 3: commit-reveal seeded 52-card shuffle. Reuses the SAME audited
+     * primitive as baccarat (seededShuffleShoe — rejection-sampled Fisher-Yates
+     * keyed by HMAC-SHA256(serverSeed, "clientSeed:nonce:counter")), fed the
+     * canonical deck of codes 1..52 in natural order. Because the shuffle only
+     * permutes an opaque array, the result is a uniform permutation identical
+     * in distribution to the CSPRNG shuffle it replaces — so RTP is unchanged
+     * (proven by the bias-gate Monte-Carlo). Any third party can reproduce it
+     * from (serverSeed, clientSeed, nonce) via the published recipe.
+     *
+     * @return array<int, int> a permutation of 1..52
+     */
+    private function acesAndEightsSeededDeck(string $serverSeed, string $clientSeed, int $nonce): array
+    {
+        $canonical = [];
+        for ($n = 1; $n <= self::ACES_AND_EIGHTS_DECK_SIZE; $n++) {
+            $canonical[] = ['code' => (string) $n];
+        }
+        $shuffled = $this->seededShuffleShoe($canonical, $serverSeed, $clientSeed, $nonce);
+        return array_map(static fn (array $card): int => (int) $card['code'], $shuffled);
+    }
+
+    /**
+     * Pure recompute for the verify endpoint + panel parity: from an
+     * already-revealed (serverSeed, clientSeed, nonce) + a 5-flag hold mask,
+     * reproduce the seeded deck, the dealt hand, the drawn replacements (ptr
+     * rule) and the final hand + rank. No DB, no money, no secret.
+     *
+     * @param array<int, bool> $holds exactly 5 flags (true = keep)
+     * @return array{deck: array<int,int>, dealt: array<int,int>, final: array<int,int>, handCode: string, handName: string, replaced: int}
+     */
+    private function recomputeAcesAndEightsRound(string $serverSeed, string $clientSeed, int $nonce, array $holds): array
+    {
+        $deck = $this->acesAndEightsSeededDeck($serverSeed, $clientSeed, $nonce);
+        $dealt = array_slice($deck, 0, 5);
+        $final = $dealt;
+        $ptr = 5;
+        for ($i = 0; $i < 5; $i++) {
+            if (empty($holds[$i])) {
+                $final[$i] = $deck[$ptr];
+                $ptr++;
+            }
+        }
+        $handKey = $this->acesAndEightsHandCode($final);
+
+        return [
+            'deck' => $deck,
+            'dealt' => $dealt,
+            'final' => $final,
+            'handCode' => self::acesAndEightsWireCode($handKey),
+            'handName' => self::ACES_AND_EIGHTS_HAND_NAMES[$handKey] ?? 'No Hand',
+            'replaced' => $ptr - 5,
+        ];
+    }
+
+    /**
+     * Classify a 5-card hand (engine 1..52 codes) into a paytable key.
+     * Mirrors the captured client evaluator exactly: rank = (n-1)%13 with
+     * 0=Ace (mapped to 14 so ace ranks high), suit = floor((n-1)/13); the
+     * wheel A-2-3-4-5 is a straight; the natural royal is distinct from other
+     * straight flushes; quads split A/8 vs 7 vs the rest.
+     */
+    private function acesAndEightsHandCode(array $cards): string
+    {
+        if (count($cards) !== 5) {
+            throw new InvalidArgumentException('Aces & Eights hands must contain exactly 5 cards');
+        }
+
+        $ranks = [];
+        $suits = [];
+        foreach ($cards as $n) {
+            $n = (int) $n;
+            if ($n < 1 || $n > 52) {
+                throw new InvalidArgumentException('Invalid card code: ' . $n);
+            }
+            $idx = ($n - 1) % 13;
+            $ranks[] = $idx === 0 ? 14 : $idx + 1;
+            $suits[] = intdiv($n - 1, 13);
+        }
+        if (count(array_unique($cards)) !== 5) {
+            throw new InvalidArgumentException('Duplicate card in hand');
+        }
+
+        $flush = count(array_unique($suits)) === 1;
+        $counts = array_count_values($ranks);
+        $uniq = array_keys($counts);
+        rsort($uniq);
+        $groupSizes = array_values($counts);
+        rsort($groupSizes);
+
+        $straight = false;
+        if (count($uniq) === 5) {
+            if ($uniq[0] - $uniq[4] === 4) {
+                $straight = true;
+            } elseif ($uniq[0] === 14 && $uniq[1] === 5 && $uniq[4] === 2) {
+                $straight = true; // wheel: A-2-3-4-5
+            }
+        }
+        $royal = $straight && $flush && $uniq[0] === 14 && $uniq[4] === 10;
+
+        if ($royal) {
+            return 'NR';
+        }
+        if ($straight && $flush) {
+            return 'SF';
+        }
+        if ($groupSizes[0] === 4) {
+            $quadRank = 0;
+            foreach ($counts as $rank => $cnt) {
+                if ($cnt === 4) {
+                    $quadRank = (int) $rank;
+                }
+            }
+            if ($quadRank === 14 || $quadRank === 8) {
+                return 'A8';
+            }
+            if ($quadRank === 7) {
+                return '_47';
+            }
+            return '_4K';
+        }
+        if ($groupSizes[0] === 3 && $groupSizes[1] === 2) {
+            return 'FH';
+        }
+        if ($flush) {
+            return 'FL';
+        }
+        if ($straight) {
+            return 'ST';
+        }
+        if ($groupSizes[0] === 3) {
+            return '_3K';
+        }
+        if ($groupSizes[0] === 2 && $groupSizes[1] === 2) {
+            return '_2P';
+        }
+        if ($groupSizes[0] === 2) {
+            foreach ($counts as $rank => $cnt) {
+                if ($cnt === 2) {
+                    return ((int) $rank) >= 11 ? 'JB' : '-'; // J, Q, K or A
+                }
+            }
+        }
+
+        return '-';
+    }
+
+    // The vendor wire strips the underscore prefix ('_2P' -> '2P' etc.).
+    private static function acesAndEightsWireCode(string $handKey): string
+    {
+        return $handKey === '-' ? '-' : ltrim($handKey, '_');
+    }
+
+    private function parseAcesAndEightsCoinValue(mixed $value): float
+    {
+        $coinValue = $this->parseAcesAndEightsMoneyValue($value, 'bets.coinValue');
+        $coinCents = (int) round($coinValue * 100);
+        foreach (self::ACES_AND_EIGHTS_COIN_VALUES as $allowed) {
+            if ((int) round($allowed * 100) === $coinCents) {
+                return round($allowed, 2);
+            }
+        }
+        throw new InvalidArgumentException('bets.coinValue must be one of the game coin values');
+    }
+
+    private function parseAcesAndEightsCoinsBet(mixed $value): int
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            throw new InvalidArgumentException('bets.coinsBet is required');
+        }
+        $raw = (float) $value;
+        $coins = (int) round($raw);
+        if (abs($raw - $coins) > 0.00001 || $coins < 1 || $coins > self::ACES_AND_EIGHTS_MAX_COINS) {
+            throw new InvalidArgumentException('bets.coinsBet must be an integer between 1 and ' . self::ACES_AND_EIGHTS_MAX_COINS);
+        }
+
+        return $coins;
+    }
+
+    /**
+     * @return array<int, bool> exactly 5 hold flags
+     */
+    private function parseAcesAndEightsHolds(mixed $value): array
+    {
+        if (!is_array($value) || count($value) !== 5) {
+            throw new InvalidArgumentException('bets.holds must be an array of exactly 5 flags');
+        }
+
+        $holds = [];
+        foreach (array_values($value) as $flag) {
+            if (is_bool($flag)) {
+                $holds[] = $flag;
+            } elseif (is_int($flag) && ($flag === 0 || $flag === 1)) {
+                $holds[] = $flag === 1;
+            } elseif (is_string($flag) && in_array(strtolower($flag), ['true', 'false', '0', '1', 'y', 'n'], true)) {
+                $holds[] = in_array(strtolower($flag), ['true', '1', 'y'], true);
+            } else {
+                throw new InvalidArgumentException('bets.holds entries must be booleans');
+            }
+        }
+
+        return $holds;
+    }
+
+    // Cent-precise money parser (the shared parseMoneyValue enforces whole
+    // dollars, which would reject this game's 25¢/50¢ coins).
+    private function parseAcesAndEightsMoneyValue(mixed $value, string $fieldName): float
+    {
+        if ($value === null || $value === '') {
+            return 0.0;
+        }
+        if (!is_numeric($value)) {
+            throw new InvalidArgumentException($fieldName . ' must be numeric');
+        }
+        $amount = (float) $value;
+        if (!is_finite($amount) || $amount < 0) {
+            throw new InvalidArgumentException($fieldName . ' must be a valid non-negative amount');
+        }
+        $rounded = round($amount, 2);
+        if (abs($amount - $rounded) > 0.00001) {
+            throw new InvalidArgumentException($fieldName . ' must have at most 2 decimal places');
+        }
+        return $rounded;
+    }
+
+    /**
+     * @return array{0: float, 1: float}
+     */
+    private function resolveAcesAndEightsBetLimits(): array
+    {
+        // Cent-precise variant of resolveGameBetLimits (which integer-rounds
+        // and would collapse the $0.25 coin floor to $0).
+        $game = $this->db->findOne('casinogames', ['slug' => self::ACES_AND_EIGHTS_GAME_SLUG]);
+        $min = $this->safeNumber($game['minBet'] ?? null, 0.25);
+        $max = $this->safeNumber($game['maxBet'] ?? null, 25.0);
+        $resolvedMin = ($min !== null && $min > 0) ? round($min, 2) : 0.25;
+        $resolvedMax = ($max !== null && $max > 0) ? round($max, 2) : 25.0;
+        if ($resolvedMax < $resolvedMin) {
+            $resolvedMax = $resolvedMin;
+        }
+
+        return [$resolvedMin, $resolvedMax];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildAcesAndEightsBetLimits(array $lockedUser, float $gameMinBet, float $gameMaxBet): array
+    {
+        $accountMinRaw = $this->safeNumber($lockedUser['minBet'] ?? null, null);
+        $accountMaxRaw = $this->safeNumber($lockedUser['maxBet'] ?? null, null);
+        $accountMinBet = ($accountMinRaw !== null && $accountMinRaw > 0) ? round($accountMinRaw, 2) : null;
+        $accountMaxBet = ($accountMaxRaw !== null && $accountMaxRaw > 0) ? round($accountMaxRaw, 2) : null;
+
+        // Casino min = the game's own coin floor only (account minBet is a
+        // sportsbook limit). Account MAX still caps exposure.
+        $effectiveMinBet = $gameMinBet;
+        $effectiveMaxBet = $accountMaxBet !== null ? min($gameMaxBet, $accountMaxBet) : $gameMaxBet;
+        if ($effectiveMaxBet < $effectiveMinBet) {
+            $effectiveMaxBet = $effectiveMinBet;
+        }
+
+        return [
+            'accountMinBet' => $accountMinBet,
+            'accountMaxBet' => $accountMaxBet,
+            'gameMinBet' => round($gameMinBet, 2),
+            'gameMaxBet' => round($gameMaxBet, 2),
+            'effectiveMinBet' => round($effectiveMinBet, 2),
+            'effectiveMaxBet' => round($effectiveMaxBet, 2),
+            'coinValues' => self::ACES_AND_EIGHTS_COIN_VALUES,
+            'maxCoins' => self::ACES_AND_EIGHTS_MAX_COINS,
+        ];
+    }
+
+    // Cent-precise mirror of availableCredit(): same credit-line rule, 2dp.
+    private function acesAndEightsAvailableCredit(float $balance, float $pending, array $user): float
+    {
+        $role = strtolower(trim((string) ($user['role'] ?? 'user')));
+        $creditLimit = $this->num($user['creditLimit'] ?? 0);
+        $base = ($role === 'user' && $creditLimit > 0) ? ($creditLimit + $balance) : $balance;
+
+        return round(max(0, $base - $pending), 2);
+    }
+
+    /**
+     * Cent-precise mirror of getUserBalanceSnapshot() (the shared snapshot
+     * integer-rounds, misstating sub-dollar balances this game creates).
+     *
+     * @return array{balanceBefore: float, pendingBalance: float, availableBalance: float}
+     */
+    private function getAcesAndEightsBalanceSnapshot(array $lockedUser): array
+    {
+        $balanceBefore = round($this->num($lockedUser['balance'] ?? 0), 2);
+        $pendingBalance = round($this->num($lockedUser['pendingBalance'] ?? 0), 2);
+        $availableBalance = $this->acesAndEightsAvailableCredit($balanceBefore, $pendingBalance, $lockedUser);
+
+        return [
+            'balanceBefore' => $balanceBefore,
+            'pendingBalance' => $pendingBalance,
+            'availableBalance' => $availableBalance,
+        ];
+    }
+
+    /**
+     * Cent-precise mirror of buildCasinoTransactionEntry (same ledger shape;
+     * only the rounding differs).
+     *
+     * @return array<string, mixed>
+     */
+    private function buildAcesAndEightsTransactionEntry(
+        string $userId,
+        float $amount,
+        string $roundId,
+        string $entrySide,
+        string $type,
+        float $balanceBefore,
+        float $balanceAfter,
+        string $reason,
+        string $description,
+        string $now,
+        ?string $ipAddress,
+        ?string $userAgent
+    ): array {
+        return [
+            'userId' => $userId,
+            'amount' => round($amount, 2),
+            'type' => $type,
+            'entrySide' => $entrySide,
+            'entryGroupId' => $roundId,
+            'sourceType' => self::ACES_AND_EIGHTS_SOURCE_TYPE,
+            'sourceId' => $roundId,
+            'status' => 'completed',
+            'balanceBefore' => round($balanceBefore, 2),
+            'balanceAfter' => round($balanceAfter, 2),
+            'referenceType' => 'CasinoRound',
+            'referenceId' => $roundId,
+            'reason' => $reason,
+            'description' => $description,
+            'ipAddress' => $ipAddress,
+            'userAgent' => $userAgent,
+            'createdAt' => $now,
+            'updatedAt' => $now,
+        ];
+    }
+
+    /**
+     * Public game config served by the state endpoint. The client renders its
+     * paytable FROM THIS — display and settlement share one source. Wire keys
+     * keep the vendor underscore prefixes; the bridge maps them verbatim.
+     *
+     * @return array<string, mixed>
+     */
+    /**
+     * Public game config for the state endpoint. The `paytable` matrix is
+     * built from the SAME resolved (clamped) payoutConfig the engine settles
+     * from — so what the client renders and what the round pays are one
+     * source. Pass null to fall back to the shipped default table (used only
+     * where no game row is available).
+     *
+     * @param array<string, float>|null $payoutConfig effective (clamped) config
+     * @return array<string, mixed>
+     */
+    private static function acesAndEightsPublicMetadata(?array $payoutConfig = null): array
+    {
+        $paytable = $payoutConfig !== null
+            ? self::acesAndEightsPaytableMatrix($payoutConfig)
+            : self::ACES_AND_EIGHTS_PAYTABLE;
+
+        return [
+            'gameType' => 'video_poker',
+            'paytable' => $paytable,
+            'handNames' => self::ACES_AND_EIGHTS_HAND_NAMES,
+            'coinValues' => self::ACES_AND_EIGHTS_COIN_VALUES,
+            'coinValuesDisplay' => self::ACES_AND_EIGHTS_COIN_VALUES_DISPLAY,
+            'defaultCoinValue' => self::ACES_AND_EIGHTS_COIN_VALUES[0],
+            'maxCoins' => self::ACES_AND_EIGHTS_MAX_COINS,
+            'minBet' => 0.25,
+            'maxBet' => 25.0,
+            'abandonSeconds' => self::ACES_AND_EIGHTS_ABANDON_SECONDS,
+            'rngVersion' => self::ACES_AND_EIGHTS_RNG_VERSION,
+            'fairness' => ['outcomeSource' => 'server_rng', 'deckCommittedAtDeal' => true],
+        ];
+    }
+
+    /**
+     * Effective Aces & Eights paytable config: the generic resolver clamps
+     * every key to its spec range on READ (logging payout_config_clamped when
+     * it corrects a stored value), and this wrapper normalizes each value to
+     * an integer coin count — the paytable is whole coins, and the same
+     * normalization the display + engine apply keeps display == payout even
+     * for a hand-written fractional stored value.
+     *
+     * @return array<string, int> the 12 effective keys, all integers
+     */
+    private function resolveAcesAndEightsPayoutConfig(?array $gameRow): array
+    {
+        $cfg = $this->resolveGamePayoutConfig(self::ACES_AND_EIGHTS_GAME_SLUG, $gameRow);
+        $out = [];
+        foreach (self::ACES_AND_EIGHTS_PAYOUT_SPEC as $key => $_bounds) {
+            $out[$key] = (int) round($this->num($cfg[$key] ?? self::ACES_AND_EIGHTS_PAYOUT_SPEC[$key][0]));
+        }
+        return $out;
+    }
+
+    /**
+     * Build the 11×5 paytable matrix from an effective payout config. Every
+     * value re-clamps defensively at the build site (mirrors bogeyman's
+     * settle-time re-clamp): even a caller passing a raw/tampered config
+     * cannot produce a cell outside the spec range. The preserved rules:
+     *   - every rank R:  cell[coin] = base_R × coinsBet   (linear coin scale)
+     *   - royal (NR):    125-base linear for coins 1-4, but the 5-coin cell is
+     *     the SEPARATE payNRMax value (the max-coin royal jump).
+     *
+     * @param array<string, float|int> $payoutConfig
+     * @return array<string, array<int, int>> rank key → [pay@1coin .. pay@5]
+     */
+    private static function acesAndEightsPaytableMatrix(array $payoutConfig): array
+    {
+        $matrix = [];
+        foreach (self::ACES_AND_EIGHTS_PAY_KEY_BY_RANK as $rank => $cfgKey) {
+            $base = (int) round(self::clampPayoutValue(
+                $payoutConfig[$cfgKey] ?? null,
+                self::ACES_AND_EIGHTS_PAYOUT_SPEC[$cfgKey]
+            ));
+            $row = [];
+            for ($coins = 1; $coins <= self::ACES_AND_EIGHTS_MAX_COINS; $coins++) {
+                $row[] = $base * $coins;
+            }
+            $matrix[$rank] = $row;
+        }
+        // Royal max-coin jump: override ONLY the 5-coin cell with payNRMax.
+        $nrMax = (int) round(self::clampPayoutValue(
+            $payoutConfig['payNRMax'] ?? null,
+            self::ACES_AND_EIGHTS_PAYOUT_SPEC['payNRMax']
+        ));
+        $matrix['NR'][self::ACES_AND_EIGHTS_MAX_COINS - 1] = $nrMax;
+
+        return $matrix;
+    }
+
     private function placeJurassicRunBet(array $actor, array $body, string $requestId, float $startedAt): void
     {
         $userId = (string) ($actor['id'] ?? '');
@@ -7929,10 +9251,59 @@ final class CasinoController
         'tableMax' => [5000, 100, 20000],
         'fiveBetEnabled' => [1, 0, 1],
     ];
+    // Aces & Eights paytable levers (uniform game math only — the deck is
+    // ALWAYS a fair 52-card shuffle; the ONLY house-edge lever is the pay
+    // table). The 11×5 matrix compresses to 12 numeric keys: one per-coin
+    // base multiplier per rank (matrix value = base × coinsBet) plus the
+    // separate max-coin royal value (payNRMax at 5 coins — the classic royal
+    // jump). Defaults reproduce the Phase-1 captured table EXACTLY, so
+    // shipping this changes RTP for nobody until an admin edits.
+    //
+    // Ranges were chosen against the EXACT optimal-play solver
+    // (scripts/aces-and-eights-rtp-solver.c):
+    //   - defaults        → 96.247% (coins 1-4) / 96.796% (coin 5)
+    //   - all-MAX corner  → 98.896% / 99.422%   (house-positive with margin —
+    //     the worst-case all-max combo must stay <100% on BOTH coin levels)
+    //   - all-MIN corner  → 90.554% / 90.950%   (pay2P/pay3K mins LOCKED to
+    //     default keeps the floor an honest ~90%, not a predatory ~70%)
+    // payJB is locked (dominant hand: ~21% RTP per unit). pay2P/pay3K are
+    // locked at default (min == max == default) per the ~90% floor ruling.
+    // Do NOT widen a max without recomputing the all-max corner — raising the
+    // high-frequency low hands blows RTP past 100% fast.
+    private const ACES_AND_EIGHTS_PAYOUT_SPEC = [
+        'payJB' => [1, 1, 1],
+        'pay2P' => [2, 2, 2],
+        'pay3K' => [3, 3, 3],
+        'payST' => [4, 3, 4],
+        'payFL' => [5, 4, 6],
+        'payFH' => [7, 6, 8],
+        'pay4K' => [20, 15, 20],
+        'pay47' => [50, 40, 55],
+        'paySF' => [50, 40, 55],
+        'payA8' => [80, 50, 85],
+        'payNR' => [125, 100, 125],
+        'payNRMax' => [2000, 1500, 2000],
+    ];
+    // Config key → paytable rank key. payNRMax is not a rank; it overrides the
+    // royal's 5-coin cell only (the max-coin jump), so it is handled apart.
+    private const ACES_AND_EIGHTS_PAY_KEY_BY_RANK = [
+        'JB' => 'payJB',
+        '_2P' => 'pay2P',
+        '_3K' => 'pay3K',
+        'ST' => 'payST',
+        'FL' => 'payFL',
+        'FH' => 'payFH',
+        '_4K' => 'pay4K',
+        '_47' => 'pay47',
+        'SF' => 'paySF',
+        'A8' => 'payA8',
+        'NR' => 'payNR',
+    ];
     private const GAME_PAYOUT_SPECS = [
         self::BACCARAT_CLASSIC_GAME_SLUG => self::BACCARAT_CLASSIC_PAYOUT_SPEC,
         self::BOGEYMAN_GAME_SLUG => self::BOGEYMAN_PAYOUT_SPEC,
         self::AMERICAN_ROULETTE_GAME_SLUG => self::AMERICAN_ROULETTE_PAYOUT_SPEC,
+        self::ACES_AND_EIGHTS_GAME_SLUG => self::ACES_AND_EIGHTS_PAYOUT_SPEC,
     ];
 
     /** @param array{0: float, 1: float, 2: float} $spec [default, min, max] */
@@ -8266,6 +9637,10 @@ final class CasinoController
                 $this->getAmericanRouletteFairnessState($actor);
                 return;
             }
+            if ($game === self::ACES_AND_EIGHTS_GAME_SLUG) {
+                $this->getAcesAndEightsFairnessState($actor);
+                return;
+            }
             if ($game !== self::BACCARAT_CLASSIC_GAME_SLUG) {
                 Response::json(['message' => 'Fairness is not available for game "' . $game . '"'], 400);
                 return;
@@ -8418,6 +9793,72 @@ final class CasinoController
     }
 
     /**
+     * Aces & Eights fairness state: same chain machinery (game-parametric),
+     * video-poker-shaped lastRound. This endpoint is the SOLE creator of the
+     * chain — the commitment exists before any deal.
+     *
+     * DEFERRED REVEAL: lastRound reveals serverSeed ONLY for a SETTLED round.
+     * If the player's most recent round is still 'dealt' (open), the seed is
+     * withheld — the block carries the commitment + dealt cards but no seed, so
+     * an open hand can never be reverse-engineered from this endpoint.
+     *
+     * @param array<string, mixed> $actor
+     */
+    private function getAcesAndEightsFairnessState(array $actor): void
+    {
+        $userId = (string) ($actor['id'] ?? '');
+        $chain = $this->ensureBaccaratSeedChain($userId, self::ACES_AND_EIGHTS_GAME_SLUG);
+        $nextNonce = (int) ($chain['nonce'] ?? 0);
+        $commitment = (string) ($chain['serverSeedHash'] ?? hash('sha256', (string) $chain['serverSeed']));
+
+        $lastRound = null;
+        $rows = $this->db->findMany(
+            'casino_bets',
+            ['userId' => $userId, 'game' => self::ACES_AND_EIGHTS_GAME_SLUG],
+            ['sort' => ['createdAt' => -1], 'limit' => 1]
+        );
+        $last = $rows[0] ?? null;
+        if (is_array($last)) {
+            $roundData = is_array($last['roundData'] ?? null) ? $last['roundData'] : [];
+            $isSettled = (string) ($last['roundStatus'] ?? '') === 'settled';
+            $payoutApplied = is_array($last['payoutApplied'] ?? null) ? $last['payoutApplied'] : [];
+            $lastRound = [
+                'roundId' => (string) ($last['roundId'] ?? $last['id'] ?? ''),
+                'roundStatus' => (string) ($last['roundStatus'] ?? ''),
+                // Seed revealed ONLY for a settled round — never for an open one.
+                'serverSeed' => $isSettled ? (string) ($last['serverSeed'] ?? '') : '',
+                'serverSeedHash' => (string) ($last['serverSeedHash'] ?? ''),
+                'serverSeedHashNext' => (string) ($last['serverSeedHashNext'] ?? ''),
+                'clientSeed' => (string) ($last['clientSeed'] ?? ''),
+                'nonce' => (int) ($last['nonce'] ?? 0),
+                'shoeSize' => self::ACES_AND_EIGHTS_DECK_SIZE,
+                'deckHash' => (string) ($last['deckHash'] ?? ''),
+                // Dealt hand is safe either way (it's the visible cards). The
+                // final hand + holds only exist once settled.
+                'dealt' => is_array($roundData['dealt'] ?? null) ? array_values(array_map('intval', $roundData['dealt'])) : [],
+                'holds' => $isSettled && is_array($roundData['holds'] ?? null) ? array_values(array_map('boolval', $roundData['holds'])) : [],
+                'final' => $isSettled && is_array($roundData['final'] ?? null) ? array_values(array_map('intval', $roundData['final'])) : [],
+                'finalHandCode' => $isSettled ? (string) ($roundData['finalHandCode'] ?? '') : '',
+                'coinsBet' => (int) ($roundData['coinsBet'] ?? 0),
+                'coinValue' => round($this->num($roundData['coinValue'] ?? 0), 2),
+                'payoutApplied' => $payoutApplied,
+                'totalWager' => $this->num($last['totalWager'] ?? 0),
+                'totalReturn' => $isSettled ? $this->num($last['totalReturn'] ?? 0) : 0.0,
+                'result' => $isSettled ? (string) ($last['result'] ?? '') : 'Pending',
+            ];
+        }
+
+        Response::json([
+            'game' => self::ACES_AND_EIGHTS_GAME_SLUG,
+            'nextNonce' => $nextNonce,
+            'serverSeedHash' => $commitment,
+            'shoeSize' => self::ACES_AND_EIGHTS_DECK_SIZE,
+            'algorithm' => self::ACES_AND_EIGHTS_FAIR_RNG_VERSION,
+            'lastRound' => $lastRound,
+        ]);
+    }
+
+    /**
      * GET /api/casino/fairness/verify?game=&serverSeed=&clientSeed=&nonce=&…
      * Convenience recompute from player-supplied, already-revealed inputs. Pure
      * function: no DB, no money, no secret. The same result is reproducible
@@ -8438,6 +9879,10 @@ final class CasinoController
             }
             if ($game === self::AMERICAN_ROULETTE_GAME_SLUG) {
                 $this->verifyAmericanRouletteFairness();
+                return;
+            }
+            if ($game === self::ACES_AND_EIGHTS_GAME_SLUG) {
+                $this->verifyAcesAndEightsFairness();
                 return;
             }
             if ($game !== self::BACCARAT_CLASSIC_GAME_SLUG) {
@@ -8526,6 +9971,76 @@ final class CasinoController
             'algorithm' => self::AMERICAN_ROULETTE_FAIR_RNG_VERSION,
             'number' => $token,
             'rouletteOutcome' => $this->americanRouletteOutcomeDetails($token),
+        ]);
+    }
+
+    /**
+     * Aces & Eights fairness recompute: from a revealed tuple + the 5-flag hold
+     * mask, reproduce the seeded deck, the dealt hand, the drawn replacements
+     * and the final hand + rank. Pure function — no DB, no money, no secret;
+     * the caller supplies an already-revealed serverSeed. The hold mask is
+     * required because the final hand depends on it (holds pick which committed
+     * cards are used; they cannot change the committed order). game=aces-and-eights.
+     *
+     * holds accepted as a 5-char 0/1 string ("11010") or a comma list; absent
+     * means hold-none (deal-only recompute — the dealt hand is verifiable
+     * without the draw).
+     */
+    private function verifyAcesAndEightsFairness(): void
+    {
+        $serverSeed = trim((string) ($_GET['serverSeed'] ?? ''));
+        $clientSeed = trim((string) ($_GET['clientSeed'] ?? ''));
+        $nonce = (int) ($_GET['nonce'] ?? -1);
+        $holdsRaw = trim((string) ($_GET['holds'] ?? ''));
+
+        if (preg_match('/^[a-f0-9]{64}$/i', $serverSeed) !== 1) {
+            Response::json(['message' => 'serverSeed must be a 64-char hex string (the revealed seed from a past round)'], 400);
+            return;
+        }
+        if ($clientSeed === '' || preg_match('/^[A-Za-z0-9._:-]{1,128}$/', $clientSeed) !== 1) {
+            Response::json(['message' => 'clientSeed is required (1-128 chars: letters, numbers, . _ : -)'], 400);
+            return;
+        }
+        if ($nonce < 0) {
+            Response::json(['message' => 'nonce must be a non-negative integer'], 400);
+            return;
+        }
+
+        // Parse the hold mask → 5 booleans (default hold-none).
+        $holds = [false, false, false, false, false];
+        if ($holdsRaw !== '') {
+            $tokens = strpos($holdsRaw, ',') !== false ? explode(',', $holdsRaw) : str_split($holdsRaw);
+            if (count($tokens) !== 5) {
+                Response::json(['message' => 'holds must be exactly 5 flags (e.g. "10010" or "1,0,0,1,0")'], 400);
+                return;
+            }
+            foreach ($tokens as $i => $t) {
+                $t = strtolower(trim((string) $t));
+                if (!in_array($t, ['0', '1', 'true', 'false', 'y', 'n'], true)) {
+                    Response::json(['message' => 'holds flags must be 0/1'], 400);
+                    return;
+                }
+                $holds[$i] = in_array($t, ['1', 'true', 'y'], true);
+            }
+        }
+
+        $round = $this->recomputeAcesAndEightsRound($serverSeed, $clientSeed, $nonce, $holds);
+        Response::json([
+            'game' => self::ACES_AND_EIGHTS_GAME_SLUG,
+            'inputs' => [
+                'serverSeed' => $serverSeed,
+                'serverSeedHash' => hash('sha256', $serverSeed),
+                'clientSeed' => $clientSeed,
+                'nonce' => $nonce,
+                'holds' => $holds,
+            ],
+            'algorithm' => self::ACES_AND_EIGHTS_FAIR_RNG_VERSION,
+            'shoeSize' => self::ACES_AND_EIGHTS_DECK_SIZE,
+            'dealt' => $round['dealt'],
+            'final' => $round['final'],
+            'finalHandCode' => $round['handCode'],
+            'finalHandName' => $round['handName'],
+            'replaced' => $round['replaced'],
         ]);
     }
 
@@ -11675,11 +13190,17 @@ final class CasinoController
             'playerCardCodes' => is_array($betRecord['playerCardCodes'] ?? null) ? array_values(array_map('intval', $betRecord['playerCardCodes'])) : [],
             'bankerCardCodes' => is_array($betRecord['bankerCardCodes'] ?? null) ? array_values(array_map('intval', $betRecord['bankerCardCodes'])) : [],
             'payoutApplied' => is_array($betRecord['payoutApplied'] ?? null) ? $betRecord['payoutApplied'] : null,
-            // Provably-fair reveal (null on pre-Phase-3 rows). serverSeed is the
-            // now-revealed seed for THIS round; serverSeedHashNext commits the
-            // next. The server secret is never included, derivable, or logged.
-            'fairness' => isset($betRecord['serverSeed']) ? [
-                'serverSeed' => (string) $betRecord['serverSeed'],
+            // Provably-fair block (null on pre-Phase-3 rows). Emitted when a
+            // commitment (serverSeedHash) OR a revealed serverSeed is present.
+            // DEFERRED REVEAL: `serverSeed` is included ONLY when the round has
+            // actually revealed it — i.e. at/after settlement. A two-stage
+            // video-poker round that is still 'dealt' stores its seed in the
+            // PRIVATE vpServerSeed field (not `serverSeed`), so this block shows
+            // the commitment but serverSeed stays empty until the draw. One-shot
+            // games (baccarat/bogeyman/roulette) always set serverSeed at settle,
+            // so their block is byte-for-byte unchanged.
+            'fairness' => (isset($betRecord['serverSeed']) || isset($betRecord['serverSeedHash'])) ? [
+                'serverSeed' => (string) ($betRecord['serverSeed'] ?? ''),
                 'serverSeedHash' => (string) ($betRecord['serverSeedHash'] ?? ''),
                 'serverSeedHashNext' => (string) ($betRecord['serverSeedHashNext'] ?? ''),
                 'clientSeed' => (string) ($betRecord['clientSeed'] ?? ''),

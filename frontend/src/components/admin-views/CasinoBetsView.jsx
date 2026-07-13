@@ -367,6 +367,180 @@ function AmericanRoulettePayoutSettings({ token }) {
   );
 }
 
+// Server-enforced clamp ranges for aces-and-eights's paytable config (see
+// ACES_AND_EIGHTS_PAYOUT_SPEC). The ONLY house-edge lever is the uniform pay
+// table (the deck is always a fair 52-card shuffle). Each key is the per-coin
+// BASE multiplier for its rank; the derived payout = base × coins, EXCEPT the
+// royal's 5-coin cell which is the separate max-coin value (the royal jump).
+// Ranges keep the all-max corner house-positive (~99.4% RTP) and the all-min
+// floor an honest ~90.6%; payJB/pay2P/pay3K are locked (min == max) because
+// those high-frequency low hands swing RTP too hard to expose.
+const ACES_PAYOUT_LIMITS = {
+  payJB: { def: 1, min: 1, max: 1, rank: 'JB', label: 'Jacks or Better' },
+  pay2P: { def: 2, min: 2, max: 2, rank: '_2P', label: 'Two Pair' },
+  pay3K: { def: 3, min: 3, max: 3, rank: '_3K', label: 'Three of a Kind' },
+  payST: { def: 4, min: 3, max: 4, rank: 'ST', label: 'Straight' },
+  payFL: { def: 5, min: 4, max: 6, rank: 'FL', label: 'Flush' },
+  payFH: { def: 7, min: 6, max: 8, rank: 'FH', label: 'Full House' },
+  pay4K: { def: 20, min: 15, max: 20, rank: '_4K', label: 'Four of a Kind' },
+  pay47: { def: 50, min: 40, max: 55, rank: '_47', label: 'Four Sevens' },
+  paySF: { def: 50, min: 40, max: 55, rank: 'SF', label: 'Straight Flush' },
+  payA8: { def: 80, min: 50, max: 85, rank: 'A8', label: 'Four Aces / Eights' },
+  payNR: { def: 125, min: 100, max: 125, rank: 'NR', label: 'Natural Royal (per coin, 1-4)' },
+  payNRMax: { def: 2000, min: 1500, max: 2000, rank: null, label: 'Natural Royal (max coin, 5)' },
+};
+const ACES_PAY_ORDER = ['payJB', 'pay2P', 'pay3K', 'payST', 'payFL', 'payFH', 'pay4K', 'pay47', 'paySF', 'payA8', 'payNR', 'payNRMax'];
+
+function AcesAndEightsPayoutSettings({ token }) {
+  const [game, setGame] = useState(null);
+  const [values, setValues] = useState({});
+  const [status, setStatus] = useState({ kind: '', text: '' });
+  const [saving, setSaving] = useState(false);
+
+  const loadGame = useCallback(async () => {
+    try {
+      const payload = await getCasinoGames({ token, category: 'video_poker', limit: 100 });
+      const row = (payload?.games || []).find((g) => String(g?.slug || '') === 'aces-and-eights');
+      if (!row) return;
+      setGame(row);
+      const cfg = row?.metadata?.payoutConfig || {};
+      const next = {};
+      ACES_PAY_ORDER.forEach((k) => { next[k] = String(cfg[k] ?? ACES_PAYOUT_LIMITS[k].def); });
+      setValues(next);
+    } catch (err) {
+      setStatus({ kind: 'error', text: err.message || 'Failed to load Aces & Eights payout config' });
+    }
+  }, [token]);
+
+  useEffect(() => { loadGame(); }, [loadGame]);
+
+  const invalid = (key) => {
+    const lim = ACES_PAYOUT_LIMITS[key];
+    const num = Number(values[key]);
+    return !Number.isFinite(num) || !Number.isInteger(num) || num < lim.min || num > lim.max;
+  };
+  const anyInvalid = ACES_PAY_ORDER.some(invalid);
+
+  // Client-side mirror of the server matrix-builder — proves display == the
+  // table the engine will pay from (same coin-scaling + royal max-coin jump).
+  const derivedRow = (key) => {
+    const base = Number(values[key]);
+    if (!Number.isFinite(base)) return ['—', '—', '—', '—', '—'];
+    const row = [1, 2, 3, 4, 5].map((c) => base * c);
+    if (key === 'payNR') {
+      const max = Number(values.payNRMax);
+      row[4] = Number.isFinite(max) ? max : '—'; // royal jump at coin 5
+    }
+    return row;
+  };
+
+  const save = async (resetToDefault = false) => {
+    if (!game || (!resetToDefault && anyInvalid)) return;
+    try {
+      setSaving(true);
+      setStatus({ kind: '', text: '' });
+      const payoutConfig = {};
+      ACES_PAY_ORDER.forEach((k) => {
+        payoutConfig[k] = resetToDefault ? ACES_PAYOUT_LIMITS[k].def : Number(values[k]);
+      });
+      const updated = await updateAdminCasinoGame(game.id, {
+        metadata: { ...(game.metadata || {}), payoutConfig },
+      }, token);
+      const applied = updated?.metadata?.payoutConfig || {};
+      const nextVals = {};
+      ACES_PAY_ORDER.forEach((k) => { nextVals[k] = String(applied[k] ?? payoutConfig[k]); });
+      setValues(nextVals);
+      setGame(updated || game);
+      setStatus({
+        kind: 'ok',
+        text: resetToDefault
+          ? 'Reset to the default table — live from the next hand.'
+          : `Saved — live from the next hand: FH ${applied.payFH ?? values.payFH}, FL ${applied.payFL ?? values.payFL}, royal ${applied.payNRMax ?? values.payNRMax}@5.`,
+      });
+    } catch (err) {
+      setStatus({ kind: 'error', text: err.message || 'Failed to save payout config' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!game) return null;
+
+  return (
+    <div className="casino-bets-filters casino-payout-settings" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+      <div className="filter-group" style={{ marginBottom: 4 }}>
+        <label style={{ fontWeight: 600 }}>Aces &amp; Eights Paytable — per-coin base × coins (royal jumps at coin 5). Deck is always a fair 52-card shuffle.</label>
+      </div>
+      <table className="aces-paytable-editor" style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ textAlign: 'right', color: '#94a3b8' }}>
+            <th style={{ textAlign: 'left' }}>Hand</th>
+            <th>Base (range)</th>
+            <th>1</th><th>2</th><th>3</th><th>4</th><th>5</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ACES_PAY_ORDER.filter((k) => k !== 'payNRMax').map((key) => {
+            const lim = ACES_PAYOUT_LIMITS[key];
+            const locked = lim.min === lim.max;
+            const row = derivedRow(key);
+            return (
+              <tr key={key} style={{ borderTop: '1px solid #1e293b' }}>
+                <td style={{ textAlign: 'left', padding: '3px 4px' }}>{lim.label}</td>
+                <td style={{ textAlign: 'right', padding: '3px 4px' }}>
+                  <input
+                    type="number"
+                    min={lim.min}
+                    max={lim.max}
+                    step={1}
+                    disabled={locked}
+                    value={values[key] ?? ''}
+                    onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                    style={{ width: 52, textAlign: 'right', ...(invalid(key) ? { borderColor: '#dc2626' } : {}) }}
+                    title={locked ? 'Locked (dominant hand)' : `${lim.min}–${lim.max}`}
+                  />
+                  {!locked && <span style={{ color: '#64748b', marginLeft: 4 }}>{lim.min}–{lim.max}</span>}
+                </td>
+                {row.map((v, i) => (
+                  <td key={i} style={{ textAlign: 'right', padding: '3px 6px', color: key === 'payNR' && i === 4 ? '#eab308' : '#cbd5e1' }}>{v}</td>
+                ))}
+              </tr>
+            );
+          })}
+          <tr style={{ borderTop: '1px solid #1e293b' }}>
+            <td style={{ textAlign: 'left', padding: '3px 4px', color: '#eab308' }}>{ACES_PAYOUT_LIMITS.payNRMax.label}</td>
+            <td style={{ textAlign: 'right', padding: '3px 4px' }}>
+              <input
+                type="number"
+                min={ACES_PAYOUT_LIMITS.payNRMax.min}
+                max={ACES_PAYOUT_LIMITS.payNRMax.max}
+                step={1}
+                value={values.payNRMax ?? ''}
+                onChange={(e) => setValues((prev) => ({ ...prev, payNRMax: e.target.value }))}
+                style={{ width: 60, textAlign: 'right', ...(invalid('payNRMax') ? { borderColor: '#dc2626' } : {}) }}
+                title={`${ACES_PAYOUT_LIMITS.payNRMax.min}–${ACES_PAYOUT_LIMITS.payNRMax.max}`}
+              />
+              <span style={{ color: '#64748b', marginLeft: 4 }}>{ACES_PAYOUT_LIMITS.payNRMax.min}–{ACES_PAYOUT_LIMITS.payNRMax.max}</span>
+            </td>
+            <td colSpan={5} style={{ textAlign: 'right', padding: '3px 6px', color: '#64748b' }}>overrides the royal at 5 coins</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="filter-group" style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+        <button type="button" className="btn-small btn-accent" onClick={() => save(false)} disabled={saving || anyInvalid}>
+          {saving ? 'Saving…' : 'Save Paytable'}
+        </button>
+        <button type="button" className="btn-small" onClick={() => save(true)} disabled={saving}>
+          Reset to Default
+        </button>
+        {status.text && (
+          <span style={{ alignSelf: 'center', color: status.kind === 'error' ? '#dc2626' : '#16a34a' }}>{status.text}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const EMPTY_FILTERS = {
   game: '',
   username: '',
@@ -703,6 +877,7 @@ function CasinoBetsView() {
             {localStorage.getItem('userRole') === 'admin' && <BaccaratPayoutSettings token={token} />}
             {localStorage.getItem('userRole') === 'admin' && <BogeymanPayoutSettings token={token} />}
             {localStorage.getItem('userRole') === 'admin' && <AmericanRoulettePayoutSettings token={token} />}
+            {localStorage.getItem('userRole') === 'admin' && <AcesAndEightsPayoutSettings token={token} />}
             <div className="casino-bets-kpi-grid">
               {summaryCards.map((card) => (
                 <div className={`casino-kpi-card tone-${card.tone}`} key={card.label}>

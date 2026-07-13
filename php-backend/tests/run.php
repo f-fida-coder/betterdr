@@ -22,6 +22,7 @@ const ISOLATED_SUITES = [
     'BaccaratCardCodeTest.php',     // mocks CasinoController deps to test the baccarat-classic card-code adapter sans DB
     'BaccaratFairnessTest.php',     // mocks CasinoController deps (mutable Env secret) to test the commit-reveal seeded shoe sans DB
     'BaccaratPayoutTest.php',       // mocks CasinoController deps to test calculateBaccaratPayout sans DB
+    'AcesAndEightsTest.php',        // mocks Response/SqlRepository to test the video-poker evaluator + two-stage deal/draw money path sans DB
     'AmericanRouletteTest.php',     // mocks Response/SqlRepository to test the American wheel engine + multi-bet money path sans DB
     'BogeymanSlotTest.php',         // mocks Response/SqlRepository to test the bogeyman engine + cent-precise money path sans DB
     'JurassicRunMathTest.php',      // mocks Response/SqlRepository to test CasinoController::spin sans DB

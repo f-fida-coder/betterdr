@@ -87,6 +87,22 @@ const LOCAL_GAME_META = {
         // Fixed 1360x765 landscape table — rides the rotate overlay on phones.
         landscape: true,
     },
+    'aces-and-eights': {
+        id: 'local-aces-and-eights',
+        provider: 'In-House',
+        // VP_Classic_D client launch params (getUrlVars uppercases keys):
+        // dummy 6-part session marker (auth lives with the parent), vendor
+        // cashier/history surfaces off, cents-precision USD formatting (25¢
+        // coin). Loads game/index.html DIRECTLY — the captured launcher
+        // wrapper was dropped so the bridge's window.parent is CasinoView.
+        url: '/games/aces-and-eights/game/index.html?v=20260713b&GAMESESSION=platform%7CVPA8%7C1%7C1%7CPLATFORM%7Cen&LANG=en&GAMECODE=VPA8&SHOWCASHIER=0&SHOWHISTORY=0&SHOWTYPE=1&CURRENCY=USD,%24,%C2%A2,p,5,2&ACCOUNTID=1&NOEXIT=1',
+        poster: '/games/aces-and-eights/game/_build/img/bkgdVPA8.png',
+        themeColor: '#0f766e',
+        minBet: 0.25,
+        maxBet: 25,
+        // Fixed-canvas landscape video poker — rides the rotate overlay on phones.
+        landscape: true,
+    },
 };
 
 const CATEGORY_META = {
@@ -112,6 +128,7 @@ const normalizeEmbeddedGameSlug = (value) => {
     if (normalized.includes('jurassic') || normalized.includes('jurrasic')) return 'jurassic-run';
     if (normalized.includes('bogeyman') || normalized.includes('boggey')) return 'bogeyman';
     if (normalized.includes('3card') || normalized.includes('3-card') || normalized === 'poker') return '3card-poker';
+    if (normalized.includes('aces')) return 'aces-and-eights';
     // The only live roulette surface is the American wheel; the legacy
     // 'roulette' slug is delisted server-side and has no local client.
     if (normalized.includes('roulette')) return 'american-roulette';
@@ -344,9 +361,11 @@ const CasinoView = () => {
                 || activeLocalGameRef.current?.name
                 || activeLocalGameRef.current?.id
             );
-            if (activeSlug === 'jurassic-run' || activeSlug === 'bogeyman') {
-                // Per-user server state (free spins / locked bonus bet) so the
-                // game resumes a bonus correctly after a reload.
+            if (activeSlug === 'jurassic-run' || activeSlug === 'bogeyman' || activeSlug === 'aces-and-eights') {
+                // Per-user server state (free spins / locked bonus bet / open
+                // video-poker hand) so the game resumes correctly after a
+                // reload. For aces-and-eights this also carries the
+                // server-fed paytable the client renders from.
                 try {
                     const statePayload = await getCasinoGameState(activeSlug, token);
                     gameState = statePayload?.state || null;
@@ -482,6 +501,10 @@ const CasinoView = () => {
                         balanceSource: 'availableBalance',
                     };
                 sendToGame({ type: 'betResult', requestId, ...gameResult });
+                // A video-poker DEAL leaves the round open (roundStatus
+                // 'dealt') — no outcome exists yet, so no result banner. The
+                // banner fires on the draw, which settles the round.
+                const isOpenRound = String(result?.roundStatus || '').toLowerCase() === 'dealt';
                 const roundResult = {
                     game: requestedGame,
                     wager: Number(result?.totalWager ?? 0),
@@ -534,7 +557,7 @@ const CasinoView = () => {
                             finalize();
                         }
                     }, safetyMs);
-                } else {
+                } else if (!isOpenRound) {
                     setLastRoundResult(roundResult);
                 }
 
@@ -792,8 +815,37 @@ const CasinoView = () => {
                 return 'outcome-pending';
         }
     };
+    // VP_Classic 1..52 card codes: suits run ♦(1-13) ♥(14-26) ♠(27-39)
+    // ♣(40-52), rank index 0 = Ace (verified against the shipped card art).
+    const VP_SUITS = ['♦', '♥', '♠', '♣'];
+    const VP_RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+    const formatVpCard = (code) => {
+        const n = Number(code);
+        if (!Number.isFinite(n) || n < 1 || n > 52) return '?';
+        return `${VP_RANKS[(n - 1) % 13]}${VP_SUITS[Math.floor((n - 1) / 13)]}`;
+    };
+    const formatVpHand = (cards, holds) => (Array.isArray(cards)
+        ? cards.map((c, i) => formatVpCard(c) + (Array.isArray(holds) && holds[i] ? '·' : '')).join(' ')
+        : '');
     const formatRoundResult = (row) => {
         if (!row) return '—';
+
+        if (String(row.game || '').toLowerCase() === 'aces-and-eights') {
+            const rd = row?.roundData && typeof row.roundData === 'object' ? row.roundData : {};
+            const dealt = formatVpHand(rd.dealt, rd.holds);
+            if (String(row?.roundStatus || '').toLowerCase() === 'dealt') {
+                // Open hand: show ONLY the dealt cards (the server never sends
+                // the undealt deck while a round is open).
+                return dealt ? `Dealt ${dealt} | awaiting draw` : 'Awaiting draw';
+            }
+            const final = formatVpHand(rd.final);
+            const parts = [];
+            if (rd.finalHandName) parts.push(rd.finalHandName);
+            if (dealt) parts.push(`D ${dealt}`);
+            if (final) parts.push(`F ${final}`);
+            if (rd.forcedSettle) parts.push('Auto-settled');
+            return parts.length > 0 ? parts.join(' | ') : (row.result || '—');
+        }
 
         if (['roulette', 'american-roulette'].includes(String(row.game || '').toLowerCase()) && row.rouletteOutcome) {
             // number is the pocket token — '00' is a distinct string pocket.
@@ -873,6 +925,15 @@ const CasinoView = () => {
     };
     const formatBetDetails = (row) => {
         const game = String(row?.game || '').toLowerCase();
+        if (game === 'aces-and-eights') {
+            const rd = row?.roundData && typeof row.roundData === 'object' ? row.roundData : {};
+            const coinValue = Number(row?.bets?.coinValue ?? rd.coinValue ?? 0);
+            const coinsBet = Number(row?.bets?.coinsBet ?? rd.coinsBet ?? 0);
+            const parts = [];
+            if (coinValue > 0 && coinsBet > 0) parts.push(`Coin ${formatMoney(coinValue)} × ${coinsBet}`);
+            if (Array.isArray(rd.holds)) parts.push(`Held ${rd.holds.filter(Boolean).length}`);
+            return parts.length > 0 ? parts.join(' | ') : '—';
+        }
         if (game === 'baccarat' || game === 'baccarat-classic') {
             const bets = row?.bets && typeof row.bets === 'object' ? row.bets : {};
             return `P ${formatMoney(bets.Player)} | B ${formatMoney(bets.Banker)} | T ${formatMoney(bets.Tie)}`;
@@ -1321,6 +1382,7 @@ const CasinoView = () => {
                             <option value="baccarat">Baccarat (Legacy)</option>
                             <option value="craps">Craps</option>
                             <option value="american-roulette">American Roulette</option>
+                            <option value="aces-and-eights">Aces &amp; Eights</option>
                             <option value="arabian">Arabian Game</option>
                             <option value="jurassic-run">Jurassic Run</option>
                             <option value="3card-poker">3-Card Poker</option>

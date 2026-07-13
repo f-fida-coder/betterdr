@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+    <head><meta charset="utf-8">
+        <title>Video Poker</title>
+        <meta name="viewport" content="width=device-width,minimum-scale=0.9, maximum-scale=0.9, initial-scale=0.9,user-scalable=0, minimal-ui">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+        <link rel="stylesheet" href="_build/Common/styles/common-styles.1.2.0-vp_classic.min.css"/>
+        <link rel="stylesheet" href="_build/styles/vp-classic-d-style.min.css">
+    </head>
+    <body>
+        <script id="paytable-template" type="text/x-jquery-tmpl">
+            <tr>
+                <th class="right-text"><span class="is-ml" ml-key="lbl_Coins"/>:</th>
+                <th>1</th>
+                <th>2</th>
+                <th>3</th>
+                <th>4</th>
+                <th>5</th>
+            </tr>
+            {{each payments}}
+                <tr>
+                    <td class="left-text">${payDescription}</td>
+                    <td >${pay1}</td>
+                    <td >${pay2}</td>
+                    <td >${pay3}</td>
+                    <td >${pay4}</td>
+                    <td >${pay5}</td>
+                </tr>
+            {{/each}}
+        </script>
+        <script id="paytable-main-template" type="text/x-jquery-tmpl">
+            <tr>
+                <th class="right-text"><span class="is-ml" ml-key="lbl_Coins"/>:</th>
+                <th>1</th>
+                <th>2</th>
+                <th>3</th>
+                <th>4</th>
+                <th>5</th>
+            </tr>
+            {{each payments}}
+                <tr>
+                    <td class="left-text">${payDescription}</td>
+                    <td >${pay1}</td>
+                    <td >${pay2}</td>
+                    <td >${pay3}</td>
+                    <td >${pay4}</td>
+                    <td >${pay5}</td>
+                </tr>
+            {{/each}}
+        </script>
+        <div id="main-content" class="main-content">
+            <div id="history-container" class="history-container">
+                <a class="btn-history-back" id="btn-history-back"></a>
+                <div id="history-data" class="history-data"></div>
+            </div>
+            <div id="game-content" class="game-content">
+                <div class="nav-icons">
+                    <a class="nav-icon btn-lobby" id="btn-lobby"></a>
+                    <a class="nav-icon btn-sounds sounds-on" id="btn-sounds"></a>
+                    <a class="nav-icon btn-history" id="btn-history"></a>
+                    <a class="nav-icon btn-cashier" id="btn-cashier"></a>
+                </div>
+
+                <!-- <a class="nav-icon btn-lobby" id="btn-lobby"></a>
+                <a class="nav-icon btn-sounds sounds-on" id="btn-sounds"></a>
+                <a class="nav-icon btn-history" id="btn-history"></a>
+                <a class="nav-icon btn-cashier" id="btn-cashier"></a> -->
+                <img id="game-content-img" class="game-bkgd"/>
+
+                <div id="block-portrait" class="block-portrait">
+                    <img src="_build/img/rotate-screen-icon.gif" class="rotate-icon"/>
+                </div> 
+
+                <!-- <div class="paytable-block">
+                    <div class="info coin-text"><div><span class="is-ml" ml-key="lbl_Coins"></span></div></div>
+                    <div id="coin1" class="info"><div><span>1</span></div></div>
+                    <div id="coin2" class="info odd-column"><div><span>2</span></div></div>
+                    <div id="coin3" class="info"><div><span>3</span></div></div>
+                    <div id="coin4" class="info odd-column"><div><span>4</span></div></div>
+                    <div id="coin5" class="info"><div><span>5</span></div></div>
+                </div>
+                <div class="result-block">
+                    <div id="result-hand-name" class="hand-name"><span></span></div>
+                    <div id="result-coin1" class="coin-pay"><div><span></span></div></div>
+                    <div id="result-coin2" class="coin-pay odd-column"><div><span></span></div></div>
+                    <div id="result-coin3" class="coin-pay"><div><span></span></div></div>
+                    <div id="result-coin4" class="coin-pay odd-column"><div><span></span></div></div>
+                    <div id="result-coin5" class="coin-pay"><div><span></span></div></div>
+                    <div id="won-panel" class="won-panel">
+                        <span class="is-ml" ml-key="lbl_TotalWin"></span> 
+                        <span id="won-panel-value" class="value">0.00</span>
+                    </div>
+                </div> -->
+                <div class="paytable-block">
+                    <table id="paytable-main"></table>
+                </div>
+                <div class="cards-block">
+                    <a id="btn-card1" class="card card-enable first-card"><div><span class="is-ml" ml-key="fld_HoldBut"></span></div></a>
+                    <a id="btn-card2" class="card card-enable"><div><span class="is-ml" ml-key="fld_HoldBut"></span></div></a> 
+                    <a id="btn-card3" class="card card-enable"><div><span class="is-ml" ml-key="fld_HoldBut"></span></div></a> 
+                    <a id="btn-card4" class="card card-enable"><div><span class="is-ml" ml-key="fld_HoldBut"></span></div></a> 
+                    <a id="btn-card5" class="card card-enable"><div><span class="is-ml" ml-key="fld_HoldBut"></span></div></a>
+                    <!-- <div id="win-message" class="message-panel"><div><span class="is-ml" ml-key="lbl_TotalWin"></span> <span id="credits-won-amount" class="value">0.00</span></div></div> -->
+                    <!-- <div id="error-message" class="message-panel"><div class="error-msg"><span class="error-msg"></span></div></div> -->
+                </div>
+                <div class="cards-btns-block">
+
+                    <a id="btn-card1-hold" class="btn-card-hold state-hold">
+                        <div class="center-content">
+                            <span class="center-content-elem is-ml" ml-key="fld_HoldBut"></span>
+                            <span class="center-content-elem is-ml" ml-key="fld_PickBut"></span>
+                        </div>
+                    </a>
+                    <a id="btn-card2-hold" class="btn-card-hold state-hold"><div class="center-content"><span class="center-content-elem is-ml" ml-key="fld_HoldBut"></span><span class="center-content-elem is-ml" ml-key="fld_PickBut"></span></div></a>
+                    <a id="btn-card3-hold" class="btn-card-hold state-hold"><div class="center-content"><span class="center-content-elem is-ml" ml-key="fld_HoldBut"></span><span class="center-content-elem is-ml" ml-key="fld_PickBut"></span></div></a>
+                    <a id="btn-card4-hold" class="btn-card-hold state-hold"><div class="center-content"><span class="center-content-elem is-ml" ml-key="fld_HoldBut"></span><span class="center-content-elem is-ml" ml-key="fld_PickBut"></span></div></a>
+                    <a id="btn-card5-hold" class="btn-card-hold state-hold"><div class="center-content"><span class="center-content-elem is-ml" ml-key="fld_HoldBut"></span><span class="center-content-elem is-ml" ml-key="fld_PickBut"></span></div></a>
+                </div>
+                <div class="money-block">
+                    <div class="credits"><span class="is-ml" ml-key="lbl_Credits"></span> <span id="credits-value" class="value">0</span></div>
+                    <div class="won"><span class="is-ml" ml-key="lbl_TotalWin"></span> <span id="won-value" class="value">-</span></div>
+                    <div class="bet"><span class="is-ml" ml-key="lbl_TotalBet"></span> <span id="bet-value" class="value">0</span></div>
+                </div>
+                <div class="buttons-block">
+                    
+                    <a id="btn-collect" class="button orange first-button hidden"><div class="main-div"><div class="text-div"><span class="white-text is-ml" ml-key="fld_Collect"></span></div></div></a> 
+                    <a id="btn-double" class="button orange hidden"><div class="main-div"><div class="text-div"><span class="white-text is-ml" ml-key="fld_Double"></span></div></div></a> 
+
+                    <a id="btn-bet-one" class="button bet-one-enable"><div class="main-div"><div class="text-div"><span class="bet-one-text is-ml" ml-key="fld_BetOne"></span></div></div></a> 
+                    <a id="btn-bet-max" class="button bet-max-enable hidden"><div class="main-div"><div class="text-div"><span class="bet-max-text is-ml" ml-key="fld_BetMax"></span></div></div></a>
+                    <a id="btn-deal" class="button deal-enable hidden"><div class="main-div"><div class="text-div"><span class="deal-text is-ml" ml-key="fld_Deal"></span></div></div></a>
+                    <a id="btn-draw" class="button draw-enable hidden"><div class="main-div"><div class="text-div"><span class="draw-text is-ml" ml-key="fld_Draw"></span></div></div></a>
+                    <a id="btn-coin-min" class="button coin-min-enable">
+                    </a> 
+                    <div id="btn-change-coin" class="button coin-enable">
+                        <div class="main-div">
+                            <div class="coin-button-content"><span class="click-text is-ml" ml-key="lbl_CoinValue"></span> <span id="coin-value-text" class="coin-value-text"></span></div>
+                        </div>
+                    </div> 
+                    <a id="btn-coin-plus" class="button coin-plus-enable">
+                    </a> 
+                </div>
+                <div id="paytable-popup" class="paytable-popup">
+                    <div class="opaque-bkgd"></div>
+                    <div class="paytable-bkgd"></div>
+                    <div class="paytable-div">
+                        <table id="paytable"></table>
+                    </div>
+                    <div class="payout-text"><span class="is-ml" ml-key="fld_PayoutChart">></span></div>
+                    <div id="game-name" class="game-name"><span>Game Name</span></div>
+                </div>
+            </div>
+        </div>
+        
+        <script src="../common/accounting.min.js"></script>
+        <script src="../common/jquery.js"></script>
+        <script src="../common/jquery.tmpl.js"></script>
+        <script src="../common/soundjs-0.6.2.min.js"></script>
+        <script src="../common/preloadjs-0.6.2.min.js"></script>
+
+        <script src="../common/global-config.js"></script>
+        <!-- platform transport: translates the vendor .aspx calls to the
+             parent CasinoView postMessage API. Server-authoritative — this
+             iframe renders only what the server dealt/settled. -->
+        <script src="js/site_bridge.js?v=20260713b"></script>
+        <!-- provably-fair panel: in-browser (SubtleCrypto) recompute of the
+             seeded shuffle → deal → holds → draw → final hand. No server call. -->
+        <script src="js/fairness-panel.js?v=20260713b"></script>
+        <script src="_build/Common/common-vp-classic-v2.min.js"></script>
+
+        <script src="_build/js/game-config.js"></script>
+        <script src="_build/js/vp-classic-d-game.min.js"></script>
+    </body>
+</html>
