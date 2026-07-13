@@ -232,6 +232,141 @@ function BogeymanPayoutSettings({ token }) {
   );
 }
 
+// Server-enforced clamp ranges for american-roulette's OPERATIONAL config
+// (see AMERICAN_ROULETTE_PAYOUT_SPEC). Roulette's edge is structural (the
+// 0/00 pockets) — payout multipliers are locked server constants and are
+// deliberately NOT configurable here. These levers are per-position stake
+// caps, table min/max and the five-bet toggle; whole dollars.
+const AMERICAN_ROULETTE_LIMITS = {
+  maxStraight: { min: 5, max: 500, label: 'Straight cap $' },
+  maxSplit: { min: 5, max: 1000, label: 'Split cap $' },
+  maxStreet: { min: 5, max: 1500, label: 'Street cap $' },
+  maxBasket: { min: 5, max: 1500, label: 'Basket cap $' },
+  maxCorner: { min: 5, max: 2000, label: 'Corner cap $' },
+  maxFiveBet: { min: 5, max: 2500, label: 'Five bet cap $' },
+  maxSixLine: { min: 5, max: 3000, label: 'Six line cap $' },
+  maxOutside: { min: 5, max: 5000, label: 'Outside cap $' },
+  tableMin: { min: 1, max: 100, label: 'Table min $' },
+  tableMax: { min: 100, max: 20000, label: 'Table max $' },
+};
+const AMERICAN_ROULETTE_DEFAULTS = {
+  maxStraight: 25, maxSplit: 50, maxStreet: 75, maxBasket: 75, maxCorner: 100,
+  maxFiveBet: 125, maxSixLine: 150, maxOutside: 100, tableMin: 1, tableMax: 5000,
+};
+
+function AmericanRoulettePayoutSettings({ token }) {
+  const [game, setGame] = useState(null);
+  const [values, setValues] = useState({});
+  const [fiveBetOn, setFiveBetOn] = useState(true);
+  const [status, setStatus] = useState({ kind: '', text: '' });
+  const [saving, setSaving] = useState(false);
+
+  const loadGame = useCallback(async () => {
+    try {
+      const payload = await getCasinoGames({ token, category: 'table_games', limit: 100 });
+      const row = (payload?.games || []).find((g) => String(g?.slug || '') === 'american-roulette');
+      if (!row) return;
+      setGame(row);
+      const cfg = row?.metadata?.payoutConfig || {};
+      const next = {};
+      Object.keys(AMERICAN_ROULETTE_LIMITS).forEach((key) => {
+        next[key] = String(Math.round(Number(cfg[key] ?? AMERICAN_ROULETTE_DEFAULTS[key])));
+      });
+      setValues(next);
+      setFiveBetOn(Math.round(Number(cfg.fiveBetEnabled ?? 1)) >= 1);
+    } catch (err) {
+      setStatus({ kind: 'error', text: err.message || 'Failed to load roulette config' });
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadGame();
+  }, [loadGame]);
+
+  const invalid = (key) => {
+    const limits = AMERICAN_ROULETTE_LIMITS[key];
+    const num = Number(values[key]);
+    return !Number.isFinite(num) || num < limits.min || num > limits.max || !Number.isInteger(num);
+  };
+  const anyInvalid = Object.keys(AMERICAN_ROULETTE_LIMITS).some(invalid);
+
+  const save = async () => {
+    if (!game || anyInvalid) return;
+    try {
+      setSaving(true);
+      setStatus({ kind: '', text: '' });
+      const payoutConfig = { fiveBetEnabled: fiveBetOn ? 1 : 0 };
+      Object.keys(AMERICAN_ROULETTE_LIMITS).forEach((key) => {
+        payoutConfig[key] = Number(values[key]);
+      });
+      const updated = await updateAdminCasinoGame(game.id, {
+        metadata: {
+          ...(game.metadata || {}),
+          payoutConfig,
+        },
+      }, token);
+      const applied = updated?.metadata?.payoutConfig || {};
+      setStatus({
+        kind: 'ok',
+        text: `Saved — live from the next spin: table $${applied.tableMin ?? values.tableMin}–$${applied.tableMax ?? values.tableMax}, straight cap $${applied.maxStraight ?? values.maxStraight}, five bet ${Math.round(Number(applied.fiveBetEnabled ?? (fiveBetOn ? 1 : 0))) >= 1 ? 'ON' : 'OFF'}`,
+      });
+      setGame(updated || game);
+    } catch (err) {
+      setStatus({ kind: 'error', text: err.message || 'Failed to save roulette config' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!game) return null;
+
+  return (
+    <div className="casino-bets-filters casino-payout-settings">
+      {Object.entries(AMERICAN_ROULETTE_LIMITS).map(([key, limits], idx) => (
+        <div className="filter-group" key={key}>
+          <label>{idx === 0 ? 'American Roulette — ' : ''}{limits.label} ({limits.min}–{limits.max})</label>
+          <input
+            type="number"
+            min={limits.min}
+            max={limits.max}
+            step={1}
+            value={values[key] ?? ''}
+            onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
+            style={invalid(key) ? { borderColor: '#dc2626' } : undefined}
+          />
+        </div>
+      ))}
+      <div className="filter-group">
+        <label>Five bet (0-00-1-2-3)</label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
+          <input
+            type="checkbox"
+            checked={fiveBetOn}
+            onChange={(e) => setFiveBetOn(e.target.checked)}
+          />
+          {fiveBetOn ? 'Offered (pays 6:1)' : 'Not offered'}
+        </label>
+      </div>
+      <div className="filter-group">
+        <label>&nbsp;</label>
+        <button
+          type="button"
+          className="btn-small btn-accent"
+          onClick={save}
+          disabled={saving || anyInvalid}
+        >
+          {saving ? 'Saving…' : 'Save Roulette Config'}
+        </button>
+      </div>
+      {status.text && (
+        <div className="filter-group" style={{ alignSelf: 'flex-end', color: status.kind === 'error' ? '#dc2626' : '#16a34a' }}>
+          {status.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const EMPTY_FILTERS = {
   game: '',
   username: '',
@@ -341,12 +476,18 @@ function CasinoBetsView() {
     return new Date(value).toLocaleString();
   };
 
+  // Both the dead legacy slug (historical rows) and the live American game
+  // share the roulette renderers below.
+  const isRouletteGame = (value) => ['roulette', 'american-roulette'].includes(String(value || '').toLowerCase());
+
   const formatGame = (value) => {
     switch (String(value || '').toLowerCase()) {
       case 'stud-poker':
         return 'Stud Poker';
       case 'roulette':
         return 'Roulette';
+      case 'american-roulette':
+        return 'American Roulette';
       case 'blackjack':
         return 'Blackjack';
       case 'baccarat':
@@ -394,7 +535,8 @@ function CasinoBetsView() {
   const formatRoundResult = (row) => {
     if (!row) return '—';
 
-    if (String(row.game || '').toLowerCase() === 'roulette' && row.rouletteOutcome) {
+    if (isRouletteGame(row.game) && row.rouletteOutcome) {
+      // number is the pocket token — '00' is a distinct string pocket.
       const number = row.rouletteOutcome.number ?? row.result;
       const color = String(row.rouletteOutcome.color || '').trim();
       return color ? `${number} ${color}` : `${number}`;
@@ -560,6 +702,7 @@ function CasinoBetsView() {
           <>
             {localStorage.getItem('userRole') === 'admin' && <BaccaratPayoutSettings token={token} />}
             {localStorage.getItem('userRole') === 'admin' && <BogeymanPayoutSettings token={token} />}
+            {localStorage.getItem('userRole') === 'admin' && <AmericanRoulettePayoutSettings token={token} />}
             <div className="casino-bets-kpi-grid">
               {summaryCards.map((card) => (
                 <div className={`casino-kpi-card tone-${card.tone}`} key={card.label}>
@@ -700,6 +843,7 @@ function CasinoBetsView() {
                   <option value="baccarat">Baccarat (Legacy)</option>
                   <option value="blackjack">Blackjack</option>
                   <option value="craps">Craps</option>
+                  <option value="american-roulette">American Roulette</option>
                   <option value="arabian">Arabian Game</option>
                   <option value="jurassic-run">Jurassic Run</option>
                   <option value="bogeyman">Bogeyman</option>
@@ -910,7 +1054,7 @@ function CasinoBetsView() {
 
                   <section className="casino-detail-card">
                     <h4>
-                      {selectedDetail.game === 'roulette'
+                      {isRouletteGame(selectedDetail.game)
                         ? 'Outcome'
                         : selectedDetail.game === 'craps'
                           ? 'Dice'
@@ -924,7 +1068,7 @@ function CasinoBetsView() {
                               ? 'Bet Breakdown'
                               : 'Cards'}
                     </h4>
-                    {selectedDetail.game === 'roulette' ? (
+                    {isRouletteGame(selectedDetail.game) ? (
                       <>
                         <div className="casino-detail-row"><span>Number</span><strong>{selectedDetail.rouletteOutcome?.number ?? '—'}</strong></div>
                         <div className="casino-detail-row"><span>Color</span><span>{selectedDetail.rouletteOutcome?.color || '—'}</span></div>
@@ -1066,7 +1210,7 @@ function CasinoBetsView() {
                     )}
                   </section>
 
-                  {selectedDetail.game === 'roulette' && (
+                  {isRouletteGame(selectedDetail.game) && (
                     <section className="casino-detail-card">
                       <h4>Roulette Bets</h4>
                       <div className="casino-detail-stack">

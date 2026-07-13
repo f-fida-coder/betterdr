@@ -1,0 +1,217 @@
+/* American Roulette — offline build. Stage is a fixed 1360x765 design
+   surface scaled to fit the window (same approach as the other games). */
+
+html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    background: #1a0d0d;
+    overflow: hidden;
+    font-family: "Trebuchet MS", "Segoe UI", Verdana, sans-serif;
+    -webkit-user-select: none; user-select: none;
+}
+
+#stage {
+    position: absolute;
+    width: 1360px; height: 765px;
+    left: 50%; top: 50%;
+    transform-origin: 0 0;           /* scale set from JS */
+    background: url(../images/background.jpg) center/cover no-repeat;
+}
+
+/* ---------- history ---------- */
+#history-bar {
+    position: absolute;
+    left: 180px; top: 12px;
+    width: 1000px; height: 46px;
+    background: url(../images/history.png) 0 0 / 100% 100% no-repeat;
+    display: flex; align-items: center;
+}
+#history-label {
+    width: 130px; text-align: center;
+    color: #2c4a12; font-weight: bold; font-size: 17px; letter-spacing: 1px;
+}
+#history-nums { display: flex; align-items: center; gap: 7px; }
+.hist-num {
+    width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 14px; font-weight: bold;
+    box-shadow: 0 1px 2px rgba(0,0,0,.5);
+}
+.hist-num.red   { background: radial-gradient(circle at 35% 30%, #e05a5a, #a31212); }
+.hist-num.black { background: radial-gradient(circle at 35% 30%, #5a5a5a, #111); }
+.hist-num.green { background: radial-gradient(circle at 35% 30%, #4cae4c, #1b6e1b); }
+.hist-num.latest { outline: 2px solid #ffd700; }
+
+/* ---------- menu ---------- */
+#menu { position: absolute; left: 14px; top: 12px; }
+.menu-btn {
+    width: 46px; height: 46px; display: block; margin-bottom: 6px;
+    cursor: pointer; opacity: .92;
+}
+.menu-btn:hover { opacity: 1; transform: scale(1.05); }
+
+/* ---------- announcement ---------- */
+#announce {
+    position: absolute;
+    left: 430px; top: 66px; width: 910px; height: 40px;
+    text-align: center; line-height: 40px;
+    font-size: 26px; font-weight: bold; letter-spacing: 2px;
+    color: #ffd700; text-shadow: 0 2px 4px #000;
+    pointer-events: none;
+}
+
+/* ---------- wheel ---------- */
+#wheel-area {
+    position: absolute;
+    left: 30px; top: 240px;
+    width: 370px; height: 370px;
+}
+#wheel {
+    position: absolute; left: 0; top: 0;
+    width: 370px; height: 370px;
+    filter: drop-shadow(0 8px 14px rgba(0,0,0,.6));
+}
+#ball {
+    position: absolute;
+    width: 15px; height: 15px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #ffffff, #b9b9b9 60%, #7d7d7d);
+    box-shadow: 0 1px 3px rgba(0,0,0,.7);
+    left: 0; top: 0; display: none;
+}
+#win-badge {
+    position: absolute;
+    left: 50%; top: 50%; transform: translate(-50%,-50%);
+    width: 74px; height: 74px; border-radius: 50%;
+    display: none; align-items: center; justify-content: center;
+    font-size: 30px; font-weight: bold; color: #fff;
+    border: 3px solid #d9b871;
+    box-shadow: 0 0 18px rgba(0,0,0,.8) inset, 0 2px 8px rgba(0,0,0,.6);
+}
+#win-badge.red   { background: radial-gradient(circle at 35% 30%, #d34f4f, #8e0e0e); }
+#win-badge.black { background: radial-gradient(circle at 35% 30%, #4d4d4d, #0c0c0c); }
+#win-badge.green { background: radial-gradient(circle at 35% 30%, #46a446, #146114); }
+
+#limits {
+    position: absolute; left: 30px; top: 625px; width: 370px;
+    text-align: center; color: #d9b871; font-size: 15px; letter-spacing: 1px;
+    text-shadow: 0 1px 2px #000;
+}
+
+/* ---------- table ---------- */
+#table-frame {
+    position: absolute;
+    left: 418px; top: 148px; width: 928px; height: 548px;
+    background: url(../images/bordes-todos.png) 0 0 / 100% 100% no-repeat;
+    pointer-events: none;
+    z-index: 1;
+}
+#table-felt {
+    position: absolute;
+    left: 434px; top: 162px; width: 896px; height: 520px;
+    background: url(../images/table-color.jpg) 0 0 / 100% 100% no-repeat;
+    border-radius: 18px;
+}
+#table-wrap {
+    position: absolute;
+    left: 452px; top: 180px;
+    width: 860px; height: 463.7px;    /* 1024x552 * 0.83984 */
+    z-index: 2;
+}
+#table-img {
+    position: absolute; left: 0; top: 0;
+    width: 100%; height: 100%;
+    cursor: pointer;
+}
+#chips-layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+#spot-highlight {
+    position: absolute; display: none; pointer-events: none;
+    border: 2px solid rgba(255,215,0,.9); border-radius: 6px;
+    background: rgba(255,215,0,.15);
+    box-sizing: border-box;
+}
+
+/* chip placed on the table */
+.table-chip {
+    position: absolute; transform: translate(-50%,-50%);
+    width: 34px; height: 34px; pointer-events: none;
+}
+.table-chip img { position: absolute; width: 34px; height: 27px; left: 0; }
+.table-chip .amt {
+    position: absolute; width: 100%; text-align: center;
+    top: 5px; color: #fff; font-size: 11px; font-weight: bold;
+    text-shadow: 0 1px 2px #000, 0 0 3px #000;
+}
+
+/* ---------- bottom bar ---------- */
+#bottom-bar {
+    position: absolute; left: 0; bottom: 0; width: 1360px; height: 66px;
+    background: linear-gradient(to bottom, rgba(0,0,0,.55), rgba(0,0,0,.8));
+    display: flex; align-items: center;
+    z-index: 3;
+}
+#readouts { display: flex; gap: 22px; margin-left: 22px; width: 400px; }
+.readout { display: flex; flex-direction: column; align-items: flex-start; }
+.ro-label { color: #d9b871; font-size: 11px; letter-spacing: 1px; }
+.ro-value { color: #fff; font-size: 20px; font-weight: bold; text-shadow: 0 1px 2px #000; }
+#ro-win.flash { color: #ffd700; }
+
+#chip-tray {
+    display: flex; align-items: center; gap: 10px;
+    margin-left: 10px;
+}
+.tray-chip {
+    position: relative; width: 56px; height: 46px; cursor: pointer;
+    transition: transform .1s;
+}
+.tray-chip img { width: 56px; height: 44px; }
+.tray-chip .amt {
+    position: absolute; width: 100%; text-align: center; top: 12px;
+    color: #fff; font-size: 14px; font-weight: bold;
+    text-shadow: 0 1px 2px #000, 0 0 3px #000;
+    pointer-events: none;
+}
+.tray-chip:hover { transform: translateY(-4px); }
+.tray-chip.selected { transform: translateY(-8px) scale(1.12); }
+.tray-chip.selected img { filter: drop-shadow(0 0 6px #ffd700); }
+
+#action-btns { display: flex; gap: 10px; margin-left: auto; margin-right: 20px; }
+.act-btn {
+    width: 130px; height: 44px; line-height: 44px;
+    background: url(../images/buttons/btn-normal.png) 0 0 / 100% 100% no-repeat;
+    text-align: center; color: #f7e6bd; font-size: 18px; font-weight: bold;
+    letter-spacing: 2px; cursor: pointer; text-shadow: 0 1px 2px #000;
+}
+.act-btn:hover { background-image: url(../images/buttons/btn-over.png); color: #fff; }
+.act-btn.disabled { opacity: .4; pointer-events: none; }
+#btn-spin { width: 160px; font-size: 22px; }
+
+/* ---------- info dialog ---------- */
+#info-dialog {
+    position: absolute; display: none;
+    left: 380px; top: 120px; width: 600px;
+    background: rgba(12,12,12,.96);
+    border: 2px solid #d9b871; border-radius: 12px;
+    color: #eee; padding: 18px 26px 22px;
+    z-index: 10;
+}
+#info-dialog h2 { margin: 0 0 12px; color: #ffd700; font-size: 22px; }
+#info-dialog table { width: 100%; border-collapse: collapse; font-size: 16px; }
+#info-dialog td { padding: 4px 6px; border-bottom: 1px solid rgba(217,184,113,.25); }
+#info-dialog td:last-child { text-align: right; color: #ffd700; white-space: nowrap; }
+#info-dialog p { font-size: 13px; color: #bbb; margin-bottom: 0; }
+#info-close {
+    position: absolute; right: 10px; top: 6px;
+    font-size: 26px; color: #d9b871; cursor: pointer; line-height: 1;
+}
+#info-close:hover { color: #fff; }
+
+/* ── platform build: touch input ─────────────────────────────────────── */
+/* Kill the double-tap-zoom delay and browser gestures on interactive
+   surfaces; chip placement runs on pointer events (see rl-game.js). */
+#table-img, #chips-layer, .act-btn, .tray-chip, .menu-btn, #chip-tray {
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+#table-img { touch-action: none; }  /* long-press remove needs the raw pointer */

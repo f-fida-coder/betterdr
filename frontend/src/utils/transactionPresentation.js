@@ -6,6 +6,7 @@ const CASINO_GAME_LABELS = {
   casino_jurassic_run: 'Jurassic Run',
   casino_3card_poker: '3-Card Poker',
   casino_roulette: 'Roulette',
+  casino_american_roulette: 'American Roulette',
   casino_stud_poker: 'Stud Poker',
 };
 

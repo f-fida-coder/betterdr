@@ -19,6 +19,7 @@ final class CasinoController
     private const THREE_CARD_POKER_GAME_SLUG = '3card-poker';
     private const LEGACY_ARABIAN_TREASURE_GAME_SLUG = 'arabian-treasure';
     private const ROULETTE_GAME_SLUG = 'roulette';
+    private const AMERICAN_ROULETTE_GAME_SLUG = 'american-roulette';
     private const STUD_POKER_GAME_SLUG = 'stud-poker';
     private const REMOVED_GAME_SLUGS = [
         self::LEGACY_ARABIAN_TREASURE_GAME_SLUG,
@@ -34,6 +35,11 @@ final class CasinoController
     private const BOGEYMAN_SOURCE_TYPE = 'casino_bogeyman';
     private const THREE_CARD_POKER_SOURCE_TYPE = 'casino_3card_poker';
     private const ROULETTE_SOURCE_TYPE = 'casino_roulette';
+    // Deliberately NOT a prefix/suffix of the dead 'casino_roulette' source
+    // type: purge-removed-casino-games.php deletes by exact sourceType and by
+    // the anchored reason regex ^CASINO_(ROULETTE|STUD_POKER)_ — neither can
+    // match this game's rows.
+    private const AMERICAN_ROULETTE_SOURCE_TYPE = 'casino_american_roulette';
     private const STUD_POKER_SOURCE_TYPE = 'casino_stud_poker';
     private const BACCARAT_RNG_VERSION = 'commit-reveal-hmac-v1';
     // Real punto banco uses an 8-deck (416-card) shoe. Fed to the same seeded
@@ -53,6 +59,12 @@ final class CasinoController
     private const BOGEYMAN_FAIR_RNG_VERSION = 'commit-reveal-hmac-slot-v1';
     private const THREE_CARD_POKER_RNG_VERSION = 'server-cards-server-rules-v3';
     private const ROULETTE_RNG_VERSION = 'csprng-wheel-v2';
+    private const AMERICAN_ROULETTE_RNG_VERSION = 'csprng-wheel-american-v1';
+    // Phase 3: commit-reveal seeded pocket (Option A rotating chain, like
+    // baccarat-classic/bogeyman). Same 38-token wheel, same evaluation, same
+    // payouts — only the entropy source changed, and it is committed before
+    // the spin.
+    private const AMERICAN_ROULETTE_FAIR_RNG_VERSION = 'commit-reveal-hmac-wheel-v1';
     private const STUD_POKER_RNG_VERSION = 'stud-house-v1';
     private const IN_HOUSE_OVERLAY_ONLY_GAME_MESSAGES = [
         self::BACCARAT_GAME_SLUG => 'Baccarat is available only from the in-house casino table.',
@@ -63,9 +75,51 @@ final class CasinoController
         self::JURASSIC_RUN_GAME_SLUG => 'Jurassic Run is available only from the in-house casino table.',
         self::THREE_CARD_POKER_GAME_SLUG => '3-Card Poker is available only from the in-house casino table.',
         self::BOGEYMAN_GAME_SLUG => 'Bogeyman is available only from the in-house casino table.',
+        self::AMERICAN_ROULETTE_GAME_SLUG => 'American Roulette is available only from the in-house casino table.',
     ];
     private const REQUEST_ID_PATTERN = '/^[A-Za-z0-9_-]{8,128}$/';
     private const ROULETTE_RED_NUMBERS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
+
+    // ── American Roulette (double-zero) game math ────────────────────────
+    // 38 pockets: '0', '00', '1'..'36'. Pocket tokens are STRINGS everywhere
+    // ('00' must never collapse into '0' — (int)'00' === 0). Standard American
+    // payouts, locked (the 5.26% house edge is the 0/00 pockets, not a payout
+    // cut). Return multipliers are stake-inclusive: straight 36x = 35:1.
+    private const AMERICAN_ROULETTE_RETURN_MULTIPLIERS = [
+        'straight' => 36.0,  // 35:1
+        'split' => 18.0,     // 17:1
+        'street' => 12.0,    // 11:1
+        'basket' => 12.0,    // 0-00-2, three numbers, 11:1
+        'corner' => 9.0,     // 8:1
+        'fivebet' => 7.0,    // 0-00-1-2-3, 6:1
+        'sixline' => 6.0,    // 5:1
+        'dozen' => 3.0,      // 2:1
+        'column' => 3.0,     // 2:1
+        'color' => 2.0,      // 1:1
+        'parity' => 2.0,     // 1:1
+        'range' => 2.0,      // 1:1
+    ];
+    // Per-position stake caps ($, whole-dollar), mirroring the captured vendor
+    // Init limits (max_su/max_hs/max_st/max_cn/max_ff/max_sx, outside 100).
+    // Enforced server-side per canonical bet key; the client's copy is
+    // advisory display only.
+    private const AMERICAN_ROULETTE_POSITION_MAX = [
+        'straight' => 25.0,
+        'split' => 50.0,
+        'street' => 75.0,
+        'basket' => 75.0,
+        'corner' => 100.0,
+        'fivebet' => 125.0,
+        'sixline' => 150.0,
+        'dozen' => 100.0,
+        'column' => 100.0,
+        'color' => 100.0,
+        'parity' => 100.0,
+        'range' => 100.0,
+    ];
+    // The only splits that touch the zero row on the American layout: 0 sits
+    // over columns 1-2, 00 over columns 2-3, and 0/00 adjoin each other.
+    private const AMERICAN_ROULETTE_ZERO_SPLITS = ['0_00', '0_1', '0_2', '00_2', '00_3'];
     private const STUD_POKER_PAYOUTS = [
         'ROYAL_FLUSH' => 100,
         'STRAIGHT_FLUSH' => 50,
@@ -228,6 +282,7 @@ final class CasinoController
         ['provider' => 'internal', 'name' => 'Jurassic Run', 'slug' => 'jurassic-run', 'category' => 'slots', 'minBet' => 1, 'maxBet' => 5000, 'rtp' => 95.0, 'volatility' => 'medium', 'themeColor' => '#166534', 'icon' => 'fa-solid fa-dragon', 'imageUrl' => '/games/jurassic-run/assets/images/background_middle.webp', 'tags' => ['slots', 'jurassic', 'in-house', 'server settled', 'progressive jackpot'], 'isFeatured' => true, 'metadata' => ['paylines' => 10, 'reels' => 5, 'rows' => 3, 'jackpotType' => 'progressive', 'jackpotContributionPercent' => 5, 'freeSpinAwards' => [3 => 2, 4 => 3, 5 => 4], 'rngVersion' => 'jurassic-slot-v1', 'fairness' => ['outcomeSource' => 'server_rng', 'spinIndependence' => true], 'features' => ['wild', 'free_spins', 'progressive_jackpot']]],
         ['provider' => 'internal', 'name' => 'Bogeyman', 'slug' => 'bogeyman', 'category' => 'slots', 'minBet' => 0.01, 'maxBet' => 50, 'rtp' => 94.7, 'volatility' => 'medium', 'themeColor' => '#4c1d95', 'icon' => 'fa-solid fa-ghost', 'imageUrl' => '/games/bogeyman/images/bg/complete-bg.jpg', 'tags' => ['slots', 'bogeyman', 'in-house', 'server settled'], 'isFeatured' => true, 'metadata' => ['paylines' => 25, 'reels' => 5, 'rows' => 3, 'coinValues' => [0.01, 0.05, 0.10, 0.25, 0.50, 1.00, 2.00], 'freeSpinAwards' => [3 => 5, 4 => 10, 5 => 20], 'rngVersion' => 'bogeyman-slot-v1', 'fairness' => ['outcomeSource' => 'server_rng', 'spinIndependence' => true], 'features' => ['wild', 'free_spins']]],
         ['provider' => 'internal', 'name' => '3-Card Poker', 'slug' => '3card-poker', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 300, 'themeColor' => '#1a3a5c', 'icon' => 'fa-solid fa-cards', 'imageUrl' => '/games/3-card-poker/sprites/200x200.jpg', 'tags' => ['table games', 'poker', '3-card poker', 'in-house'], 'isFeatured' => true],
+        ['provider' => 'internal', 'name' => 'American Roulette', 'slug' => 'american-roulette', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 5000, 'themeColor' => '#b91c1c', 'icon' => 'fa-solid fa-circle-notch', 'imageUrl' => '/games/american-roulette/images/roulette-wheel.png', 'tags' => ['table games', 'roulette', 'in-house', 'server settled'], 'isFeatured' => true, 'metadata' => ['wheel' => 'american', 'pockets' => 38, 'rngVersion' => 'csprng-wheel-american-v1', 'fairness' => ['outcomeSource' => 'server_rng', 'spinIndependence' => true], 'positionMax' => ['straight' => 25, 'split' => 50, 'street' => 75, 'basket' => 75, 'corner' => 100, 'fivebet' => 125, 'sixline' => 150, 'dozen' => 100, 'column' => 100, 'color' => 100, 'parity' => 100, 'range' => 100]]],
         ['provider' => 'internal', 'name' => 'Jacks or Better', 'slug' => 'jacks-or-better', 'category' => 'video_poker', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#be123c', 'icon' => 'fa-solid fa-cards'],
         ['provider' => 'internal', 'name' => 'Video Keno', 'slug' => 'video-keno', 'category' => 'specialty_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#0ea5e9', 'icon' => 'fa-solid fa-table-cells-large'],
     ];
@@ -1117,6 +1172,14 @@ final class CasinoController
             // values the payout calc uses — never the raw stored blob.
             $metadata['payoutConfig'] = $this->resolveGamePayoutConfig($slug, $game);
         }
+        if ($slug === self::AMERICAN_ROULETTE_GAME_SLUG && isset($metadata['payoutConfig']['tableMin'], $metadata['payoutConfig']['tableMax'])) {
+            // Single source: the roulette table limits are ENFORCED from
+            // payoutConfig (the minBet/maxBet columns are re-pinned to
+            // defaults by ensureCasinoSeeded), so echo the enforced values —
+            // tile display, bridge MINB/MAXB and server rejection all agree.
+            $game['minBet'] = round((float) $metadata['payoutConfig']['tableMin']);
+            $game['maxBet'] = round((float) $metadata['payoutConfig']['tableMax']);
+        }
         return [
             'id' => $game['id'] ?? null,
             'externalGameId' => $game['externalGameId'] ?? null,
@@ -1200,6 +1263,10 @@ final class CasinoController
             }
             if ($game === self::THREE_CARD_POKER_GAME_SLUG) {
                 $this->place3CardPokerBet($actor, $body, $requestId, $startedAt);
+                return;
+            }
+            if ($game === self::AMERICAN_ROULETTE_GAME_SLUG) {
+                $this->placeAmericanRouletteBet($actor, $body, $requestId, $startedAt);
                 return;
             }
             if (in_array($game, self::REMOVED_GAME_SLUGS, true)) {
@@ -1756,6 +1823,298 @@ final class CasinoController
             Response::json(['message' => $e->getMessage()], 400);
         } catch (Throwable $e) {
             $this->writeCasinoAuditLog('roulette_round_server_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => 'Server error placing roulette bet'], 500);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════
+    //  IN-HOUSE AMERICAN ROULETTE BETTING (double-zero wheel)
+    // ════════════════════════════════════════════════════════
+
+    private function placeAmericanRouletteBet(array $actor, array $body, string $requestId, float $startedAt): void
+    {
+        $userId = (string) ($actor['id'] ?? '');
+
+        try {
+            $gameRow = $this->requireActiveCasinoGame(self::AMERICAN_ROULETTE_GAME_SLUG);
+            // Effective admin config (clamped on read, never trusted raw),
+            // resolved fresh each spin: admin edits take effect on the NEXT
+            // round, no restart. Carries OPERATIONAL levers only — position
+            // caps, table limits, five-bet availability. Payout multipliers
+            // are locked constants and not part of the config.
+            $payoutConfig = $this->resolveGamePayoutConfig(self::AMERICAN_ROULETTE_GAME_SLUG, $gameRow);
+            $parsedBets = $this->parseAmericanRouletteBets(is_array($body['bets'] ?? null) ? $body['bets'] : [], $payoutConfig);
+            $totalWager = $parsedBets['totalWager'];
+
+            if ($totalWager <= 0) {
+                Response::json(['message' => 'No bets placed'], 400);
+                return;
+            }
+
+            // Table limits come from payoutConfig, NOT the minBet/maxBet
+            // columns: ensureCasinoSeeded re-pins the columns to defaults on
+            // every pass, so the config is the only limit an admin can move.
+            $gameMinBet = round(self::clampPayoutValue($payoutConfig['tableMin'] ?? null, self::AMERICAN_ROULETTE_PAYOUT_SPEC['tableMin']));
+            $gameMaxBet = round(self::clampPayoutValue($payoutConfig['tableMax'] ?? null, self::AMERICAN_ROULETTE_PAYOUT_SPEC['tableMax']));
+            if ($totalWager < $gameMinBet) {
+                Response::json(['message' => 'Minimum roulette wager is $' . round($gameMinBet)], 400);
+                return;
+            }
+            if ($totalWager > $gameMaxBet) {
+                Response::json(['message' => 'Maximum roulette wager is $' . round($gameMaxBet)], 400);
+                return;
+            }
+
+            $this->db->beginTransaction();
+            try {
+                $lockedUser = $this->loadLockedCasinoUser($userId);
+
+                $existingRound = $this->db->findOne('casino_bets', [
+                    'userId' => $userId,
+                    'requestId' => $requestId,
+                    'game' => self::AMERICAN_ROULETTE_GAME_SLUG,
+                ]);
+                if ($existingRound !== null) {
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['id'] ?? '');
+                    $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+                    $this->writeCasinoAuditLog('american_roulette_round_idempotent', [
+                        'requestId' => $requestId,
+                        'roundId' => $roundId,
+                        'userId' => $userId,
+                        'username' => (string) ($lockedUser['username'] ?? ''),
+                        'idempotent' => true,
+                    ]);
+                    $this->db->commit();
+                    Response::json($this->formatCasinoBetResponse($existingRound, $ledgerEntries, true));
+                    return;
+                }
+
+                $this->assertUserWagerWithinLimits($lockedUser, $totalWager);
+                $this->assertCasinoLossLimits($lockedUser, $totalWager);
+                $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
+                if ($totalWager > $balanceSnapshot['availableBalance']) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Insufficient balance. Available: $' . round($balanceSnapshot['availableBalance'])], 400);
+                    return;
+                }
+
+                // ── Commit-reveal fairness (Option A: stored rotating chain) ──
+                // Read the CURRENT seed from the chain under the SAME user-row
+                // lock held since loadLockedCasinoUser above, so read+rotate is
+                // serialized with placement — two near-simultaneous spins can't
+                // fork or skip the chain. The seed's hash was already committed
+                // to the client (fairness/state on open, or the prior spin's
+                // serverSeedHashNext). If the row is missing where it must
+                // exist, FAIL LOUD — never silently re-init, never fall back
+                // to unseeded RNG.
+                $chainId = $this->baccaratSeedChainId($userId, self::AMERICAN_ROULETTE_GAME_SLUG);
+                // Row-lock the chain itself as well as the user row: even if an
+                // outer serialization ever failed, read->rotate stays atomic.
+                $chain = $this->db->findOneForUpdate('casino_seed_chains', ['id' => $chainId]);
+                if ($chain === null || !isset($chain['serverSeed']) || (string) $chain['serverSeed'] === '') {
+                    $this->db->rollback();
+                    $this->writeCasinoAuditLog('american_roulette_seed_chain_missing', [
+                        'requestId' => $requestId,
+                        'userId' => $userId,
+                        'game' => self::AMERICAN_ROULETTE_GAME_SLUG,
+                    ]);
+                    Response::json(['message' => 'Fairness is not initialized for this session. Please reload the game and try again.'], 409);
+                    return;
+                }
+                $serverSeed = (string) $chain['serverSeed'];
+                $serverSeedHash = (string) ($chain['serverSeedHash'] ?? hash('sha256', $serverSeed));
+                $nonce = (int) ($chain['nonce'] ?? 0);
+                $clientSeed = $this->resolveClientSeed($body);
+
+                $roundId = $this->newRoundId();
+                $outcomeSource = 'server_rng';
+                // The pocket is a pure deterministic function of the committed
+                // tuple — uniform over all 38 pockets, never outcome- or
+                // player-aware. Evaluation + payouts are UNCHANGED Phase-1/2.
+                $winningToken = $this->americanRouletteSeededPocket($serverSeed, $clientSeed, $nonce);
+                $picked = $this->calculateAmericanRouletteOutcomeReturn($parsedBets['entries'], $winningToken);
+                $outcome = [
+                    'outcome' => $this->americanRouletteOutcomeDetails($winningToken),
+                    'totalReturn' => $picked['totalReturn'],
+                    'winningBetKeys' => $picked['winningBetKeys'],
+                ];
+
+                // Rotate the chain to a fresh unrevealed seed for the NEXT
+                // spin, in this same transaction (rolled back with everything
+                // else if the spin fails). Only the next seed's HASH ever
+                // leaves the server; the seed stays secret until it is played.
+                $nextServerSeed = bin2hex(random_bytes(32));
+                $serverSeedHashNext = hash('sha256', $nextServerSeed);
+                $this->db->updateOne('casino_seed_chains', ['id' => $chainId], [
+                    'serverSeed' => $nextServerSeed,
+                    'serverSeedHash' => $serverSeedHashNext,
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce + 1,
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ]);
+
+                $totalReturn = $outcome['totalReturn'];
+                $profit = round(max(0, $totalReturn - $totalWager));
+                $netResult = round($totalReturn - $totalWager);
+                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
+                $balanceAfter = round($balanceAfterDebit + $totalReturn);
+
+                $now = SqlRepository::nowUtc();
+                $ipAddress = IpUtils::clientIp();
+                $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
+
+                $debitEntry = $this->buildCasinoTransactionEntry(
+                    $userId,
+                    $totalWager,
+                    $roundId,
+                    self::AMERICAN_ROULETTE_SOURCE_TYPE,
+                    'DEBIT',
+                    'casino_bet_debit',
+                    $balanceSnapshot['balanceBefore'],
+                    $balanceAfterDebit,
+                    'CASINO_AMERICAN_ROULETTE_WAGER',
+                    'American Roulette wager charged',
+                    $now,
+                    $ipAddress,
+                    $userAgent
+                );
+                $debitEntryId = $this->db->insertOne('transactions', $debitEntry);
+
+                $creditEntry = $this->buildCasinoTransactionEntry(
+                    $userId,
+                    $totalReturn,
+                    $roundId,
+                    self::AMERICAN_ROULETTE_SOURCE_TYPE,
+                    'CREDIT',
+                    'casino_bet_credit',
+                    $balanceAfterDebit,
+                    $balanceAfter,
+                    'CASINO_AMERICAN_ROULETTE_PAYOUT',
+                    'American Roulette payout/refund credited',
+                    $now,
+                    $ipAddress,
+                    $userAgent
+                );
+                $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
+
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
+                    'balance' => $balanceAfter,
+                    'updatedAt' => $now,
+                ]);
+
+                $serverDecisionAt = SqlRepository::nowUtc();
+                $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
+                $integrityHash = $this->buildIntegrityHash([
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::AMERICAN_ROULETTE_GAME_SLUG,
+                    'bets' => $parsedBets['normalizedBets'],
+                    'outcome' => $outcome['outcome'],
+                    'totalWager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'serverDecisionAt' => $serverDecisionAt,
+                ]);
+
+                $betRecord = [
+                    'id' => $roundId,
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? $actor['username'] ?? ''),
+                    'game' => self::AMERICAN_ROULETTE_GAME_SLUG,
+                    'bets' => $parsedBets['normalizedBets'],
+                    // '00' stays a distinct string token end-to-end.
+                    'result' => (string) $outcome['outcome']['number'],
+                    'rouletteOutcome' => $outcome['outcome'],
+                    'winningBetKeys' => $outcome['winningBetKeys'],
+                    'totalWager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'profit' => $profit,
+                    'netResult' => $netResult,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'ledgerEntries' => ['debit' => $debitEntryId, 'credit' => $creditEntryId],
+                    'rngVersion' => self::AMERICAN_ROULETTE_FAIR_RNG_VERSION,
+                    'outcomeSource' => $outcomeSource,
+                    // The clamped operational config this round was validated
+                    // and settled under (admin audit: provably the config in
+                    // force at the time).
+                    'payoutApplied' => $payoutConfig,
+                    // Commit-reveal tuple: THIS round's seed is revealed here
+                    // (it settled), and serverSeedHashNext commits the next.
+                    'serverSeed' => $serverSeed,
+                    'serverSeedHash' => $serverSeedHash,
+                    'serverSeedHashNext' => $serverSeedHashNext,
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce,
+                    'integrityHash' => $integrityHash,
+                    'serverDecisionAt' => $serverDecisionAt,
+                    'latencyMs' => $latencyMs,
+                    'roundStatus' => 'settled',
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ];
+                $this->db->insertOne('casino_bets', $betRecord);
+
+                $this->db->insertOne('casino_round_audit', [
+                    'id' => $roundId,
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::AMERICAN_ROULETTE_GAME_SLUG,
+                    'rngVersion' => self::AMERICAN_ROULETTE_FAIR_RNG_VERSION,
+                    'bets' => $parsedBets['normalizedBets'],
+                    'outcomeSource' => $outcomeSource,
+                    'rouletteOutcome' => $outcome['outcome'],
+                    'winningBetKeys' => $outcome['winningBetKeys'],
+                    'payoutApplied' => $payoutConfig,
+                    // Seed tuple binds the round to its committed fairness inputs.
+                    'serverSeedHash' => $serverSeedHash,
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce,
+                    'integrityHash' => $integrityHash,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+
+                $this->db->commit();
+
+                $ledgerEntries = [
+                    array_merge($debitEntry, ['id' => $debitEntryId]),
+                    array_merge($creditEntry, ['id' => $creditEntryId]),
+                ];
+                $this->writeCasinoAuditLog('american_roulette_round_settled', [
+                    'requestId' => $requestId,
+                    'roundId' => $roundId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? ''),
+                    'wager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'netResult' => $netResult,
+                    'outcomeNumber' => $outcome['outcome']['number'],
+                    'outcomeSource' => $outcomeSource,
+                ]);
+                Response::json($this->formatCasinoBetResponse($betRecord, $ledgerEntries, false));
+            } catch (Throwable $txErr) {
+                $this->db->rollback();
+                throw $txErr;
+            }
+        } catch (InvalidArgumentException $e) {
+            $this->writeCasinoAuditLog('american_roulette_round_validation_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            $this->writeCasinoAuditLog('american_roulette_round_server_error', [
                 'requestId' => $requestId,
                 'userId' => $userId,
                 'error' => $e->getMessage(),
@@ -7546,9 +7905,34 @@ final class CasinoController
         'freeSpins4' => [10, 5, 20],
         'freeSpins5' => [20, 10, 40],
     ];
+    // American Roulette levers are OPERATIONAL only — the edge is the 0/00
+    // pockets, so the payout table (straight 35:1 … even-money 1:1) is a
+    // locked constant and deliberately has NO key here (the write gate
+    // rejects unknown keys, which is what keeps payouts un-tunable). Defaults
+    // reproduce the Phase-1 vendor caps exactly. tableMin/tableMax live here
+    // (not in the minBet/maxBet columns) because ensureCasinoSeeded pins the
+    // columns back to DEFAULT_CASINO_GAMES on every pass. Whole-dollar values;
+    // read sites int-round. tableMin.max === tableMax.min (100) guarantees
+    // tableMin <= tableMax with per-key clamps alone. fiveBetEnabled is a 0/1
+    // numeric flag (the shared machinery is numeric — same coercion precedent
+    // as bogeyman's integer freeSpins), read as round(v) >= 1.
+    private const AMERICAN_ROULETTE_PAYOUT_SPEC = [
+        'maxStraight' => [25, 5, 500],
+        'maxSplit' => [50, 5, 1000],
+        'maxStreet' => [75, 5, 1500],
+        'maxBasket' => [75, 5, 1500],
+        'maxCorner' => [100, 5, 2000],
+        'maxFiveBet' => [125, 5, 2500],
+        'maxSixLine' => [150, 5, 3000],
+        'maxOutside' => [100, 5, 5000],
+        'tableMin' => [1, 1, 100],
+        'tableMax' => [5000, 100, 20000],
+        'fiveBetEnabled' => [1, 0, 1],
+    ];
     private const GAME_PAYOUT_SPECS = [
         self::BACCARAT_CLASSIC_GAME_SLUG => self::BACCARAT_CLASSIC_PAYOUT_SPEC,
         self::BOGEYMAN_GAME_SLUG => self::BOGEYMAN_PAYOUT_SPEC,
+        self::AMERICAN_ROULETTE_GAME_SLUG => self::AMERICAN_ROULETTE_PAYOUT_SPEC,
     ];
 
     /** @param array{0: float, 1: float, 2: float} $spec [default, min, max] */
@@ -7878,6 +8262,10 @@ final class CasinoController
                 $this->getBogeymanFairnessState($actor);
                 return;
             }
+            if ($game === self::AMERICAN_ROULETTE_GAME_SLUG) {
+                $this->getAmericanRouletteFairnessState($actor);
+                return;
+            }
             if ($game !== self::BACCARAT_CLASSIC_GAME_SLUG) {
                 Response::json(['message' => 'Fairness is not available for game "' . $game . '"'], 400);
                 return;
@@ -7979,6 +8367,57 @@ final class CasinoController
     }
 
     /**
+     * American Roulette fairness state: same chain machinery (the chain
+     * helpers are game-parametric), wheel-shaped lastRound payload. This
+     * endpoint is the SOLE creator of the chain — the commitment exists
+     * before any spin.
+     *
+     * @param array<string, mixed> $actor
+     */
+    private function getAmericanRouletteFairnessState(array $actor): void
+    {
+        $userId = (string) ($actor['id'] ?? '');
+        $chain = $this->ensureBaccaratSeedChain($userId, self::AMERICAN_ROULETTE_GAME_SLUG);
+        $nextNonce = (int) ($chain['nonce'] ?? 0);
+        $commitment = (string) ($chain['serverSeedHash'] ?? hash('sha256', (string) $chain['serverSeed']));
+
+        $lastRound = null;
+        $rows = $this->db->findMany(
+            'casino_bets',
+            ['userId' => $userId, 'game' => self::AMERICAN_ROULETTE_GAME_SLUG],
+            ['sort' => ['createdAt' => -1], 'limit' => 1]
+        );
+        $last = $rows[0] ?? null;
+        if (is_array($last) && isset($last['serverSeed'])) {
+            $lastRound = [
+                'roundId' => (string) ($last['roundId'] ?? $last['id'] ?? ''),
+                'serverSeed' => (string) $last['serverSeed'],
+                'serverSeedHash' => (string) ($last['serverSeedHash'] ?? ''),
+                'clientSeed' => (string) ($last['clientSeed'] ?? ''),
+                'nonce' => (int) ($last['nonce'] ?? 0),
+                // The pocket token — '00' is a distinct string pocket.
+                'number' => (string) ($last['result'] ?? ''),
+                'rouletteOutcome' => is_array($last['rouletteOutcome'] ?? null) ? $last['rouletteOutcome'] : null,
+                'winningBetKeys' => is_array($last['winningBetKeys'] ?? null) ? array_values(array_map('strval', $last['winningBetKeys'])) : [],
+                'bets' => is_array($last['bets'] ?? null) ? $last['bets'] : [],
+                'payoutApplied' => is_array($last['payoutApplied'] ?? null) ? $last['payoutApplied'] : null,
+                'totalWager' => $this->num($last['totalWager'] ?? 0),
+                'totalReturn' => $this->num($last['totalReturn'] ?? 0),
+                'result' => (string) ($last['result'] ?? ''),
+            ];
+        }
+
+        Response::json([
+            'game' => self::AMERICAN_ROULETTE_GAME_SLUG,
+            'nextNonce' => $nextNonce,
+            'serverSeedHash' => $commitment,
+            'pockets' => 38,
+            'algorithm' => self::AMERICAN_ROULETTE_FAIR_RNG_VERSION,
+            'lastRound' => $lastRound,
+        ]);
+    }
+
+    /**
      * GET /api/casino/fairness/verify?game=&serverSeed=&clientSeed=&nonce=&…
      * Convenience recompute from player-supplied, already-revealed inputs. Pure
      * function: no DB, no money, no secret. The same result is reproducible
@@ -7995,6 +8434,10 @@ final class CasinoController
             $game = strtolower(trim((string) ($_GET['game'] ?? self::BACCARAT_CLASSIC_GAME_SLUG)));
             if ($game === self::BOGEYMAN_GAME_SLUG) {
                 $this->verifyBogeymanFairness();
+                return;
+            }
+            if ($game === self::AMERICAN_ROULETTE_GAME_SLUG) {
+                $this->verifyAmericanRouletteFairness();
                 return;
             }
             if ($game !== self::BACCARAT_CLASSIC_GAME_SLUG) {
@@ -8044,6 +8487,46 @@ final class CasinoController
         } catch (Throwable $e) {
             Response::serverError('Server error verifying fairness', $e);
         }
+    }
+
+    /**
+     * American Roulette fairness recompute: derive the winning pocket from a
+     * revealed tuple. Pure function — no DB, no money, no secret; the caller
+     * supplies an already-revealed serverSeed. Bet win/loss follows from the
+     * public evaluation over the returned pocket.
+     */
+    private function verifyAmericanRouletteFairness(): void
+    {
+        $serverSeed = trim((string) ($_GET['serverSeed'] ?? ''));
+        $clientSeed = trim((string) ($_GET['clientSeed'] ?? ''));
+        $nonce = (int) ($_GET['nonce'] ?? -1);
+
+        if (preg_match('/^[a-f0-9]{64}$/i', $serverSeed) !== 1) {
+            Response::json(['message' => 'serverSeed must be a 64-char hex string (the revealed seed from a past round)'], 400);
+            return;
+        }
+        if ($clientSeed === '' || preg_match('/^[A-Za-z0-9._:-]{1,128}$/', $clientSeed) !== 1) {
+            Response::json(['message' => 'clientSeed is required (1-128 chars: letters, numbers, . _ : -)'], 400);
+            return;
+        }
+        if ($nonce < 0) {
+            Response::json(['message' => 'nonce must be a non-negative integer'], 400);
+            return;
+        }
+
+        $token = $this->americanRouletteSeededPocket($serverSeed, $clientSeed, $nonce);
+        Response::json([
+            'game' => self::AMERICAN_ROULETTE_GAME_SLUG,
+            'inputs' => [
+                'serverSeed' => $serverSeed,
+                'serverSeedHash' => hash('sha256', $serverSeed),
+                'clientSeed' => $clientSeed,
+                'nonce' => $nonce,
+            ],
+            'algorithm' => self::AMERICAN_ROULETTE_FAIR_RNG_VERSION,
+            'number' => $token,
+            'rouletteOutcome' => $this->americanRouletteOutcomeDetails($token),
+        ]);
     }
 
     /**
@@ -10043,6 +10526,554 @@ final class CasinoController
             'color' => (string) ($entry['value'] ?? '') === (string) ($outcome['color'] ?? ''),
             'parity' => (string) ($entry['value'] ?? '') === (string) ($outcome['parity'] ?? ''),
             'range' => (string) ($entry['value'] ?? '') === (string) ($outcome['range'] ?? ''),
+            default => false,
+        };
+    }
+
+    // ── American Roulette parsing / layout validation / outcome ──────────
+
+    /**
+     * Canonical pocket token: '0', '00' or '1'..'36'. Returns null for
+     * anything else. '00' is matched literally BEFORE any int cast — as an
+     * int it would collapse into pocket 0, which is a different pocket.
+     * Leading-zero aliases ('07', '000') are rejected, not canonicalized, so
+     * every pocket has exactly one accepted spelling.
+     */
+    private function americanRouletteToken(string $raw): ?string
+    {
+        $t = trim($raw);
+        if ($t === '00') {
+            return '00';
+        }
+        if ($t === '' || ctype_digit($t) === false || $t !== (string) (int) $t) {
+            return null;
+        }
+        $n = (int) $t;
+        return ($n >= 0 && $n <= 36) ? (string) $n : null;
+    }
+
+    /** Layout sort rank so split values canonicalize deterministically. */
+    private function americanRouletteTokenRank(string $token): int
+    {
+        if ($token === '0') {
+            return -2;
+        }
+        if ($token === '00') {
+            return -1;
+        }
+        return (int) $token;
+    }
+
+    /** @return array<int, string> the three tokens of street 1..12 */
+    private function americanRouletteStreetTokens(int $street): array
+    {
+        return [(string) (3 * $street - 2), (string) (3 * $street - 1), (string) (3 * $street)];
+    }
+
+    /**
+     * Effective per-position stake caps ($, int-rounded) for the given
+     * clamped payout config. Null/missing config falls back to the Phase-1
+     * constants — identical values to the spec defaults, kept as the
+     * config-less baseline. All five outside types share one 'maxOutside'
+     * lever (vendor parity).
+     *
+     * @return array<string, float>
+     */
+    private function americanRoulettePositionMax(?array $payoutConfig): array
+    {
+        if (!is_array($payoutConfig) || $payoutConfig === []) {
+            return self::AMERICAN_ROULETTE_POSITION_MAX;
+        }
+        $cap = fn (string $key): float => round(self::clampPayoutValue(
+            $payoutConfig[$key] ?? null,
+            self::AMERICAN_ROULETTE_PAYOUT_SPEC[$key]
+        ));
+        $outside = $cap('maxOutside');
+
+        return [
+            'straight' => $cap('maxStraight'),
+            'split' => $cap('maxSplit'),
+            'street' => $cap('maxStreet'),
+            'basket' => $cap('maxBasket'),
+            'corner' => $cap('maxCorner'),
+            'fivebet' => $cap('maxFiveBet'),
+            'sixline' => $cap('maxSixLine'),
+            'dozen' => $outside,
+            'column' => $outside,
+            'color' => $outside,
+            'parity' => $outside,
+            'range' => $outside,
+        ];
+    }
+
+    /** The 0/1 numeric flag, read as round(v) >= 1 (defaults ON). */
+    private function americanRouletteFiveBetEnabled(?array $payoutConfig): bool
+    {
+        if (!is_array($payoutConfig) || !array_key_exists('fiveBetEnabled', $payoutConfig)) {
+            return true;
+        }
+        return round(self::clampPayoutValue(
+            $payoutConfig['fiveBetEnabled'],
+            self::AMERICAN_ROULETTE_PAYOUT_SPEC['fiveBetEnabled']
+        )) >= 1;
+    }
+
+    /**
+     * @return array{entries: array<int, array<string, mixed>>, normalizedBets: array<int, array<string, mixed>>, totalWager: float}
+     */
+    private function parseAmericanRouletteBets(array $rawBets, ?array $payoutConfig = null): array
+    {
+        $positionMaxByType = $this->americanRoulettePositionMax($payoutConfig);
+        $fiveBetEnabled = $this->americanRouletteFiveBetEnabled($payoutConfig);
+        if (!array_is_list($rawBets)) {
+            $normalizedInput = [];
+            foreach ($rawBets as $key => $amount) {
+                $parts = explode(':', (string) $key, 2);
+                $normalizedInput[] = [
+                    'type' => $parts[0] ?? '',
+                    'value' => $parts[1] ?? '',
+                    'amount' => $amount,
+                ];
+            }
+            $rawBets = $normalizedInput;
+        }
+
+        // Merge duplicate positions by canonical key BEFORE the per-position
+        // cap check, so the cap can't be dodged by splitting one stake into
+        // several entries on the same spot.
+        /** @var array<string, array<string, mixed>> $byKey */
+        $byKey = [];
+        foreach ($rawBets as $rawBet) {
+            if (!is_array($rawBet)) {
+                continue;
+            }
+
+            $amount = $this->parseMoneyValue($rawBet['amount'] ?? 0, 'bets.amount');
+            if ($amount <= 0) {
+                continue;
+            }
+
+            // Only type/value/amount are read: a client-supplied multiplier,
+            // covers list or payout field is ignored — payouts are derived
+            // exclusively from the server's own layout tables.
+            $type = strtolower(trim((string) ($rawBet['type'] ?? '')));
+            $value = strtolower(trim((string) ($rawBet['value'] ?? '')));
+            $normalized = $this->normalizeAmericanRouletteBet($type, $value);
+            // Admin availability gate: when the five bet is switched off it is
+            // rejected exactly like an invalid layout group — the whole spin
+            // 400s and books nothing.
+            if ($normalized['type'] === 'fivebet' && !$fiveBetEnabled) {
+                throw new InvalidArgumentException('The five bet is not available on this table');
+            }
+            $key = (string) $normalized['key'];
+
+            if (isset($byKey[$key])) {
+                $byKey[$key]['amount'] = round($byKey[$key]['amount'] + $amount);
+            } else {
+                $byKey[$key] = [
+                    'key' => $key,
+                    'type' => $normalized['type'],
+                    'value' => $normalized['value'],
+                    'label' => $normalized['label'],
+                    'returnMultiplier' => $normalized['returnMultiplier'],
+                    'covers' => $normalized['covers'],
+                    'amount' => $amount,
+                ];
+            }
+        }
+
+        $entries = [];
+        $normalizedBets = [];
+        $totalWager = 0.0;
+        foreach ($byKey as $entry) {
+            $positionMax = $positionMaxByType[(string) $entry['type']] ?? 0.0;
+            if ($positionMax > 0 && $entry['amount'] > $positionMax) {
+                throw new InvalidArgumentException(
+                    'Maximum stake on ' . $entry['label'] . ' is $' . round($positionMax)
+                );
+            }
+            $entries[] = $entry;
+            $normalizedBets[] = [
+                'key' => $entry['key'],
+                'type' => $entry['type'],
+                'value' => $entry['value'],
+                'label' => $entry['label'],
+                'amount' => $entry['amount'],
+            ];
+            $totalWager += $entry['amount'];
+        }
+
+        return [
+            'entries' => $entries,
+            'normalizedBets' => $normalizedBets,
+            'totalWager' => round($totalWager),
+        ];
+    }
+
+    /**
+     * Validate one bet against the real American table layout and derive its
+     * server-owned payout multiplier. Anything not a true layout group —
+     * a non-adjacent "split", a street off the grid, a corner anchored on a
+     * top-row number — throws, and the round books nothing.
+     *
+     * @return array{key: string, type: string, value: string, label: string, returnMultiplier: float, covers: array<int, string>}
+     */
+    private function normalizeAmericanRouletteBet(string $type, string $value): array
+    {
+        $mult = fn (string $t): float => self::AMERICAN_ROULETTE_RETURN_MULTIPLIERS[$t];
+
+        if ($type === 'straight') {
+            $token = $this->americanRouletteToken($value);
+            if ($token === null) {
+                throw new InvalidArgumentException('Roulette straight bets require a pocket of 0, 00 or 1-36');
+            }
+
+            return [
+                'key' => 'straight:' . $token,
+                'type' => 'straight',
+                'value' => $token,
+                'label' => 'Straight ' . $token,
+                'returnMultiplier' => $mult('straight'),
+                'covers' => [$token],
+            ];
+        }
+
+        if ($type === 'split') {
+            $parts = explode('_', $value);
+            $a = count($parts) === 2 ? $this->americanRouletteToken($parts[0]) : null;
+            $b = count($parts) === 2 ? $this->americanRouletteToken($parts[1]) : null;
+            if ($a === null || $b === null || $a === $b) {
+                throw new InvalidArgumentException('Invalid roulette split bet');
+            }
+            if ($this->americanRouletteTokenRank($a) > $this->americanRouletteTokenRank($b)) {
+                [$a, $b] = [$b, $a];
+            }
+            $canonical = $a . '_' . $b;
+
+            $valid = false;
+            if ($a === '0' || $a === '00') {
+                $valid = in_array($canonical, self::AMERICAN_ROULETTE_ZERO_SPLITS, true);
+            } else {
+                $n = (int) $a;
+                $m = (int) $b;
+                // Vertical neighbour within a street (n / n+1, n not at the
+                // street top) or horizontal neighbour across streets (n / n+3).
+                $valid = ($m === $n + 1 && $n % 3 !== 0) || ($m === $n + 3 && $m <= 36);
+            }
+            if (!$valid) {
+                throw new InvalidArgumentException('Roulette split ' . $a . '/' . $b . ' is not adjacent on the table');
+            }
+
+            return [
+                'key' => 'split:' . $canonical,
+                'type' => 'split',
+                'value' => $canonical,
+                'label' => 'Split ' . $a . '/' . $b,
+                'returnMultiplier' => $mult('split'),
+                'covers' => [$a, $b],
+            ];
+        }
+
+        if ($type === 'street') {
+            if (ctype_digit($value) === false) {
+                throw new InvalidArgumentException('Invalid roulette street bet');
+            }
+            $street = (int) $value;
+            if ($street < 1 || $street > 12) {
+                throw new InvalidArgumentException('Roulette street bets require a row between 1 and 12');
+            }
+            $covers = $this->americanRouletteStreetTokens($street);
+
+            return [
+                'key' => 'street:' . $street,
+                'type' => 'street',
+                'value' => (string) $street,
+                'label' => 'Street ' . $covers[0] . '-' . $covers[2],
+                'returnMultiplier' => $mult('street'),
+                'covers' => $covers,
+            ];
+        }
+
+        if ($type === 'corner') {
+            if (ctype_digit($value) === false) {
+                throw new InvalidArgumentException('Invalid roulette corner bet');
+            }
+            $n = (int) $value;
+            // Anchored on its lowest number: must not sit on a street top
+            // (n%3 === 0) and must leave room for n+4 on the grid.
+            if ($n < 1 || $n > 32 || $n % 3 === 0) {
+                throw new InvalidArgumentException('Roulette corner ' . $value . ' is not a valid four-number square');
+            }
+            $covers = [(string) $n, (string) ($n + 1), (string) ($n + 3), (string) ($n + 4)];
+
+            return [
+                'key' => 'corner:' . $n,
+                'type' => 'corner',
+                'value' => (string) $n,
+                'label' => 'Corner ' . implode('/', $covers),
+                'returnMultiplier' => $mult('corner'),
+                'covers' => $covers,
+            ];
+        }
+
+        if ($type === 'sixline') {
+            if (ctype_digit($value) === false) {
+                throw new InvalidArgumentException('Invalid roulette six line bet');
+            }
+            $street = (int) $value;
+            if ($street < 1 || $street > 11) {
+                throw new InvalidArgumentException('Roulette six line bets require adjacent rows 1-11');
+            }
+            $covers = array_merge(
+                $this->americanRouletteStreetTokens($street),
+                $this->americanRouletteStreetTokens($street + 1)
+            );
+
+            return [
+                'key' => 'sixline:' . $street,
+                'type' => 'sixline',
+                'value' => (string) $street,
+                'label' => 'Six Line ' . $covers[0] . '-' . $covers[5],
+                'returnMultiplier' => $mult('sixline'),
+                'covers' => $covers,
+            ];
+        }
+
+        if ($type === 'basket') {
+            // The single fixed 0-00-2 group (top of the zero column).
+            if ($value !== '' && $value !== '0_00_2') {
+                throw new InvalidArgumentException('Invalid roulette basket bet');
+            }
+
+            return [
+                'key' => 'basket',
+                'type' => 'basket',
+                'value' => '0_00_2',
+                'label' => 'Basket 0/00/2',
+                'returnMultiplier' => $mult('basket'),
+                'covers' => ['0', '00', '2'],
+            ];
+        }
+
+        if ($type === 'fivebet') {
+            // The single fixed five-number top line (0-00-1-2-3).
+            if ($value !== '' && $value !== '0_00_1_2_3') {
+                throw new InvalidArgumentException('Invalid roulette five bet');
+            }
+
+            return [
+                'key' => 'fivebet',
+                'type' => 'fivebet',
+                'value' => '0_00_1_2_3',
+                'label' => 'Five Bet 0/00/1/2/3',
+                'returnMultiplier' => $mult('fivebet'),
+                'covers' => ['0', '00', '1', '2', '3'],
+            ];
+        }
+
+        if ($type === 'dozen') {
+            if (!in_array($value, ['first', 'second', 'third'], true)) {
+                throw new InvalidArgumentException('Invalid roulette dozen bet');
+            }
+
+            return [
+                'key' => 'dozen:' . $value,
+                'type' => 'dozen',
+                'value' => $value,
+                'label' => ucfirst($value) . ' 12',
+                'returnMultiplier' => $mult('dozen'),
+                'covers' => [],
+            ];
+        }
+
+        if ($type === 'column') {
+            if (!in_array($value, ['first', 'second', 'third'], true)) {
+                throw new InvalidArgumentException('Invalid roulette column bet');
+            }
+
+            return [
+                'key' => 'column:' . $value,
+                'type' => 'column',
+                'value' => $value,
+                'label' => ucfirst($value) . ' Column',
+                'returnMultiplier' => $mult('column'),
+                'covers' => [],
+            ];
+        }
+
+        if ($type === 'color') {
+            if (!in_array($value, ['red', 'black'], true)) {
+                throw new InvalidArgumentException('Invalid roulette color bet');
+            }
+
+            return [
+                'key' => 'color:' . $value,
+                'type' => 'color',
+                'value' => $value,
+                'label' => ucfirst($value),
+                'returnMultiplier' => $mult('color'),
+                'covers' => [],
+            ];
+        }
+
+        if ($type === 'parity') {
+            if (!in_array($value, ['even', 'odd'], true)) {
+                throw new InvalidArgumentException('Invalid roulette parity bet');
+            }
+
+            return [
+                'key' => 'parity:' . $value,
+                'type' => 'parity',
+                'value' => $value,
+                'label' => ucfirst($value),
+                'returnMultiplier' => $mult('parity'),
+                'covers' => [],
+            ];
+        }
+
+        if ($type === 'range') {
+            if (!in_array($value, ['low', 'high'], true)) {
+                throw new InvalidArgumentException('Invalid roulette range bet');
+            }
+
+            return [
+                'key' => 'range:' . $value,
+                'type' => 'range',
+                'value' => $value,
+                'label' => $value === 'low' ? '1-18' : '19-36',
+                'returnMultiplier' => $mult('range'),
+                'covers' => [],
+            ];
+        }
+
+        throw new InvalidArgumentException('Unsupported roulette bet type: ' . $type);
+    }
+
+    /**
+     * Commit-reveal seeded pocket draw (the signed-off derivation, mirrored
+     * verbatim in the client fairness panel and the verify endpoint):
+     *
+     *   keystream   = HMAC-SHA256(key=serverSeed, msg=clientSeed":"nonce":"counter)
+     *                 for counter = 0,1,2,… — consumed as consecutive
+     *                 big-endian uint32s (same buffered stream shape as the
+     *                 bogeyman stops / baccarat shuffle).
+     *   draw        = rejection-sampled over 38: reject v >= intdiv(2^32,38)*38
+     *                 (= 4294967290; rejected draws are consumed), then
+     *                 pocketIndex = v mod 38. No modulo bias.
+     *   map         = 0 -> '0', 1 -> '00', k -> (string)(k-1) for 2..37 —
+     *                 IDENTICAL to the Phase-1 random_int index map, so the
+     *                 wheel distribution is unchanged.
+     *
+     * One draw per spin. Pure deterministic function of the committed tuple —
+     * uniform over all 38 pockets, never per-player, never outcome-aware.
+     */
+    private function americanRouletteSeededPocket(string $serverSeed, string $clientSeed, int $nonce): string
+    {
+        $message = $clientSeed . ':' . $nonce . ':';
+        $buffer = '';
+        $bufPos = 0;
+        $counter = 0;
+        $nextUint32 = static function () use (&$buffer, &$bufPos, &$counter, $serverSeed, $message): int {
+            if ($bufPos + 4 > strlen($buffer)) {
+                $buffer = hash_hmac('sha256', $message . $counter, $serverSeed, true);
+                $counter++;
+                $bufPos = 0;
+            }
+            /** @var array{1: int} $unpacked */
+            $unpacked = unpack('N', substr($buffer, $bufPos, 4));
+            $bufPos += 4;
+            return $unpacked[1];
+        };
+
+        // Largest multiple of 38 that fits in uint32; values at/above it are
+        // rejected so every pocket is equally likely (no modulo bias).
+        $limit = intdiv(0x100000000, 38) * 38;
+        do {
+            $value = $nextUint32();
+        } while ($value >= $limit);
+        $index = $value % 38;
+
+        return $index === 0 ? '0' : ($index === 1 ? '00' : (string) ($index - 1));
+    }
+
+    private function calculateAmericanRouletteOutcomeReturn(array $entries, string $token): array
+    {
+        $totalReturn = 0.0;
+        $winningBetKeys = [];
+        $outcome = $this->americanRouletteOutcomeDetails($token);
+
+        foreach ($entries as $entry) {
+            if ($this->americanRouletteBetWins($entry, $outcome)) {
+                $totalReturn += round($entry['amount'] * $entry['returnMultiplier']);
+                $winningBetKeys[] = (string) $entry['key'];
+            }
+        }
+
+        return [
+            'totalReturn' => round($totalReturn),
+            'winningBetKeys' => $winningBetKeys,
+        ];
+    }
+
+    private function americanRouletteOutcomeDetails(string $token): array
+    {
+        $isZero = $token === '0' || $token === '00';
+        $number = $isZero ? 0 : (int) $token;
+
+        $color = 'green';
+        if (!$isZero) {
+            $color = in_array($number, self::ROULETTE_RED_NUMBERS, true) ? 'red' : 'black';
+        }
+
+        $parity = $isZero ? null : ($number % 2 === 0 ? 'even' : 'odd');
+        $range = null;
+        $dozen = null;
+        $column = null;
+        if (!$isZero) {
+            $range = $number <= 18 ? 'low' : 'high';
+            if ($number <= 12) {
+                $dozen = 'first';
+            } elseif ($number <= 24) {
+                $dozen = 'second';
+            } else {
+                $dozen = 'third';
+            }
+            $mod = $number % 3;
+            $column = $mod === 1 ? 'first' : ($mod === 2 ? 'second' : 'third');
+        }
+
+        return [
+            // The pocket token, as a string — '00' is its own pocket and must
+            // never be rendered, stored or compared as the integer 0.
+            'number' => $token,
+            'color' => $color,
+            'parity' => $parity,
+            'range' => $range,
+            'dozen' => $dozen,
+            'column' => $column,
+        ];
+    }
+
+    private function americanRouletteBetWins(array $entry, array $outcome): bool
+    {
+        $type = (string) ($entry['type'] ?? '');
+        $token = (string) ($outcome['number'] ?? '');
+
+        // Inside bets: exact token membership in the layout group resolved at
+        // normalization ('0' and '00' are distinct members).
+        if (in_array($type, ['straight', 'split', 'street', 'corner', 'sixline', 'basket', 'fivebet'], true)) {
+            $covers = is_array($entry['covers'] ?? null) ? $entry['covers'] : [];
+            return in_array($token, $covers, true);
+        }
+
+        // Outside bets: 0 and 00 have null parity/range/dozen/column and a
+        // 'green' color, so every outside bet loses on both zeros.
+        return match ($type) {
+            'dozen' => (string) ($entry['value'] ?? '') !== '' && (string) ($entry['value'] ?? '') === (string) ($outcome['dozen'] ?? ''),
+            'column' => (string) ($entry['value'] ?? '') !== '' && (string) ($entry['value'] ?? '') === (string) ($outcome['column'] ?? ''),
+            'color' => (string) ($entry['value'] ?? '') === (string) ($outcome['color'] ?? ''),
+            'parity' => (string) ($entry['value'] ?? '') !== '' && (string) ($entry['value'] ?? '') === (string) ($outcome['parity'] ?? ''),
+            'range' => (string) ($entry['value'] ?? '') !== '' && (string) ($entry['value'] ?? '') === (string) ($outcome['range'] ?? ''),
             default => false,
         };
     }

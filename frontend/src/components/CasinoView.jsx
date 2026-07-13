@@ -76,6 +76,17 @@ const LOCAL_GAME_META = {
         themeColor: '#1a3a5c',
         landscape: true,
     },
+    'american-roulette': {
+        id: 'local-american-roulette',
+        provider: 'In-House',
+        url: '/games/american-roulette/index.html?v=20260713b',
+        poster: '/games/american-roulette/images/roulette-wheel.png',
+        themeColor: '#b91c1c',
+        minBet: 1,
+        maxBet: 5000,
+        // Fixed 1360x765 landscape table — rides the rotate overlay on phones.
+        landscape: true,
+    },
 };
 
 const CATEGORY_META = {
@@ -101,6 +112,9 @@ const normalizeEmbeddedGameSlug = (value) => {
     if (normalized.includes('jurassic') || normalized.includes('jurrasic')) return 'jurassic-run';
     if (normalized.includes('bogeyman') || normalized.includes('boggey')) return 'bogeyman';
     if (normalized.includes('3card') || normalized.includes('3-card') || normalized === 'poker') return '3card-poker';
+    // The only live roulette surface is the American wheel; the legacy
+    // 'roulette' slug is delisted server-side and has no local client.
+    if (normalized.includes('roulette')) return 'american-roulette';
     return '';
 };
 
@@ -499,10 +513,12 @@ const CasinoView = () => {
                     await syncGameBalance();
                 };
 
-                if (requestedGame === 'jurassic-run' || requestedGame === 'baccarat-classic' || requestedGame === 'bogeyman') {
-                    const safetyMs = requestedGame === 'baccarat-classic' ? 9000 : 15000;
+                if (requestedGame === 'jurassic-run' || requestedGame === 'baccarat-classic' || requestedGame === 'bogeyman' || requestedGame === 'american-roulette') {
+                    // American Roulette's wheel animation runs ~7s (2.8s fast
+                    // play); it fires spinComplete when the ball parks.
+                    const safetyMs = requestedGame === 'baccarat-classic' ? 9000 : requestedGame === 'american-roulette' ? 12000 : 15000;
                     pendingRoundResultRef.current = roundResult;
-                    if (requestedGame === 'baccarat-classic' || requestedGame === 'bogeyman') {
+                    if (requestedGame === 'baccarat-classic' || requestedGame === 'bogeyman' || requestedGame === 'american-roulette') {
                         // Hold the balance change until the reveal too, so it
                         // lands with the cards/reels — not on server settle.
                         pendingBalanceFinalizeRef.current = finalizeBalanceDisplay;
@@ -525,10 +541,10 @@ const CasinoView = () => {
                 // History can refresh now (it's not the visible balance).
                 await loadCasinoHistory();
 
-                // Baccarat and Bogeyman hold their balance update for
-                // 'spinComplete' (the reveal); every other game updates it
-                // right away.
-                if (requestedGame !== 'baccarat-classic' && requestedGame !== 'bogeyman') {
+                // Baccarat, Bogeyman and American Roulette hold their balance
+                // update for 'spinComplete' (the reveal); every other game
+                // updates it right away.
+                if (requestedGame !== 'baccarat-classic' && requestedGame !== 'bogeyman' && requestedGame !== 'american-roulette') {
                     await finalizeBalanceDisplay();
                 }
             } catch (err) {
@@ -712,6 +728,8 @@ const CasinoView = () => {
                 return 'Stud Poker';
             case 'roulette':
                 return 'Roulette';
+            case 'american-roulette':
+                return 'American Roulette';
             case 'blackjack':
                 return 'Blackjack';
             case 'baccarat':
@@ -777,7 +795,8 @@ const CasinoView = () => {
     const formatRoundResult = (row) => {
         if (!row) return '—';
 
-        if (String(row.game || '').toLowerCase() === 'roulette' && row.rouletteOutcome) {
+        if (['roulette', 'american-roulette'].includes(String(row.game || '').toLowerCase()) && row.rouletteOutcome) {
+            // number is the pocket token — '00' is a distinct string pocket.
             const number = row.rouletteOutcome.number ?? row.result;
             const color = String(row.rouletteOutcome.color || '').trim();
             return color ? `${number} ${color}` : `${number}`;
@@ -886,6 +905,15 @@ const CasinoView = () => {
             if (keys.length === 0) return '—';
             const preview = keys.slice(0, 3).map((key) => `${key} ${formatMoney(bets[key])}`).join(' | ');
             return keys.length > 3 ? `${preview} +${keys.length - 3} more` : preview;
+        }
+
+        if (game === 'roulette' || game === 'american-roulette') {
+            const bets = Array.isArray(row?.bets) ? row.bets.filter((bet) => bet && typeof bet === 'object') : [];
+            if (bets.length === 0) return '—';
+            const preview = bets.slice(0, 3)
+                .map((bet) => `${bet.label || `${bet.type}:${bet.value}`} ${formatMoney(bet.amount)}`)
+                .join(' | ');
+            return bets.length > 3 ? `${preview} +${bets.length - 3} more` : preview;
         }
 
         if (game === '3card-poker') {
@@ -1292,6 +1320,7 @@ const CasinoView = () => {
                             <option value="baccarat-classic">Baccarat</option>
                             <option value="baccarat">Baccarat (Legacy)</option>
                             <option value="craps">Craps</option>
+                            <option value="american-roulette">American Roulette</option>
                             <option value="arabian">Arabian Game</option>
                             <option value="jurassic-run">Jurassic Run</option>
                             <option value="3card-poker">3-Card Poker</option>

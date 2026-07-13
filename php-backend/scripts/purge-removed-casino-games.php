@@ -63,6 +63,28 @@ try {
 
     $removedGames = ['roulette', 'stud-poker'];
     $removedSourceTypes = ['casino_roulette', 'casino_stud_poker'];
+    $reasonRegex = '^CASINO_(ROULETTE|STUD_POKER)_';
+
+    // HARD GUARD: live games whose money history this script must never be
+    // able to touch. All purge filters are exact-match except the reason
+    // regex, so we prove disjointness here and abort before any counting or
+    // deleting if a future edit ever makes a filter overlap a live game.
+    $protectedGames = ['american-roulette'];
+    $protectedSourceTypes = ['casino_american_roulette'];
+    $protectedReasonSamples = ['CASINO_AMERICAN_ROULETTE_WAGER', 'CASINO_AMERICAN_ROULETTE_PAYOUT'];
+
+    if (array_intersect($removedGames, $protectedGames) !== []
+        || array_intersect($removedSourceTypes, $protectedSourceTypes) !== []
+    ) {
+        fwrite(STDERR, "ABORT: purge filters overlap a protected live game.\n");
+        exit(1);
+    }
+    foreach ($protectedReasonSamples as $sample) {
+        if (preg_match('#' . $reasonRegex . '#i', $sample) === 1) {
+            fwrite(STDERR, "ABORT: reason regex would match protected ledger reason {$sample}.\n");
+            exit(1);
+        }
+    }
 
     $betsFilter = ['game' => ['$in' => $removedGames]];
     $auditFilter = ['game' => ['$in' => $removedGames]];
@@ -70,15 +92,23 @@ try {
     $transactionsFilter = [
         '$or' => [
             ['sourceType' => ['$in' => $removedSourceTypes]],
-            ['reason' => ['$regex' => '^CASINO_(ROULETTE|STUD_POKER)_', '$options' => 'i']],
+            ['reason' => ['$regex' => $reasonRegex, '$options' => 'i']],
         ],
     ];
+    // Watched alongside before/after: any change to these counts across an
+    // execute run means a protected game was touched — treated as a failure.
+    $protectedBetsFilter = ['game' => ['$in' => $protectedGames]];
+    $protectedTxFilter = ['sourceType' => ['$in' => $protectedSourceTypes]];
 
     $before = [
         'casino_bets' => $repo->countDocuments('casino_bets', $betsFilter),
         'casino_round_audit' => $repo->countDocuments('casino_round_audit', $auditFilter),
         'transactions' => $repo->countDocuments('transactions', $transactionsFilter),
         'casinogames' => $repo->countDocuments('casinogames', $gameCatalogFilter),
+    ];
+    $protectedBefore = [
+        'casino_bets' => $repo->countDocuments('casino_bets', $protectedBetsFilter),
+        'transactions' => $repo->countDocuments('transactions', $protectedTxFilter),
     ];
 
     $deleted = [
@@ -101,6 +131,10 @@ try {
         'transactions' => $repo->countDocuments('transactions', $transactionsFilter),
         'casinogames' => $repo->countDocuments('casinogames', $gameCatalogFilter),
     ];
+    $protectedAfter = [
+        'casino_bets' => $repo->countDocuments('casino_bets', $protectedBetsFilter),
+        'transactions' => $repo->countDocuments('transactions', $protectedTxFilter),
+    ];
 
     $result = [
         'mode' => $execute ? 'execute' : 'dry-run',
@@ -108,12 +142,23 @@ try {
             'games' => $removedGames,
             'transactionSourceTypes' => $removedSourceTypes,
         ],
+        'protected' => [
+            'games' => $protectedGames,
+            'before' => $protectedBefore,
+            'after' => $protectedAfter,
+            'untouched' => $protectedBefore === $protectedAfter,
+        ],
         'before' => $before,
         'deleted' => $deleted,
         'after' => $after,
     ];
 
     echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), PHP_EOL;
+
+    if ($protectedBefore !== $protectedAfter) {
+        fwrite(STDERR, "FAILURE: protected game rows changed during purge.\n");
+        exit(1);
+    }
 } catch (Throwable $e) {
     fwrite(STDERR, 'Purge failed: ' . $e->getMessage() . PHP_EOL);
     exit(1);
