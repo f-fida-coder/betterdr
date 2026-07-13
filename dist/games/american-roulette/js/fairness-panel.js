@@ -96,7 +96,13 @@
         overlay.appendChild(panel);
 
         var style = el('style', null,
-            '#arl-fairness-btn{position:fixed;right:8px;bottom:8px;z-index:2147483000;background:#3a0d0d;color:#f7e7e7;border:1px solid #dc2626;border-radius:6px;padding:6px 10px;font:600 12px/1 system-ui,sans-serif;cursor:pointer;opacity:.9}' +
+            // Rides INSIDE the game's top-left menu column (sound / speed /
+            // info) as a fourth item, so it can never overlap the SPIN
+            // button — which owns the stage's bottom-right corner, exactly
+            // where a fixed-corner button lands once the mobile rotate
+            // overlay is in play.
+            '#arl-fairness-btn{display:block;width:46px;box-sizing:border-box;margin-bottom:6px;background:#3a0d0d;color:#f7e7e7;border:1px solid #dc2626;border-radius:8px;padding:6px 0;font:700 11px/1.2 system-ui,sans-serif;text-align:center;cursor:pointer;opacity:.92}' +
+            '#arl-fairness-btn.floating{position:fixed;left:8px;top:8px;z-index:2147483000;width:auto;padding:6px 10px}' +
             '#arl-fairness-btn:hover{opacity:1}' +
             '#arl-fairness-overlay{position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;padding:16px}' +
             '#arl-fairness-overlay.open{display:flex}' +
@@ -116,7 +122,15 @@
             '#arl-fairness-close{float:right;cursor:pointer;color:#c88c8c;font-size:18px;line-height:1}');
 
         document.body.appendChild(style);
-        document.body.appendChild(btn);
+        var menu = document.getElementById('menu');
+        if (menu) {
+            menu.appendChild(btn);
+        } else {
+            // No menu column (unexpected) — float at top-left, which is
+            // announcement space, never the SPIN corner.
+            btn.className = 'floating';
+            document.body.appendChild(btn);
+        }
         document.body.appendChild(overlay);
 
         function render() {
