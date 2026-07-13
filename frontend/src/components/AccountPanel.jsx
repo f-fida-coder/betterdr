@@ -216,9 +216,17 @@ const BetDefaultsCard = ({ user, onSaved }) => {
         : stored?.mode === 'bet'
             ? 'bet'
             : 'risk';
-    const initialAmount = Number.isFinite(Number(stored?.amount)) && Number(stored.amount) > 0
-        ? String(stored.amount)
-        : '';
+    // Split defaults (PO 2026-07-13): straight vs parlay unit size. Each reads
+    // its own field but falls back to the legacy single `amount` so an account
+    // saved before the split shows its current value in BOTH fields until the
+    // user edits one — nobody's behavior changes on upgrade.
+    const legacyAmount = Number(stored?.amount);
+    const initialStraight = Number.isFinite(Number(stored?.straightDefault)) && Number(stored.straightDefault) > 0
+        ? String(stored.straightDefault)
+        : (Number.isFinite(legacyAmount) && legacyAmount > 0 ? String(legacyAmount) : '');
+    const initialParlay = Number.isFinite(Number(stored?.parlayDefault)) && Number(stored.parlayDefault) > 0
+        ? String(stored.parlayDefault)
+        : (Number.isFinite(legacyAmount) && legacyAmount > 0 ? String(legacyAmount) : '');
     // Outer two chips are pinned to the agent-set Min/Max bet — players
     // can't override their own betting limits from here. The middle
     // three are player-editable; if the user has saved custom values
@@ -239,7 +247,8 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     };
 
     const [mode, setMode] = React.useState(initialMode);
-    const [amount, setAmount] = React.useState(initialAmount);
+    const [straightAmount, setStraightAmount] = React.useState(initialStraight);
+    const [parlayAmount, setParlayAmount] = React.useState(initialParlay);
     const [midStakes, setMidStakes] = React.useState(() => pickInitialMids(stored?.quickStakes));
     const [saving, setSaving] = React.useState(false);
     // Assembled 5-chip row read by render + save. Outer two are always
@@ -258,7 +267,12 @@ const BetDefaultsCard = ({ user, onSaved }) => {
         const next = user?.settings?.betDefaults;
         if (!next) return;
         if (next.mode === 'win' || next.mode === 'risk' || next.mode === 'bet') setMode(next.mode);
-        if (Number.isFinite(Number(next.amount))) setAmount(String(next.amount || ''));
+        // Reseed with the same straight/parlay fallback to legacy `amount`.
+        const nextLegacy = Number(next.amount);
+        const nextStraight = Number.isFinite(Number(next.straightDefault)) ? Number(next.straightDefault) : nextLegacy;
+        const nextParlay = Number.isFinite(Number(next.parlayDefault)) ? Number(next.parlayDefault) : nextLegacy;
+        if (Number.isFinite(nextStraight)) setStraightAmount(String(nextStraight || ''));
+        if (Number.isFinite(nextParlay)) setParlayAmount(String(nextParlay || ''));
         if (Array.isArray(next.quickStakes) && next.quickStakes.length === 5) {
             const m1 = Number(next.quickStakes[1]);
             const m2 = Number(next.quickStakes[2]);
@@ -275,9 +289,14 @@ const BetDefaultsCard = ({ user, onSaved }) => {
             showToast?.('Sign in to save defaults', 'warning');
             return;
         }
-        const parsedAmount = Number(amount);
-        if (amount !== '' && (!Number.isFinite(parsedAmount) || parsedAmount < 0)) {
-            showToast?.('Default amount must be a positive number', 'warning');
+        const parsedStraight = Number(straightAmount);
+        const parsedParlay = Number(parlayAmount);
+        if (straightAmount !== '' && (!Number.isFinite(parsedStraight) || parsedStraight < 0)) {
+            showToast?.('Straight default must be a positive number', 'warning');
+            return;
+        }
+        if (parlayAmount !== '' && (!Number.isFinite(parsedParlay) || parsedParlay < 0)) {
+            showToast?.('Parlay default must be a positive number', 'warning');
             return;
         }
         const parsedQuickStakes = quickStakes.map((v) => Number(v));
@@ -305,7 +324,11 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                 settings: {
                     betDefaults: {
                         mode,
-                        amount: amount === '' ? 0 : Math.round(parsedAmount * 100) / 100,
+                        // Legacy `amount` tracks the straight default (server
+                        // also re-derives this) so any old reader keeps working.
+                        amount: straightAmount === '' ? 0 : Math.round(parsedStraight * 100) / 100,
+                        straightDefault: straightAmount === '' ? 0 : Math.round(parsedStraight * 100) / 100,
+                        parlayDefault: parlayAmount === '' ? 0 : Math.round(parsedParlay * 100) / 100,
                         quickStakes: parsedQuickStakes,
                     },
                 },
@@ -384,50 +407,58 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                     </div>
                 </div>
 
-                {/* Default amount */}
-                <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-                        Default amount (unit size)
-                    </div>
-                    <div style={{
-                        position: 'relative',
-                        border: `1px solid ${palette.cardBorder}`,
-                        borderRadius: 8,
-                        background: '#fbfbfd',
-                    }}>
-                        <span style={{
-                            position: 'absolute',
-                            left: 12,
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: palette.textFaint,
-                            pointerEvents: 'none',
-                        }}>$</span>
-                        <input
-                            type="number"
-                            min="0"
-                            step="1"
-                            inputMode="numeric"
-                            placeholder="50"
-                            value={amount}
-                            onChange={(e) => setAmount(String(e.target.value).replace(/\D/g, ''))}
-                            style={{
-                                width: '100%',
-                                padding: '10px 12px 10px 24px',
-                                border: 'none',
-                                outline: 'none',
-                                fontSize: 14,
+                {/* Default amounts — split straight vs parlay unit size
+                    (parlays are typically staked smaller). Each seeds the
+                    betslip stake for its bucket; parlay/teaser/round-robin/
+                    if-bet/reverse all seed from the parlay default. */}
+                {[
+                    { key: 'straight', label: 'Straight default (unit size)', value: straightAmount, set: setStraightAmount, placeholder: '50' },
+                    { key: 'parlay', label: 'Parlay default (unit size)', value: parlayAmount, set: setParlayAmount, placeholder: '50' },
+                ].map((f) => (
+                    <div key={f.key}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                            {f.label}
+                        </div>
+                        <div style={{
+                            position: 'relative',
+                            border: `1px solid ${palette.cardBorder}`,
+                            borderRadius: 8,
+                            background: '#fbfbfd',
+                        }}>
+                            <span style={{
+                                position: 'absolute',
+                                left: 12,
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                fontSize: 13,
                                 fontWeight: 700,
-                                color: palette.textPrimary,
-                                background: 'transparent',
-                                boxSizing: 'border-box',
-                                borderRadius: 8,
-                            }}
-                        />
+                                color: palette.textFaint,
+                                pointerEvents: 'none',
+                            }}>$</span>
+                            <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                inputMode="numeric"
+                                placeholder={f.placeholder}
+                                value={f.value}
+                                onChange={(e) => f.set(String(e.target.value).replace(/\D/g, ''))}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px 10px 24px',
+                                    border: 'none',
+                                    outline: 'none',
+                                    fontSize: 14,
+                                    fontWeight: 700,
+                                    color: palette.textPrimary,
+                                    background: 'transparent',
+                                    boxSizing: 'border-box',
+                                    borderRadius: 8,
+                                }}
+                            />
+                        </div>
                     </div>
-                </div>
+                ))}
 
                 {/* Quick stake chips — all 5 auto-derived from the player's
                     admin-set Min/Max bet (read-only). Outer two pin to Min /

@@ -4,7 +4,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal, roundCombinedToAmericanDecimal } from '../utils/odds';
 import { computeMidQuickStakes } from '../utils/money';
-import { maxStakeForWinCap, maxStakeNote, cannotFitCapNote, winTargetCappedNote } from '../utils/maxWinCap';
+import { maxStakeForWinCap, maxStakeNote, cannotFitCapNote, winTargetCappedNote, stakeAutoCappedNote } from '../utils/maxWinCap';
 import { formatSiteDateTime } from '../utils/timezone';
 import { isMlbSportKey, formatPitcherLabel } from '../utils/pitchers';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
@@ -481,9 +481,25 @@ const ModeBetPanel = ({
         : rawDefaultMode === 'bet'
             ? 'bet'
             : 'risk';
-    const defaultStakeAmount = Number.isFinite(Number(userBetDefaults?.amount)) && Number(userBetDefaults.amount) > 0
-        ? Number(userBetDefaults.amount)
-        : 0;
+    // Split defaults (PO 2026-07-13): straight unit vs parlay unit. Each reads
+    // its own field and falls back to the legacy single `amount` so accounts
+    // saved before the split behave exactly as before. Scope (a): ONLY straight
+    // seeds from straightDefault; parlay/teaser/round-robin/if-bet/reverse all
+    // seed from parlayDefault.
+    const legacyDefaultAmount = Number(userBetDefaults?.amount);
+    const positiveOr = (val, fallback) => (Number.isFinite(Number(val)) && Number(val) > 0 ? Number(val) : fallback);
+    const straightDefaultAmount = positiveOr(
+        userBetDefaults?.straightDefault,
+        positiveOr(legacyDefaultAmount, 0)
+    );
+    const parlayDefaultAmount = positiveOr(
+        userBetDefaults?.parlayDefault,
+        positiveOr(legacyDefaultAmount, 0)
+    );
+    // The seed for the CURRENT mode. Scope (a): only 'straight' uses the
+    // straight default; every parlay-like mode (parlay/teaser/round_robin/
+    // if_bet/reverse) uses the parlay default.
+    const defaultAmountForMode = (m) => (m === 'straight' ? straightDefaultAmount : parlayDefaultAmount);
     // Quick stakes are fully auto-derived from the player's admin-set Min /
     // Max bet so agents don't have to configure quick-stake values per
     // player. Outer chips pin to Min / Max (limits one tap away); middle
@@ -525,6 +541,13 @@ const ModeBetPanel = ({
     // bet-mode change and user change so a fresh context picks up the
     // saved default the first time the slip opens in that context.
     const slipFirstOpenedRef = useRef(false);
+    // The last value we AUTO-SEEDED into the wager (bucket default). A mode
+    // switch only re-seeds the wager when it's empty or still equals this — a
+    // user-TYPED amount is never overwritten. null once the user edits away.
+    const lastSeededWagerRef = useRef(null);
+    // Live snapshot for the betslip:open listener (registered with [] deps, so
+    // its closure would otherwise read a stale mode/wager/defaults).
+    const seedCtxRef = useRef({});
     useEffect(() => {
         // Only the saved `mode` field drives defaultStakeMode. Hashing
         // the whole userBetDefaults object would re-fire the reset on
@@ -900,6 +923,23 @@ const ModeBetPanel = ({
      * first render the moment React tried to memoize the dependents.
      */
     const effectiveStakeForSelection = React.useCallback((sel) => {
+        // Straight-leg display clamp (PO 2026-07-13): the card must show the
+        // stake placement will actually debit. Placement has always capped
+        // each leg at its own cap-limited stake (capStakeForSelection); the
+        // card previously showed the raw shared wager instead — e.g. Apply
+        // To All $1000 over a leg whose cap-limited max is $109 displayed
+        // Risk $1000 while debiting $109. Clamp the derived pair the same
+        // way (win recomputed from the clamped risk on the leg's own odds).
+        const clampToLegCap = (pair) => {
+            if (normalizedMode !== 'straight') return pair;
+            const cap = Number(user?.maxWinCap);
+            if (!(Number.isFinite(cap) && cap > 0)) return pair;
+            const ms = maxStakeForWinCap(cap, Number(sel?.odds || 0));
+            if (!Number.isFinite(ms) || ms < 1 || !(pair?.risk > ms)) return pair;
+            const d = Number(sel?.odds);
+            const win = d > 1 ? Math.round(ms * (d - 1) * 100) / 100 : pair.win;
+            return { ...pair, risk: ms, win };
+        };
         const override = sel?.wagerOverride;
         if (override && (override.source === 'risk' || override.source === 'win')) {
             const raw = override.source === 'risk' ? override.riskRaw : override.winRaw;
@@ -921,10 +961,10 @@ const ModeBetPanel = ({
             }
             if (override.source === 'risk') {
                 const rawWin = american < 0 ? safe * 100 / (-american) : safe * american / 100;
-                return { risk: safe, win: Math.round(rawWin * 100) / 100, source: 'risk' };
+                return clampToLegCap({ risk: safe, win: Math.round(rawWin * 100) / 100, source: 'risk' });
             }
             const rawRisk = american < 0 ? safe * (-american) / 100 : safe * 100 / american;
-            return { risk: Math.round(rawRisk * 100) / 100, win: safe, source: 'win' };
+            return clampToLegCap({ risk: Math.round(rawRisk * 100) / 100, win: safe, source: 'win' });
         }
         const computed = resolveStake(stakeMode, wager, sel?.odds);
         // Surface which interpretation drove the math so winForSelection
@@ -935,8 +975,8 @@ const ModeBetPanel = ({
         const computedSource = stakeMode === 'bet'
             ? resolveBetSmartMode(sel?.odds)
             : stakeMode;
-        return { ...computed, source: computedSource };
-    }, [stakeMode, wager]);
+        return clampToLegCap({ ...computed, source: computedSource });
+    }, [stakeMode, wager, normalizedMode, user?.maxWinCap]);
 
     // Per-leg Risk amount that's actually staked on a straight leg.
     // For combined modes this returns 0 because there's only ONE bet
@@ -1043,11 +1083,24 @@ const ModeBetPanel = ({
                 // floor placement would send).
                 return Number.isFinite(winCapState.maxStake) ? Math.min(risk, winCapState.maxStake) : risk;
             }
-            return Number.isFinite(wagerAmount) && wagerAmount > 0 ? wagerAmount : 0;
+            // Same clamp for the risk-anchored parlay stake: the input snaps
+            // at the write (applyTypedWager) and re-snaps on cap tightening,
+            // but derive-clamping here too keeps the Risk box, limit gates
+            // and wire identical during the render between those events.
+            const risk = Number.isFinite(wagerAmount) && wagerAmount > 0 ? wagerAmount : 0;
+            return Number.isFinite(winCapState.maxStake) ? Math.min(risk, winCapState.maxStake) : risk;
         }
         const sourceWager = normalizedMode === 'reverse' ? wagerAmount / 2 : wagerAmount;
         const { risk } = resolveStake(stakeMode, sourceWager, ticketDecimalOdds);
-        return Number.isFinite(risk) && risk > 0 ? risk : 0;
+        const safeRisk = Number.isFinite(risk) && risk > 0 ? risk : 0;
+        // Teaser / if_bet / reverse: same derive-clamp, on the SAME scale the
+        // limit gate compares against (limitFlags: effectiveCombinedRisk >
+        // winCapState.maxStake) — reverse's 2× factor is already inside
+        // winCapState. Round robin stays exempt (maxStake = Infinity).
+        if (Number.isFinite(winCapState.maxStake)) {
+            return Math.min(safeRisk, winCapState.maxStake);
+        }
+        return safeRisk;
     }, [normalizedMode, stakeMode, wagerAmount, ticketDecimalOdds, parlayWinAnchored, winCapState]);
 
     // Per-account min/max bet limits from /auth/me payload. Backend
@@ -1129,10 +1182,12 @@ const ModeBetPanel = ({
                 if (maxBreach && !messages.max) {
                     messages.max = `Max bet $${maxBet} — ${labelFor(sel)} risks $${fmt(risk)}`;
                 }
-                // Over the cap-limited stake → informational note (non-blocking;
-                // the stake auto-caps at placement).
-                if (Number.isFinite(selCapMax) && risk > selCapMax && !messages.winCap) {
-                    messages.winCap = maxStakeNote(selCapMax, winCap);
+                // At/over the cap-limited stake → the snapped-stake note. After
+                // the per-leg display clamp the derived risk can EQUAL but never
+                // exceed the leg cap, so >= is the honest trigger (same derived
+                // "typed over == sitting at" trick as the win-anchor note).
+                if (Number.isFinite(selCapMax) && risk >= selCapMax && !messages.winCap) {
+                    messages.winCap = stakeAutoCappedNote(selCapMax, winCap);
                 }
                 if (minBreach || maxBreach) violatingIds.add(sel.id);
             }
@@ -1505,13 +1560,40 @@ const ModeBetPanel = ({
     // same event, so the closure's parlayWinAnchored is stale-false on the
     // first keystroke and the clamp would be skipped for e.g. a pasted
     // over-cap value.
+    // Display-truth stake snap (PO 2026-07-13). Placement has ALWAYS clamped
+    // the wire amount to the cap-limited stake, so an over-cap input placed a
+    // smaller bet than the field showed. Snap the field itself DOWN at the
+    // write — same pattern as the win-anchor clamp below, one write path for
+    // input + quick chips + summary boxes. Scope: closed parlay / teaser /
+    // if_bet / reverse (winCapState.maxStake already halves for reverse).
+    // Round robin (server caps per child, rejects not clamps) and open parlay
+    // (odds not final) keep their own contracts; straight legs snap per-card.
+    const capSnapInScope = ['parlay', 'teaser', 'if_bet', 'reverse'].includes(normalizedMode) && !isOpenParlay;
+
     const applyTypedWager = React.useCallback((raw, asWin = parlayWinAnchored) => {
         if (asWin && effectiveWinCap > 0 && Number(raw) > effectiveWinCap) {
             onWagerChange(String(Math.floor(effectiveWinCap)));
             return;
         }
+        if (!asWin && capSnapInScope
+            && Number.isFinite(winCapState.maxStake) && winCapState.maxStake >= 1
+            && Number(raw) > winCapState.maxStake) {
+            onWagerChange(String(winCapState.maxStake));
+            return;
+        }
         onWagerChange(raw);
-    }, [parlayWinAnchored, effectiveWinCap, onWagerChange]);
+    }, [parlayWinAnchored, effectiveWinCap, onWagerChange, capSnapInScope, winCapState.maxStake]);
+
+    // Cap tightening: adding a leg (or an odds move) can drop the cap-limited
+    // max below the stake already sitting in the field. Re-snap so the field
+    // never lingers over the amount placement would actually debit.
+    useEffect(() => {
+        if (!capSnapInScope || parlayWinAnchored) return;
+        const ms = winCapState.maxStake;
+        if (Number.isFinite(ms) && ms >= 1 && Number(wager) > ms) {
+            onWagerChange(String(ms));
+        }
+    }, [capSnapInScope, parlayWinAnchored, winCapState.maxStake, wager, onWagerChange]);
 
     // Informational (non-blocking) note when the win-anchored target sits at
     // the cap — after the write-clamp above, "typed over the cap" and "typed
@@ -1519,6 +1601,18 @@ const ModeBetPanel = ({
     // for both. Derived, not stored, so it can never go stale.
     const winAnchorCapNote = parlayWinAnchored && effectiveWinCap > 0 && wagerAmount >= effectiveWinCap
         ? winTargetCappedNote(effectiveWinCap)
+        : '';
+
+    // Stake-was-snapped note (derived, same never-stale trick as the
+    // win-anchor note above: after the write-snap, "typed over the cap" and
+    // "sitting exactly at the cap" are the same stored state, and the copy is
+    // honest for both). Rendered as the PROMINENT banner variant — the player
+    // must see they are now staking the capped amount, not what they typed.
+    const stakeSnapNote = capSnapInScope && !parlayWinAnchored
+        && winCapState.cap > 0
+        && Number.isFinite(winCapState.maxStake) && winCapState.maxStake >= 1
+        && wagerAmount > 0 && wagerAmount >= winCapState.maxStake
+        ? stakeAutoCappedNote(winCapState.maxStake, winCapState.cap)
         : '';
 
     // Display win = profit on full payoff. For combined modes, clamp at
@@ -1605,7 +1699,9 @@ const ModeBetPanel = ({
     // is present.
     const amountWarning = validationErrors.find((e) =>
         typeof e === 'string' && (e.startsWith('Min bet') || e.startsWith('Max bet'))
-    ) || limitFlags.messages.winCap || winAnchorCapNote || limitFlags.messages.capInfo || '';
+    ) || stakeSnapNote || limitFlags.messages.winCap || winAnchorCapNote || limitFlags.messages.capInfo || '';
+    // The snapped-stake message gets the emphasized banner treatment.
+    const amountWarningEmphasized = amountWarning !== '' && amountWarning === stakeSnapNote;
     const hasSelections = legCount > 0;
     const [isOpen, setIsOpen] = useState(false);
 
@@ -1615,11 +1711,17 @@ const ModeBetPanel = ({
     useEffect(() => {
         const handleOpen = () => {
             setIsOpen(true);
-            // Pre-fill the Bet Amount with the user's saved default, but
-            // only when the input is currently empty so we don't stomp
-            // a value the user just typed before reopening the slip.
-            if (defaultStakeAmount > 0 && (wager === '' || wager === null || wager === undefined)) {
-                onWagerChange(String(defaultStakeAmount));
+            // Pre-fill the Bet Amount with the user's saved default for the
+            // CURRENT mode (straight vs parlay-like), but only when the input
+            // is empty so we don't stomp a value the user just typed before
+            // reopening the slip. Record what we seeded so a subsequent mode
+            // switch can safely re-seed it (but never a typed amount).
+            const ctx = seedCtxRef.current;
+            const seed = ctx.defaultAmountForMode ? ctx.defaultAmountForMode(ctx.normalizedMode) : 0;
+            const w = ctx.wager;
+            if (seed > 0 && (w === '' || w === null || w === undefined)) {
+                onWagerChange(String(seed));
+                lastSeededWagerRef.current = seed;
             }
             // Re-seed the mode only on the FIRST open per session/mode/
             // user context so a manual WIN click doesn't get nuked when
@@ -1635,6 +1737,48 @@ const ModeBetPanel = ({
         window.addEventListener('betslip:open', handleOpen);
         return () => window.removeEventListener('betslip:open', handleOpen);
     }, []);
+
+    // Keep the open-listener's live snapshot current every render.
+    seedCtxRef.current = { normalizedMode, wager, defaultAmountForMode };
+
+    // Re-seed the stake when the mode switches between buckets (straight ↔
+    // parlay-like), but ONLY while the wager is untouched — empty, or still
+    // equal to the value we last auto-seeded. A user-typed amount is left
+    // alone. This is what makes "$1000 straight → switch to parlay → $100"
+    // visible while never stomping a deliberate stake. Initial seeding stays
+    // with the betslip:open handler (skip this effect's mount run) so the
+    // wager isn't pre-filled before the slip is ever opened.
+    const bucketSeedMountedRef = useRef(false);
+    useEffect(() => {
+        if (!bucketSeedMountedRef.current) {
+            bucketSeedMountedRef.current = true;
+            return;
+        }
+        const seed = defaultAmountForMode(normalizedMode);
+        if (seed <= 0) return;
+        const isEmpty = wager === '' || wager === null || wager === undefined;
+        const isUntouchedSeed = lastSeededWagerRef.current !== null
+            && Number(wager) === Number(lastSeededWagerRef.current);
+        if (isEmpty || isUntouchedSeed) {
+            if (Number(wager) !== seed) onWagerChange(String(seed));
+            lastSeededWagerRef.current = seed;
+        }
+        // Depend on the bucket (straight vs parlay-like), not raw mode, so
+        // teaser↔parlay (same bucket) doesn't needlessly re-fire.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [normalizedMode === 'straight', straightDefaultAmount, parlayDefaultAmount]);
+
+    // When the user types/clears the field, forget the seed so a later mode
+    // switch treats it as a deliberate amount (never overwrites it).
+    useEffect(() => {
+        const isEmpty = wager === '' || wager === null || wager === undefined;
+        if (isEmpty) {
+            lastSeededWagerRef.current = null;
+        } else if (lastSeededWagerRef.current !== null
+            && Number(wager) !== Number(lastSeededWagerRef.current)) {
+            lastSeededWagerRef.current = null;
+        }
+    }, [wager]);
 
     // Reset the first-open gate on bet-mode change and user change.
     // Mode change already clears teaser-specific state via the parent's
@@ -2739,12 +2883,12 @@ const ModeBetPanel = ({
                                 role="alert"
                                 style={{
                                     margin: '4px 0 8px',
-                                    padding: '6px 10px',
-                                    fontSize: 11,
-                                    fontWeight: 700,
+                                    padding: amountWarningEmphasized ? '9px 12px' : '6px 10px',
+                                    fontSize: amountWarningEmphasized ? 12.5 : 11,
+                                    fontWeight: amountWarningEmphasized ? 800 : 700,
                                     color: '#b45309',
                                     background: '#fef3c7',
-                                    border: '1px solid #fcd34d',
+                                    border: amountWarningEmphasized ? '2px solid #f59e0b' : '1px solid #fcd34d',
                                     borderRadius: 6,
                                     letterSpacing: 0.2,
                                 }}
@@ -3531,7 +3675,22 @@ const ModeBetPanel = ({
                                                             // Whole-dollar amounts only — strip anything
                                                             // that isn't a digit so users can't enter
                                                             // cents.
-                                                            const cleaned = String(e.target.value).replace(/\D/g, '');
+                                                            let cleaned = String(e.target.value).replace(/\D/g, '');
+                                                            // Per-leg stake snap (PO 2026-07-13): a typed
+                                                            // Risk over this leg's cap-limited stake — or a
+                                                            // typed Win over the cap itself — snaps down at
+                                                            // the write, same as the shared input. Placement
+                                                            // already clamps the wire; this keeps the card
+                                                            // showing the amount actually debited/paid.
+                                                            const legCap = Number(user?.maxWinCap);
+                                                            if (legCap > 0 && cleaned !== '') {
+                                                                if (field.id === 'risk') {
+                                                                    const ms = maxStakeForWinCap(legCap, Number(sel?.odds || 0));
+                                                                    if (Number.isFinite(ms) && ms >= 1 && Number(cleaned) > ms) cleaned = String(ms);
+                                                                } else if (Number(cleaned) > legCap) {
+                                                                    cleaned = String(Math.floor(legCap));
+                                                                }
+                                                            }
                                                             updateSelection(sel.id, {
                                                                 wagerOverride: field.id === 'risk'
                                                                     ? { source: 'risk', riskRaw: cleaned, winRaw: '' }

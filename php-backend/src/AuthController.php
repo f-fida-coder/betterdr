@@ -685,14 +685,30 @@ final class AuthController
                     Response::json(['message' => 'betDefaults.mode must be bet, risk, or win'], 400);
                     return;
                 }
+                // Split defaults (PO 2026-07-13): a straight default and a
+                // parlay default (parlays are staked smaller). New clients send
+                // straightDefault + parlayDefault; each falls back to the legacy
+                // `amount` so an old client (amount only) round-trips unchanged,
+                // and `amount` stays populated below (= straightDefault) for any
+                // legacy reader. Same whole-dollar clamp for all three.
                 $amountRaw = $bd['amount'] ?? 0;
-                $amount = is_numeric($amountRaw) ? (float) $amountRaw : 0.0;
-                if ($amount < 0 || $amount > 1000000) {
-                    Response::json(['message' => 'betDefaults.amount must be between 0 and 1,000,000'], 400);
-                    return;
+                $legacyAmount = is_numeric($amountRaw) ? (float) $amountRaw : 0.0;
+                $straightRaw = $bd['straightDefault'] ?? $legacyAmount;
+                $parlayRaw = $bd['parlayDefault'] ?? $legacyAmount;
+                $straightDefault = is_numeric($straightRaw) ? (float) $straightRaw : 0.0;
+                $parlayDefault = is_numeric($parlayRaw) ? (float) $parlayRaw : 0.0;
+                foreach (['betDefaults.amount' => $legacyAmount, 'betDefaults.straightDefault' => $straightDefault, 'betDefaults.parlayDefault' => $parlayDefault] as $label => $val) {
+                    if ($val < 0 || $val > 1000000) {
+                        Response::json(['message' => $label . ' must be between 0 and 1,000,000'], 400);
+                        return;
+                    }
                 }
-                // PPH whole-dollar policy: bet defaults stored as integer too.
-                $amount = (float) round($amount);
+                // PPH whole-dollar policy: bet defaults stored as integers.
+                $straightDefault = (float) round($straightDefault);
+                $parlayDefault = (float) round($parlayDefault);
+                // Legacy `amount` tracks the straight default so any reader that
+                // still reads betDefaults.amount keeps the pre-split behavior.
+                $amount = $straightDefault;
                 $quickStakesRaw = is_array($bd['quickStakes'] ?? null) ? $bd['quickStakes'] : [10, 25, 50, 75, 100];
                 // Normalize to exactly 5 positive integers so the betslip
                 // UI can rely on a fixed-width row of 5 buttons (Min, three
@@ -712,7 +728,9 @@ final class AuthController
                 $existingSettings = is_array($user['settings'] ?? null) ? $user['settings'] : [];
                 $existingSettings['betDefaults'] = [
                     'mode' => $mode,
-                    'amount' => $amount,
+                    'amount' => $amount,                     // legacy = straightDefault
+                    'straightDefault' => $straightDefault,
+                    'parlayDefault' => $parlayDefault,
                     'quickStakes' => array_values($quickStakes),
                 ];
                 $user['settings'] = $existingSettings;
