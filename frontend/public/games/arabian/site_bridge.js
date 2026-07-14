@@ -111,6 +111,83 @@
 
     window.addEventListener('message', handleMessage);
 
+    /* ── Provably-fair client state (Option A rotating chain) ─────────────── */
+    function randomClientSeed() {
+        try {
+            var a = new Uint8Array(16);
+            (window.crypto || window.msCrypto).getRandomValues(a);
+            var h = '';
+            for (var i = 0; i < a.length; i++) { h += ('0' + a[i].toString(16)).slice(-2); }
+            return h;
+        } catch (e) { return 'cs' + Date.now().toString(36); }
+    }
+    function loadClientSeed() {
+        try { var v = window.sessionStorage.getItem('arb_client_seed'); if (v && /^[A-Za-z0-9._:-]{1,128}$/.test(v)) { return v; } } catch (e) {}
+        return randomClientSeed();
+    }
+    var clientSeed = loadClientSeed();
+
+    window.BetterdrFairness = {
+        game: 'arabian',
+        clientSeed: clientSeed,
+        state: null,      // { serverSeedHash, nextNonce, symbolWeights, weightsHash, rows, reels, algorithm }
+        lastRound: null,  // { serverSeed, clientSeed, nonce, weightsHash, gridHash, pattern, lineCount, coinBet, payoutScale, totalWin, result }
+        listeners: [],
+        onChange: function (fn) { if (typeof fn === 'function') { this.listeners.push(fn); } },
+        emit: function () { for (var i = 0; i < this.listeners.length; i++) { try { this.listeners[i](this); } catch (e) {} } },
+        getClientSeed: function () { return clientSeed; },
+        setClientSeed: function (value) {
+            var v = String(value == null ? '' : value).trim();
+            if (!/^[A-Za-z0-9._:-]{1,128}$/.test(v)) { v = randomClientSeed(); }
+            clientSeed = v; this.clientSeed = v;
+            try { window.sessionStorage.setItem('arb_client_seed', v); } catch (e) {}
+            this.emit();
+            return v;
+        },
+        refresh: function () { requestFairnessState(); }
+    };
+
+    function requestFairnessState() {
+        createRequest('getFairness', {}, ['fairnessState'], []).then(function (msg) {
+            if (msg && msg.state) {
+                window.BetterdrFairness.state = msg.state;
+                if (msg.state.lastRound) { window.BetterdrFairness.lastRound = msg.state.lastRound; }
+                window.BetterdrFairness.emit();
+            }
+        }).catch(function () {});
+    }
+
+    function updateFairnessFromResponse(resp) {
+        try {
+            var f = resp && resp.fairness;
+            var rd = resp && resp.roundData;
+            if (f && f.serverSeed) {
+                window.BetterdrFairness.lastRound = {
+                    roundId: resp.roundId || '',
+                    serverSeed: f.serverSeed,
+                    serverSeedHash: f.serverSeedHash || '',
+                    clientSeed: f.clientSeed || '',
+                    nonce: Number(f.nonce) || 0,
+                    weightsHash: (rd && rd.weightsHash) || '',
+                    gridHash: (rd && rd.gridHash) || '',
+                    pattern: (rd && rd.pattern) || [],
+                    lineCount: (rd && rd.lineCount) || 0,
+                    coinBet: (rd && rd.coinBet) || 0,
+                    payoutScale: (rd && rd.payoutScale) || 1,
+                    bonusPrizeIndex: (rd && rd.bonusPrizeIndex),
+                    totalWin: (rd && rd.totalWin) || 0,
+                    result: resp.result || ''
+                };
+                // The next-spin commitment is the just-revealed spin's next hash.
+                if (window.BetterdrFairness.state && f.serverSeedHashNext) {
+                    window.BetterdrFairness.state.serverSeedHash = String(f.serverSeedHashNext);
+                    window.BetterdrFairness.state.nextNonce = (Number(f.nonce) || 0) + 1;
+                }
+                window.BetterdrFairness.emit();
+            }
+        } catch (e) {}
+    }
+
     window.BetterdrArabianBridge = {
         createRequestId: nextRequestId,
         getBalance: function () {
@@ -120,8 +197,14 @@
             return createRequest('placeBet', {
                 game: 'arabian',
                 bets: payload || {},
-                requestId: requestId
-            }, ['betResult'], ['betError']);
+                requestId: requestId,
+                payload: { clientSeed: clientSeed }
+            }, ['betResult'], ['betError']).then(function (resp) {
+                updateFairnessFromResponse(resp);
+                return resp;
+            });
         }
     };
+
+    requestFairnessState();
 }());

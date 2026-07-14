@@ -56,6 +56,10 @@ final class CasinoController
     private const BLACKJACK_MAX_DECK_COUNT = 8;
     private const CRAPS_RNG_VERSION = 'server-rules-v1';
     private const ARABIAN_RNG_VERSION = 'server-slot-v1';
+    // Phase 3: commit-reveal seeded reel-symbol draw (Option A rotating chain,
+    // like bogeyman). Entropy source only — the weighted per-cell mapping is
+    // byte-identical to the random_int draw, so RTP is unchanged.
+    private const ARABIAN_FAIR_RNG_VERSION = 'commit-reveal-hmac-arabian-v1';
     private const JURASSIC_RUN_RNG_VERSION = 'jurassic-slot-v1';
     private const BOGEYMAN_RNG_VERSION = 'bogeyman-slot-v1';
     // Phase 3: commit-reveal seeded stops (Option A rotating chain, like
@@ -3509,7 +3513,7 @@ final class CasinoController
                     ?? $payloadMeta['coin']
                     ?? null
             );
-            $declaredTotalBet = $this->parseMoneyValue(
+            $declaredTotalBet = $this->parseArabianMoneyValue(
                 $clientBets['totalBet']
                     ?? $clientBets['bet']
                     ?? $payloadMeta['totalBet']
@@ -3614,7 +3618,50 @@ final class CasinoController
                 }
 
                 $roundId = $this->deterministicRoundId(self::ARABIAN_GAME_SLUG, $userId, $requestId);
-                $settlement = $this->settleArabianSpin($coinBet, $lineCount, $stateBefore, $payoutScale);
+
+                // ── Commit-reveal fairness (Option A: stored rotating chain) ──
+                // Read the CURRENT seed under the SAME user-row lock held since
+                // loadLockedCasinoUser, plus a row-lock on the chain itself, so
+                // read+rotate is serialized with placement — two near-simultaneous
+                // spins (or free spins) can't fork or skip the chain. The seed's
+                // hash was already committed (fairness/state on open, or the prior
+                // spin's serverSeedHashNext). This runs AFTER the idempotency
+                // check above, so a replayed requestId never advances the chain.
+                // If the row is missing where it must exist, FAIL LOUD (409) —
+                // never silently re-init, never fall back to unseeded RNG.
+                $chainId = $this->baccaratSeedChainId($userId, self::ARABIAN_GAME_SLUG);
+                $chain = $this->db->findOneForUpdate('casino_seed_chains', ['id' => $chainId]);
+                if ($chain === null || !isset($chain['serverSeed']) || (string) $chain['serverSeed'] === '') {
+                    $this->db->rollback();
+                    $this->writeCasinoAuditLog('arabian_seed_chain_missing', [
+                        'requestId' => $requestId,
+                        'userId' => $userId,
+                        'game' => self::ARABIAN_GAME_SLUG,
+                    ]);
+                    Response::json(['message' => 'Fairness is not initialized for this session. Please reload the game and try again.'], 409);
+                    return;
+                }
+                $serverSeed = (string) $chain['serverSeed'];
+                $serverSeedHash = (string) ($chain['serverSeedHash'] ?? hash('sha256', $serverSeed));
+                $nonce = (int) ($chain['nonce'] ?? 0);
+                $clientSeed = $this->resolveClientSeed($body);
+
+                $settlement = $this->settleArabianSpin($coinBet, $lineCount, $stateBefore, $payoutScale, $serverSeed, $clientSeed, $nonce);
+
+                // Rotate the chain to a fresh unrevealed seed for the NEXT spin,
+                // in this same transaction (rolled back with everything else if
+                // the spin fails). Only the next seed's HASH ever leaves the
+                // server; the seed stays secret until that spin is played.
+                $nextServerSeed = bin2hex(random_bytes(32));
+                $serverSeedHashNext = hash('sha256', $nextServerSeed);
+                $this->db->updateOne('casino_seed_chains', ['id' => $chainId], [
+                    'serverSeed' => $nextServerSeed,
+                    'serverSeedHash' => $serverSeedHashNext,
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce + 1,
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ]);
+
                 $totalReturn = round($this->num($settlement['totalReturn'] ?? 0), 2);
                 $netResult = round($totalReturn - $totalWager, 2);
                 $profit = round(max(0, $netResult), 2);
@@ -3768,8 +3815,17 @@ final class CasinoController
                     'availableBalanceAfter' => $availableBalanceAfter,
                     'pendingBalanceSnapshot' => $balanceSnapshot['pendingBalance'],
                     'ledgerEntries' => $ledgerRefs,
-                    'rngVersion' => self::ARABIAN_RNG_VERSION,
+                    'rngVersion' => self::ARABIAN_FAIR_RNG_VERSION,
                     'outcomeSource' => 'server_rng',
+                    // Provably-fair reveal (Phase 3): the seed used THIS spin is
+                    // now disclosed; serverSeedHashNext commits the next.
+                    'serverSeed' => $serverSeed,
+                    'serverSeedHash' => $serverSeedHash,
+                    'serverSeedHashNext' => $serverSeedHashNext,
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce,
+                    'weightsHash' => self::arabianWeightsHash(),
+                    'gridHash' => (string) ($roundData['gridHash'] ?? ''),
                     'betLimits' => $betLimits,
                     'betDetails' => $betDetails,
                     'roundData' => $roundData,
@@ -3789,8 +3845,13 @@ final class CasinoController
                     'requestId' => $requestId,
                     'userId' => $userId,
                     'game' => self::ARABIAN_GAME_SLUG,
-                    'rngVersion' => self::ARABIAN_RNG_VERSION,
+                    'rngVersion' => self::ARABIAN_FAIR_RNG_VERSION,
                     'outcomeSource' => 'server_rng',
+                    'serverSeed' => $serverSeed,
+                    'serverSeedHash' => $serverSeedHash,
+                    'serverSeedHashNext' => $serverSeedHashNext,
+                    'clientSeed' => $clientSeed,
+                    'nonce' => $nonce,
                     'bets' => $betRecord['bets'],
                     'result' => $result,
                     'resultType' => $resultType,
@@ -3900,9 +3961,33 @@ final class CasinoController
         return $lineCount;
     }
 
+    /**
+     * Cent-precise money parse (2dp) — the shared parseMoneyValue rounds to
+     * whole dollars and would reject the $0.05 coin ladder. Mirrors
+     * parseBogeymanMoneyValue.
+     */
+    private function parseArabianMoneyValue(mixed $value, string $fieldName): float
+    {
+        if ($value === null || $value === '') {
+            return 0.0;
+        }
+        if (!is_numeric($value)) {
+            throw new InvalidArgumentException($fieldName . ' must be numeric');
+        }
+        $amount = (float) $value;
+        if (!is_finite($amount) || $amount < 0) {
+            throw new InvalidArgumentException($fieldName . ' must be a valid non-negative amount');
+        }
+        $rounded = round($amount, 2);
+        if (abs($amount - $rounded) > 0.00001) {
+            throw new InvalidArgumentException($fieldName . ' must have at most 2 decimal places');
+        }
+        return $rounded;
+    }
+
     private function parseArabianCoinBet(mixed $value): float
     {
-        $coinBet = $this->parseMoneyValue($value, 'bets.coinBet');
+        $coinBet = $this->parseArabianMoneyValue($value, 'bets.coinBet');
         if ($coinBet <= 0) {
             throw new InvalidArgumentException('bets.coinBet must be greater than zero');
         }
@@ -4091,7 +4176,7 @@ final class CasinoController
      *   stateAfter: array<string, mixed>
      * }
      */
-    private function settleArabianSpin(float $coinBet, int $lineCount, array $stateBefore, float $payoutScale = 1.0): array
+    private function settleArabianSpin(float $coinBet, int $lineCount, array $stateBefore, float $payoutScale, string $serverSeed, string $clientSeed, int $nonce): array
     {
         $freeSpinsBefore = max(0, (int) ($stateBefore['freeSpinsRemaining'] ?? 0));
         $isFreeSpinRound = $freeSpinsBefore > 0;
@@ -4102,7 +4187,10 @@ final class CasinoController
         // Cent-precise: the coin ladder goes to $0.05, so money rounds to 2dp.
         $totalBet = round($coinBet * $lineCount, 2);
 
-        $pattern = $this->generateArabianPattern();
+        // Phase 3: the grid + conditional bonus prize come from the committed
+        // seed chain (entropy source only). The weighted mapping is identical to
+        // the random_int draw, so RTP is unchanged.
+        [$pattern, $seededBonusPrizeIndex] = $this->arabianSeededSymbols($serverSeed, $clientSeed, $nonce);
         // payoutScale (admin house-edge lever) applies to every line win, floored
         // to cents inside the evaluator. Deck stays a uniform fair draw.
         $winningLines = $this->evaluateArabianWinningLines($pattern, $lineCount, $coinBet, $payoutScale);
@@ -4116,8 +4204,9 @@ final class CasinoController
         $bonusTriggered = $bonusSymbolCount >= 3;
         $bonusPrizeIndex = -1;
         $bonusWin = 0.0;
-        if ($bonusTriggered) {
-            [$bonusPrizeIndex, $bonusMultiplier] = $this->pickArabianBonusPrize();
+        if ($bonusTriggered && $seededBonusPrizeIndex >= 0) {
+            $bonusPrizeIndex = $seededBonusPrizeIndex;
+            $bonusMultiplier = round($this->num(self::ARABIAN_BONUS_PRIZES[$bonusPrizeIndex] ?? 0));
             // Bonus pays x TOTAL BET (line-count-independent), scaled + floored
             // to cents by the same payoutScale (house-safe).
             $bonusWin = $this->arabianScaleFloorToCents($bonusMultiplier * $totalBet, $payoutScale);
@@ -4154,6 +4243,8 @@ final class CasinoController
             'coinBet' => $coinBet,
             'totalBet' => $totalBet,
             'payoutScale' => $payoutScale,
+            'weightsHash' => self::arabianWeightsHash(),
+            'gridHash' => hash('sha256', json_encode($pattern, JSON_UNESCAPED_SLASHES) ?: ''),
             'isFreeSpinRound' => $isFreeSpinRound,
             'freeSpinsBefore' => $freeSpinsBefore,
             'freeSpinsAwarded' => $freeSpinsAwarded,
@@ -4345,6 +4436,105 @@ final class CasinoController
         }
 
         return [-1, 0.0];
+    }
+
+    /**
+     * Published identity of the symbol-weight distribution — the arabian analog
+     * of bogeymanStripsHash. Part of the verification recipe.
+     */
+    private static function arabianWeightsHash(): string
+    {
+        return hash('sha256', json_encode(self::ARABIAN_SYMBOL_WEIGHTS, JSON_UNESCAPED_SLASHES) ?: '');
+    }
+
+    /**
+     * Phase 3 — provably-fair seeded draw for one Arabian spin (Option A
+     * rotating chain, like bogeyman). Keystream =
+     * HMAC-SHA256(key=serverSeed, msg="clientSeed:nonce:counter") for
+     * counter=0,1,2,…; each draw takes the next big-endian uint32 and is
+     * REJECTION-SAMPLED to a uniform roll in [1, totalWeight], then mapped
+     * through the SAME cumulative symbol weights as pickArabianSymbol() — so the
+     * distribution (and RTP) is byte-identical to the random_int draw. Consumes
+     * 15 cell draws (row-major, matching generateArabianPattern) then, ONLY when
+     * the grid shows >= 3 bonus symbols, one bonus-prize draw from the same
+     * keystream (matching the random_int consumption order). One set per spin.
+     *
+     * @return array{0: array<int, array<int, int>>, 1: int} [pattern, bonusPrizeIndex]
+     *   bonusPrizeIndex is -1 when the grid does not trigger the bonus.
+     */
+    private function arabianSeededSymbols(string $serverSeed, string $clientSeed, int $nonce): array
+    {
+        $message = $clientSeed . ':' . $nonce . ':';
+        $buffer = '';
+        $bufPos = 0;
+        $counter = 0;
+        $nextUint32 = static function () use (&$buffer, &$bufPos, &$counter, $serverSeed, $message): int {
+            if ($bufPos + 4 > strlen($buffer)) {
+                $buffer = hash_hmac('sha256', $message . $counter, $serverSeed, true);
+                $counter++;
+                $bufPos = 0;
+            }
+            /** @var array{1: int} $unpacked */
+            $unpacked = unpack('N', substr($buffer, $bufPos, 4));
+            $bufPos += 4;
+            return $unpacked[1];
+        };
+
+        $symbolWeights = self::ARABIAN_SYMBOL_WEIGHTS;
+        $symbolTotal = 0;
+        foreach ($symbolWeights as $weight) {
+            $symbolTotal += max(0, (int) $weight);
+        }
+        // Largest multiple of totalWeight that fits in uint32; reject at/above to
+        // remove modulo bias (every roll equally likely).
+        $symbolLimit = intdiv(0x100000000, $symbolTotal) * $symbolTotal;
+
+        $pattern = [];
+        for ($row = 0; $row < self::ARABIAN_ROWS; $row++) {
+            $pattern[$row] = [];
+            for ($col = 0; $col < self::ARABIAN_REELS; $col++) {
+                do {
+                    $value = $nextUint32();
+                } while ($value >= $symbolLimit);
+                $roll = ($value % $symbolTotal) + 1; // uniform [1, totalWeight] == random_int(1, totalWeight)
+                $symbol = 1;
+                $cursor = 0;
+                foreach ($symbolWeights as $sym => $weight) {
+                    $cursor += max(0, (int) $weight);
+                    if ($roll <= $cursor) {
+                        $symbol = (int) $sym;
+                        break;
+                    }
+                }
+                $pattern[$row][$col] = $symbol;
+            }
+        }
+
+        $bonusPrizeIndex = -1;
+        if ($this->countArabianSymbol($pattern, self::ARABIAN_BONUS_SYMBOL) >= 3) {
+            $bonusWeights = self::ARABIAN_BONUS_PRIZE_WEIGHTS;
+            $bonusTotal = 0;
+            foreach ($bonusWeights as $weight) {
+                $bonusTotal += max(0, (int) $weight);
+            }
+            if ($bonusTotal > 0) {
+                $bonusLimit = intdiv(0x100000000, $bonusTotal) * $bonusTotal;
+                do {
+                    $value = $nextUint32();
+                } while ($value >= $bonusLimit);
+                $roll = ($value % $bonusTotal) + 1;
+                $cursor = 0;
+                foreach ($bonusWeights as $idx => $weight) {
+                    $cursor += max(0, (int) $weight);
+                    if ($roll <= $cursor) {
+                        $bonusPrizeIndex = (int) $idx;
+                        break;
+                    }
+                }
+            }
+        }
+
+        return [$pattern, $bonusPrizeIndex];
     }
 
     // ════════════════════════════════════════════════════════
@@ -10050,6 +10240,10 @@ final class CasinoController
                 $this->getAcesAndEightsFairnessState($actor);
                 return;
             }
+            if ($game === self::ARABIAN_GAME_SLUG) {
+                $this->getArabianFairnessState($actor);
+                return;
+            }
             if ($game !== self::BACCARAT_CLASSIC_GAME_SLUG) {
                 Response::json(['message' => 'Fairness is not available for game "' . $game . '"'], 400);
                 return;
@@ -10146,6 +10340,60 @@ final class CasinoController
             'stripLengths' => array_values($stripLengths),
             'stripsHash' => self::bogeymanStripsHash(),
             'algorithm' => self::BOGEYMAN_FAIR_RNG_VERSION,
+            'lastRound' => $lastRound,
+        ]);
+    }
+
+    /**
+     * Arabian fairness state: same chain machinery (helpers are game-parametric),
+     * slot-shaped lastRound payload. SOLE creator of the chain — the commitment
+     * exists before any spin.
+     *
+     * @param array<string, mixed> $actor
+     */
+    private function getArabianFairnessState(array $actor): void
+    {
+        $userId = (string) ($actor['id'] ?? '');
+        $chain = $this->ensureBaccaratSeedChain($userId, self::ARABIAN_GAME_SLUG);
+        $nextNonce = (int) ($chain['nonce'] ?? 0);
+        $commitment = (string) ($chain['serverSeedHash'] ?? hash('sha256', (string) $chain['serverSeed']));
+
+        $lastRound = null;
+        $rows = $this->db->findMany(
+            'casino_bets',
+            ['userId' => $userId, 'game' => self::ARABIAN_GAME_SLUG],
+            ['sort' => ['createdAt' => -1], 'limit' => 1]
+        );
+        $last = $rows[0] ?? null;
+        if (is_array($last) && isset($last['serverSeed'])) {
+            $roundData = is_array($last['roundData'] ?? null) ? $last['roundData'] : [];
+            $payoutApplied = is_array($last['payoutApplied'] ?? null) ? $last['payoutApplied'] : [];
+            $lastRound = [
+                'roundId' => (string) ($last['roundId'] ?? $last['id'] ?? ''),
+                'serverSeed' => (string) $last['serverSeed'],
+                'serverSeedHash' => (string) ($last['serverSeedHash'] ?? ''),
+                'clientSeed' => (string) ($last['clientSeed'] ?? ''),
+                'nonce' => (int) ($last['nonce'] ?? 0),
+                'weightsHash' => (string) ($last['weightsHash'] ?? self::arabianWeightsHash()),
+                'gridHash' => (string) ($last['gridHash'] ?? ($roundData['gridHash'] ?? '')),
+                'pattern' => is_array($roundData['pattern'] ?? null) ? $roundData['pattern'] : [],
+                'lineCount' => (int) ($roundData['lineCount'] ?? 0),
+                'bonusPrizeIndex' => (int) ($roundData['bonusPrizeIndex'] ?? -1),
+                'totalWin' => $this->num($roundData['totalWin'] ?? 0),
+                'payoutScale' => round($this->num($payoutApplied['payoutScale'] ?? 1.0), 2),
+                'result' => (string) ($last['result'] ?? ''),
+            ];
+        }
+
+        Response::json([
+            'game' => self::ARABIAN_GAME_SLUG,
+            'nextNonce' => $nextNonce,
+            'serverSeedHash' => $commitment,
+            'symbolWeights' => self::ARABIAN_SYMBOL_WEIGHTS,
+            'weightsHash' => self::arabianWeightsHash(),
+            'rows' => self::ARABIAN_ROWS,
+            'reels' => self::ARABIAN_REELS,
+            'algorithm' => self::ARABIAN_FAIR_RNG_VERSION,
             'lastRound' => $lastRound,
         ]);
     }
@@ -10292,6 +10540,10 @@ final class CasinoController
             }
             if ($game === self::ACES_AND_EIGHTS_GAME_SLUG) {
                 $this->verifyAcesAndEightsFairness();
+                return;
+            }
+            if ($game === self::ARABIAN_GAME_SLUG) {
+                $this->verifyArabianFairness();
                 return;
             }
             if ($game !== self::BACCARAT_CLASSIC_GAME_SLUG) {
@@ -10525,6 +10777,84 @@ final class CasinoController
             'coinsWon' => (int) $evaluation['coins'],
             'vendorHits' => implode(',', $hitTokens),
             'winningLines' => $evaluation['winningLines'],
+        ]);
+    }
+
+    /**
+     * Recompute one Arabian spin from a committed seed tuple: the 15-cell grid +
+     * conditional bonus prize come from arabianSeededSymbols, then the exact same
+     * evaluator + payoutScale cent-floor as the engine. Anyone holding
+     * (serverSeed, clientSeed, nonce) reproduces the grid and the wins.
+     */
+    private function verifyArabianFairness(): void
+    {
+        $serverSeed = trim((string) ($_GET['serverSeed'] ?? ''));
+        $clientSeed = trim((string) ($_GET['clientSeed'] ?? ''));
+        $nonce = (int) ($_GET['nonce'] ?? -1);
+        $lines = (int) ($_GET['lines'] ?? self::ARABIAN_MAX_LINES);
+        $coinBet = is_numeric($_GET['coinBet'] ?? null) ? round((float) $_GET['coinBet'], 2) : 1.0;
+        $payoutScaleRaw = $_GET['payoutScale'] ?? null;
+
+        if (preg_match('/^[a-f0-9]{64}$/i', $serverSeed) !== 1) {
+            Response::json(['message' => 'serverSeed must be a 64-char hex string (the revealed seed from a past spin)'], 400);
+            return;
+        }
+        if ($clientSeed === '' || preg_match('/^[A-Za-z0-9._:-]{1,128}$/', $clientSeed) !== 1) {
+            Response::json(['message' => 'clientSeed is required (1-128 chars: letters, numbers, . _ : -)'], 400);
+            return;
+        }
+        if ($nonce < 0) {
+            Response::json(['message' => 'nonce must be a non-negative integer'], 400);
+            return;
+        }
+        if ($lines < 1 || $lines > self::ARABIAN_MAX_LINES) {
+            Response::json(['message' => 'lines must be between 1 and ' . self::ARABIAN_MAX_LINES], 400);
+            return;
+        }
+        if ($coinBet <= 0) {
+            $coinBet = 1.0;
+        }
+        // Same clamp the engine applies — a stored round's payoutApplied value is
+        // always inside this range, so the recompute reproduces the round exactly.
+        $payoutScale = self::clampPayoutValue(is_numeric($payoutScaleRaw) ? (float) $payoutScaleRaw : null, self::ARABIAN_PAYOUT_SPEC['payoutScale']);
+        $totalBet = round($coinBet * $lines, 2);
+
+        [$pattern, $bonusPrizeIndex] = $this->arabianSeededSymbols($serverSeed, $clientSeed, $nonce);
+        $winningLines = $this->evaluateArabianWinningLines($pattern, $lines, $coinBet, $payoutScale);
+        $lineWin = 0.0;
+        foreach ($winningLines as $wl) {
+            $lineWin += $this->num($wl['amount'] ?? 0);
+        }
+        $lineWin = round($lineWin, 2);
+
+        $bonusSymbolCount = $this->countArabianSymbol($pattern, self::ARABIAN_BONUS_SYMBOL);
+        $bonusWin = 0.0;
+        if ($bonusSymbolCount >= 3 && $bonusPrizeIndex >= 0) {
+            $bonusMultiplier = round($this->num(self::ARABIAN_BONUS_PRIZES[$bonusPrizeIndex] ?? 0));
+            $bonusWin = $this->arabianScaleFloorToCents($bonusMultiplier * $totalBet, $payoutScale);
+        }
+
+        Response::json([
+            'game' => self::ARABIAN_GAME_SLUG,
+            'inputs' => [
+                'serverSeed' => $serverSeed,
+                'serverSeedHash' => hash('sha256', $serverSeed),
+                'clientSeed' => $clientSeed,
+                'nonce' => $nonce,
+                'lines' => $lines,
+                'coinBet' => $coinBet,
+                'payoutScale' => $payoutScale,
+            ],
+            'weightsHash' => self::arabianWeightsHash(),
+            'symbolWeights' => self::ARABIAN_SYMBOL_WEIGHTS,
+            'pattern' => $pattern,
+            'gridHash' => hash('sha256', json_encode($pattern, JSON_UNESCAPED_SLASHES) ?: ''),
+            'bonusSymbolCount' => $bonusSymbolCount,
+            'bonusPrizeIndex' => $bonusPrizeIndex,
+            'bonusWin' => $bonusWin,
+            'lineWin' => $lineWin,
+            'totalWin' => round($lineWin + $bonusWin, 2),
+            'winningLines' => $winningLines,
         ]);
     }
 

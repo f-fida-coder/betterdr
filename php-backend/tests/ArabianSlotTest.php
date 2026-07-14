@@ -33,6 +33,17 @@ function arabianConst(string $name): mixed
 {
     return (new ReflectionClass(CasinoController::class))->getConstant($name);
 }
+// Phase 3: settleArabianSpin is seeded. Wrap with a random server seed per spin
+// (reproduces the random distribution for RTP sims); explicit seeds for
+// determinism tests use seededSettle() below.
+function arabianSpin(CasinoController $c, float $coinBet, int $lines, array $state, float $scale = 1.0): array
+{
+    return arabianCall($c, 'settleArabianSpin', $coinBet, $lines, $state, $scale, bin2hex(random_bytes(32)), 'test-client', random_int(0, 1 << 30));
+}
+function seededSettle(CasinoController $c, float $coinBet, int $lines, array $state, float $scale, string $serverSeed, string $clientSeed, int $nonce): array
+{
+    return arabianCall($c, 'settleArabianSpin', $coinBet, $lines, $state, $scale, $serverSeed, $clientSeed, $nonce);
+}
 // craft a 3x5 grid where line 0 (row-map [1,1,1,1,1]) shows $cells; fillers won't pay
 function agrid(array $cells): array { return [[3,4,5,6,3], $cells, [6,5,4,3,6]]; }
 
@@ -67,7 +78,7 @@ TestRunner::run('arabian bonus — pays x total bet, not x coinBet', function ()
     $prizes = arabianConst('ARABIAN_BONUS_PRIZES');
     $found = false;
     for ($i = 0; $i < 400000 && !$found; $i++) {
-        $s = arabianCall($c, 'settleArabianSpin', 1.0, 20, ['freeSpinsRemaining' => 0]);
+        $s = arabianSpin($c, 1.0, 20, ['freeSpinsRemaining' => 0]);
         $rd = $s['roundData'];
         if (!empty($rd['bonusTriggered'])) {
             $idx = (int) $rd['bonusPrizeIndex'];
@@ -87,7 +98,7 @@ function arabianRtp(CasinoController $c, int $lines, int $spins): array {
     for ($i = 0; $i < $spins; $i++) {
         $state = ['freeSpinsRemaining' => 0];
         // paid spin
-        $s = arabianCall($c, 'settleArabianSpin', 1.0, $lines, $state);
+        $s = arabianSpin($c, 1.0, $lines, $state);
         $wager += (float) $s['roundData']['totalBet'];
         $ret += (float) $s['totalReturn'];
         $fs = (int) $s['stateAfter']['freeSpinsRemaining'];
@@ -96,7 +107,7 @@ function arabianRtp(CasinoController $c, int $lines, int $spins): array {
         $guard = 0;
         while ($fs > 0 && $guard < 5000) {
             $guard++;
-            $s = arabianCall($c, 'settleArabianSpin', 1.0, $lines, $s['stateAfter']);
+            $s = arabianSpin($c, 1.0, $lines, $s['stateAfter']);
             $ret += (float) $s['totalReturn'];
             $fs = (int) $s['stateAfter']['freeSpinsRemaining'];
             $maxFs = max($maxFs, $fs);
@@ -123,13 +134,13 @@ TestRunner::run('arabian free-spin caps — per-spin + total clamp', function ()
     $maxPer = (int) arabianConst('ARABIAN_MAX_FREESPIN_AWARD_PER_SPIN');
     $cap = (int) arabianConst('ARABIAN_MAX_TOTAL_FREESPINS');
     // Starting already at the cap, any award must clamp and flag.
-    $s = arabianCall($c, 'settleArabianSpin', 1.0, 5, ['freeSpinsRemaining' => $cap, 'freeSpinLineCount' => 5, 'freeSpinCoinBet' => 1.0]);
+    $s = arabianSpin($c, 1.0, 5, ['freeSpinsRemaining' => $cap, 'freeSpinLineCount' => 5, 'freeSpinCoinBet' => 1.0]);
     $after = (int) $s['stateAfter']['freeSpinsRemaining'];
     TestRunner::assertTrue($after <= $cap, "total free spins stay <= {$cap} (got {$after})");
     // A single spin can never award more than the per-spin cap.
     $ok = true;
     for ($i = 0; $i < 50000; $i++) {
-        $r = arabianCall($c, 'settleArabianSpin', 1.0, 10, ['freeSpinsRemaining' => 0]);
+        $r = arabianSpin($c, 1.0, 10, ['freeSpinsRemaining' => 0]);
         if ((int) $r['roundData']['freeSpinsAwarded'] > $maxPer) { $ok = false; break; }
     }
     TestRunner::assertTrue($ok, "no single spin awards more than {$maxPer} free spins");
@@ -199,10 +210,10 @@ TestRunner::run('arabian payoutScale — lever lowers RTP; ceiling stays <100%',
     $rtp = function (int $lines, float $scale) use ($c, $n): float {
         $wager = 0.0; $ret = 0.0;
         for ($i = 0; $i < $n; $i++) {
-            $s = arabianCall($c, 'settleArabianSpin', 1.0, $lines, ['freeSpinsRemaining' => 0], $scale);
+            $s = arabianSpin($c, 1.0, $lines, ['freeSpinsRemaining' => 0], $scale);
             $wager += (float) $s['roundData']['totalBet']; $ret += (float) $s['totalReturn'];
             $fs = (int) $s['stateAfter']['freeSpinsRemaining']; $guard = 0;
-            while ($fs > 0 && $guard < 5000) { $guard++; $s = arabianCall($c, 'settleArabianSpin', 1.0, $lines, $s['stateAfter'], $scale); $ret += (float) $s['totalReturn']; $fs = (int) $s['stateAfter']['freeSpinsRemaining']; }
+            while ($fs > 0 && $guard < 5000) { $guard++; $s = arabianSpin($c, 1.0, $lines, $s['stateAfter'], $scale); $ret += (float) $s['totalReturn']; $fs = (int) $s['stateAfter']['freeSpinsRemaining']; }
         }
         return $ret / $wager;
     };
@@ -215,4 +226,75 @@ TestRunner::run('arabian payoutScale — lever lowers RTP; ceiling stays <100%',
     TestRunner::assertTrue($floor > 0.78 && $floor < 0.90, 'scale 0.90 RTP ~84% (in [0.78,0.90]): ' . round($floor * 100, 2) . '%');
     TestRunner::assertTrue($ceil > $floor && $ceil < 1.08, 'scale 1.05 raises RTP toward ~98% (2M sim), not broken: ' . round($ceil * 100, 2) . '%');
     TestRunner::assertTrue($ceil > $floor, 'higher scale => higher RTP');
+});
+
+// ══════════════════════ PHASE 3 — provably-fair seeded draw ══════════════════
+
+// ── BIAS GATE: the seeded draw reproduces the Phase-2 default RTP ────────────
+// (The RTP suite above now runs entirely through settleArabianSpin's SEEDED
+// path with random per-spin server seeds — so its 93.7%, line-count-independent
+// result IS the bias gate. This adds a tight explicit check.)
+TestRunner::run('arabian P3 bias gate — seeded RTP == ~93.7% (no shift vs random_int)', function () use ($c) {
+    $wager = 0.0; $ret = 0.0; $n = 120000;
+    for ($i = 0; $i < $n; $i++) {
+        $s = arabianSpin($c, 1.0, 20, ['freeSpinsRemaining' => 0]);
+        $wager += (float) $s['roundData']['totalBet']; $ret += (float) $s['totalReturn'];
+        $fs = (int) $s['stateAfter']['freeSpinsRemaining']; $g = 0;
+        while ($fs > 0 && $g < 5000) { $g++; $s = arabianSpin($c, 1.0, 20, $s['stateAfter']); $ret += (float) $s['totalReturn']; $fs = (int) $s['stateAfter']['freeSpinsRemaining']; }
+    }
+    $rtp = $ret / $wager;
+    TestRunner::assertTrue($rtp > 0.905 && $rtp < 0.965, 'seeded RTP within noise of 93.7% (no weight/keystream bias): ' . round($rtp * 100, 2) . '%');
+});
+
+// ── Determinism + independent recompute reproduces grid + wins ───────────────
+TestRunner::run('arabian P3 determinism — same seeds reproduce grid, bonus, wins', function () use ($c) {
+    $ss = str_repeat('ab', 32); // 64-hex
+    $cs = 'player-seed-1';
+    // Same tuple twice -> identical settlement.
+    $a = seededSettle($c, 1.0, 20, ['freeSpinsRemaining' => 0], 1.0, $ss, $cs, 7);
+    $b = seededSettle($c, 1.0, 20, ['freeSpinsRemaining' => 0], 1.0, $ss, $cs, 7);
+    TestRunner::assertEquals($a['roundData']['pattern'], $b['roundData']['pattern'], 'same (seed,client,nonce) => identical grid');
+    TestRunner::assertEqualsFloat((float) $a['totalReturn'], (float) $b['totalReturn'], 'identical total win', 0.0001);
+    TestRunner::assertEquals($a['roundData']['gridHash'], $b['roundData']['gridHash'], 'identical gridHash');
+
+    // Independent recompute via the verify path (arabianSeededSymbols +
+    // evaluateArabianWinningLines) reproduces the settle's grid + line win.
+    [$pattern, $bonusIdx] = arabianCall($c, 'arabianSeededSymbols', $ss, $cs, 7);
+    TestRunner::assertEquals($a['roundData']['pattern'], $pattern, 'recompute reproduces the grid');
+    $lines = arabianCall($c, 'evaluateArabianWinningLines', $pattern, 20, 1.0, 1.0);
+    $lineWin = 0.0; foreach ($lines as $l) { $lineWin += (float) $l['amount']; }
+    TestRunner::assertEqualsFloat((float) $a['roundData']['lineWin'], round($lineWin, 2), 'recompute reproduces the line win', 0.0001);
+
+    // A different nonce yields a different grid.
+    $d = seededSettle($c, 1.0, 20, ['freeSpinsRemaining' => 0], 1.0, $ss, $cs, 8);
+    TestRunner::assertTrue($a['roundData']['pattern'] !== $d['roundData']['pattern'], 'different nonce => different grid');
+});
+
+// ── Grid validity + conditional bonus-draw recomputes in order ───────────────
+TestRunner::run('arabian P3 grid valid; bonus-triggered case recomputes', function () use ($c) {
+    // All 15 cells are valid symbols [1..10].
+    [$pattern] = arabianCall($c, 'arabianSeededSymbols', str_repeat('cd', 32), 'x', 3);
+    $ok = true; $count = 0;
+    foreach ($pattern as $row) { foreach ($row as $v) { $count++; if ($v < 1 || $v > 10) { $ok = false; } } }
+    TestRunner::assertEquals(15, $count, 'grid is 3x5 = 15 cells');
+    TestRunner::assertTrue($ok, 'every cell is a valid symbol 1..10');
+
+    // Find a seed/nonce that triggers the bonus, then prove the conditional
+    // bonus draw recomputes deterministically (consumption order correct).
+    $foundNonce = -1; $ss = str_repeat('ef', 32); $cs = 'bonus-hunt';
+    for ($nonce = 0; $nonce < 200000 && $foundNonce < 0; $nonce++) {
+        [$p, $bi] = arabianCall($c, 'arabianSeededSymbols', $ss, $cs, $nonce);
+        if ($bi >= 0) { $foundNonce = $nonce; }
+    }
+    TestRunner::assertTrue($foundNonce >= 0, 'found a bonus-triggering seed/nonce');
+    if ($foundNonce >= 0) {
+        [$p1, $bi1] = arabianCall($c, 'arabianSeededSymbols', $ss, $cs, $foundNonce);
+        [$p2, $bi2] = arabianCall($c, 'arabianSeededSymbols', $ss, $cs, $foundNonce);
+        TestRunner::assertEquals($bi1, $bi2, 'bonus prize index is deterministic');
+        TestRunner::assertTrue($bi1 >= 0 && $bi1 < 20, 'bonus prize index in range');
+        // The settle at these seeds pays the recomputed bonus (x total bet).
+        $s = seededSettle($c, 1.0, 20, ['freeSpinsRemaining' => 0], 1.0, $ss, $cs, $foundNonce);
+        $prizes = arabianConst('ARABIAN_BONUS_PRIZES');
+        TestRunner::assertEqualsFloat(round(((float) $prizes[$bi1]) * 20.0, 2), (float) $s['roundData']['bonusWin'], 'bonus pays the recomputed prize x total bet', 0.001);
+    }
 });
