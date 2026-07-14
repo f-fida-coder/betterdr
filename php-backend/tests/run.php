@@ -25,6 +25,7 @@ const ISOLATED_SUITES = [
     'AcesAndEightsTest.php',        // mocks Response/SqlRepository to test the video-poker evaluator + two-stage deal/draw money path sans DB
     'AmericanRouletteTest.php',     // mocks Response/SqlRepository to test the American wheel engine + multi-bet money path sans DB
     'BogeymanSlotTest.php',         // mocks Response/SqlRepository to test the bogeyman engine + cent-precise money path sans DB
+    'CrapsSettlementTest.php',      // mocks Response/SqlRepository to test the craps rules engine (C1-C6) + lock/quarantine sans DB
     'JurassicRunMathTest.php',      // mocks Response/SqlRepository to test CasinoController::spin sans DB
     'ManualBetGradingTest.php',     // needs an INSTANCE-method SqlRepository double for the grading money block
     'ManualBetPlacementTest.php',   // needs an INSTANCE-method SqlRepository double for the placement money block

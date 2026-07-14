@@ -3173,15 +3173,46 @@ final class CasinoController
 
                 $stateSnapshot = $this->getUserCrapsState($lockedUser);
                 $activeBetsBefore = $stateSnapshot['activeBets'];
-                if ($stateSnapshot['phase'] === 'come_point') {
-                    $this->assertCrapsComePointLockedBets($activeBetsBefore, $currentBets);
+                $quarantinedBefore = $stateSnapshot['quarantinedBets'] ?? [];
+
+                // New come / don't-come bets require an established point.
+                if ($stateSnapshot['phase'] !== 'come_point') {
+                    foreach (['come', 'dont_come'] as $comeKey) {
+                        if (($currentBets[$comeKey] ?? 0) > 0) {
+                            $this->db->rollback();
+                            Response::json(['message' => str_replace('_', ' ', $comeKey) . ' bets require an established point'], 400);
+                            return;
+                        }
+                    }
                 }
 
+                // Split stored bets into server-held contracts (traveled come /
+                // don't-come — never client-removable) and player-open bets.
+                [$contractBefore, $openBefore] = $this->splitCrapsContractBets($activeBetsBefore);
+
+                // Effective table = client's open bets + carried contracts. The
+                // client cannot touch contract keys (they were dropped on parse),
+                // so they are re-injected verbatim from authoritative state.
+                $effectiveBets = $currentBets;
+                foreach ($contractBefore as $contractKey => $contractAmount) {
+                    $effectiveBets[$contractKey] = $contractAmount;
+                }
+                ksort($effectiveBets);
+
+                if ($stateSnapshot['phase'] === 'come_point') {
+                    $this->assertCrapsComePointLockedBets($activeBetsBefore, $effectiveBets);
+                }
+
+                // Money diff is computed over OPEN bets only; contracts never move
+                // money here. Any quarantined (unrecognised) stored stake is refunded.
                 $addedStake = 0.0;
-                $releasedStake = 0.0;
-                $allBetKeys = array_unique(array_merge(array_keys($activeBetsBefore), array_keys($currentBets)));
-                foreach ($allBetKeys as $betKey) {
-                    $prev = $activeBetsBefore[$betKey] ?? 0.0;
+                $releasedStake = round(array_sum($quarantinedBefore));
+                $openKeys = array_unique(array_merge(array_keys($openBefore), array_keys($currentBets)));
+                foreach ($openKeys as $betKey) {
+                    if ($this->crapsIsContractKey($betKey)) {
+                        continue;
+                    }
+                    $prev = $openBefore[$betKey] ?? 0.0;
                     $curr = $currentBets[$betKey] ?? 0.0;
                     if ($curr > $prev) {
                         $addedStake += ($curr - $prev);
@@ -3209,7 +3240,7 @@ final class CasinoController
 
                 $die1 = random_int(1, 6);
                 $die2 = random_int(1, 6);
-                $settlement = $this->settleCrapsRoll($currentBets, $phaseBefore, $pointBefore, $die1, $die2);
+                $settlement = $this->settleCrapsRoll($effectiveBets, $phaseBefore, $pointBefore, $die1, $die2);
 
                 $activeBetsAfter = $settlement['activeBetsAfter'];
                 $phaseAfter = $settlement['stateAfter'];
@@ -3306,7 +3337,7 @@ final class CasinoController
                     'requestId' => $requestId,
                     'userId' => $userId,
                     'game' => self::CRAPS_GAME_SLUG,
-                    'bets' => $currentBets,
+                    'bets' => $effectiveBets,
                     'dice' => $dice,
                     'stateBefore' => $phaseBefore,
                     'stateAfter' => $phaseAfter,
@@ -3334,7 +3365,7 @@ final class CasinoController
                     'userId' => $userId,
                     'username' => (string) ($lockedUser['username'] ?? $actor['username'] ?? ''),
                     'game' => self::CRAPS_GAME_SLUG,
-                    'bets' => $currentBets,
+                    'bets' => $effectiveBets,
                     'result' => (string) ($dice['sum'] ?? ''),
                     'resultType' => 'dice_roll',
                     'totalWager' => $totalWager,
@@ -3368,7 +3399,7 @@ final class CasinoController
                     'game' => self::CRAPS_GAME_SLUG,
                     'rngVersion' => self::CRAPS_RNG_VERSION,
                     'outcomeSource' => 'server_rng',
-                    'bets' => $currentBets,
+                    'bets' => $effectiveBets,
                     'result' => (string) ($dice['sum'] ?? ''),
                     'betDetails' => $resolvedBets,
                     'roundData' => $roundData,
@@ -3402,6 +3433,16 @@ final class CasinoController
                     'pointBefore' => $pointBefore,
                     'pointAfter' => $pointAfter,
                 ]);
+                if (!empty($quarantinedBefore)) {
+                    $this->writeCasinoAuditLog('craps_state_quarantine_refund', [
+                        'requestId' => $requestId,
+                        'roundId' => $roundId,
+                        'userId' => $userId,
+                        'username' => (string) ($lockedUser['username'] ?? ''),
+                        'quarantined' => $quarantinedBefore,
+                        'refunded' => round(array_sum($quarantinedBefore)),
+                    ]);
+                }
                 Response::json($this->formatCasinoBetResponse($betRecord, $ledgerEntries, false));
             } catch (Throwable $txErr) {
                 $this->db->rollback();
@@ -7260,6 +7301,7 @@ final class CasinoController
                 $lockedUser = $this->loadLockedCasinoUser($userId);
                 $stateSnapshot = $this->getUserCrapsState($lockedUser);
                 $activeBetsBefore = $stateSnapshot['activeBets'];
+                $quarantinedBefore = $stateSnapshot['quarantinedBets'] ?? [];
 
                 if ($mode === 'snapshot') {
                     $this->db->commit();
@@ -7307,12 +7349,33 @@ final class CasinoController
                 $nextBets = $this->normalizeCrapsBets($body['bets'] ?? null);
                 $nextPhase = $stateSnapshot['phase'];
                 $nextPoint = $stateSnapshot['pointNumber'];
-                if ($stateSnapshot['phase'] === 'come_point') {
-                    $this->assertCrapsComePointLockedBets($activeBetsBefore, $nextBets);
+
+                // New come / don't-come bets require an established point.
+                if ($stateSnapshot['phase'] !== 'come_point') {
+                    foreach (['come', 'dont_come'] as $comeKey) {
+                        if (($nextBets[$comeKey] ?? 0) > 0) {
+                            $this->db->rollback();
+                            Response::json(['message' => str_replace('_', ' ', $comeKey) . ' bets require an established point'], 400);
+                            return;
+                        }
+                    }
                 }
-                $nextExposure = $this->sumCrapsBets($nextBets);
+
+                // Server-held contracts are carried verbatim; client controls only open bets.
+                [$contractBefore, $openBefore] = $this->splitCrapsContractBets($activeBetsBefore);
+                $effectiveNext = $nextBets;
+                foreach ($contractBefore as $contractKey => $contractAmount) {
+                    $effectiveNext[$contractKey] = $contractAmount;
+                }
+                ksort($effectiveNext);
+
+                if ($stateSnapshot['phase'] === 'come_point') {
+                    $this->assertCrapsComePointLockedBets($activeBetsBefore, $effectiveNext);
+                }
+                $nextExposure = $this->sumCrapsBets($effectiveNext);
+                $openExposure = $this->sumCrapsBets($nextBets);
                 [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::CRAPS_GAME_SLUG, 1.0, 10000.0);
-                if ($nextExposure > 0 && $nextExposure < $gameMinBet) {
+                if ($openExposure > 0 && $openExposure < $gameMinBet) {
                     $this->db->rollback();
                     Response::json(['message' => 'Minimum craps wager is $' . round($gameMinBet)], 400);
                     return;
@@ -7323,11 +7386,16 @@ final class CasinoController
                     return;
                 }
 
+                // Money diff over OPEN bets only; contracts never move money here.
+                // Any quarantined (unrecognised) stored stake is refunded.
                 $addedStake = 0.0;
-                $releasedStake = 0.0;
-                $allBetKeys = array_unique(array_merge(array_keys($activeBetsBefore), array_keys($nextBets)));
-                foreach ($allBetKeys as $betKey) {
-                    $prev = $activeBetsBefore[$betKey] ?? 0.0;
+                $releasedStake = round(array_sum($quarantinedBefore));
+                $openKeys = array_unique(array_merge(array_keys($openBefore), array_keys($nextBets)));
+                foreach ($openKeys as $betKey) {
+                    if ($this->crapsIsContractKey($betKey)) {
+                        continue;
+                    }
+                    $prev = $openBefore[$betKey] ?? 0.0;
                     $curr = $nextBets[$betKey] ?? 0.0;
                     if ($curr > $prev) {
                         $addedStake += ($curr - $prev);
@@ -7406,7 +7474,7 @@ final class CasinoController
                     'casinoCrapsState' => [
                         'phase' => $nextPhase,
                         'pointNumber' => $nextPoint,
-                        'activeBets' => $nextBets,
+                        'activeBets' => $effectiveNext,
                         'updatedAt' => $now,
                     ],
                     'updatedAt' => $now,
@@ -7428,10 +7496,20 @@ final class CasinoController
                     'pointBefore' => $stateSnapshot['pointNumber'],
                     'pointAfter' => $nextPoint,
                     'activeBetsBefore' => $activeBetsBefore,
-                    'activeBetsAfter' => $nextBets,
+                    'activeBetsAfter' => $effectiveNext,
                     'debitEntryId' => $debitEntryId,
                     'creditEntryId' => $creditEntryId,
                 ]);
+                if (!empty($quarantinedBefore)) {
+                    $this->writeCasinoAuditLog('craps_state_quarantine_refund', [
+                        'requestId' => $requestId,
+                        'mode' => $mode,
+                        'userId' => $userId,
+                        'username' => (string) ($lockedUser['username'] ?? ''),
+                        'quarantined' => $quarantinedBefore,
+                        'refunded' => round(array_sum($quarantinedBefore)),
+                    ]);
+                }
 
                 Response::json([
                     'requestId' => $requestId,
@@ -7456,7 +7534,7 @@ final class CasinoController
                         'pointNumberBefore' => $stateSnapshot['pointNumber'],
                         'pointNumberAfter' => $nextPoint,
                         'activeBetsBefore' => $activeBetsBefore,
-                        'activeBetsAfter' => $nextBets,
+                        'activeBetsAfter' => $effectiveNext,
                     ],
                 ]);
             } catch (Throwable $txErr) {
@@ -7490,7 +7568,8 @@ final class CasinoController
         $raw = is_array($user['casinoCrapsState'] ?? null) ? $user['casinoCrapsState'] : [];
         $phase = $this->normalizeCrapsPhase((string) ($raw['phase'] ?? 'waiting'));
         $pointNumber = $this->normalizeCrapsPointNumber($raw['pointNumber'] ?? null);
-        $activeBets = $this->normalizeCrapsBets($raw['activeBets'] ?? []);
+        $quarantined = [];
+        $activeBets = $this->normalizeCrapsBets($raw['activeBets'] ?? [], 'state', $quarantined);
 
         if ($phase !== 'come_point') {
             $pointNumber = null;
@@ -7500,6 +7579,7 @@ final class CasinoController
             'phase' => $phase,
             'pointNumber' => $pointNumber,
             'activeBets' => $activeBets,
+            'quarantinedBets' => $quarantined,
         ];
     }
 
@@ -7528,25 +7608,68 @@ final class CasinoController
     }
 
     /**
+     * Parse a craps bet map.
+     *
+     * $context:
+     *   'client' — strict parse of player-submitted bets. Unknown keys throw.
+     *              Server-internal contract keys (come_point / dont_come_point) are
+     *              silently dropped: the client only ever echoes them, and the
+     *              server re-injects them from authoritative state during the merge.
+     *   'state'  — tolerant parse of stored state. A key or amount that cannot be
+     *              understood is NEVER thrown on; it is quarantined into
+     *              $quarantined so a bad/legacy key can never brick the user's
+     *              craps state again (the caller refunds any quarantined stake).
+     *
+     * @param array<string, float> $quarantined populated (by reference) in 'state' mode
      * @return array<string, float>
      */
-    private function normalizeCrapsBets(mixed $rawBets): array
+    private function normalizeCrapsBets(mixed $rawBets, string $context = 'client', array &$quarantined = []): array
     {
         if ($rawBets === null) {
             return [];
         }
         if (!is_array($rawBets)) {
+            if ($context === 'state') {
+                return [];
+            }
             throw new InvalidArgumentException('bets must be an object');
         }
 
+        $allowInternal = $context === 'state';
         $bets = [];
         foreach ($rawBets as $rawKey => $rawAmount) {
             if (!is_string($rawKey)) {
                 continue;
             }
 
-            $betKey = $this->normalizeCrapsBetKey($rawKey);
+            if ($context === 'state') {
+                // Fully defensive: any parse failure quarantines rather than throws.
+                try {
+                    $betKey = $this->normalizeCrapsBetKey($rawKey, true);
+                    $amount = $this->parseMoneyValue($rawAmount, 'bets.' . $rawKey);
+                    if ($betKey === '' || abs($amount - round($amount, 0)) > 0.00001) {
+                        throw new InvalidArgumentException('unrecognized stored craps bet');
+                    }
+                    if ($amount <= 0) {
+                        continue;
+                    }
+                    $bets[$betKey] = round(($bets[$betKey] ?? 0.0) + $amount);
+                } catch (Throwable $e) {
+                    $quarAmount = is_numeric($rawAmount) ? (float) $rawAmount : 0.0;
+                    if ($quarAmount > 0) {
+                        $quarantined[(string) $rawKey] = round(($quarantined[(string) $rawKey] ?? 0.0) + $quarAmount);
+                    }
+                }
+                continue;
+            }
+
+            $betKey = $this->normalizeCrapsBetKey($rawKey, false);
             if ($betKey === '') {
+                // Server-internal contract keys are echoed by the client but are
+                // authoritative on the server; drop them here and re-inject from state.
+                if ($this->crapsIsContractKey(strtolower(trim($rawKey)))) {
+                    continue;
+                }
                 throw new InvalidArgumentException('Unsupported craps bet: ' . $rawKey);
             }
 
@@ -7565,7 +7688,7 @@ final class CasinoController
         return $bets;
     }
 
-    private function normalizeCrapsBetKey(string $raw): string
+    private function normalizeCrapsBetKey(string $raw, bool $allowInternal = false): string
     {
         $key = strtolower(trim($raw));
         if ($key === '') {
@@ -7583,8 +7706,40 @@ final class CasinoController
         if (!is_array($allowed)) {
             $allowed = $this->crapsAllowedBetKeys();
         }
+        if (in_array($key, $allowed, true)) {
+            return $key;
+        }
 
-        return in_array($key, $allowed, true) ? $key : '';
+        if ($allowInternal && in_array($key, $this->crapsInternalBetKeys(), true)) {
+            return $key;
+        }
+
+        return '';
+    }
+
+    /**
+     * Server-internal keys for traveled come / don't-come contract bets. These are
+     * created only by settlement (never by client input), carry even-money (1:1),
+     * work on every roll, and cannot be removed or modified by the player.
+     *
+     * @return array<int, string>
+     */
+    private function crapsInternalBetKeys(): array
+    {
+        static $keys = null;
+        if ($keys === null) {
+            $keys = [];
+            foreach ([4, 5, 6, 8, 9, 10] as $n) {
+                $keys[] = 'come_point' . $n;
+                $keys[] = 'dont_come_point' . $n;
+            }
+        }
+        return $keys;
+    }
+
+    private function crapsIsContractKey(string $key): bool
+    {
+        return str_starts_with($key, 'come_point') || str_starts_with($key, 'dont_come_point');
     }
 
     /**
@@ -7648,14 +7803,45 @@ final class CasinoController
     }
 
     /**
-     * During come-point, pass-line and don't-pass base stakes are locked and cannot be reduced.
+     * Split a stored bet map into [contractBets, openBets]. Contract bets are the
+     * traveled come / don't-come keys — server-held, non-removable. Open bets are
+     * everything the player may freely add or remove between rolls.
+     *
+     * @param array<string, float> $bets
+     * @return array{0: array<string, float>, 1: array<string, float>}
+     */
+    private function splitCrapsContractBets(array $bets): array
+    {
+        $contract = [];
+        $open = [];
+        foreach ($bets as $key => $amount) {
+            if ($this->crapsIsContractKey((string) $key)) {
+                $contract[$key] = $amount;
+            } else {
+                $open[$key] = $amount;
+            }
+        }
+        return [$contract, $open];
+    }
+
+    /**
+     * During come-point, pass-line and don't-pass base stakes are locked and cannot
+     * be reduced. Traveled come / don't-come contracts are locked in every phase.
+     * With the contract-merge in place this is a defence-in-depth invariant check.
      *
      * @param array<string, float> $activeBefore
      * @param array<string, float> $nextBets
      */
     private function assertCrapsComePointLockedBets(array $activeBefore, array $nextBets): void
     {
-        foreach (['pass_line', 'dont_pass1', 'dont_pass2'] as $lockedBet) {
+        $lockedKeys = ['pass_line', 'dont_pass1', 'dont_pass2'];
+        foreach (array_keys($activeBefore) as $key) {
+            if ($this->crapsIsContractKey((string) $key)) {
+                $lockedKeys[] = (string) $key;
+            }
+        }
+
+        foreach ($lockedKeys as $lockedBet) {
             $previous = round(max(0, $this->num($activeBefore[$lockedBet] ?? 0)));
             if ($previous <= 0) {
                 continue;
@@ -7663,7 +7849,7 @@ final class CasinoController
 
             $next = round(max(0, $this->num($nextBets[$lockedBet] ?? 0)));
             if ($next + 0.0001 < $previous) {
-                throw new InvalidArgumentException(str_replace('_', ' ', $lockedBet) . ' cannot be reduced while point is active');
+                throw new InvalidArgumentException(str_replace('_', ' ', $lockedBet) . ' cannot be reduced while it is in play');
             }
         }
     }
@@ -7750,6 +7936,29 @@ final class CasinoController
             $moveTo = null;
             $multiplier = $this->crapsBetMultiplier($bet);
 
+            // Traveled come / don't-come contract bets (server-held, even money,
+            // working on every roll). These keys are created only by settlement
+            // and have no case in the switch below.
+            if (str_starts_with($bet, 'dont_come_point')) {
+                $pointN = (int) substr($bet, 15);
+                if ($sum === 7) {
+                    $outcome = 'win';
+                    $profit = round($amount);
+                } elseif ($sum === $pointN) {
+                    $outcome = 'lose';
+                }
+                // else: carry
+            } elseif (str_starts_with($bet, 'come_point')) {
+                $pointN = (int) substr($bet, 10);
+                if ($sum === $pointN) {
+                    $outcome = 'win';
+                    $profit = round($amount);
+                } elseif ($sum === 7) {
+                    $outcome = 'lose';
+                }
+                // else: carry
+            }
+
             switch ($bet) {
                 case 'pass_line':
                     if ($phase === 'come_out') {
@@ -7776,7 +7985,8 @@ final class CasinoController
                     } elseif (in_array($sum, [2, 3, 12], true)) {
                         $outcome = 'lose';
                     } else {
-                        $moveTo = 'number' . $sum;
+                        // Contract bet: travels to a dedicated, non-removable key.
+                        $moveTo = 'come_point' . $sum;
                     }
                     break;
 
@@ -7789,8 +7999,10 @@ final class CasinoController
                         } elseif (in_array($sum, [7, 11], true)) {
                             $outcome = 'lose';
                         } elseif ($sum === 12) {
-                            $outcome = 'win';
-                            $profit = round($amount);
+                            // Bar-12: push (return stake, no win). This is the
+                            // house edge on the don't side; paying it as a win
+                            // made flat don't-pass player-positive.
+                            $outcome = 'push';
                         }
                     } else {
                         if ($sum === 7) {
@@ -7803,13 +8015,21 @@ final class CasinoController
                     break;
 
                 case 'dont_come':
-                    if (in_array($sum, [2, 7], true)) {
+                    // Resolves on the roll after placement, mirroring don't-pass.
+                    if ($sum === 7) {
                         $outcome = 'win';
                         $profit = round($amount * $multiplier);
-                    } elseif (in_array($sum, [7, 11], true)) {
+                    } elseif (in_array($sum, [2, 3], true)) {
+                        $outcome = 'win';
+                        $profit = round($amount * $multiplier);
+                    } elseif ($sum === 12) {
+                        $outcome = 'push';
+                    } elseif ($sum === 11) {
                         $outcome = 'lose';
                     } else {
-                        $moveTo = 'lay_bet' . $sum;
+                        // Contract bet: travels to a dedicated, non-removable key
+                        // that wins on 7 and loses on the number.
+                        $moveTo = 'dont_come_point' . $sum;
                     }
                     break;
 
@@ -7849,7 +8069,8 @@ final class CasinoController
                         $outcome = 'win';
                         $profit = round($amount * $multiplier);
                         if ($bet === 'lay_bet4') {
-                            $profit = round($profit * 0.05);
+                            // Lay bet: true lay odds minus 5% commission on the win.
+                            $profit = round($amount * $multiplier * 0.95);
                         }
                     } elseif ($sum === 4) {
                         $outcome = 'lose';
@@ -7862,7 +8083,7 @@ final class CasinoController
                         $outcome = 'win';
                         $profit = round($amount * $multiplier);
                         if ($bet === 'lay_bet5') {
-                            $profit = round($profit * 0.05);
+                            $profit = round($amount * $multiplier * 0.95);
                         }
                     } elseif ($sum === 5) {
                         $outcome = 'lose';
@@ -7875,7 +8096,7 @@ final class CasinoController
                         $outcome = 'win';
                         $profit = round($amount * $multiplier);
                         if ($bet === 'lay_bet6') {
-                            $profit = round($profit * 0.05);
+                            $profit = round($amount * $multiplier * 0.95);
                         }
                     } elseif ($sum === 6) {
                         $outcome = 'lose';
@@ -7888,7 +8109,7 @@ final class CasinoController
                         $outcome = 'win';
                         $profit = round($amount * $multiplier);
                         if ($bet === 'lay_bet8') {
-                            $profit = round($profit * 0.05);
+                            $profit = round($amount * $multiplier * 0.95);
                         }
                     } elseif ($sum === 8) {
                         $outcome = 'lose';
@@ -7901,7 +8122,7 @@ final class CasinoController
                         $outcome = 'win';
                         $profit = round($amount * $multiplier);
                         if ($bet === 'lay_bet9') {
-                            $profit = round($profit * 0.05);
+                            $profit = round($amount * $multiplier * 0.95);
                         }
                     } elseif ($sum === 9) {
                         $outcome = 'lose';
@@ -7914,7 +8135,7 @@ final class CasinoController
                         $outcome = 'win';
                         $profit = round($amount * $multiplier);
                         if ($bet === 'lay_bet10') {
-                            $profit = round($profit * 0.05);
+                            $profit = round($amount * $multiplier * 0.95);
                         }
                     } elseif ($sum === 10) {
                         $outcome = 'lose';
@@ -7928,7 +8149,8 @@ final class CasinoController
                             $outcome = 'win';
                             $profit = round($amount * $multiplier);
                             if ($bet === 'number4') {
-                                $profit = round($amount * 0.05);
+                                // Buy bet: true odds minus 5% commission on the wager.
+                                $profit = round($amount * $multiplier) - round($amount * 0.05);
                             }
                         } elseif ($sum === 7) {
                             $outcome = 'lose';
@@ -7943,7 +8165,7 @@ final class CasinoController
                             $outcome = 'win';
                             $profit = round($amount * $multiplier);
                             if ($bet === 'number5') {
-                                $profit = round($amount * 0.05);
+                                $profit = round($amount * $multiplier) - round($amount * 0.05);
                             }
                         } elseif ($sum === 7) {
                             $outcome = 'lose';
@@ -7958,7 +8180,7 @@ final class CasinoController
                             $outcome = 'win';
                             $profit = round($amount * $multiplier);
                             if ($bet === 'number6') {
-                                $profit = round($amount * 0.05);
+                                $profit = round($amount * $multiplier) - round($amount * 0.05);
                             }
                         } elseif ($sum === 7) {
                             $outcome = 'lose';
@@ -7973,7 +8195,7 @@ final class CasinoController
                             $outcome = 'win';
                             $profit = round($amount * $multiplier);
                             if ($bet === 'number8') {
-                                $profit = round($amount * 0.05);
+                                $profit = round($amount * $multiplier) - round($amount * 0.05);
                             }
                         } elseif ($sum === 7) {
                             $outcome = 'lose';
@@ -7988,7 +8210,7 @@ final class CasinoController
                             $outcome = 'win';
                             $profit = round($amount * $multiplier);
                             if ($bet === 'number9') {
-                                $profit = round($amount * 0.05);
+                                $profit = round($amount * $multiplier) - round($amount * 0.05);
                             }
                         } elseif ($sum === 7) {
                             $outcome = 'lose';
@@ -8003,7 +8225,7 @@ final class CasinoController
                             $outcome = 'win';
                             $profit = round($amount * $multiplier);
                             if ($bet === 'number10') {
-                                $profit = round($amount * 0.05);
+                                $profit = round($amount * $multiplier) - round($amount * 0.05);
                             }
                         } elseif ($sum === 7) {
                             $outcome = 'lose';
@@ -8039,10 +8261,12 @@ final class CasinoController
                     break;
 
                 case 'hardway6':
+                    // Multi-roll: win on the hard pair, lose on 7 or the easy way,
+                    // otherwise carry to the next roll.
                     if ($die1 === 3 && $die2 === 3) {
                         $outcome = 'win';
                         $profit = round($amount * $multiplier);
-                    } else {
+                    } elseif ($sum === 7 || $sum === 6) {
                         $outcome = 'lose';
                     }
                     break;
@@ -8051,7 +8275,7 @@ final class CasinoController
                     if ($die1 === 5 && $die2 === 5) {
                         $outcome = 'win';
                         $profit = round($amount * $multiplier);
-                    } else {
+                    } elseif ($sum === 7 || $sum === 10) {
                         $outcome = 'lose';
                     }
                     break;
@@ -8060,7 +8284,7 @@ final class CasinoController
                     if ($die1 === 4 && $die2 === 4) {
                         $outcome = 'win';
                         $profit = round($amount * $multiplier);
-                    } else {
+                    } elseif ($sum === 7 || $sum === 8) {
                         $outcome = 'lose';
                     }
                     break;
@@ -8069,7 +8293,7 @@ final class CasinoController
                     if ($die1 === 2 && $die2 === 2) {
                         $outcome = 'win';
                         $profit = round($amount * $multiplier);
-                    } else {
+                    } elseif ($sum === 7 || $sum === 4) {
                         $outcome = 'lose';
                     }
                     break;
@@ -8123,6 +8347,10 @@ final class CasinoController
             $returnAmount = 0.0;
             if ($outcome === 'win') {
                 $returnAmount = round($amount + $profit);
+            } elseif ($outcome === 'push') {
+                // Bar-12 push: return the stake, no profit, bet is removed.
+                $profit = 0.0;
+                $returnAmount = round($amount);
             }
             $totalReturn = round($totalReturn + $returnAmount);
 

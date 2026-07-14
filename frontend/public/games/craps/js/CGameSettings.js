@@ -33,6 +33,10 @@ function CGameSettings(){
             _aAttachFiches["lose_bet"+aData[i].value] = {x:aData[i].x-20,y:aData[i].y+20};
             _aAttachFiches["number"+aData[i].value] = {x:aData[i].x,y:aData[i].y+69};
             _aAttachFiches["win_bet"+aData[i].value] = {x:aData[i].x,y:aData[i].y+116};
+            // Server-held traveled come / don't-come contracts render in the
+            // number box (come point) / lay row (don't-come point).
+            _aAttachFiches["come_point"+aData[i].value] = {x:aData[i].x,y:aData[i].y+69};
+            _aAttachFiches["dont_come_point"+aData[i].value] = {x:aData[i].x+20,y:aData[i].y};
         }
 
         _aAttachFiches["any11_7"] = {x:1032,y:582};
@@ -74,6 +78,9 @@ function CGameSettings(){
             _aBetMultiplier["lose_bet"+aData[i]] = aLoseBet[i];
             _aBetMultiplier["number"+aData[i]] = aNumberBet[i];
             _aBetMultiplier["win_bet"+aData[i]] = aWinBet[i];
+            // Traveled come / don't-come contracts pay even money (1:1).
+            _aBetMultiplier["come_point"+aData[i]] = 1;
+            _aBetMultiplier["dont_come_point"+aData[i]] = 1;
         }
             
         _aBetMultiplier["any11_7"] = 15;
