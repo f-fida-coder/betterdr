@@ -18,7 +18,10 @@ function CGame(oData){
     var _iAdsCounter;
     var _szHandResult;
     var _oActionAfterHandReset;
-    
+    // BetterDR: server-authoritative two-stage round state.
+    var _sRoundId;              // roundId returned by the server DEAL
+    var _iServerFinalBalance;   // authoritative balance from the server SETTLE
+
     var _aCardsDealing;
     var _aCardsInCurHandForDealer;
     var _aCardDeck;
@@ -159,9 +162,12 @@ function CGame(oData){
         _oInterface.refreshCredit(_oSeat.getCredit());
     };
     
+    // BetterDR: the local shuffle is NO LONGER an outcome source. Every dealt
+    // card comes from the server (player cards at DEAL, dealer cards at SETTLE).
+    // Neutralized to a no-op so no local-deal path can feed the shown hand;
+    // _drawRoundCards/_drawNextCard are dead and unreferenced.
     this.shuffleCard = function(){
-        _aCardDeck=new Array();
-        _aCardDeck=s_oGameSettings.getShuffledCardDeck();
+        _aCardDeck = new Array();
     };
     
     this.changeState = function(iState){
@@ -458,17 +464,14 @@ function CGame(oData){
             playSound("lose", 1, false);
         }
 
-        // BetterDR: submit bet immediately after hand settles so the server
-        // balance is confirmed before the next betting phase opens (~3 s later).
-        if (typeof window.__3cp_onHandEnd === 'function') {
-            window.__3cp_onHandEnd({
-                newCredit: _oSeat.getCredit(),
-                handResult: _szHandResult,
-                folded: _bFold,
-                round: _oRoundSummary
-            });
+        // BetterDR: settlement already happened server-side at fold/play (via
+        // __3cp_requestSettle) — do NOT re-post here. Snap the on-screen credit
+        // to the AUTHORITATIVE server balance from the settle response so the
+        // display can never drift from the ledger (the local win math on the
+        // server cards equals the server's, so this is normally a no-op).
+        if (typeof _iServerFinalBalance === 'number' && isFinite(_iServerFinalBalance)) {
+            _oSeat.setCredit(_iServerFinalBalance);
         }
-        $(s_oMain).trigger("save_score", [_oSeat.getCredit()]);
 
         this.changeState(STATE_GAME_DISTRIBUTE_FICHES);
         _oInterface.refreshCredit(_oSeat.getCredit());
@@ -603,9 +606,9 @@ function CGame(oData){
             _iAdsCounter = 0;
             $(s_oMain).trigger("show_interlevel_ad");
         }
-		
-	// BetterDR: save_score and __3cp_onHandEnd are now fired from _showWin
-        // immediately after the hand settles (not deferred to next hand start).
+
+	// BetterDR: settlement is server-side (fired at fold/play via
+        // __3cp_requestSettle) — the local hand no longer posts anything here.
     };
     
     this._onCardShown = function(){
@@ -731,6 +734,24 @@ function CGame(oData){
         }
     };
 
+    // BetterDR: convert a server card code ("KS","10H","AD") into the engine's
+    // {fotogram,rank,suit}. Suit blocks H(0) D(1) C(2) S(3); within a block the
+    // sprite order is A,2,3,…,K, so fotogram = suit*13 + (rank===14 ? 0 : rank-1).
+    this.__cardCodeToInfo = function(szCode){
+        szCode = String(szCode == null ? "" : szCode).toUpperCase();
+        var szSuit = szCode.slice(-1);
+        var szRank = szCode.slice(0, -1);
+        var iSuit = szSuit === "H" ? 0 : (szSuit === "D" ? 1 : (szSuit === "C" ? 2 : 3));
+        var iRank;
+        if(szRank === "A"){ iRank = CARD_ACE; }
+        else if(szRank === "K"){ iRank = CARD_KING; }
+        else if(szRank === "Q"){ iRank = CARD_QUEEN; }
+        else if(szRank === "J"){ iRank = CARD_JACK; }
+        else { iRank = parseInt(szRank, 10); }
+        var iFotogram = iSuit * 13 + (iRank === CARD_ACE ? 0 : (iRank - 1));
+        return { fotogram: iFotogram, rank: iRank, suit: iSuit };
+    };
+
     this.onDeal = function(){
         _oHelpCursorAnte.hide();
 
@@ -749,64 +770,147 @@ function CGame(oData){
             return;
         }
 
-        // BetterDR integration: expose bet info before dealing
-        if (typeof window.__3cp_onDeal === 'function') {
-            window.__3cp_onDeal({
+        // BetterDR: SERVER-AUTHORITATIVE deal. No hand is dealt locally — the
+        // local shuffle is never an outcome source. Ask the server to open the
+        // round (it deals BOTH hands server-side and withholds the dealer); we
+        // render the server's PLAYER cards when __serverDealArrived fires.
+        _oInterface.disableButtons();
+        _oInterface.displayMsg(TEXT_DISPLAY_MSG_DEALING);
+        _oSeat.setPrevBet();
+        if (typeof window.__3cp_requestDeal === 'function') {
+            window.__3cp_requestDeal({
                 ante: _oSeat.getBetAnte(),
-                pairPlus: _oSeat.getBetPlus(),
-                balanceAfterInitialBets: _oSeat.getCredit()
+                pairPlus: _oSeat.getBetPlus()
             });
         }
+    };
 
-       _oCardContainer.removeAllChildren();
+    // BetterDR: the server DEAL response arrived — render the server's player
+    // cards; the dealer is dealt face-down as a placeholder and revealed only
+    // at settle (the server never exposes it while the round is 'dealt').
+    this.__serverDealArrived = function(oResp){
+        var aPlayerCodes = (oResp && oResp.playerCards) || [];
+        _sRoundId = (oResp && oResp.roundId) ? String(oResp.roundId) : "";
+        if(!Array.isArray(aPlayerCodes) || aPlayerCodes.length !== CARD_TO_DEAL || _sRoundId === ""){
+            // Bad/blocked deal — return to betting so no stake is stranded.
+            _oInterface.displayMsg(TEXT_DISPLAY_MSG_WAITING_BET);
+            _oInterface.enableBetFiches(true);
+            _oInterface.enable(_oSeat.getBetAnte() > 0,false,false);
+            return;
+        }
 
-        var oRoundCards = this._drawRoundCards();
-        _aPlayerCardsSnapshot = this._cloneCardsInfo(oRoundCards.player);
-        _aDealerCardsSnapshot = this._cloneCardsInfo(oRoundCards.dealer);
-        _aPlayerCardsInfo = this._cloneCardsInfo(oRoundCards.player);
-        _aDealerCardsInfo = this._cloneCardsInfo(oRoundCards.dealer);
+        _oCardContainer.removeAllChildren();
 
-        _oDealerHandEvaluation = _oHandEvaluator.evaluate(_aDealerCardsSnapshot);
+        var aPlayer = [];
+        for(var i=0;i<aPlayerCodes.length;i++){ aPlayer.push(this.__cardCodeToInfo(aPlayerCodes[i])); }
+        // Face-down placeholders; their value is cosmetic until the settle
+        // reveal overwrites the dealer faces with the server-committed cards.
+        var aDealerPlaceholder = [];
+        for(var d=0;d<CARD_TO_DEAL;d++){ aDealerPlaceholder.push({fotogram:0, rank:2, suit:0}); }
+
+        _aPlayerCardsSnapshot = this._cloneCardsInfo(aPlayer);
+        _aDealerCardsSnapshot = this._cloneCardsInfo(aDealerPlaceholder);
+        _aPlayerCardsInfo = this._cloneCardsInfo(aPlayer);
+        _aDealerCardsInfo = this._cloneCardsInfo(aDealerPlaceholder);
+
+        // Evaluate ONLY the player hand at deal (for the on-screen hand value).
+        // The dealer is evaluated at settle from the server-revealed cards.
         _oPlayerHandEvaluation = _oHandEvaluator.evaluate(_aPlayerCardsSnapshot);
-        _iHandDealer = _oDealerHandEvaluation.ret;
         _iHandPlayer = _oPlayerHandEvaluation.ret;
-        _bDealerQualified = _oHandEvaluator.dealerQualifies(_oDealerHandEvaluation.sort_hand, _iHandDealer);
+        _oDealerHandEvaluation = null;
+        _iHandDealer = -1;
+        _bDealerQualified = false;
         _oRoundSummary = null;
+        _iServerFinalBalance = null;
 
-        _oSeat.setPrevBet();
-        
         playSound("card",1,false);
-        
-        
-	_bFold = false;
+        _bFold = false;
         this.changeState(STATE_GAME_DEALING);
     };
-    
+
     this.onFold = function(){
         if(_iState !== STATE_GAME_PLAYER_TURN){
             return;
         }
 
-	_bFold = true;
-        this._calculateTotalWin();
-        _oInterface.showHandValue(null,_iHandPlayer);
-        _iState = STATE_GAME_SHOWDOWN;
-        this._showWin();
+        _bFold = true;
+        _oInterface.enable(false,false,false);
+        _oInterface.displayMsg(TEXT_DISPLAY_MSG_DEALING);
+        // BetterDR: settle server-side (fold). The dealer stays hidden on a fold.
+        if (typeof window.__3cp_requestSettle === 'function') {
+            window.__3cp_requestSettle({ roundId: _sRoundId, folded: 1 });
+        }
     };
-    
+
     this.onPlay = function(){
         if(_iState !== STATE_GAME_PLAYER_TURN){
             return;
         }
-        
+
         if(this.setBet(_oInterface.getFicheSelected(),BET_PLAY) !== true){
             _oInterface.enable(false,true,true);
             return;
         }
         _bFold = false;
+        _oInterface.enable(false,false,false);
+        // BetterDR: settle server-side (play). The dealer is revealed from the
+        // server response in __serverSettleArrived.
+        if (typeof window.__3cp_requestSettle === 'function') {
+            window.__3cp_requestSettle({ roundId: _sRoundId, folded: 0 });
+        }
+    };
+
+    // BetterDR: the server SETTLE response arrived — reveal the server's dealer
+    // cards (play) and settle on the exact committed hands. The engine evaluates
+    // the SAME server cards under the SAME rules, so the shown hand IS the paid
+    // hand; the authoritative balance is snapped from the server at showdown.
+    this.__serverSettleArrived = function(oResp){
+        var aDealerCodes = (oResp && oResp.dealerCards) || [];
+        if(Array.isArray(aDealerCodes) && aDealerCodes.length === CARD_TO_DEAL){
+            var aDealer = [];
+            for(var i=0;i<aDealerCodes.length;i++){ aDealer.push(this.__cardCodeToInfo(aDealerCodes[i])); }
+            _aDealerCardsSnapshot = this._cloneCardsInfo(aDealer);
+            _aDealerCardsInfo = this._cloneCardsInfo(aDealer);
+            for(var k=0;k<_aCardsInCurHandForDealer.length && k<aDealer.length;k++){
+                _aCardsInCurHandForDealer[k].setFace(aDealer[k].fotogram, aDealer[k].rank);
+            }
+            _oDealerHandEvaluation = _oHandEvaluator.evaluate(_aDealerCardsSnapshot);
+            _iHandDealer = _oDealerHandEvaluation.ret;
+            _bDealerQualified = _oHandEvaluator.dealerQualifies(_oDealerHandEvaluation.sort_hand, _iHandDealer);
+        }
+
+        var bal = (oResp && oResp.availableBalance != null) ? oResp.availableBalance
+                : ((oResp && oResp.balance != null) ? oResp.balance
+                : ((oResp && oResp.newBalance != null) ? oResp.newBalance : null));
+        _iServerFinalBalance = (bal != null && isFinite(parseFloat(bal))) ? parseFloat(bal) : null;
+
         this._calculateTotalWin();
-        _iCurDealerCardShown = 0;
-        this._showNextDealerCard();
+
+        if(_bFold){
+            _oInterface.showHandValue(null,_iHandPlayer);
+            _iState = STATE_GAME_SHOWDOWN;
+            this._showWin();
+        }else{
+            _iCurDealerCardShown = 0;
+            this._showNextDealerCard();
+        }
+    };
+
+    // BetterDR: a server deal/settle request errored. On a failed DEAL the round
+    // never opened — refund the local bet display and return to betting. On a
+    // failed SETTLE the round is still open server-side — re-arm fold/play so
+    // the player can retry. The server balance is re-synced by the bridge.
+    this.__serverRoundAborted = function(bWasDeal){
+        if(bWasDeal){
+            this.clearBets();
+            _oInterface.displayMsg(TEXT_DISPLAY_MSG_WAITING_BET, TEXT_MIN_BET+": "+MIN_BET + "\n" + TEXT_MAX_BET+": "+MAX_BET);
+            _oInterface.enableBetFiches(_oSeat.checkIfRebetIsPossible());
+            _oInterface.enable(_oSeat.getBetAnte() > 0,false,false);
+        }else{
+            _iState = STATE_GAME_PLAYER_TURN;
+            _oInterface.displayMsg(TEXT_DISPLAY_MSG_USER_TURN);
+            _oInterface.enable(false,true,true);
+        }
     };
     
     this._showNextDealerCard = function(){

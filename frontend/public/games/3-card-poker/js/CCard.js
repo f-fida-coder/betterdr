@@ -78,6 +78,15 @@ function CCard(iX,iY,oContainer){
         _iState=STATE_CARD_REMOVING;
     };
     
+    // BetterDR: swap a face-down card's face to the SERVER-revealed value just
+    // before it flips at settle. The dealer cards are dealt face-down with a
+    // placeholder at deal (the server withholds them while the round is
+    // 'dealt'); this sets the real committed face the instant it is revealed.
+    this.setFace = function(szFotogram, iValue){
+        _szFotogram = szFotogram;
+        _iValue = iValue;
+    };
+
     this.setValue = function(){
         _oCardSprite.gotoAndStop(_szFotogram);
         var oParent = this;

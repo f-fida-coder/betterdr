@@ -60,14 +60,22 @@
         (function () {
             'use strict';
 
-            var _serverBalance   = null;  // last authoritative balance from parent
-            var _pendingAnte     = 0;
-            var _pendingPairPlus = 0;
-            var _pendingReqId    = null;
-            var _pendingResult   = null;  // set by __3cp_onHandEnd before save_score
-            var _waitingForBet   = false; // prevent duplicate sends per hand
+            // ─────────────────────────────────────────────────────────────
+            // Server-authoritative TWO-STAGE bridge (Phase 1: shown == paid).
+            //   DEAL   : onDeal → placeBet{action:'deal'} → server deals BOTH
+            //            hands, withholds the dealer, returns the PLAYER cards +
+            //            roundId → __serverDealArrived renders them.
+            //   SETTLE : onFold/onPlay → placeBet{action:'settle',roundId} →
+            //            server reveals the dealer + pays on the EXACT committed
+            //            cards → __serverSettleArrived reveals + snaps balance.
+            // No hand is dealt or settled locally; the server is the sole
+            // outcome + money authority.
+            // ─────────────────────────────────────────────────────────────
 
-            // Resolve parent origin once at startup for secure postMessage.
+            var _serverBalance  = null;   // last authoritative balance from parent
+            var _pendingReqId   = null;   // in-flight request id
+            var _pendingAction  = null;   // 'deal' | 'settle' | null
+
             var _parentOrigin = (function () {
                 try {
                     if (document.referrer) return new URL(document.referrer).origin;
@@ -90,14 +98,17 @@
                 _sendToParent({ type: 'getBalance', requestId: reqId || _createReqId() });
             }
 
-            function _applyBalance(raw) {
-                var b = parseFloat(raw);
-                if (!isFinite(b) || b < 0) return;
-                _serverBalance = b;
-                if (typeof s_oGame !== 'undefined' && s_oGame &&
-                    typeof s_oGame.setCredit === 'function') {
-                    s_oGame.setCredit(b);
-                }
+            function _game() {
+                return (typeof s_oGame !== 'undefined' && s_oGame) ? s_oGame : null;
+            }
+
+            function _extractBalance(msg) {
+                var b = parseFloat(
+                    msg.availableBalance != null ? msg.availableBalance :
+                    msg.balance != null          ? msg.balance :
+                    msg.newBalance != null        ? msg.newBalance : NaN
+                );
+                return (isFinite(b) && b >= 0) ? b : null;
             }
 
             // ── Receive messages from parent (CasinoView.jsx) ─────────────
@@ -107,51 +118,42 @@
                 if (!msg || typeof msg !== 'object' || !msg.type) return;
 
                 if (msg.type === 'balanceUpdate') {
-                    var bal = parseFloat(
-                        msg.availableBalance != null ? msg.availableBalance : msg.balance
-                    );
-                    if (!isFinite(bal) || bal < 0) return;
-                    // Always keep _serverBalance in sync (used as prevCredit for netResult).
+                    var bal = _extractBalance(msg);
+                    if (bal === null) return;
                     _serverBalance = bal;
-                    // Only push the balance into the game when no hand is active.
-                    // During a hand (_pendingReqId set) or while waiting for betResult
-                    // (_waitingForBet), the game already tracks the correct credit
-                    // internally – overwriting it here would break the running hand.
-                    if (_pendingReqId === null && !_waitingForBet) {
-                        if (typeof s_oGame !== 'undefined' && s_oGame &&
-                                typeof s_oGame.setCredit === 'function') {
-                            s_oGame.setCredit(bal);
-                        }
+                    // Only push balance into the game between hands — never while
+                    // a deal/settle is in flight (the engine owns the display then).
+                    if (_pendingAction === null) {
+                        var g = _game();
+                        if (g && typeof g.setCredit === 'function') { g.setCredit(bal); }
                     }
                     return;
                 }
 
                 if (msg.type === 'betResult') {
-                    var newBal = parseFloat(
-                        msg.availableBalance != null ? msg.availableBalance :
-                        msg.balance != null          ? msg.balance :
-                        msg.newBalance != null        ? msg.newBalance : _serverBalance
-                    );
-                    _waitingForBet = false;
-                    if (isFinite(newBal) && newBal >= 0) {
-                        _serverBalance = newBal;
-                        // Only push authoritative balance into the game when no new
-                        // hand has already started. If __3cp_onDeal already fired
-                        // for the next hand (_pendingReqId set), the game has
-                        // correctly deducted those bets; forcing setCredit here
-                        // would revert the display to the pre-bet balance.
-                        if (_pendingReqId === null &&
-                                typeof s_oGame !== 'undefined' && s_oGame &&
-                                typeof s_oGame.setCredit === 'function') {
-                            s_oGame.setCredit(newBal);
-                        }
+                    var newBal = _extractBalance(msg);
+                    if (newBal !== null) { _serverBalance = newBal; }
+                    var action = _pendingAction;
+                    _pendingReqId  = null;
+                    _pendingAction = null;
+                    var g2 = _game();
+                    if (!g2) { return; }
+                    if (action === 'deal' && typeof g2.__serverDealArrived === 'function') {
+                        g2.__serverDealArrived(msg);
+                    } else if (action === 'settle' && typeof g2.__serverSettleArrived === 'function') {
+                        g2.__serverSettleArrived(msg);
                     }
                     return;
                 }
 
                 if (msg.type === 'betError') {
-                    _waitingForBet = false;
-                    // Re-sync so the game shows the correct balance after an error.
+                    var wasDeal = (_pendingAction === 'deal');
+                    _pendingReqId  = null;
+                    _pendingAction = null;
+                    var g3 = _game();
+                    if (g3 && typeof g3.__serverRoundAborted === 'function') {
+                        g3.__serverRoundAborted(wasDeal, msg && msg.error ? String(msg.error) : '');
+                    }
                     _requestBalance();
                     return;
                 }
@@ -159,106 +161,48 @@
 
             // ── Global callbacks invoked by CGame.js hooks ────────────────
 
-            /** Called in CGame.onDeal() right before cards are dealt. */
-            window.__3cp_onDeal = function (info) {
-                _pendingAnte     = parseFloat(info.ante)     || 0;
-                _pendingPairPlus = parseFloat(info.pairPlus) || 0;
-                _pendingReqId    = _createReqId();
-                _pendingResult   = null;
-                _waitingForBet   = false;
+            /** STAGE 1: CGame.onDeal() → request the server deal. */
+            window.__3cp_requestDeal = function (info) {
+                if (_pendingAction !== null) { return; }   // one round-trip at a time
+                _pendingReqId  = _createReqId();
+                _pendingAction = 'deal';
+                _sendToParent({
+                    type      : 'placeBet',
+                    game      : '3card-poker',
+                    requestId : _pendingReqId,
+                    bets      : {
+                        action   : 'deal',
+                        Ante     : parseFloat(info && info.ante)     || 0,
+                        PairPlus : parseFloat(info && info.pairPlus) || 0
+                    }
+                });
             };
 
-            /** Called in CGame._onEndHand() before save_score fires. */
-            window.__3cp_onHandEnd = function (info) {
-                _pendingResult = {
-                    newCredit  : parseFloat(info.newCredit) || 0,
-                    handResult : info.handResult || 'unknown',
-                    folded     : !!info.folded,
-                    round      : info && typeof info.round === 'object' ? info.round : null
-                };
+            /** STAGE 2: CGame.onFold()/onPlay() → request the server settle. */
+            window.__3cp_requestSettle = function (info) {
+                if (_pendingAction !== null) { return; }
+                _pendingReqId  = _createReqId();
+                _pendingAction = 'settle';
+                _sendToParent({
+                    type      : 'placeBet',
+                    game      : '3card-poker',
+                    requestId : _pendingReqId,
+                    bets      : {
+                        action  : 'settle',
+                        roundId : info && info.roundId ? String(info.roundId) : '',
+                        folded  : (info && info.folded) ? 1 : 0
+                    }
+                });
             };
 
             // ── Attach jQuery game events (called after CMain is created) ──
             window.__3cp_attachEvents = function (oMain) {
-
-                $(oMain).on('recharge', function () {
-                    _requestBalance();
-                });
-
-                $(oMain).on('start_session', function () {
-                    _requestBalance();
-                });
-
-                $(oMain).on('end_session', function () { /* noop */ });
-
-                $(oMain).on('bet_placed', function (evt, iTotBet) {
-                    /* ante amount accumulates; final value captured in __3cp_onDeal */
-                });
-
-                $(oMain).on('save_score', function (evt, iMoney) {
-                    // iMoney = game's internal credit after the hand settled
-                    if (_serverBalance === null || _pendingReqId === null || _waitingForBet) {
-                        return;
-                    }
-
-                    var round      = _pendingResult && _pendingResult.round && typeof _pendingResult.round === 'object'
-                        ? _pendingResult.round
-                        : {};
-                    if (!Array.isArray(round.playerCards) || !Array.isArray(round.dealerCards)) {
-                        _waitingForBet = false;
-                        return;
-                    }
-                    var newCredit  = parseFloat(round.finalBalance != null ? round.finalBalance : iMoney) || 0;
-                    var prevCredit = _serverBalance;
-                    var netResult  = Math.round(((round.netResult != null ? round.netResult : (newCredit - prevCredit)) * 100)) / 100;
-
-                    var ante      = _pendingAnte;
-                    var pairPlus  = _pendingPairPlus;
-                    var folded    = _pendingResult ? _pendingResult.folded     : false;
-                    var handRes   = _pendingResult ? _pendingResult.handResult : 'unknown';
-                    var playBet   = Math.round(((round.bets && round.bets.play != null ? round.bets.play : (folded ? 0 : ante)) * 100)) / 100;
-                    var reqId     = _pendingReqId;
-
-                    // Reset pending state before sending (idempotent)
-                    _pendingReqId  = null;
-                    _pendingResult = null;
-                    _waitingForBet = true;
-
-                    // Optimistically advance local reference (will be overwritten by betResult)
-                    _serverBalance = newCredit;
-
-                    _sendToParent({
-                        type      : 'placeBet',
-                        game      : '3card-poker',
-                        requestId : reqId,
-                        bets      : {
-                            Ante     : ante,
-                            PairPlus : pairPlus,
-                            Play     : playBet,
-                            folded   : folded ? 1 : 0
-                        },
-                        payload   : {
-                            netResult       : netResult,
-                            newCredit       : newCredit,
-                            prevCredit      : prevCredit,
-                            handResult      : handRes,
-                            folded          : folded,
-                            playerAction    : round.action || (folded ? 'fold' : 'play'),
-                            dealerQualified : !!round.dealerQualified,
-                            playerCards     : Array.isArray(round.playerCards) ? round.playerCards : [],
-                            dealerCards     : Array.isArray(round.dealerCards) ? round.dealerCards : [],
-                            playerHand      : round.playerHand || '',
-                            dealerHand      : round.dealerHand || '',
-                            totalWager      : Number(round.totalWager || (ante + pairPlus + playBet)),
-                            totalReturn     : Number(round.totalReturn || 0),
-                            payoutBreakdown : round.payoutBreakdown && typeof round.payoutBreakdown === 'object'
-                                ? round.payoutBreakdown
-                                : {},
-                            roundData       : round
-                        }
-                    });
-                });
-
+                $(oMain).on('recharge',      function () { _requestBalance(); });
+                $(oMain).on('start_session', function () { _requestBalance(); });
+                $(oMain).on('end_session',   function () { /* noop */ });
+                $(oMain).on('bet_placed',    function () { /* noop — bets are sent at deal */ });
+                // save_score only fires on exit now; settlement is done at fold/play.
+                $(oMain).on('save_score',    function () { /* noop — no local settle post */ });
                 $(oMain).on('show_interlevel_ad', function () { /* noop */ });
                 $(oMain).on('share_event',        function () { /* noop */ });
             };
