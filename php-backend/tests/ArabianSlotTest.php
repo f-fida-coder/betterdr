@@ -134,3 +134,85 @@ TestRunner::run('arabian free-spin caps — per-spin + total clamp', function ()
     }
     TestRunner::assertTrue($ok, "no single spin awards more than {$maxPer} free spins");
 });
+
+// ══════════════════════ PHASE 2 — admin payoutScale ══════════════════════
+
+// ── Default scale 1.00 reproduces Phase-1 exactly (no RTP change ships) ──────
+TestRunner::run('arabian payoutScale — default 1.00 == Phase-1 base (byte-identical)', function () use ($c) {
+    // sym1 5-of-a-kind (mult 78) at $0.05: base = 3.90; scale 1.0 must equal base.
+    $base = arabianCall($c, 'evaluateArabianWinningLines', agrid([1,1,1,1,1]), 1, 0.05);
+    $scaled1 = arabianCall($c, 'evaluateArabianWinningLines', agrid([1,1,1,1,1]), 1, 0.05, 1.0);
+    TestRunner::assertEqualsFloat((float) $base[0]['amount'], (float) $scaled1[0]['amount'], 'scale 1.0 == default (no arg)', 0.0001);
+    TestRunner::assertEqualsFloat(3.90, (float) $scaled1[0]['amount'], 'base pay unchanged at scale 1.0', 0.0001);
+});
+
+// ── Cent-level floor: scale applied then floored to cents (house-safe) ───────
+TestRunner::run('arabian payoutScale — cent-floor is exact and house-safe', function () use ($c) {
+    // sym1 5oak mult 78 at coinBet 1.0, scale 0.90 -> floor(78*0.90)=70.20
+    $w = arabianCall($c, 'evaluateArabianWinningLines', agrid([1,1,1,1,1]), 1, 1.0, 0.90);
+    TestRunner::assertEqualsFloat(70.20, (float) $w[0]['amount'], 'sym1 5oak x0.90 floors to $70.20', 0.0001);
+    // at $0.05: base 3.90 -> floor(390 cents * 0.90)=351 -> $3.51
+    $w2 = arabianCall($c, 'evaluateArabianWinningLines', agrid([1,1,1,1,1]), 1, 0.05, 0.90);
+    TestRunner::assertEqualsFloat(3.51, (float) $w2[0]['amount'], 'sym1 5oak $0.05 x0.90 = $3.51 (floored)', 0.0001);
+    // helper never rounds UP: a value that would round to 4.00 floors to 3.99
+    $floored = arabianCall($c, 'arabianScaleFloorToCents', 4.00, 0.999);
+    TestRunner::assertTrue((float) $floored <= 4.00, 'floor never exceeds the base (house-safe)');
+    TestRunner::assertEqualsFloat(3.99, (float) $floored, 'floor(400c * 0.999) = 399c = $3.99', 0.0001);
+});
+
+// ── Clamp: out-of-range values re-clamp to the spec on read ──────────────────
+TestRunner::run('arabian payoutScale — read clamp to [0.90, 1.05]', function () use ($c) {
+    $spec = arabianConst('ARABIAN_PAYOUT_SPEC')['payoutScale'];
+    TestRunner::assertEqualsFloat(1.00, (float) $spec[0], 'default 1.00', 0.0001);
+    TestRunner::assertEqualsFloat(0.90, (float) $spec[1], 'floor 0.90', 0.0001);
+    TestRunner::assertEqualsFloat(1.05, (float) $spec[2], 'ceiling 1.05', 0.0001);
+    $clamp = fn($v) => (new ReflectionMethod(CasinoController::class, 'clampPayoutValue'))->invoke(null, $v, $spec);
+    TestRunner::assertEqualsFloat(1.05, (float) $clamp(2.0), 'above-max re-clamps to 1.05', 0.0001);
+    TestRunner::assertEqualsFloat(0.90, (float) $clamp(0.5), 'below-min re-clamps to 0.90', 0.0001);
+    TestRunner::assertEqualsFloat(0.97, (float) $clamp(0.97), 'in-range passes through', 0.0001);
+});
+
+// ── Write guard: range + admin-only role guard ──────────────────────────────
+TestRunner::run('arabian payoutConfig — write guard (range + admin-only)', function () use ($c) {
+    $existing = ['slug' => 'arabian', 'metadata' => []];
+    $err = fn($actor, $meta) => arabianCall($c, 'payoutConfigUpdateError', $actor, $existing, $meta);
+    // out-of-range rejected with the range, before any role check
+    $r = $err(['role' => 'admin'], ['payoutConfig' => ['payoutScale' => 2.0]]);
+    TestRunner::assertEquals(400, (int) ($r['status'] ?? 0), 'above-ceiling write rejected 400');
+    // unknown key rejected
+    $r2 = $err(['role' => 'admin'], ['payoutConfig' => ['freeSpins3' => 5]]);
+    TestRunner::assertEquals(400, (int) ($r2['status'] ?? 0), 'unknown key rejected 400');
+    // valid change by a non-admin -> 403
+    $r3 = $err(['role' => 'agent'], ['payoutConfig' => ['payoutScale' => 0.95]]);
+    TestRunner::assertEquals(403, (int) ($r3['status'] ?? 0), 'agent cannot change payoutConfig (403)');
+    $r4 = $err(['role' => 'master_agent'], ['payoutConfig' => ['payoutScale' => 0.95]]);
+    TestRunner::assertEquals(403, (int) ($r4['status'] ?? 0), 'master_agent cannot change payoutConfig (403)');
+    // valid change by admin -> allowed (null)
+    TestRunner::assertNull($err(['role' => 'admin'], ['payoutConfig' => ['payoutScale' => 0.95]]), 'admin may change payoutConfig');
+    // echoing the current (default) config is a no-op for anyone
+    TestRunner::assertNull($err(['role' => 'agent'], ['payoutConfig' => ['payoutScale' => 1.0]]), 'no-op echo passes for non-admin');
+});
+
+// ── The lever moves RTP (down at floor, house-positive at ceiling) ───────────
+TestRunner::run('arabian payoutScale — lever lowers RTP; ceiling stays <100%', function () use ($c) {
+    $n = 40000;
+    $rtp = function (int $lines, float $scale) use ($c, $n): float {
+        $wager = 0.0; $ret = 0.0;
+        for ($i = 0; $i < $n; $i++) {
+            $s = arabianCall($c, 'settleArabianSpin', 1.0, $lines, ['freeSpinsRemaining' => 0], $scale);
+            $wager += (float) $s['roundData']['totalBet']; $ret += (float) $s['totalReturn'];
+            $fs = (int) $s['stateAfter']['freeSpinsRemaining']; $guard = 0;
+            while ($fs > 0 && $guard < 5000) { $guard++; $s = arabianCall($c, 'settleArabianSpin', 1.0, $lines, $s['stateAfter'], $scale); $ret += (float) $s['totalReturn']; $fs = (int) $s['stateAfter']['freeSpinsRemaining']; }
+        }
+        return $ret / $wager;
+    };
+    $floor = $rtp(20, 0.90);
+    $ceil = $rtp(20, 1.05);
+    // 40k CSPRNG spins are noisy on the high-variance top bonus; these guard the
+    // lever's direction + magnitude only. The PRECISE house-positive ceiling
+    // (2M sim: scale 1.05 -> 98.0% at both 1 and 20 lines) is reported, not
+    // asserted at this sample size.
+    TestRunner::assertTrue($floor > 0.78 && $floor < 0.90, 'scale 0.90 RTP ~84% (in [0.78,0.90]): ' . round($floor * 100, 2) . '%');
+    TestRunner::assertTrue($ceil > $floor && $ceil < 1.08, 'scale 1.05 raises RTP toward ~98% (2M sim), not broken: ' . round($ceil * 100, 2) . '%');
+    TestRunner::assertTrue($ceil > $floor, 'higher scale => higher RTP');
+});

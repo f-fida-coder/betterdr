@@ -232,6 +232,97 @@ function BogeymanPayoutSettings({ token }) {
   );
 }
 
+// Server-enforced clamp range for arabian's payout config (see
+// ARABIAN_PAYOUT_SPEC). payoutScale is the ONLY lever — a uniform multiplier on
+// the retuned paytable, floored to cents per hit (house-safe). The reels stay a
+// fair uniform draw. Cent-floor RTP: ~93.7% at 1.00 (default) down to ~84% at
+// 0.90; ceiling 1.05 (~98%) stays house-positive.
+const ARABIAN_PAYOUT_LIMITS = {
+  payoutScale: { min: 0.9, max: 1.05, step: 0.01, label: 'Payout scale ×' },
+};
+
+function ArabianPayoutSettings({ token }) {
+  const [game, setGame] = useState(null);
+  const [values, setValues] = useState({ payoutScale: '' });
+  const [status, setStatus] = useState({ kind: '', text: '' });
+  const [saving, setSaving] = useState(false);
+
+  const loadGame = useCallback(async () => {
+    try {
+      const payload = await getCasinoGames({ token, category: 'slots', limit: 100, all: true });
+      const row = (payload?.games || []).find((g) => String(g?.slug || '') === 'arabian');
+      if (!row) return;
+      setGame(row);
+      const cfg = row?.metadata?.payoutConfig || {};
+      setValues({ payoutScale: String(cfg.payoutScale ?? 1) });
+    } catch (err) {
+      setStatus({ kind: 'error', text: err.message || 'Failed to load Arabian payout config' });
+    }
+  }, [token]);
+
+  useEffect(() => { loadGame(); }, [loadGame]);
+
+  const invalid = (key) => {
+    const limits = ARABIAN_PAYOUT_LIMITS[key];
+    const num = Number(values[key]);
+    return !Number.isFinite(num) || num < limits.min || num > limits.max;
+  };
+  const anyInvalid = Object.keys(ARABIAN_PAYOUT_LIMITS).some(invalid);
+
+  const save = async () => {
+    if (!game || anyInvalid) return;
+    try {
+      setSaving(true);
+      setStatus({ kind: '', text: '' });
+      const updated = await updateAdminCasinoGame(game.id, {
+        metadata: {
+          ...(game.metadata || {}),
+          payoutConfig: { payoutScale: Number(values.payoutScale) },
+        },
+      }, token);
+      const applied = updated?.metadata?.payoutConfig || {};
+      setStatus({ kind: 'ok', text: `Saved — live from the next spin: scale ${applied.payoutScale ?? values.payoutScale}×` });
+      setGame(updated || game);
+    } catch (err) {
+      setStatus({ kind: 'error', text: err.message || 'Failed to save payout config' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!game) return null;
+
+  return (
+    <div className="casino-bets-filters casino-payout-settings">
+      {Object.entries(ARABIAN_PAYOUT_LIMITS).map(([key, limits], idx) => (
+        <div className="filter-group" key={key}>
+          <label>{idx === 0 ? 'Arabian Payout — ' : ''}{limits.label} ({limits.min}–{limits.max})</label>
+          <input
+            type="number"
+            min={limits.min}
+            max={limits.max}
+            step={limits.step}
+            value={values[key]}
+            onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
+            style={invalid(key) ? { borderColor: '#dc2626' } : undefined}
+          />
+        </div>
+      ))}
+      <div className="filter-group">
+        <label>&nbsp;</label>
+        <button type="button" className="btn-small btn-accent" onClick={save} disabled={saving || anyInvalid}>
+          {saving ? 'Saving…' : 'Save Payout Config'}
+        </button>
+      </div>
+      {status.text && (
+        <div className="filter-group" style={{ alignSelf: 'flex-end', color: status.kind === 'error' ? '#dc2626' : '#16a34a' }}>
+          {status.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Server-enforced clamp ranges for american-roulette's OPERATIONAL config
 // (see AMERICAN_ROULETTE_PAYOUT_SPEC). Roulette's edge is structural (the
 // 0/00 pockets) — payout multipliers are locked server constants and are
@@ -878,6 +969,7 @@ function CasinoBetsView() {
             {localStorage.getItem('userRole') === 'admin' && <BogeymanPayoutSettings token={token} />}
             {localStorage.getItem('userRole') === 'admin' && <AmericanRoulettePayoutSettings token={token} />}
             {localStorage.getItem('userRole') === 'admin' && <AcesAndEightsPayoutSettings token={token} />}
+            {localStorage.getItem('userRole') === 'admin' && <ArabianPayoutSettings token={token} />}
             <div className="casino-bets-kpi-grid">
               {summaryCards.map((card) => (
                 <div className={`casino-kpi-card tone-${card.tone}`} key={card.label}>

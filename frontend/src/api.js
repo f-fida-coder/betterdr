@@ -1037,11 +1037,13 @@ export const getCasinoCategories = async (token) => {
     return response.json();
 };
 
-export const getCasinoGames = async ({ token, category = 'lobby', search = '', featured = false, page = 1, limit = 48 } = {}) => {
+export const getCasinoGames = async ({ token, category = 'lobby', search = '', featured = false, page = 1, limit = 48, all = false } = {}) => {
     const params = new URLSearchParams();
     if (category) params.set('category', category);
     if (search) params.set('search', search);
     if (featured) params.set('featured', 'true');
+    // Admin-only: include non-active games (server enforces the role check).
+    if (all) params.set('all', 'true');
     params.set('page', String(page));
     params.set('limit', String(limit));
 

@@ -3486,7 +3486,11 @@ final class CasinoController
         $userId = (string) ($actor['id'] ?? '');
 
         try {
-            $this->requireActiveCasinoGame(self::ARABIAN_GAME_SLUG);
+            $gameRow = $this->requireActiveCasinoGame(self::ARABIAN_GAME_SLUG);
+            // Effective admin payout config: clamped on read (never trusted raw),
+            // the single source the engine pays from and the round is stamped with.
+            $payoutConfig = $this->resolveArabianPayoutConfig($gameRow);
+            $payoutScale = (float) ($payoutConfig['payoutScale'] ?? 1.0);
 
             $clientBets = is_array($body['bets'] ?? null) ? $body['bets'] : [];
             $payloadMeta = is_array($body['payload'] ?? null) ? $body['payload'] : [];
@@ -3610,7 +3614,7 @@ final class CasinoController
                 }
 
                 $roundId = $this->deterministicRoundId(self::ARABIAN_GAME_SLUG, $userId, $requestId);
-                $settlement = $this->settleArabianSpin($coinBet, $lineCount, $stateBefore);
+                $settlement = $this->settleArabianSpin($coinBet, $lineCount, $stateBefore, $payoutScale);
                 $totalReturn = round($this->num($settlement['totalReturn'] ?? 0), 2);
                 $netResult = round($totalReturn - $totalWager, 2);
                 $profit = round(max(0, $netResult), 2);
@@ -3769,6 +3773,7 @@ final class CasinoController
                     'betLimits' => $betLimits,
                     'betDetails' => $betDetails,
                     'roundData' => $roundData,
+                    'payoutApplied' => $payoutConfig,
                     'integrityHash' => $integrityHash,
                     'serverDecisionAt' => $serverDecisionAt,
                     'latencyMs' => $latencyMs,
@@ -4048,6 +4053,35 @@ final class CasinoController
     }
 
     /**
+     * Apply the admin payoutScale to a base win, flooring to whole CENTS
+     * (house-safe — never rounds up). Integer-cents math avoids float drift;
+     * $baseMoney is an exact 2dp value (multiplier x coinBet, always a multiple
+     * of the $0.05 coin). At payoutScale 1.00 this is byte-identical to the
+     * Phase-1 result, so shipping the lever changes RTP for nobody at default.
+     */
+    private function arabianScaleFloorToCents(float $baseMoney, float $payoutScale): float
+    {
+        $baseCents = (int) round($baseMoney * 100);
+        $scaledCents = (int) floor(($baseCents * $payoutScale) + 1e-6);
+        return $scaledCents / 100;
+    }
+
+    /**
+     * Effective (clamped) Arabian payout config — the single source the engine
+     * pays from and every echo reads. Mirrors resolveBogeymanPayoutConfig.
+     *
+     * @return array{payoutScale: float}
+     */
+    private function resolveArabianPayoutConfig(?array $gameRow): array
+    {
+        $cfg = $this->resolveGamePayoutConfig(self::ARABIAN_GAME_SLUG, $gameRow);
+
+        return [
+            'payoutScale' => round($this->num($cfg['payoutScale'] ?? 1.0), 2),
+        ];
+    }
+
+    /**
      * @param array{freeSpinsRemaining:int,freeSpinLineCount:?int,freeSpinCoinBet:?float} $stateBefore
      * @return array{
      *   totalReturn: float,
@@ -4057,7 +4091,7 @@ final class CasinoController
      *   stateAfter: array<string, mixed>
      * }
      */
-    private function settleArabianSpin(float $coinBet, int $lineCount, array $stateBefore): array
+    private function settleArabianSpin(float $coinBet, int $lineCount, array $stateBefore, float $payoutScale = 1.0): array
     {
         $freeSpinsBefore = max(0, (int) ($stateBefore['freeSpinsRemaining'] ?? 0));
         $isFreeSpinRound = $freeSpinsBefore > 0;
@@ -4069,7 +4103,9 @@ final class CasinoController
         $totalBet = round($coinBet * $lineCount, 2);
 
         $pattern = $this->generateArabianPattern();
-        $winningLines = $this->evaluateArabianWinningLines($pattern, $lineCount, $coinBet);
+        // payoutScale (admin house-edge lever) applies to every line win, floored
+        // to cents inside the evaluator. Deck stays a uniform fair draw.
+        $winningLines = $this->evaluateArabianWinningLines($pattern, $lineCount, $coinBet, $payoutScale);
         $lineWin = 0.0;
         foreach ($winningLines as $lineWinEntry) {
             $lineWin += $this->num($lineWinEntry['amount'] ?? 0);
@@ -4082,8 +4118,9 @@ final class CasinoController
         $bonusWin = 0.0;
         if ($bonusTriggered) {
             [$bonusPrizeIndex, $bonusMultiplier] = $this->pickArabianBonusPrize();
-            // Bonus pays x TOTAL BET (line-count-independent), not x coinBet.
-            $bonusWin = round($bonusMultiplier * $totalBet, 2);
+            // Bonus pays x TOTAL BET (line-count-independent), scaled + floored
+            // to cents by the same payoutScale (house-safe).
+            $bonusWin = $this->arabianScaleFloorToCents($bonusMultiplier * $totalBet, $payoutScale);
         }
 
         $freeSpinSymbolCount = $this->countArabianSymbol($pattern, self::ARABIAN_FREESPIN_SYMBOL);
@@ -4116,6 +4153,7 @@ final class CasinoController
             'lineCount' => $lineCount,
             'coinBet' => $coinBet,
             'totalBet' => $totalBet,
+            'payoutScale' => $payoutScale,
             'isFreeSpinRound' => $isFreeSpinRound,
             'freeSpinsBefore' => $freeSpinsBefore,
             'freeSpinsAwarded' => $freeSpinsAwarded,
@@ -4194,7 +4232,7 @@ final class CasinoController
      * @param array<int, array<int, int>> $pattern
      * @return array<int, array<string, mixed>>
      */
-    private function evaluateArabianWinningLines(array $pattern, int $lineCount, float $coinBet): array
+    private function evaluateArabianWinningLines(array $pattern, int $lineCount, float $coinBet, float $payoutScale = 1.0): array
     {
         $winningLines = [];
         $maxLines = min($lineCount, count(self::ARABIAN_LINE_PATTERNS));
@@ -4245,7 +4283,10 @@ final class CasinoController
                 continue;
             }
 
-            $amount = round($multiplier * $coinBet, 2);
+            // payoutScale house-edge lever, floored to cents (house-safe;
+            // identical to base at scale 1.0). The paytable/weights are the fair
+            // draw — scale never biases the reels.
+            $amount = $this->arabianScaleFloorToCents($multiplier * $coinBet, $payoutScale);
             if ($amount <= 0) {
                 continue;
             }
@@ -9582,6 +9623,18 @@ final class CasinoController
         'freeSpins4' => [10, 5, 20],
         'freeSpins5' => [20, 10, 40],
     ];
+    // Arabian: the ONLY lever is a uniform payoutScale on the retuned Phase-1
+    // paytable (the deck/reels stay a uniform fair draw — never weight
+    // manipulation). Applied at settlement with a cent-level floor (house-safe).
+    // Cent-floor Monte-Carlo (2M spins/scale, line-count-independent):
+    //   default 1.00 → 93.7% (reproduces Phase 1 EXACTLY — no RTP change ships)
+    //   floor   0.90 → 84.1%
+    //   ceiling 1.05 → 98.0%  (house-positive with margin at BOTH 1 and 20 lines;
+    //                          1.06 is the literal highest <100% at 99.3% but
+    //                          that 0.65% edge is too thin for a max)
+    private const ARABIAN_PAYOUT_SPEC = [
+        'payoutScale' => [1.00, 0.90, 1.05],
+    ];
     // American Roulette levers are OPERATIONAL only — the edge is the 0/00
     // pockets, so the payout table (straight 35:1 … even-money 1:1) is a
     // locked constant and deliberately has NO key here (the write gate
@@ -9659,6 +9712,7 @@ final class CasinoController
         self::BOGEYMAN_GAME_SLUG => self::BOGEYMAN_PAYOUT_SPEC,
         self::AMERICAN_ROULETTE_GAME_SLUG => self::AMERICAN_ROULETTE_PAYOUT_SPEC,
         self::ACES_AND_EIGHTS_GAME_SLUG => self::ACES_AND_EIGHTS_PAYOUT_SPEC,
+        self::ARABIAN_GAME_SLUG => self::ARABIAN_PAYOUT_SPEC,
     ];
 
     /** @param array{0: float, 1: float, 2: float} $spec [default, min, max] */
