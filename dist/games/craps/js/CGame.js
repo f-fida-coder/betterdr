@@ -529,38 +529,40 @@ function CGame(oData){
     
     this.assignBetFromCome = function(iNumberAssigned,szOrigBet){
         var aFicheMc = _oMySeat.getFicheMc(szOrigBet);
-        
+        var szTarget = "come_point"+iNumberAssigned;
+
         //MOVE FICHES
         for(var k=0;k<aFicheMc.length;k++){
             _aFichesToMove.push(aFicheMc[k]);
-            var oEndPos = s_oGameSettings.getAttachOffset("number"+iNumberAssigned);
+            var oEndPos = s_oGameSettings.getAttachOffset(szTarget);
 
             aFicheMc[k].setEndPoint(oEndPos.x,oEndPos.y);
         }
-        
-        
-        _aBetHistory["number"+iNumberAssigned] = _aBetHistory[szOrigBet];
+
+
+        _aBetHistory[szTarget] = _aBetHistory[szOrigBet];
         delete _aBetHistory[szOrigBet];
-        
-        _oMySeat.swapBet(szOrigBet,"number"+iNumberAssigned);
+
+        _oMySeat.swapBet(szOrigBet,szTarget);
     };
-    
+
     this.assignBetFromDontCome = function(iNumberAssigned,szOrigBet){
         var aFicheMc = _oMySeat.getFicheMc(szOrigBet);
-        
+        var szTarget = "dont_come_point"+iNumberAssigned;
+
         //MOVE FICHES
         for(var k=0;k<aFicheMc.length;k++){
             _aFichesToMove.push(aFicheMc[k]);
-            var oEndPos = s_oGameSettings.getAttachOffset("lay_bet"+iNumberAssigned);
+            var oEndPos = s_oGameSettings.getAttachOffset(szTarget);
 
             aFicheMc[k].setEndPoint(oEndPos.x,oEndPos.y);
         }
-        
-        
-        _aBetHistory["lay_bet"+iNumberAssigned] = _aBetHistory[szOrigBet];
+
+
+        _aBetHistory[szTarget] = _aBetHistory[szOrigBet];
         delete _aBetHistory[szOrigBet];
-        
-        _oMySeat.swapBet(szOrigBet,"lay_bet"+iNumberAssigned);
+
+        _oMySeat.swapBet(szOrigBet,szTarget);
     };
     
     this.onRecharge = function() {
