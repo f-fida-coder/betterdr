@@ -514,6 +514,35 @@ function AppInner() {
     };
   }, [token, refetchUser]);
 
+  // Optimistic header balance sync from casino bets. CasinoView dispatches
+  // 'user:balance' with the authoritative post-bet wallet payload — the SAME
+  // number the in-game money shows — so we patch the ['user', token] query
+  // cache (currentUser === userData) and the header matches the game instantly,
+  // instead of waiting on the 15s-cached /auth/me. Additive: only the
+  // balance-family fields are merged; identity/role/settings are untouched, and
+  // a later real getMe reconciles the full user object if anything ever drifts.
+  useEffect(() => {
+    if (!token) return undefined;
+    const handleUserBalance = (event) => {
+      const detail = event?.detail;
+      if (!detail || typeof detail !== 'object') return;
+      const patch = {};
+      for (const field of ['balance', 'availableBalance', 'pendingBalance', 'creditLimit', 'creditAvailable', 'bettingAvailable']) {
+        if (detail[field] == null) continue;
+        const value = Number(detail[field]);
+        if (Number.isFinite(value)) patch[field] = value;
+      }
+      if (Object.keys(patch).length === 0) return;
+      queryClient.setQueryData(['user', token], (prev) => (prev ? { ...prev, ...patch } : prev));
+    };
+
+    window.addEventListener('user:balance', handleUserBalance);
+
+    return () => {
+      window.removeEventListener('user:balance', handleUserBalance);
+    };
+  }, [token]);
+
   const handleLogin = async (username, password) => {
     try {
       // Call real backend authentication

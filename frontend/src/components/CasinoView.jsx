@@ -481,8 +481,10 @@ const CasinoView = () => {
             try {
                 const result = await placeCasinoBet(requestedGame, msg.bets, token, { requestId, payload: msg.payload });
                 let settledPlayableBalance = null;
+                let settledWalletData = null;
                 try {
                     const walletData = await getBalance(token);
+                    settledWalletData = walletData;
                     const resolved = resolveWalletBalance(walletData, NaN);
                     if (Number.isFinite(resolved)) {
                         settledPlayableBalance = resolved;
@@ -542,7 +544,26 @@ const CasinoView = () => {
                     if (Number.isFinite(settledPlayableBalance)) {
                         setGameDisplayBalance(settledPlayableBalance);
                     }
-                    window.dispatchEvent(new Event('user:refresh'));
+                    // Single-source header sync: push the SAME authoritative
+                    // post-bet balance the game shows straight into the app user
+                    // state, so the header matches the game instantly. This
+                    // REPLACES the prior 'user:refresh' refetch, which read the
+                    // 15s-cached /auth/me and would clobber this fresh value with
+                    // the stale pre-bet balance (the display-mismatch bug). A
+                    // later natural getMe still reconciles the full user object.
+                    // For the reveal-deferred games (baccarat/bogeyman/roulette)
+                    // this whole fn is held until 'spinComplete', so the header
+                    // still changes in step with the cards/reels — unchanged.
+                    let balanceDetail = settledWalletData;
+                    if (!balanceDetail || typeof balanceDetail !== 'object') {
+                        const ab = Number(result?.availableBalanceAfter ?? result?.availableBalance);
+                        balanceDetail = Number.isFinite(ab)
+                            ? { balance: Number(result?.balanceAfter ?? ab), availableBalance: ab, creditAvailable: ab, bettingAvailable: ab }
+                            : null;
+                    }
+                    if (balanceDetail && typeof balanceDetail === 'object') {
+                        window.dispatchEvent(new CustomEvent('user:balance', { detail: balanceDetail }));
+                    }
                     await syncGameBalance();
                 };
 
