@@ -136,14 +136,18 @@ function CGame(oData){
             iGameMax = 30;
         }
 
+        // Account min/max are DISPLAY-ONLY. The account minBet is a sportsbook
+        // limit the server deliberately EXEMPTS for casino, so the client must
+        // never raise the floor with it. Single source of truth = the server's
+        // effectiveMinBet/effectiveMaxBet (already exempts account min and caps
+        // by account max); fall back to the game min/max only if the server did
+        // not send effective values.
         var iAccountMin = this._positiveMoneyOrNull(oRaw.accountMinBet);
         var iAccountMax = this._positiveMoneyOrNull(oRaw.accountMaxBet);
-        var iEffectiveMin = this._roundMoney(Math.max(iGameMin, iAccountMin !== null ? iAccountMin : 0));
-        var iEffectiveMax = iGameMax;
-        if(iAccountMax !== null){
-            iEffectiveMax = Math.min(iEffectiveMax, iAccountMax);
-        }
-        iEffectiveMax = this._roundMoney(iEffectiveMax);
+        var iServerEffMin = this._positiveMoneyOrNull(oRaw.effectiveMinBet);
+        var iServerEffMax = this._positiveMoneyOrNull(oRaw.effectiveMaxBet);
+        var iEffectiveMin = this._roundMoney(iServerEffMin !== null ? iServerEffMin : iGameMin);
+        var iEffectiveMax = this._roundMoney(iServerEffMax !== null ? iServerEffMax : iGameMax);
         if(iEffectiveMax < iEffectiveMin){
             iEffectiveMax = iEffectiveMin;
         }

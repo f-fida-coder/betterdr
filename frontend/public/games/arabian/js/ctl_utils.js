@@ -438,22 +438,28 @@ function _arabianPositiveMoneyOrNull(iValue){
 
 function _arabianNormalizeBetLimits(oPayload){
     var oRaw = (oPayload && typeof oPayload.betLimits === "object" && oPayload.betLimits !== null) ? oPayload.betLimits : {};
-    var iAccountMin = _arabianPositiveMoneyOrNull(oRaw.accountMinBet !== undefined ? oRaw.accountMinBet : (oPayload ? oPayload.minBet : null));
-    var iAccountMax = _arabianPositiveMoneyOrNull(oRaw.accountMaxBet !== undefined ? oRaw.accountMaxBet : (oPayload ? oPayload.maxBet : null));
-    var iGameMin = _arabianPositiveMoneyOrNull(oRaw.gameMinBet !== undefined ? oRaw.gameMinBet : null);
-    var iGameMax = _arabianPositiveMoneyOrNull(oRaw.gameMaxBet !== undefined ? oRaw.gameMaxBet : null);
+    // Account min/max are DISPLAY-ONLY and read from betLimits ONLY — never from
+    // the payload's top-level minBet/maxBet, which are the raw sportsbook
+    // account limits and would leak a wrong floor. The account minBet is a
+    // sportsbook limit the server deliberately EXEMPTS for casino.
+    var iAccountMin = _arabianPositiveMoneyOrNull(oRaw.accountMinBet);
+    var iAccountMax = _arabianPositiveMoneyOrNull(oRaw.accountMaxBet);
+    var iGameMin = _arabianPositiveMoneyOrNull(oRaw.gameMinBet);
+    var iGameMax = _arabianPositiveMoneyOrNull(oRaw.gameMaxBet);
     if(iGameMin === null){
         iGameMin = 0.3;
     }
     if(iGameMax === null){
         iGameMax = 30;
     }
-    var iEffectiveMin = _arabianRoundMoney(Math.max(iGameMin, iAccountMin !== null ? iAccountMin : 0));
-    var iEffectiveMax = iGameMax;
-    if(iAccountMax !== null){
-        iEffectiveMax = Math.min(iEffectiveMax, iAccountMax);
-    }
-    iEffectiveMax = _arabianRoundMoney(iEffectiveMax);
+    // Single source of truth: the server's effectiveMinBet/effectiveMaxBet
+    // (already exempts the account min and caps by the account max). Never
+    // re-raise the floor with accountMinBet. Fall back to game min/max only when
+    // the server did not send effective values.
+    var iServerEffMin = _arabianPositiveMoneyOrNull(oRaw.effectiveMinBet);
+    var iServerEffMax = _arabianPositiveMoneyOrNull(oRaw.effectiveMaxBet);
+    var iEffectiveMin = _arabianRoundMoney(iServerEffMin !== null ? iServerEffMin : iGameMin);
+    var iEffectiveMax = _arabianRoundMoney(iServerEffMax !== null ? iServerEffMax : iGameMax);
     if(iEffectiveMax < iEffectiveMin){
         iEffectiveMax = iEffectiveMin;
     }

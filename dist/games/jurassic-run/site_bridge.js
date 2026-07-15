@@ -151,12 +151,14 @@
         var accountMinBet = normalizePositive(source.accountMinBet, null);
         var accountMaxBet = normalizePositive(source.accountMaxBet, null);
 
+        // Trust the server's effectiveMinBet (it already exempts the sportsbook
+        // account minBet for casino). Defense-in-depth: NEVER re-raise the floor
+        // with accountMinBet here — that would re-arm the arabian bet-floor bug
+        // if the server ever started sending a non-null account min. accountMin
+        // is display-only. (No behavior change today: the server sends null.)
         var effectiveMinBet = normalizePositive(source.effectiveMinBet, gameMinBet);
         var effectiveMaxBet = normalizePositive(source.effectiveMaxBet, gameMaxBet);
 
-        if (accountMinBet !== null && accountMinBet > effectiveMinBet) {
-            effectiveMinBet = accountMinBet;
-        }
         if (accountMaxBet !== null && accountMaxBet > 0) {
             effectiveMaxBet = Math.min(effectiveMaxBet, accountMaxBet);
         }
