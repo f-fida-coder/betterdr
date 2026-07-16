@@ -568,6 +568,18 @@
     background: linear-gradient(135deg, #c09000 0%, #a07a00 100%);
 }
 
+/* While an in-house game overlay is open (body.casino-game-open, toggled by
+   the CasinoView game effect), the sportsbook header must not show: the
+   overlay is the whole UI, and if iOS ever displaces the fixed overlay during
+   a toolbar animation, the balance strip underneath must not peek through.
+   Balance stays visible via .game-overlay-balance; Exit restores the header. */
+body.casino-game-open .mobile-header-container,
+body.casino-game-open .top-header {
+    /* !important required: the mobile media queries re-show the header with
+       `display: flex !important` (index.css / dashboard.css). */
+    display: none !important;
+}
+
 /* ── Fullscreen game iframe overlay ──────────────────────── */
 .game-iframe-overlay {
     position: fixed;

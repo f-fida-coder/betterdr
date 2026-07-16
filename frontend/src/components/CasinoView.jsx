@@ -283,31 +283,68 @@ const CasinoView = () => {
         activeLocalGameRef.current = activeLocalGame;
     }, [activeLocalGame]);
 
-    // Mobile rotated overlay: pin the force-landscape game to the VISIBLE viewport
-    // so it's never clipped behind the browser URL bar or the system nav bar.
-    // window.innerHeight/innerWidth exclude that chrome and update as the URL bar
-    // shows/hides; the CSS (--casino-vp-*) uses these exact pixels, with dvh/dvw
-    // and vh/vw fallbacks for older browsers.
+    // Global page state while a game overlay is open. Everything here is undone
+    // in the effect teardown, which React runs on EVERY exit path — the Exit
+    // button (activeLocalGame → null), switching dashboard view, back
+    // navigation, and CasinoView unmounting for any reason — so none of it can
+    // stick after the game closes.
+    //
+    // - body.casino-game-open hides the sportsbook header (CSS in casino.css).
+    //   The overlay is the whole UI while playing; balance stays visible via
+    //   the overlay's own chip and Exit restores the header.
+    // - body scroll-lock (position:fixed + top:-scrollY). The page behind the
+    //   overlay is min-height:100vh, and iOS sizes 100vh to the toolbars-HIDDEN
+    //   viewport, so on iPhones that page is always scrollable; scroll +
+    //   toolbar collapse/expand cycles there displace fixed overlays (the
+    //   clipped-wheel / header-peek player reports). Freezing the body is what
+    //   actually pins the overlay on iOS — the visualViewport measuring below
+    //   only sizes it.
+    // - Rotated landscape games additionally pin --casino-vp-* to the VISIBLE
+    //   viewport so the 90°-rotated overlay is never sized into the area behind
+    //   the browser URL bar / system nav bar. visualViewport is exact in every
+    //   iOS toolbar state; window.inner* is the fallback, with dvh/dvw and
+    //   vh/vw fallbacks below it in the CSS.
     useEffect(() => {
-        if (!activeLocalGame?.landscape) {
-            document.documentElement.style.removeProperty('--casino-vp-h');
-            document.documentElement.style.removeProperty('--casino-vp-w');
-            return undefined;
-        }
-        const applyViewport = () => {
-            document.documentElement.style.setProperty('--casino-vp-h', `${window.innerHeight}px`);
-            document.documentElement.style.setProperty('--casino-vp-w', `${window.innerWidth}px`);
+        if (!activeLocalGame) return undefined;
+
+        document.body.classList.add('casino-game-open');
+        const lockScrollY = window.scrollY || 0;
+        const prevBodyStyle = {
+            position: document.body.style.position,
+            top: document.body.style.top,
+            width: document.body.style.width,
         };
-        applyViewport();
-        window.addEventListener('resize', applyViewport);
-        window.addEventListener('orientationchange', applyViewport);
-        if (window.visualViewport) window.visualViewport.addEventListener('resize', applyViewport);
+        document.body.style.position = 'fixed';
+        document.body.style.top = `-${lockScrollY}px`;
+        document.body.style.width = '100%';
+
+        let removeViewportPin = null;
+        if (activeLocalGame.landscape) {
+            const applyViewport = () => {
+                const vv = window.visualViewport;
+                document.documentElement.style.setProperty('--casino-vp-h', `${Math.round(vv?.height ?? window.innerHeight)}px`);
+                document.documentElement.style.setProperty('--casino-vp-w', `${Math.round(vv?.width ?? window.innerWidth)}px`);
+            };
+            applyViewport();
+            window.addEventListener('resize', applyViewport);
+            window.addEventListener('orientationchange', applyViewport);
+            if (window.visualViewport) window.visualViewport.addEventListener('resize', applyViewport);
+            removeViewportPin = () => {
+                window.removeEventListener('resize', applyViewport);
+                window.removeEventListener('orientationchange', applyViewport);
+                if (window.visualViewport) window.visualViewport.removeEventListener('resize', applyViewport);
+                document.documentElement.style.removeProperty('--casino-vp-h');
+                document.documentElement.style.removeProperty('--casino-vp-w');
+            };
+        }
+
         return () => {
-            window.removeEventListener('resize', applyViewport);
-            window.removeEventListener('orientationchange', applyViewport);
-            if (window.visualViewport) window.visualViewport.removeEventListener('resize', applyViewport);
-            document.documentElement.style.removeProperty('--casino-vp-h');
-            document.documentElement.style.removeProperty('--casino-vp-w');
+            if (removeViewportPin) removeViewportPin();
+            document.body.classList.remove('casino-game-open');
+            document.body.style.position = prevBodyStyle.position;
+            document.body.style.top = prevBodyStyle.top;
+            document.body.style.width = prevBodyStyle.width;
+            window.scrollTo(0, lockScrollY);
         };
     }, [activeLocalGame]);
 
@@ -1064,6 +1101,12 @@ const CasinoView = () => {
             return;
         }
         setActiveLocalGame(game);
+        // Seed the overlay balance chip right away — it otherwise stays hidden
+        // until the game's first getBalance round-trip, which for the vendor
+        // clients lands several seconds into their preload.
+        getBalance(token)
+            .then((data) => setGameDisplayBalance(resolveWalletBalance(data, 0) ?? 0))
+            .catch(() => { /* chip appears on the game's own balance sync instead */ });
         if (normalizeEmbeddedGameSlug(game?.slug || game?.name || game?.id) === 'jurassic-run') {
             setGameIsReady(false);
             setGameLoadError(false);
