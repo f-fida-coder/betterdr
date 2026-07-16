@@ -2407,12 +2407,14 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     // Dedicated TEAM TOTAL column (replaced the old Total ⇄ TT header cycle
     // 2026-07-16). Full-game boards only — the extracted TT data IS the
     // full-game market, so teamTotalsEligible is false on period views —
-    // and never in teaser mode (team totals aren't teasable). Games the
-    // feed didn't price still render the column with locked "—" cells so
-    // every card keeps the same grid.
+    // and never in teaser mode (team totals aren't teasable). HIDDEN BY
+    // DEFAULT (product call 2026-07-16): tapping the TOTAL header toggles
+    // the column in, exactly like the Spread header toggles ALT mode —
+    // the default board stays the classic 3-column SPREAD / ML / TOTAL.
     const teamTotals = match.odds?.teamTotals || {};
     const ttSideAvail = (leg) => !!leg && leg.point !== null && leg.price !== null;
-    const showTtColumn = !isTeaserMode && !!visibleMarkets.showTotals && match.odds?.teamTotalsEligible === true;
+    const ttAvailable = !isTeaserMode && !!visibleMarkets.showTotals && match.odds?.teamTotalsEligible === true;
+    const [ttOn, setTtOn] = React.useState(false);
     // Spread ⇄ Alt toggle. The "Spread" pill flips the board into ALT mode:
     // the away/home rows render the alt-spread ladders here AND the alt-total
     // ladders in the Total column (both keyed off altOn), so a single "Spread"
@@ -2429,6 +2431,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const hasAltSpreads = !isTeaserMode && !isAltSpreadSuppressedSport(match?.sportKey || match?.sport) && (awayAltLadder.length > 0 || homeAltLadder.length > 0);
     const [altOn, setAltOn] = React.useState(false);
     const altSpreadsActive = hasAltSpreads && altOn;
+    // Mutually exclusive with ALT mode (mirrors the desktop board): the Total
+    // column can't show alt-total ladders and the TT column at once, so ALT
+    // taking over hides TT until the player toggles it back.
+    const showTtColumn = ttAvailable && ttOn && !altSpreadsActive;
     // Alternate-total ladders (Over / Under), built in extractOdds from the
     // `alternate_totals` extended market. They ride along with ALT mode (the
     // Spread pill) — never offered as a standalone Total-column option. The
@@ -2790,7 +2796,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     hasAltSpreads ? (
                         <button
                             type="button"
-                            onClick={() => setAltOn((v) => !v)}
+                            onClick={() => { setTtOn(false); setAltOn((v) => !v); }}
                             style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: altSpreadsActive ? '#d32f2f' : undefined, fontWeight: 700 }}
                             title={altSpreadsActive ? 'Showing alt spreads + alt totals — tap for main spread' : 'Showing main spread — tap for alt spreads + alt totals'}
                         >
@@ -2811,14 +2817,28 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         >
                             <StackedColumnLabel top="Alt" bottom="Total" />
                         </button>
+                    ) : ttAvailable ? (
+                        <button
+                            type="button"
+                            onClick={() => setTtOn((v) => !v)}
+                            style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: showTtColumn ? '#d32f2f' : undefined, fontWeight: showTtColumn ? 700 : columnLabelStyle.fontWeight }}
+                            title={showTtColumn ? 'Showing team totals — tap to hide' : 'Tap for team totals'}
+                        >
+                            Total
+                        </button>
                     ) : (
                         <span style={columnLabelStyle}>Total</span>
                     )
                 )}
                 {showTtColumn && (
-                    <span style={columnLabelStyle}>
+                    <button
+                        type="button"
+                        onClick={() => setTtOn(false)}
+                        style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: '#d32f2f', fontWeight: 700 }}
+                        title="Showing team totals — tap to hide"
+                    >
                         <StackedColumnLabel top="Team" bottom="Total" />
-                    </span>
+                    </button>
                 )}
                 {!isTeaserMode && <span />}
             </div>
