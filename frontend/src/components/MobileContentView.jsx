@@ -809,11 +809,12 @@ const MobileContentView = ({
         const totalOverOutcome = getMarketOutcomeByKeyword(totals, 'over');
         const totalUnderOutcome = getMarketOutcomeByKeyword(totals, 'under');
 
-        // Team totals (MLB full-game only). Structured outcomes carry
-        // {team, teamSide, side, point, price}; `name` ("Detroit Over") is
-        // display-only and sent verbatim as the selection. Missing sides stay
-        // null — never synthesize the absent Over/Under.
-        const teamTotalsMarket = getMatchMarket(match, 'team_totals');
+        // Team totals (full game only — the stored market is the full-game
+        // one, so period views must not surface it). Structured outcomes
+        // carry {team, teamSide, side, point, price}; `name` ("Detroit
+        // Over") is display-only and sent verbatim as the selection. Missing
+        // sides stay null — never synthesize the absent Over/Under.
+        const teamTotalsMarket = !suffix ? getMatchMarket(match, 'team_totals') : null;
         const ttOutcomes = Array.isArray(teamTotalsMarket?.outcomes) ? teamTotalsMarket.outcomes : [];
         const teamTotalLeg = (teamSide, side) => {
             const o = ttOutcomes.find((c) => c?.teamSide === teamSide && c?.side === side);
@@ -874,6 +875,10 @@ const MobileContentView = ({
                 away: { over: teamTotalLeg('away', 'over'), under: teamTotalLeg('away', 'under') },
                 home: { over: teamTotalLeg('home', 'over'), under: teamTotalLeg('home', 'under') },
             },
+            // False on period views: tells MatchCard to drop the TEAM TOTAL
+            // column entirely (vs. dash cells, which mean "full-game board
+            // but this game isn't priced").
+            teamTotalsEligible: !suffix,
         };
     }, []);
 
@@ -2297,6 +2302,9 @@ const matchCardSignature = (match) => {
         odds?.teamTotals?.away?.under?.price, odds?.teamTotals?.away?.under?.point,
         odds?.teamTotals?.home?.over?.price, odds?.teamTotals?.home?.over?.point,
         odds?.teamTotals?.home?.under?.price, odds?.teamTotals?.home?.under?.point,
+        // Column-presence flag (flips on period switches even when every
+        // displayed price happens to be identical/dash).
+        odds?.teamTotalsEligible,
         // Alt-spread fingerprint so a rung's price/line move repaints the card.
         (odds?.altSpreads?.away || []).map((r) => `${r.point}:${r.price}`).join(','),
         (odds?.altSpreads?.home || []).map((r) => `${r.point}:${r.price}`).join(','),
@@ -2396,19 +2404,15 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const showPitchers = isMlbSportKey(match?.sportKey || match?.sport) && (match.pitchers?.away || match.pitchers?.home);
     const [pitcherAction, setPitcherAction] = React.useState({ home: false, away: false });
     const togglePitcherSide = (side) => setPitcherAction((prev) => ({ ...prev, [side]: !prev[side] }));
-    // Total ⇄ Team Totals toggle (MLB full-game only). The away row's Total
-    // column then renders the away team's TT, the home row the home team's —
-    // mirroring the away/home column split. Gated on the feed actually
-    // shipping team totals for this game.
+    // Dedicated TEAM TOTAL column (replaced the old Total ⇄ TT header cycle
+    // 2026-07-16). Full-game boards only — the extracted TT data IS the
+    // full-game market, so teamTotalsEligible is false on period views —
+    // and never in teaser mode (team totals aren't teasable). Games the
+    // feed didn't price still render the column with locked "—" cells so
+    // every card keeps the same grid.
     const teamTotals = match.odds?.teamTotals || {};
     const ttSideAvail = (leg) => !!leg && leg.point !== null && leg.price !== null;
-    const teamHasTT = (teamSide) => ttSideAvail(teamTotals[teamSide]?.over) || ttSideAvail(teamTotals[teamSide]?.under);
-    // Data-driven gate: show team totals for ANY sport whose feed actually
-    // prices them. teamHasTT is the real guard (priced over/under with a
-    // non-null point), so an event without priced team totals still yields
-    // false → static Total label, no toggle. (Was a hardcoded MLB/soccer
-    // allow-list, which hid WNBA's priced team totals.)
-    const hasTeamTotals = teamHasTT('away') || teamHasTT('home');
+    const showTtColumn = !isTeaserMode && !!visibleMarkets.showTotals && match.odds?.teamTotalsEligible === true;
     // Spread ⇄ Alt toggle. The "Spread" pill flips the board into ALT mode:
     // the away/home rows render the alt-spread ladders here AND the alt-total
     // ladders in the Total column (both keyed off altOn), so a single "Spread"
@@ -2444,34 +2448,16 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
         underAltLadder.forEach((r) => { const k = Number(r.point); if (!byPoint.has(k)) byPoint.set(k, { point: k }); byPoint.get(k).under = r; });
         return [...byPoint.values()].sort((a, b) => b.point - a.point);
     })();
-    // The Total column's own pill cycles Total ⇄ Team Totals only (TT is
-    // full-game MLB + soccer). Generic Alt Totals are intentionally not in this cycle.
-    // Switching total mode clears ALT mode so the two stay mutually exclusive.
-    // Teaser mode locks the column to GAME totals: team totals are never a
-    // teasable market (industry rule — teasers move spreads and full-game
-    // totals only), so the TT option leaves the cycle entirely and
-    // effectiveTotalMode's fallback snaps an already-TT column back to
-    // 'total' the moment teaser mode turns on. Placement independently
-    // rejects any non-spreads/totals teaser leg (applyTeaserAdjustment
-    // whitelist), so hidden ⟺ unplaceable — same discipline as the
-    // hasAltSpreads/hasAltTotals teaser gates above.
-    const totalModeOrder = ['total', ...(hasTeamTotals && !isTeaserMode ? ['tt'] : [])];
-    const [totalMode, setTotalMode] = React.useState('total');
-    const effectiveTotalMode = totalModeOrder.includes(totalMode) ? totalMode : 'total';
-    const teamTotalsActive = effectiveTotalMode === 'tt';
-    const cycleTotalMode = () => {
-        // When the alt ladders are showing (entered via the Spread pill's ALT
-        // mode), tapping the Total header wraps the cycle back to the main
-        // board — clearing ALT and resetting to the game total.
-        if (altTotalsActive) {
-            setAltOn(false);
-            setTotalMode('total');
-            return;
-        }
-        const i = totalModeOrder.indexOf(effectiveTotalMode);
-        setTotalMode(totalModeOrder[(i + 1) % totalModeOrder.length]);
-        setAltOn(false);
-    };
+    // Grid metrics. The TEAM TOTAL column makes straight boards 4 odds
+    // columns wide, which doesn't fit 360px at the standard 54px/4px
+    // metrics — tighten the cells and gaps (never the font) so the
+    // team-name column keeps ~100px. One template string feeds the header
+    // row, the team rows, and the soccer Draw row so the columns always
+    // line up.
+    const oddsColCount = marketCount + (showTtColumn ? 1 : 0);
+    const oddsCellWidth = oddsColCount >= 4 ? 50 : 54;
+    const oddsColGap = oddsColCount >= 4 ? 3 : 4;
+    const boardGridTemplate = `minmax(0, 1fr) ${Array.from({ length: oddsColCount }, () => `${oddsCellWidth}px`).join(' ')}${isTeaserMode ? '' : ' 32px'}`;
     // 1st-inning totals at 0.5 IS the NRFI/YRFI market — relabel chips so bettors
     // recognise it. Selection name stays "Over"/"Under" for settlement (totals
     // resolution in SportsbookBetSupport::selectionResult matches on substring
@@ -2703,8 +2689,8 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 the Props panel is hidden there). */}
             <div style={{
                 display: 'grid',
-                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 32px'}`,
-                columnGap: 4,
+                gridTemplateColumns: boardGridTemplate,
+                columnGap: oddsColGap,
                 padding: '0 0 4px',
                 alignItems: 'center',
                 // Tall enough for a two-line stacked label (2 × 11px × 1.05
@@ -2804,7 +2790,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     hasAltSpreads ? (
                         <button
                             type="button"
-                            onClick={() => { setAltOn((v) => !v); setTotalMode('total'); }}
+                            onClick={() => setAltOn((v) => !v)}
                             style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: altSpreadsActive ? '#d32f2f' : undefined, fontWeight: 700 }}
                             title={altSpreadsActive ? 'Showing alt spreads + alt totals — tap for main spread' : 'Showing main spread — tap for alt spreads + alt totals'}
                         >
@@ -2816,18 +2802,23 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 )}
                 {visibleMarkets.showMoneyline && <span style={columnLabelStyle}>ML</span>}
                 {visibleMarkets.showTotals && (
-                    totalModeOrder.length > 1 ? (
+                    altTotalsActive ? (
                         <button
                             type="button"
-                            onClick={cycleTotalMode}
-                            style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: altTotalsActive ? '#d32f2f' : (effectiveTotalMode !== 'total' ? '#d0451b' : undefined), fontWeight: 700 }}
-                            title={altTotalsActive ? 'Showing alt totals — tap to switch' : `Showing ${effectiveTotalMode === 'tt' ? 'team totals' : 'game total'} — tap to switch`}
+                            onClick={() => setAltOn(false)}
+                            style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: '#d32f2f', fontWeight: 700 }}
+                            title="Showing alt totals — tap for main board"
                         >
-                            {altTotalsActive ? <StackedColumnLabel top="Alt" bottom="Total" /> : (effectiveTotalMode === 'tt' ? 'TT' : 'Total')}
+                            <StackedColumnLabel top="Alt" bottom="Total" />
                         </button>
                     ) : (
                         <span style={columnLabelStyle}>Total</span>
                     )
+                )}
+                {showTtColumn && (
+                    <span style={columnLabelStyle}>
+                        <StackedColumnLabel top="Team" bottom="Total" />
+                    </span>
                 )}
                 {!isTeaserMode && <span />}
             </div>
@@ -2841,9 +2832,9 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 teaser mode (the Props panel is hidden there). */}
             <div style={{
                 display: 'grid',
-                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 32px'}`,
+                gridTemplateColumns: boardGridTemplate,
                 gridTemplateRows: 'auto auto',
-                columnGap: 4,
+                columnGap: oddsColGap,
                 rowGap: 4,
                 alignItems: 'center',
                 padding: '2px 0 8px',
@@ -2900,8 +2891,6 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 {visibleMarkets.showTotals && (
                     altTotalsActive ? (
                         renderAltTotalPairCell(altTotalPairs[0])
-                    ) : teamTotalsActive ? (
-                        renderTeamTotalCell('away', match.team1Short || match.team1)
                     ) : (
                     <OddsCell
                         empty={match.odds.totalOverPrice === null || isQuarterLine(match.odds.totalPoint)}
@@ -2916,7 +2905,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     />
                     )
                 )}
-
+                {showTtColumn && renderTeamTotalCell('away', match.team1Short || match.team1)}
 
                 {/* Right-column Props button — spans both team rows so it
                     sits as one tall bar against the odds grid. ONE
@@ -2928,10 +2917,11 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     spread/total legs, so this panel is a dead end there. */}
                 {!isTeaserMode && (
                 <div style={{
-                    // Column 1 = team info, cols 2..(2+marketCount-1) = odds,
-                    // col (marketCount + 2) = the Props slot. Explicit number
-                    // (not `-1`) so auto-placed odds cells can't leak into it.
-                    gridColumn: marketCount + 2,
+                    // Column 1 = team info, cols 2..(oddsColCount+1) = odds
+                    // (incl. the TEAM TOTAL column), col (oddsColCount + 2)
+                    // = the Props slot. Explicit number (not `-1`) so
+                    // auto-placed odds cells can't leak into it.
+                    gridColumn: oddsColCount + 2,
                     gridRow: '1 / span 2',
                     display: 'flex',
                     alignItems: 'stretch',
@@ -3021,8 +3011,6 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 {visibleMarkets.showTotals && (
                     altTotalsActive ? (
                         renderAltTotalPairCell(altTotalPairs[1])
-                    ) : teamTotalsActive ? (
-                        renderTeamTotalCell('home', match.team2Short || match.team2)
                     ) : (
                     <OddsCell
                         empty={match.odds.totalUnderPrice === null || isQuarterLine(match.odds.totalPoint)}
@@ -3037,6 +3025,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     />
                     )
                 )}
+                {showTtColumn && renderTeamTotalCell('home', match.team2Short || match.team2)}
             </div>
 
             {/* 3-way moneyline Draw row (soccer / 1X2). Renders only when the
@@ -3054,8 +3043,8 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
             {visibleMarkets.showMoneyline && match.odds.moneylineDraw != null && (
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 32px'}`,
-                    columnGap: 4,
+                    gridTemplateColumns: boardGridTemplate,
+                    columnGap: oddsColGap,
                     alignItems: 'stretch',
                     marginTop: -4,
                     marginBottom: 8,
@@ -3070,6 +3059,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         onClick={() => addIfAllowed(match.id, 'Draw', 'h2h', match.odds.moneylineDraw, matchName, 'Moneyline', null)}
                     />
                     {visibleMarkets.showTotals && <span />}
+                    {showTtColumn && <span />}
                     {!isTeaserMode && <span />}
                 </div>
             )}
