@@ -2707,6 +2707,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 columnGap: 4,
                 padding: '0 0 4px',
                 alignItems: 'center',
+                // Tall enough for a two-line stacked label (2 × 11px × 1.05
+                // + 4px bottom padding) so the ALT toggle's single-line ⇄
+                // stacked transition doesn't bounce the rows below.
+                minHeight: 28,
             }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, overflow: 'hidden' }}>
                     {match.isLive ? (
@@ -2804,7 +2808,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: altSpreadsActive ? '#d32f2f' : undefined, fontWeight: 700 }}
                             title={altSpreadsActive ? 'Showing alt spreads + alt totals — tap for main spread' : 'Showing main spread — tap for alt spreads + alt totals'}
                         >
-                            {altSpreadsActive ? 'Alt Sp' : 'Spread'}
+                            {altSpreadsActive ? <StackedColumnLabel top="Alt" bottom="Spread" /> : 'Spread'}
                         </button>
                     ) : (
                         <span style={columnLabelStyle}>Spread</span>
@@ -2819,7 +2823,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             style={{ ...columnLabelStyle, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: altTotalsActive ? '#d32f2f' : (effectiveTotalMode !== 'total' ? '#d0451b' : undefined), fontWeight: 700 }}
                             title={altTotalsActive ? 'Showing alt totals — tap to switch' : `Showing ${effectiveTotalMode === 'tt' ? 'team totals' : 'game total'} — tap to switch`}
                         >
-                            {altTotalsActive ? 'Alt Tot' : (effectiveTotalMode === 'tt' ? 'TT' : 'Total')}
+                            {altTotalsActive ? <StackedColumnLabel top="Alt" bottom="Total" /> : (effectiveTotalMode === 'tt' ? 'TT' : 'Total')}
                         </button>
                     ) : (
                         <span style={columnLabelStyle}>Total</span>
@@ -3618,6 +3622,17 @@ const columnLabelStyle = {
     letterSpacing: '0.4px',
     textTransform: 'uppercase',
 };
+// Two-line column-header label ("ALT" over "SPREAD") so long market names
+// wrap inside the fixed column width instead of stretching it. Tight
+// line-height keeps the stacked form barely taller than a single line; the
+// header row's minHeight reserves that space up front so toggling ALT
+// on/off never shifts the board vertically.
+const StackedColumnLabel = ({ top, bottom }) => (
+    <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.05 }}>
+        <span>{top}</span>
+        <span>{bottom}</span>
+    </span>
+);
 
 const teamRowBaseStyle = {
     display: 'grid',
