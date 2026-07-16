@@ -372,9 +372,6 @@ function GameConfigPanel({ token, game, entry, onSaved, onDirtyChange }) {
     <div className="casino-gamecfg-panel">
       <div className="casino-gamecfg-panel-head">
         <span className="casino-gamecfg-title">{entry.label}</span>
-        <span className={`casino-net-pill ${String(game.status).toLowerCase() === 'active' ? 'is-positive' : 'is-neutral'}`}>
-          {String(game.status).toLowerCase() === 'active' ? 'enabled' : 'disabled'}
-        </span>
         <span className="casino-gamecfg-info">{entry.infoLine}</span>
       </div>
       {entry.sections.map((section) => (
@@ -435,12 +432,30 @@ function GameConfigPanel({ token, game, entry, onSaved, onDirtyChange }) {
   );
 }
 
+// Only the games the platform actually OFFERS — this mirrors the player
+// casino's LOCAL_GAME_META (CasinoView.jsx); keep the two in sync when a game
+// launches. The casinogames catalog table still carries dozens of legacy
+// imported placeholder rows (old vendor blackjack/video-poker/slot titles) —
+// they are hidden on the player casino page by LOCAL_GAME_META and hidden
+// here by this list. Duplicate catalog rows for the same slug are collapsed
+// to the first row.
+const OFFERED_GAME_SLUGS = [
+  '3card-poker',
+  'aces-and-eights',
+  'american-roulette',
+  'arabian',
+  'baccarat-classic',
+  'bogeyman',
+  'craps',
+  'jurassic-run',
+];
+
 function CasinoGameConfigCard({ token }) {
   const [games, setGames] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [activeSlug, setActiveSlug] = useState('');
   // In-memory only (per approved spec): selection and dirty state reset on a
-  // full page reload; dirty tracking guards tab switches within the session.
+  // full page reload; dirty tracking guards game switches within the session.
   const activeDirtyRef = useRef(false);
 
   const loadGames = useCallback(async () => {
@@ -459,11 +474,18 @@ function CasinoGameConfigCard({ token }) {
   useEffect(() => { loadGames(); }, [loadGames]);
 
   const rows = useMemo(() => {
-    const list = (games || []).map((g) => ({
-      game: g,
-      slug: String(g?.slug || ''),
-      label: CASINO_GAME_CONFIG_REGISTRY[g?.slug]?.label || g?.name || g?.slug || 'Game',
-    }));
+    const seen = new Set();
+    const list = [];
+    (games || []).forEach((g) => {
+      const slug = String(g?.slug || '');
+      if (!OFFERED_GAME_SLUGS.includes(slug) || seen.has(slug)) return;
+      seen.add(slug);
+      list.push({
+        game: g,
+        slug,
+        label: CASINO_GAME_CONFIG_REGISTRY[slug]?.label || g?.name || slug,
+      });
+    });
     list.sort((a, b) => a.label.localeCompare(b.label));
     return list;
   }, [games]);
@@ -472,7 +494,7 @@ function CasinoGameConfigCard({ token }) {
     if (!activeSlug && rows.length > 0) setActiveSlug(rows[0].slug);
   }, [rows, activeSlug]);
 
-  const selectTab = (slug) => {
+  const selectGame = (slug) => {
     if (slug === activeSlug) return;
     if (activeDirtyRef.current && !window.confirm('Discard unsaved changes for this game?')) return;
     activeDirtyRef.current = false;
@@ -490,30 +512,33 @@ function CasinoGameConfigCard({ token }) {
 
   const active = rows.find((r) => r.slug === activeSlug) || rows[0];
   const entry = CASINO_GAME_CONFIG_REGISTRY[active.slug];
+  const activeEnabled = String(active.game?.status || '').toLowerCase() === 'active';
 
   return (
     <div className="casino-gamecfg-card">
-      <div className="tabs-container casino-gamecfg-tabs">
-        {rows.map((row) => {
-          const enabled = String(row.game?.status || '').toLowerCase() === 'active';
-          return (
-            <button
-              type="button"
-              key={row.slug}
-              className={`tab${row.slug === active.slug ? ' active' : ''}`}
-              onClick={() => selectTab(row.slug)}
-            >
-              {row.label}
-              <span
-                className={`casino-net-pill casino-gamecfg-tab-badge ${enabled ? 'is-positive' : 'is-neutral'}`}
-                title={enabled ? 'enabled' : 'disabled'}
-                aria-label={enabled ? 'enabled' : 'disabled'}
-              >
-                {enabled ? '●' : '○'}
-              </span>
-            </button>
-          );
-        })}
+      <div className="casino-gamecfg-selectbar">
+        <div className="casino-gamecfg-selectwrap">
+          <label htmlFor="casino-gamecfg-select">Game configuration</label>
+          <select
+            id="casino-gamecfg-select"
+            className="casino-gamecfg-select"
+            value={active.slug}
+            onChange={(e) => selectGame(e.target.value)}
+          >
+            {rows.map((row) => {
+              const enabled = String(row.game?.status || '').toLowerCase() === 'active';
+              return (
+                <option key={row.slug} value={row.slug}>
+                  {`${enabled ? '●' : '○'}  ${row.label}`}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+        <span className={`casino-net-pill ${activeEnabled ? 'is-positive' : 'is-neutral'}`}>
+          {activeEnabled ? 'enabled' : 'disabled'}
+        </span>
+        <span className="casino-gamecfg-count">{rows.length} games offered</span>
       </div>
       {entry ? (
         <GameConfigPanel
@@ -528,9 +553,6 @@ function CasinoGameConfigCard({ token }) {
         <div className="casino-gamecfg-panel">
           <div className="casino-gamecfg-panel-head">
             <span className="casino-gamecfg-title">{active.label}</span>
-            <span className={`casino-net-pill ${String(active.game?.status || '').toLowerCase() === 'active' ? 'is-positive' : 'is-neutral'}`}>
-              {String(active.game?.status || '').toLowerCase() === 'active' ? 'enabled' : 'disabled'}
-            </span>
           </div>
           <div className="casino-gamecfg-empty">No admin-configurable settings for this game yet.</div>
         </div>

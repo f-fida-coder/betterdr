@@ -7132,23 +7132,58 @@ button.downline-flat-row:active {
   overflow: hidden;
 }
 
-.casino-gamecfg-card .tabs-container.casino-gamecfg-tabs {
-  flex-wrap: wrap;              /* 20+ games must wrap, incl. at 1024px */
-  gap: 2px 6px;
-  margin-bottom: 0;
-  padding: 0 10px;
+.casino-gamecfg-selectbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: linear-gradient(to bottom, #f6fafd, #eef4fa);
+  border-bottom: 1px solid #d7e3ee;
   border-radius: 8px 8px 0 0;
 }
 
-.casino-gamecfg-tabs .tab {
-  padding: 10px 12px;
-  white-space: nowrap;
+.casino-gamecfg-selectwrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 260px;
 }
 
-.casino-gamecfg-tab-badge {
-  margin-left: 6px;
-  font-size: 9px;
-  padding: 1px 5px;
+.casino-gamecfg-selectwrap label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.45px;
+  color: #5c7188;
+}
+
+.casino-gamecfg-select {
+  appearance: auto;
+  padding: 8px 12px;
+  border: 1px solid #c3d4e4;
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  color: #243b53;
+  cursor: pointer;
+}
+
+.casino-gamecfg-select:focus {
+  outline: 2px solid #2196f3;
+  outline-offset: 1px;
+}
+
+.casino-gamecfg-selectbar .casino-net-pill {
+  margin-bottom: 8px;
+}
+
+.casino-gamecfg-count {
+  margin-left: auto;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #8aa0b5;
 }
 
 .casino-gamecfg-panel {
