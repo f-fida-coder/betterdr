@@ -938,6 +938,7 @@ final class BetsController
             // ceiling is operator policy, not a per-player setting —
             // change here if you want to expose it as a column.
             $isCombinedMode = in_array($type, ['parlay', 'teaser', 'if_bet', 'reverse'], true);
+            $payoutCapSnapshot = null;
             if ($isCombinedMode && $maxBetLimit > 0) {
                 // 3× maxBet ceiling; for a same-game ticket tighten to
                 // sgpMaxPayoutMultiplier when it is stricter than 3×.
@@ -949,6 +950,14 @@ final class BetsController
                     $potentialPayout = (float) $totalRisk + $parlayPayoutCap;
                     $winAmount = $parlayPayoutCap;
                     $combinedOdds = SportsbookBetSupport::combinedOdds($totalRisk, $potentialPayout);
+                    // Snapshot the cap (win-amount form) onto the bet doc.
+                    // Settlement recomputes the payout from raw leg odds and
+                    // knows nothing of per-player limits — without this
+                    // snapshot a clamped ticket settles at the UNCAPPED
+                    // recompute (the ±$2 pin is skipped because the diff far
+                    // exceeds the tolerance). Snapshot, not a live read, so a
+                    // later maxBet change never re-prices a booked ticket.
+                    $payoutCapSnapshot = (float) $parlayPayoutCap;
                 }
             }
             // House absolute win ceiling (MAX_PARLAY_PAYOUT, default $5,000) —
@@ -1163,6 +1172,13 @@ final class BetsController
                     // detection on the surviving won legs.
                     'sgpHaircutPct' => $isSameGame ? (float) $sgpCfg['haircutPct'] : null,
                     'sgpPropHaircutPct' => $isSameGame ? (float) $sgpCfg['propHaircutPct'] : null,
+                    // Payout-cap SNAPSHOT (win-amount dollars) — present ONLY
+                    // when the combined-mode 3×maxBet / SGP-multiplier clamp
+                    // actually reduced this ticket above. Settlement re-applies
+                    // it as a CEILING (applyPayoutCapSnapshot) so the recompute
+                    // can never pay more than the player saw and accepted.
+                    // Null on unclamped and legacy docs → settlement unchanged.
+                    'payoutCapAmount' => $payoutCapSnapshot,
                     // Approval-queue provenance — null on normal live bets. The
                     // stake is already held in pendingBalance; this ticket is NOT
                     // live and NOT gradable until approved.
@@ -1613,6 +1629,14 @@ final class BetsController
                     'targetLegs' => $targetLegs,
                     'potentialPayout' => $potentialPayout,
                     'combinedOdds' => $combinedOdds,
+                    // Payout-cap SNAPSHOT (win-amount dollars) — value ONLY
+                    // when recomputePayout's 3×maxBet clamp reduced this
+                    // ticket at create; taken from the recompute's own return
+                    // so it can never diverge from the applied clamp. Refreshed
+                    // on every add-leg (last accepted pricing state wins).
+                    // Settlement re-applies it as a ceiling
+                    // (applyPayoutCapSnapshot); null → settlement unchanged.
+                    'payoutCapAmount' => $payoutCalc['capAmount'],
                     'status' => 'open',
                     'isFreeplay' => false,
                     'freeplayAmountUsed' => 0.0,
@@ -1942,6 +1966,15 @@ final class BetsController
                     'potentialPayout' => $potentialPayout,
                     'combinedOdds' => $combinedOdds,
                     'odds' => $combinedOdds,
+                    // Payout-cap SNAPSHOT refresh — the stored value always
+                    // reflects the LAST accepted pricing state: the clamp
+                    // amount when this recompute capped, null when it didn't.
+                    // (Legs only multiply the payout upward, so capped→null
+                    // is unreachable in practice — the refresh is a defensive
+                    // invariant, not a real transition.) Sourced from
+                    // recomputePayout's own return so it can never diverge
+                    // from the clamp that was applied.
+                    'payoutCapAmount' => $payoutCalc['capAmount'],
                     'description' => SportsbookBetSupport::descriptionForSelections($updatedLegs),
                     'openParlayLegEvents' => $events,
                     'updatedAt' => $now,

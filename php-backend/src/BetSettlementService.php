@@ -318,6 +318,18 @@ final class BetSettlementService
                     // (header, transaction list, agent figures).
                     $ticketPayout = (float) round(self::num($evaluation['payout'] ?? 0));
 
+                    // Placement-time payout-cap snapshot (payoutCapAmount) —
+                    // re-applied as a CEILING so a ticket the 3×maxBet /
+                    // SGP-multiplier clamp reduced at placement can never
+                    // settle above what the player saw and accepted.
+                    // MUST run BEFORE the ±$2 pin: capping first makes the
+                    // capped recompute equal acceptedPayout, so the pin
+                    // reconciles naturally instead of being skipped on the
+                    // huge uncapped diff. A void-reduced recompute below the
+                    // cap passes through untouched; absent/legacy snapshot is
+                    // a no-op (see applyPayoutCapSnapshot).
+                    $ticketPayout = SportsbookBetSupport::applyPayoutCapSnapshot($bet, $ticketPayout);
+
                     // Honor the placement-time pinned payout for fully-won
                     // tickets so a player who typed "Win $1,000" gets exactly
                     // $1,000 instead of $999/$1,001 from combined-odds

@@ -39,8 +39,13 @@ declare(strict_types=1);
  *       * PAYOUT fires ONLY when every declared slot is filled
  *         (filledLegs >= targetLegs) AND no leg lost AND none still pending —
  *         the surviving won legs re-price through the normal parlay roll-up
- *         (evaluateTicket: product of won-leg odds, SGP haircut, 3xmaxBet cap;
- *         a void leg already drops out of that product correctly).
+ *         (evaluateTicket: product of won-leg odds + SGP haircut; a void leg
+ *         already drops out of that product correctly). NOTE: evaluateTicket
+ *         itself applies NO payout cap — the 3xmaxBet cap is applied by
+ *         recomputePayout() at create/add-leg (booking time). Settlement-side
+ *         cap enforcement lives in BetSettlementService via the
+ *         `payoutCapAmount` snapshot (applyPayoutCapSnapshot), which is
+ *         present only on docs whose placement clamp actually fired.
  *     shouldSettleNow() encodes when the grader settles vs leaves a ticket
  *     open. isGradableOpenTicket() gates which open tickets the grader may
  *     touch — new-model tickets carrying a valid `targetLegs` only; legacy
@@ -48,8 +53,11 @@ declare(strict_types=1);
  *
  *   - Payout recompute + cap (M3/M4): payout is recomputed authoritatively
  *     from the locked legs on every add (under the caller's FOR UPDATE lock)
- *     and the 3xmaxBet parlay payout cap is re-applied each time. Risk is
- *     fixed at OPEN and never changes.
+ *     and the 3xmaxBet parlay payout cap is re-applied each time — at BOOKING
+ *     time only (create/add-leg); it caps the STORED potentialPayout, not the
+ *     settlement recompute (that ceiling is BetSettlementService's
+ *     payoutCapAmount-snapshot check). Risk is fixed at OPEN and never
+ *     changes.
  *
  *   - Freeplay is disallowed on open parlays (Addition 1).
  *   - Only plain parlays are eligible — RR/teaser/if_bet/reverse rejected (M7).
@@ -133,12 +141,15 @@ final class OpenParlayService
 
     /**
      * Authoritatively recompute an open parlay's payout from its locked legs
-     * and re-apply the 3xmaxBet parlay payout cap. Risk is fixed; only the
-     * payout side moves as legs are added.
+     * and re-apply the 3xmaxBet parlay payout cap — a BOOKING-time clamp on
+     * the stored potentialPayout (create/add-leg). It does NOT protect the
+     * settlement recompute: that ceiling is BetSettlementService's
+     * `payoutCapAmount`-snapshot check (applyPayoutCapSnapshot). Risk is
+     * fixed; only the payout side moves as legs are added.
      *
      * @param array<int, array<string, mixed>> $legs locked legs (selectionForInsert shape)
      * @param array<string, mixed>             $modeRule the parlay mode rule
-     * @return array{potentialPayout: float, combinedOdds: float, winAmount: float, capped: bool}
+     * @return array{potentialPayout: float, combinedOdds: float, winAmount: float, capped: bool, capAmount: float|null}
      */
     public static function recomputePayout(float $unitStake, array $legs, array $modeRule, float $maxBet): array
     {
@@ -146,12 +157,18 @@ final class OpenParlayService
         $payout = SportsbookBetSupport::calculatePotentialPayout('parlay', $unitStake, $legs, $modeRule);
         $winAmount = max(0.0, $payout - $risk);
         $capped = false;
+        $capAmount = null;
         if ($maxBet > 0) {
             $cap = $maxBet * 3.0;
             if ($winAmount > $cap) {
                 $payout = $risk + $cap;
                 $winAmount = $cap;
                 $capped = true;
+                // Snapshot value for the bet doc's `payoutCapAmount`
+                // (win-amount dollars). Returned from HERE — the single
+                // place the clamp is derived — so the stored snapshot can
+                // never diverge from the cap that was actually applied.
+                $capAmount = (float) $cap;
             }
         }
         return [
@@ -159,6 +176,7 @@ final class OpenParlayService
             'combinedOdds' => SportsbookBetSupport::combinedOdds($risk, $payout),
             'winAmount' => (float) $winAmount,
             'capped' => $capped,
+            'capAmount' => $capAmount,
         ];
     }
 

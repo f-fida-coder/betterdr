@@ -501,6 +501,36 @@ final class SportsbookBetSupport
     }
 
     /**
+     * Re-apply the placement-time payout-cap snapshot as a settlement CEILING.
+     *
+     * `payoutCapAmount` (win-amount dollars) is written onto the bet doc by
+     * placement ONLY when the combined-mode 3×maxBet / SGP-multiplier clamp
+     * actually reduced the ticket. evaluateTicket recomputes the payout from
+     * raw leg odds and knows nothing of per-player limits, so without this
+     * ceiling a clamped ticket would settle at the UNCAPPED recompute (the
+     * ±$2 acceptedPayout pin is skipped — the diff far exceeds tolerance).
+     *
+     * Semantics:
+     *   • ceiling, not a pin — a void-reduced recompute BELOW the cap passes
+     *     through untouched (min keeps the smaller value);
+     *   • absent / null / non-numeric / <=0 snapshot → input returned
+     *     byte-identical, so every existing (legacy) doc settles exactly as
+     *     before;
+     *   • payout <= 0 (lost tickets) untouched;
+     *   • whole-dollar convention preserved: the ceiling is round(risk + cap),
+     *     matching the round() placement stored in potentialPayout.
+     */
+    public static function applyPayoutCapSnapshot(array $bet, float $ticketPayout): float
+    {
+        $capWin = $bet['payoutCapAmount'] ?? null;
+        if (!is_numeric($capWin) || (float) $capWin <= 0 || $ticketPayout <= 0) {
+            return $ticketPayout;
+        }
+        $capPayout = (float) round(self::riskAmount($bet) + (float) $capWin);
+        return min($ticketPayout, $capPayout);
+    }
+
+    /**
      * Resolve the live SGP config from the platformsettings doc, clamped so
      * callers can trust it. Single source for placement gating, caps, and the
      * haircut %s snapshotted onto the bet. Absent/garbage → safe defaults

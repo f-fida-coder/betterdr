@@ -399,3 +399,26 @@ TestRunner::run('ManualBet grading — input validation + listing', function ():
     TestRunner::assertEquals('player1', (string) $list['bets'][0]['username'], 'player resolved');
     TestRunner::assertEquals('Tiger Woods to win the Masters outright', (string) $list['bets'][0]['description'], 'free-text description surfaced');
 });
+
+TestRunner::run('ManualBet grading — clamped-ticket surfaces (T7 companion)', function (): void {
+    // The manual grader pays STORED values (potentialPayout pinned to
+    // acceptedPayout) and never recomputes from leg odds — so it needs NO
+    // payoutCapAmount enforcement. Lock that: a doc carrying the snapshot
+    // field grades to exactly its stored acceptedPayout, snapshot ignored.
+    $db = mgDb(['payoutCapAmount' => 100.0]); // stored payout 250 >> cap field
+    ManualBetGradingService::gradeBet($db, MG_BET_ID, 'won', MG_ADMIN);
+    $user = $db->findOne('users', ['id' => MG_USER_ID]);
+    TestRunner::assertEqualsFloat(1150.0, (float) $user['balance'], 'manual grader pays stored acceptedPayout ($250); payoutCapAmount on the doc is ignored by design');
+
+    // And a clamped PARLAY can never reach this surface at all — the fence
+    // refuses non-manual types, so the settlement sweep (which DOES enforce
+    // the snapshot ceiling) is the only grader for clamped tickets.
+    TestRunner::assertEquals(
+        'bet_not_manual',
+        ManualBetGradingService::gradeableManualBetError(
+            mgBet(['type' => 'parlay', 'payoutCapAmount' => 3000.0]),
+            [mgLeg()]
+        ),
+        'clamped parlay refused by the manual surface (sweep is its only grader)'
+    );
+});
