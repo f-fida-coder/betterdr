@@ -7119,3 +7119,163 @@ button.downline-flat-row:active {
 }
 
 /* ─── End Downline Flat Agent List ────────────────────────────────────────── */
+
+/* ─── Casino Bets: per-game configuration card (registry-driven) ──────────
+   Tab selector (reuses .tabs-container/.tab) + one panel per game with
+   Payout / Limits / Game-specific sections. New classes only — nothing here
+   restyles other admin pages. */
+.casino-gamecfg-card {
+  background: #ffffff;
+  border: 1px solid #d7e3ee;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.casino-gamecfg-card .tabs-container.casino-gamecfg-tabs {
+  flex-wrap: wrap;              /* 20+ games must wrap, incl. at 1024px */
+  gap: 2px 6px;
+  margin-bottom: 0;
+  padding: 0 10px;
+  border-radius: 8px 8px 0 0;
+}
+
+.casino-gamecfg-tabs .tab {
+  padding: 10px 12px;
+  white-space: nowrap;
+}
+
+.casino-gamecfg-tab-badge {
+  margin-left: 6px;
+  font-size: 9px;
+  padding: 1px 5px;
+}
+
+.casino-gamecfg-panel {
+  padding: 12px 16px 12px;
+}
+
+.casino-gamecfg-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.casino-gamecfg-title {
+  font-weight: 700;
+  font-size: 15px;
+  color: #243b53;
+}
+
+.casino-gamecfg-info {
+  margin-left: auto;
+  font-size: 12px;
+  color: #5c7188;
+}
+
+.casino-gamecfg-section {
+  margin: 10px 0 2px;
+}
+
+.casino-gamecfg-section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.45px;
+  color: #5c7188;
+  border-bottom: 1px solid #e5eef7;
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+}
+
+.casino-gamecfg-section-note {
+  font-size: 12px;
+  color: #64748b;
+  margin: 2px 0 6px;
+}
+
+.casino-gamecfg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px 12px;
+}
+
+.casino-gamecfg-field {
+  min-width: 0;
+}
+
+.casino-gamecfg-field label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.45px;
+  color: #5c7188;
+}
+
+.casino-gamecfg-field input[type='number'] {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.casino-gamecfg-hint {
+  display: block;
+  font-size: 11px;
+  color: #8aa0b5;
+  margin-top: 2px;
+}
+
+.casino-gamecfg-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+  font-size: 13px;
+  color: #243b53;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.casino-gamecfg-paytable-wrap {
+  overflow-x: auto;             /* iPad-width safety for the paytable */
+}
+
+.casino-gamecfg-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  border-top: 1px solid #e5eef7;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.casino-gamecfg-dirty {
+  margin-right: auto;
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.casino-gamecfg-status-ok {
+  color: #16a34a;
+  font-size: 12px;
+}
+
+.casino-gamecfg-status-err {
+  color: #dc2626;
+  font-size: 12px;
+}
+
+.casino-gamecfg-empty {
+  color: #64748b;
+  font-size: 13px;
+  padding: 6px 0 4px;
+}
+
+@media (max-width: 1100px) {
+  .casino-gamecfg-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+}
+/* ─── End Casino Bets game configuration ──────────────────────────────────── */

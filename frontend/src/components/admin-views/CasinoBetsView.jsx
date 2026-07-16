@@ -1,5 +1,46 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { downloadAdminCasinoBetsCsv, getAdminCasinoBetDetail, getAdminCasinoBets, getAdminCasinoSummary, getCasinoGames, updateAdminCasinoGame } from '../../api';
+
+
+/* ─── Casino game configuration (admin-only, registry-driven) ───────────────
+ *
+ * One registry entry per admin-configurable game; the selector tabs list every
+ * game the catalog returns, and slugs without an entry render an empty-state
+ * panel. Adding the next game = adding ONE entry here (plus its server-side
+ * PAYOUT_SPEC) — no new JSX layouts.
+ *
+ * Registry shape (slug → entry):
+ *   label        Tab + panel title.
+ *   infoLine     STATIC house-edge/RTP text. Display only — live RTP
+ *                computation from paytables is a later ticket.
+ *   roundOnLoad  Round int fields when seeding from stored config (legacy
+ *                roulette behavior; other games seed the raw stored value).
+ *   sections     [{ id, title, note?, kind: 'fields' | 'paytable', fields }]
+ *                field = { key, label, min, max, step, int,
+ *                          type: 'number' | 'checkbox', checkboxText: [on, off] }
+ *                kind 'fields'   → auto-fill grid, label above input, muted
+ *                                  "min–max" range hint under it.
+ *                kind 'paytable' → the Aces & Eights per-hand editor: keys with
+ *                                  min === max render locked; the ×1–5 coin
+ *                                  columns are DISPLAY-ONLY derivations
+ *                                  (base × coins, with the payNR coin-5 cell
+ *                                  overridden by payNRMax — the royal jump).
+ *   defaults     key → default. Seeds missing config keys on load and is the
+ *                Reset-to-Default target.
+ *   resettable   Shows "Reset to Default" (paytable only). Reset fills the
+ *                form with defaults and marks it DIRTY — the values are
+ *                applied only via the normal Save, never auto-saved.
+ *   buildPayload(values) → the payoutConfig object EXACTLY as the legacy
+ *                per-game Save built it, key order included — the PUT body
+ *                must stay byte-identical. Server clamps remain the source of
+ *                truth (out-of-range → 400).
+ *   successText(applied, values) → the legacy per-game success message.
+ *
+ * Every save is the SAME single call as before this redesign:
+ *   PUT /casino/admin/games/{gameId}
+ *   body { metadata: { ...game.metadata, payoutConfig: buildPayload(values) } }
+ * No save has side effects beyond that PUT (config is read per round).
+ * ──────────────────────────────────────────────────────────────────────────── */
 
 // Server-enforced clamp ranges for baccarat-classic's payout config — shown and
 // pre-validated here, but the backend PUT is the source of truth (rejects
@@ -8,113 +49,6 @@ const BACCARAT_PAYOUT_LIMITS = {
   bankerCommissionPct: { min: 2.5, max: 10, label: 'Banker commission %' },
   tiePayout: { min: 7, max: 9, label: 'Tie payout ×' },
 };
-
-function BaccaratPayoutSettings({ token }) {
-  const [game, setGame] = useState(null);
-  const [commission, setCommission] = useState('');
-  const [tiePayout, setTiePayout] = useState('');
-  const [status, setStatus] = useState({ kind: '', text: '' });
-  const [saving, setSaving] = useState(false);
-
-  const loadGame = useCallback(async () => {
-    try {
-      const payload = await getCasinoGames({ token, category: 'table_games', limit: 100 });
-      const row = (payload?.games || []).find((g) => String(g?.slug || '') === 'baccarat-classic');
-      if (!row) return;
-      setGame(row);
-      const cfg = row?.metadata?.payoutConfig || {};
-      setCommission(String(cfg.bankerCommissionPct ?? 5));
-      setTiePayout(String(cfg.tiePayout ?? 8));
-    } catch (err) {
-      setStatus({ kind: 'error', text: err.message || 'Failed to load baccarat payout config' });
-    }
-  }, [token]);
-
-  useEffect(() => {
-    loadGame();
-  }, [loadGame]);
-
-  const outOfRange = (value, limits) => {
-    const num = Number(value);
-    return !Number.isFinite(num) || num < limits.min || num > limits.max;
-  };
-  const commissionInvalid = outOfRange(commission, BACCARAT_PAYOUT_LIMITS.bankerCommissionPct);
-  const tieInvalid = outOfRange(tiePayout, BACCARAT_PAYOUT_LIMITS.tiePayout);
-
-  const save = async () => {
-    if (!game || commissionInvalid || tieInvalid) return;
-    try {
-      setSaving(true);
-      setStatus({ kind: '', text: '' });
-      const updated = await updateAdminCasinoGame(game.id, {
-        metadata: {
-          ...(game.metadata || {}),
-          payoutConfig: {
-            bankerCommissionPct: Number(commission),
-            tiePayout: Number(tiePayout),
-          },
-        },
-      }, token);
-      const applied = updated?.metadata?.payoutConfig || {};
-      setStatus({
-        kind: 'ok',
-        text: `Saved — live from the next round: commission ${applied.bankerCommissionPct ?? commission}%, tie ${applied.tiePayout ?? tiePayout}×`,
-      });
-      setGame(updated || game);
-    } catch (err) {
-      setStatus({ kind: 'error', text: err.message || 'Failed to save payout config' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (!game) return null;
-
-  return (
-    <div className="casino-bets-filters casino-payout-settings">
-      <div className="filter-group">
-        <label>Baccarat Payout — {BACCARAT_PAYOUT_LIMITS.bankerCommissionPct.label} ({BACCARAT_PAYOUT_LIMITS.bankerCommissionPct.min}–{BACCARAT_PAYOUT_LIMITS.bankerCommissionPct.max})</label>
-        <input
-          type="number"
-          min={BACCARAT_PAYOUT_LIMITS.bankerCommissionPct.min}
-          max={BACCARAT_PAYOUT_LIMITS.bankerCommissionPct.max}
-          step="0.5"
-          value={commission}
-          onChange={(e) => setCommission(e.target.value)}
-          style={commissionInvalid ? { borderColor: '#dc2626' } : undefined}
-        />
-      </div>
-      <div className="filter-group">
-        <label>{BACCARAT_PAYOUT_LIMITS.tiePayout.label} ({BACCARAT_PAYOUT_LIMITS.tiePayout.min}–{BACCARAT_PAYOUT_LIMITS.tiePayout.max})</label>
-        <input
-          type="number"
-          min={BACCARAT_PAYOUT_LIMITS.tiePayout.min}
-          max={BACCARAT_PAYOUT_LIMITS.tiePayout.max}
-          step="0.5"
-          value={tiePayout}
-          onChange={(e) => setTiePayout(e.target.value)}
-          style={tieInvalid ? { borderColor: '#dc2626' } : undefined}
-        />
-      </div>
-      <div className="filter-group">
-        <label>&nbsp;</label>
-        <button
-          type="button"
-          className="btn-small btn-accent"
-          onClick={save}
-          disabled={saving || commissionInvalid || tieInvalid}
-        >
-          {saving ? 'Saving…' : 'Save Payout Config'}
-        </button>
-      </div>
-      {status.text && (
-        <div className="filter-group" style={{ alignSelf: 'flex-end', color: status.kind === 'error' ? '#dc2626' : '#16a34a' }}>
-          {status.text}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // Server-enforced clamp ranges for bogeyman's payout config (see
 // BOGEYMAN_PAYOUT_SPEC). payoutScale multiplies every line pay (floored per
@@ -128,110 +62,6 @@ const BOGEYMAN_PAYOUT_LIMITS = {
   freeSpins5: { min: 10, max: 40, step: 1, label: '5-scatter free spins' },
 };
 
-function BogeymanPayoutSettings({ token }) {
-  const [game, setGame] = useState(null);
-  const [values, setValues] = useState({ payoutScale: '', freeSpins3: '', freeSpins4: '', freeSpins5: '' });
-  const [status, setStatus] = useState({ kind: '', text: '' });
-  const [saving, setSaving] = useState(false);
-
-  const loadGame = useCallback(async () => {
-    try {
-      const payload = await getCasinoGames({ token, category: 'slots', limit: 100 });
-      const row = (payload?.games || []).find((g) => String(g?.slug || '') === 'bogeyman');
-      if (!row) return;
-      setGame(row);
-      const cfg = row?.metadata?.payoutConfig || {};
-      setValues({
-        payoutScale: String(cfg.payoutScale ?? 1),
-        freeSpins3: String(cfg.freeSpins3 ?? 5),
-        freeSpins4: String(cfg.freeSpins4 ?? 10),
-        freeSpins5: String(cfg.freeSpins5 ?? 20),
-      });
-    } catch (err) {
-      setStatus({ kind: 'error', text: err.message || 'Failed to load Bogeyman payout config' });
-    }
-  }, [token]);
-
-  useEffect(() => {
-    loadGame();
-  }, [loadGame]);
-
-  const invalid = (key) => {
-    const limits = BOGEYMAN_PAYOUT_LIMITS[key];
-    const num = Number(values[key]);
-    if (!Number.isFinite(num) || num < limits.min || num > limits.max) return true;
-    // Free-spin awards are whole spins.
-    return key !== 'payoutScale' && !Number.isInteger(num);
-  };
-  const anyInvalid = Object.keys(BOGEYMAN_PAYOUT_LIMITS).some(invalid);
-
-  const save = async () => {
-    if (!game || anyInvalid) return;
-    try {
-      setSaving(true);
-      setStatus({ kind: '', text: '' });
-      const updated = await updateAdminCasinoGame(game.id, {
-        metadata: {
-          ...(game.metadata || {}),
-          payoutConfig: {
-            payoutScale: Number(values.payoutScale),
-            freeSpins3: Number(values.freeSpins3),
-            freeSpins4: Number(values.freeSpins4),
-            freeSpins5: Number(values.freeSpins5),
-          },
-        },
-      }, token);
-      const applied = updated?.metadata?.payoutConfig || {};
-      setStatus({
-        kind: 'ok',
-        text: `Saved — live from the next spin: scale ${applied.payoutScale ?? values.payoutScale}×, free spins ${applied.freeSpins3 ?? values.freeSpins3}/${applied.freeSpins4 ?? values.freeSpins4}/${applied.freeSpins5 ?? values.freeSpins5}`,
-      });
-      setGame(updated || game);
-    } catch (err) {
-      setStatus({ kind: 'error', text: err.message || 'Failed to save payout config' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (!game) return null;
-
-  return (
-    <div className="casino-bets-filters casino-payout-settings">
-      {Object.entries(BOGEYMAN_PAYOUT_LIMITS).map(([key, limits], idx) => (
-        <div className="filter-group" key={key}>
-          <label>{idx === 0 ? 'Bogeyman Payout — ' : ''}{limits.label} ({limits.min}–{limits.max})</label>
-          <input
-            type="number"
-            min={limits.min}
-            max={limits.max}
-            step={limits.step}
-            value={values[key]}
-            onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
-            style={invalid(key) ? { borderColor: '#dc2626' } : undefined}
-          />
-        </div>
-      ))}
-      <div className="filter-group">
-        <label>&nbsp;</label>
-        <button
-          type="button"
-          className="btn-small btn-accent"
-          onClick={save}
-          disabled={saving || anyInvalid}
-        >
-          {saving ? 'Saving…' : 'Save Payout Config'}
-        </button>
-      </div>
-      {status.text && (
-        <div className="filter-group" style={{ alignSelf: 'flex-end', color: status.kind === 'error' ? '#dc2626' : '#16a34a' }}>
-          {status.text}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // Server-enforced clamp range for arabian's payout config (see
 // ARABIAN_PAYOUT_SPEC). payoutScale is the ONLY lever — a uniform multiplier on
 // the retuned paytable, floored to cents per hit (house-safe). The reels stay a
@@ -240,88 +70,6 @@ function BogeymanPayoutSettings({ token }) {
 const ARABIAN_PAYOUT_LIMITS = {
   payoutScale: { min: 0.9, max: 1.05, step: 0.01, label: 'Payout scale ×' },
 };
-
-function ArabianPayoutSettings({ token }) {
-  const [game, setGame] = useState(null);
-  const [values, setValues] = useState({ payoutScale: '' });
-  const [status, setStatus] = useState({ kind: '', text: '' });
-  const [saving, setSaving] = useState(false);
-
-  const loadGame = useCallback(async () => {
-    try {
-      const payload = await getCasinoGames({ token, category: 'slots', limit: 100, all: true });
-      const row = (payload?.games || []).find((g) => String(g?.slug || '') === 'arabian');
-      if (!row) return;
-      setGame(row);
-      const cfg = row?.metadata?.payoutConfig || {};
-      setValues({ payoutScale: String(cfg.payoutScale ?? 1) });
-    } catch (err) {
-      setStatus({ kind: 'error', text: err.message || 'Failed to load Arabian payout config' });
-    }
-  }, [token]);
-
-  useEffect(() => { loadGame(); }, [loadGame]);
-
-  const invalid = (key) => {
-    const limits = ARABIAN_PAYOUT_LIMITS[key];
-    const num = Number(values[key]);
-    return !Number.isFinite(num) || num < limits.min || num > limits.max;
-  };
-  const anyInvalid = Object.keys(ARABIAN_PAYOUT_LIMITS).some(invalid);
-
-  const save = async () => {
-    if (!game || anyInvalid) return;
-    try {
-      setSaving(true);
-      setStatus({ kind: '', text: '' });
-      const updated = await updateAdminCasinoGame(game.id, {
-        metadata: {
-          ...(game.metadata || {}),
-          payoutConfig: { payoutScale: Number(values.payoutScale) },
-        },
-      }, token);
-      const applied = updated?.metadata?.payoutConfig || {};
-      setStatus({ kind: 'ok', text: `Saved — live from the next spin: scale ${applied.payoutScale ?? values.payoutScale}×` });
-      setGame(updated || game);
-    } catch (err) {
-      setStatus({ kind: 'error', text: err.message || 'Failed to save payout config' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (!game) return null;
-
-  return (
-    <div className="casino-bets-filters casino-payout-settings">
-      {Object.entries(ARABIAN_PAYOUT_LIMITS).map(([key, limits], idx) => (
-        <div className="filter-group" key={key}>
-          <label>{idx === 0 ? 'Arabian Payout — ' : ''}{limits.label} ({limits.min}–{limits.max})</label>
-          <input
-            type="number"
-            min={limits.min}
-            max={limits.max}
-            step={limits.step}
-            value={values[key]}
-            onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
-            style={invalid(key) ? { borderColor: '#dc2626' } : undefined}
-          />
-        </div>
-      ))}
-      <div className="filter-group">
-        <label>&nbsp;</label>
-        <button type="button" className="btn-small btn-accent" onClick={save} disabled={saving || anyInvalid}>
-          {saving ? 'Saving…' : 'Save Payout Config'}
-        </button>
-      </div>
-      {status.text && (
-        <div className="filter-group" style={{ alignSelf: 'flex-end', color: status.kind === 'error' ? '#dc2626' : '#16a34a' }}>
-          {status.text}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // Server-enforced clamp ranges for american-roulette's OPERATIONAL config
 // (see AMERICAN_ROULETTE_PAYOUT_SPEC). Roulette's edge is structural (the
@@ -345,119 +93,6 @@ const AMERICAN_ROULETTE_DEFAULTS = {
   maxFiveBet: 125, maxSixLine: 150, maxOutside: 100, tableMin: 1, tableMax: 5000,
 };
 
-function AmericanRoulettePayoutSettings({ token }) {
-  const [game, setGame] = useState(null);
-  const [values, setValues] = useState({});
-  const [fiveBetOn, setFiveBetOn] = useState(true);
-  const [status, setStatus] = useState({ kind: '', text: '' });
-  const [saving, setSaving] = useState(false);
-
-  const loadGame = useCallback(async () => {
-    try {
-      const payload = await getCasinoGames({ token, category: 'table_games', limit: 100 });
-      const row = (payload?.games || []).find((g) => String(g?.slug || '') === 'american-roulette');
-      if (!row) return;
-      setGame(row);
-      const cfg = row?.metadata?.payoutConfig || {};
-      const next = {};
-      Object.keys(AMERICAN_ROULETTE_LIMITS).forEach((key) => {
-        next[key] = String(Math.round(Number(cfg[key] ?? AMERICAN_ROULETTE_DEFAULTS[key])));
-      });
-      setValues(next);
-      setFiveBetOn(Math.round(Number(cfg.fiveBetEnabled ?? 1)) >= 1);
-    } catch (err) {
-      setStatus({ kind: 'error', text: err.message || 'Failed to load roulette config' });
-    }
-  }, [token]);
-
-  useEffect(() => {
-    loadGame();
-  }, [loadGame]);
-
-  const invalid = (key) => {
-    const limits = AMERICAN_ROULETTE_LIMITS[key];
-    const num = Number(values[key]);
-    return !Number.isFinite(num) || num < limits.min || num > limits.max || !Number.isInteger(num);
-  };
-  const anyInvalid = Object.keys(AMERICAN_ROULETTE_LIMITS).some(invalid);
-
-  const save = async () => {
-    if (!game || anyInvalid) return;
-    try {
-      setSaving(true);
-      setStatus({ kind: '', text: '' });
-      const payoutConfig = { fiveBetEnabled: fiveBetOn ? 1 : 0 };
-      Object.keys(AMERICAN_ROULETTE_LIMITS).forEach((key) => {
-        payoutConfig[key] = Number(values[key]);
-      });
-      const updated = await updateAdminCasinoGame(game.id, {
-        metadata: {
-          ...(game.metadata || {}),
-          payoutConfig,
-        },
-      }, token);
-      const applied = updated?.metadata?.payoutConfig || {};
-      setStatus({
-        kind: 'ok',
-        text: `Saved — live from the next spin: table $${applied.tableMin ?? values.tableMin}–$${applied.tableMax ?? values.tableMax}, straight cap $${applied.maxStraight ?? values.maxStraight}, five bet ${Math.round(Number(applied.fiveBetEnabled ?? (fiveBetOn ? 1 : 0))) >= 1 ? 'ON' : 'OFF'}`,
-      });
-      setGame(updated || game);
-    } catch (err) {
-      setStatus({ kind: 'error', text: err.message || 'Failed to save roulette config' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (!game) return null;
-
-  return (
-    <div className="casino-bets-filters casino-payout-settings">
-      {Object.entries(AMERICAN_ROULETTE_LIMITS).map(([key, limits], idx) => (
-        <div className="filter-group" key={key}>
-          <label>{idx === 0 ? 'American Roulette — ' : ''}{limits.label} ({limits.min}–{limits.max})</label>
-          <input
-            type="number"
-            min={limits.min}
-            max={limits.max}
-            step={1}
-            value={values[key] ?? ''}
-            onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
-            style={invalid(key) ? { borderColor: '#dc2626' } : undefined}
-          />
-        </div>
-      ))}
-      <div className="filter-group">
-        <label>Five bet (0-00-1-2-3)</label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
-          <input
-            type="checkbox"
-            checked={fiveBetOn}
-            onChange={(e) => setFiveBetOn(e.target.checked)}
-          />
-          {fiveBetOn ? 'Offered (pays 6:1)' : 'Not offered'}
-        </label>
-      </div>
-      <div className="filter-group">
-        <label>&nbsp;</label>
-        <button
-          type="button"
-          className="btn-small btn-accent"
-          onClick={save}
-          disabled={saving || anyInvalid}
-        >
-          {saving ? 'Saving…' : 'Save Roulette Config'}
-        </button>
-      </div>
-      {status.text && (
-        <div className="filter-group" style={{ alignSelf: 'flex-end', color: status.kind === 'error' ? '#dc2626' : '#16a34a' }}>
-          {status.text}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // Server-enforced clamp ranges for aces-and-eights's paytable config (see
 // ACES_AND_EIGHTS_PAYOUT_SPEC). The ONLY house-edge lever is the uniform pay
 // table (the deck is always a fair 52-card shuffle). Each key is the per-coin
@@ -467,101 +102,161 @@ function AmericanRoulettePayoutSettings({ token }) {
 // floor an honest ~90.6%; payJB/pay2P/pay3K are locked (min == max) because
 // those high-frequency low hands swing RTP too hard to expose.
 const ACES_PAYOUT_LIMITS = {
-  payJB: { def: 1, min: 1, max: 1, rank: 'JB', label: 'Jacks or Better' },
-  pay2P: { def: 2, min: 2, max: 2, rank: '_2P', label: 'Two Pair' },
-  pay3K: { def: 3, min: 3, max: 3, rank: '_3K', label: 'Three of a Kind' },
-  payST: { def: 4, min: 3, max: 4, rank: 'ST', label: 'Straight' },
-  payFL: { def: 5, min: 4, max: 6, rank: 'FL', label: 'Flush' },
-  payFH: { def: 7, min: 6, max: 8, rank: 'FH', label: 'Full House' },
-  pay4K: { def: 20, min: 15, max: 20, rank: '_4K', label: 'Four of a Kind' },
-  pay47: { def: 50, min: 40, max: 55, rank: '_47', label: 'Four Sevens' },
-  paySF: { def: 50, min: 40, max: 55, rank: 'SF', label: 'Straight Flush' },
-  payA8: { def: 80, min: 50, max: 85, rank: 'A8', label: 'Four Aces / Eights' },
-  payNR: { def: 125, min: 100, max: 125, rank: 'NR', label: 'Natural Royal (per coin, 1-4)' },
-  payNRMax: { def: 2000, min: 1500, max: 2000, rank: null, label: 'Natural Royal (max coin, 5)' },
+  payJB: { def: 1, min: 1, max: 1, label: 'Jacks or Better' },
+  pay2P: { def: 2, min: 2, max: 2, label: 'Two Pair' },
+  pay3K: { def: 3, min: 3, max: 3, label: 'Three of a Kind' },
+  payST: { def: 4, min: 3, max: 4, label: 'Straight' },
+  payFL: { def: 5, min: 4, max: 6, label: 'Flush' },
+  payFH: { def: 7, min: 6, max: 8, label: 'Full House' },
+  pay4K: { def: 20, min: 15, max: 20, label: 'Four of a Kind' },
+  pay47: { def: 50, min: 40, max: 55, label: 'Four Sevens' },
+  paySF: { def: 50, min: 40, max: 55, label: 'Straight Flush' },
+  payA8: { def: 80, min: 50, max: 85, label: 'Four Aces / Eights' },
+  payNR: { def: 125, min: 100, max: 125, label: 'Natural Royal (per coin, 1-4)' },
+  payNRMax: { def: 2000, min: 1500, max: 2000, label: 'Natural Royal (max coin, 5)' },
 };
 const ACES_PAY_ORDER = ['payJB', 'pay2P', 'pay3K', 'payST', 'payFL', 'payFH', 'pay4K', 'pay47', 'paySF', 'payA8', 'payNR', 'payNRMax'];
 
-function AcesAndEightsPayoutSettings({ token }) {
-  const [game, setGame] = useState(null);
-  const [values, setValues] = useState({});
-  const [status, setStatus] = useState({ kind: '', text: '' });
-  const [saving, setSaving] = useState(false);
+const numberFields = (limits, { int = false } = {}) =>
+  Object.entries(limits).map(([key, lim]) => ({
+    key, label: lim.label, min: lim.min, max: lim.max, step: lim.step ?? (int ? 1 : 0.5), int, type: 'number',
+  }));
 
-  const loadGame = useCallback(async () => {
-    try {
-      const payload = await getCasinoGames({ token, category: 'video_poker', limit: 100 });
-      const row = (payload?.games || []).find((g) => String(g?.slug || '') === 'aces-and-eights');
-      if (!row) return;
-      setGame(row);
-      const cfg = row?.metadata?.payoutConfig || {};
-      const next = {};
-      ACES_PAY_ORDER.forEach((k) => { next[k] = String(cfg[k] ?? ACES_PAYOUT_LIMITS[k].def); });
-      setValues(next);
-    } catch (err) {
-      setStatus({ kind: 'error', text: err.message || 'Failed to load Aces & Eights payout config' });
-    }
-  }, [token]);
-
-  useEffect(() => { loadGame(); }, [loadGame]);
-
-  const invalid = (key) => {
-    const lim = ACES_PAYOUT_LIMITS[key];
-    const num = Number(values[key]);
-    return !Number.isFinite(num) || !Number.isInteger(num) || num < lim.min || num > lim.max;
-  };
-  const anyInvalid = ACES_PAY_ORDER.some(invalid);
-
-  // Client-side mirror of the server matrix-builder — proves display == the
-  // table the engine will pay from (same coin-scaling + royal max-coin jump).
-  const derivedRow = (key) => {
-    const base = Number(values[key]);
-    if (!Number.isFinite(base)) return ['—', '—', '—', '—', '—'];
-    const row = [1, 2, 3, 4, 5].map((c) => base * c);
-    if (key === 'payNR') {
-      const max = Number(values.payNRMax);
-      row[4] = Number.isFinite(max) ? max : '—'; // royal jump at coin 5
-    }
-    return row;
-  };
-
-  const save = async (resetToDefault = false) => {
-    if (!game || (!resetToDefault && anyInvalid)) return;
-    try {
-      setSaving(true);
-      setStatus({ kind: '', text: '' });
+const CASINO_GAME_CONFIG_REGISTRY = {
+  'baccarat-classic': {
+    label: 'Baccarat',
+    infoLine: 'Edge from commission/tie — standard 8-deck',
+    defaults: { bankerCommissionPct: 5, tiePayout: 8 },
+    sections: [
+      { id: 'payout', title: 'Payout / RTP controls', kind: 'fields', fields: numberFields(BACCARAT_PAYOUT_LIMITS) },
+    ],
+    buildPayload: (v) => ({
+      bankerCommissionPct: Number(v.bankerCommissionPct),
+      tiePayout: Number(v.tiePayout),
+    }),
+    successText: (applied, v) =>
+      `Saved — live from the next round: commission ${applied.bankerCommissionPct ?? v.bankerCommissionPct}%, tie ${applied.tiePayout ?? v.tiePayout}×`,
+  },
+  bogeyman: {
+    label: 'Bogeyman',
+    infoLine: 'RTP ~94.9% at 1.00× → ~75.9% at 0.80×',
+    defaults: { payoutScale: 1, freeSpins3: 5, freeSpins4: 10, freeSpins5: 20 },
+    sections: [
+      { id: 'payout', title: 'Payout / RTP controls', kind: 'fields',
+        fields: numberFields({ payoutScale: BOGEYMAN_PAYOUT_LIMITS.payoutScale }) },
+      { id: 'game', title: 'Game-specific', kind: 'fields',
+        fields: numberFields({
+          freeSpins3: BOGEYMAN_PAYOUT_LIMITS.freeSpins3,
+          freeSpins4: BOGEYMAN_PAYOUT_LIMITS.freeSpins4,
+          freeSpins5: BOGEYMAN_PAYOUT_LIMITS.freeSpins5,
+        }, { int: true }) },
+    ],
+    buildPayload: (v) => ({
+      payoutScale: Number(v.payoutScale),
+      freeSpins3: Number(v.freeSpins3),
+      freeSpins4: Number(v.freeSpins4),
+      freeSpins5: Number(v.freeSpins5),
+    }),
+    successText: (applied, v) =>
+      `Saved — live from the next spin: scale ${applied.payoutScale ?? v.payoutScale}×, free spins ${applied.freeSpins3 ?? v.freeSpins3}/${applied.freeSpins4 ?? v.freeSpins4}/${applied.freeSpins5 ?? v.freeSpins5}`,
+  },
+  arabian: {
+    label: 'Arabian',
+    infoLine: 'RTP ~93.7% at 1.00× (cent-floored)',
+    defaults: { payoutScale: 1 },
+    sections: [
+      { id: 'payout', title: 'Payout / RTP controls', kind: 'fields', fields: numberFields(ARABIAN_PAYOUT_LIMITS) },
+    ],
+    buildPayload: (v) => ({ payoutScale: Number(v.payoutScale) }),
+    successText: (applied, v) => `Saved — live from the next spin: scale ${applied.payoutScale ?? v.payoutScale}×`,
+  },
+  'american-roulette': {
+    label: 'American Roulette',
+    infoLine: 'House edge: 5.26% (double-zero)',
+    roundOnLoad: true,
+    defaults: { ...AMERICAN_ROULETTE_DEFAULTS, fiveBetEnabled: true },
+    sections: [
+      { id: 'payout', title: 'Payout / RTP controls', kind: 'fields', fields: [],
+        note: 'Payout multipliers are locked server constants — the edge is structural (the 0/00 pockets).' },
+      { id: 'limits', title: 'Limits', kind: 'fields', fields: numberFields(AMERICAN_ROULETTE_LIMITS, { int: true }) },
+      { id: 'game', title: 'Game-specific', kind: 'fields', fields: [
+        { key: 'fiveBetEnabled', label: 'Five bet (0-00-1-2-3)', type: 'checkbox', checkboxText: ['Offered (pays 6:1)', 'Not offered'] },
+      ] },
+    ],
+    buildPayload: (v) => {
+      const payoutConfig = { fiveBetEnabled: v.fiveBetEnabled ? 1 : 0 };
+      Object.keys(AMERICAN_ROULETTE_LIMITS).forEach((key) => { payoutConfig[key] = Number(v[key]); });
+      return payoutConfig;
+    },
+    successText: (applied, v) =>
+      `Saved — live from the next spin: table $${applied.tableMin ?? v.tableMin}–$${applied.tableMax ?? v.tableMax}, straight cap $${applied.maxStraight ?? v.maxStraight}, five bet ${Math.round(Number(applied.fiveBetEnabled ?? (v.fiveBetEnabled ? 1 : 0))) >= 1 ? 'ON' : 'OFF'}`,
+  },
+  'aces-and-eights': {
+    label: 'Aces & Eights',
+    infoLine: 'RTP ~99.4% all-max → ~90.6% all-min',
+    resettable: true,
+    defaults: Object.fromEntries(ACES_PAY_ORDER.map((k) => [k, ACES_PAYOUT_LIMITS[k].def])),
+    sections: [
+      { id: 'payout', title: 'Payout / RTP controls', kind: 'paytable',
+        note: 'Per-coin base × coins (royal jumps at coin 5). Deck is always a fair 52-card shuffle.',
+        fields: ACES_PAY_ORDER.map((key) => ({
+          key, label: ACES_PAYOUT_LIMITS[key].label,
+          min: ACES_PAYOUT_LIMITS[key].min, max: ACES_PAYOUT_LIMITS[key].max, step: 1, int: true, type: 'number',
+        })) },
+    ],
+    buildPayload: (v) => {
       const payoutConfig = {};
-      ACES_PAY_ORDER.forEach((k) => {
-        payoutConfig[k] = resetToDefault ? ACES_PAYOUT_LIMITS[k].def : Number(values[k]);
-      });
-      const updated = await updateAdminCasinoGame(game.id, {
-        metadata: { ...(game.metadata || {}), payoutConfig },
-      }, token);
-      const applied = updated?.metadata?.payoutConfig || {};
-      const nextVals = {};
-      ACES_PAY_ORDER.forEach((k) => { nextVals[k] = String(applied[k] ?? payoutConfig[k]); });
-      setValues(nextVals);
-      setGame(updated || game);
-      setStatus({
-        kind: 'ok',
-        text: resetToDefault
-          ? 'Reset to the default table — live from the next hand.'
-          : `Saved — live from the next hand: FH ${applied.payFH ?? values.payFH}, FL ${applied.payFL ?? values.payFL}, royal ${applied.payNRMax ?? values.payNRMax}@5.`,
-      });
-    } catch (err) {
-      setStatus({ kind: 'error', text: err.message || 'Failed to save payout config' });
-    } finally {
-      setSaving(false);
+      ACES_PAY_ORDER.forEach((k) => { payoutConfig[k] = Number(v[k]); });
+      return payoutConfig;
+    },
+    successText: (applied, v) =>
+      `Saved — live from the next hand: FH ${applied.payFH ?? v.payFH}, FL ${applied.payFL ?? v.payFL}, royal ${applied.payNRMax ?? v.payNRMax}@5.`,
+  },
+};
+
+const registryFields = (entry) => entry.sections.flatMap((s) => s.fields);
+
+// Seed the form state from a game row's stored payoutConfig (legacy per-game
+// seeding preserved: roulette rounds ints on load, checkbox reads >= 1).
+const seedConfigValues = (entry, game) => {
+  const cfg = game?.metadata?.payoutConfig || {};
+  const values = {};
+  registryFields(entry).forEach((field) => {
+    if (field.type === 'checkbox') {
+      values[field.key] = Math.round(Number(cfg[field.key] ?? (entry.defaults[field.key] ? 1 : 0))) >= 1;
+      return;
     }
-  };
+    const raw = cfg[field.key] ?? entry.defaults[field.key];
+    values[field.key] = String(entry.roundOnLoad && field.int ? Math.round(Number(raw)) : raw);
+  });
+  return values;
+};
 
-  if (!game) return null;
+const configFieldInvalid = (field, value) => {
+  if (field.type === 'checkbox') return false;
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < field.min || num > field.max) return true;
+  return field.int ? !Number.isInteger(num) : false;
+};
 
+// Client-side mirror of the server matrix-builder — proves display == the
+// table the engine will pay from (same coin-scaling + royal max-coin jump).
+const acesDerivedRow = (values, key) => {
+  const base = Number(values[key]);
+  if (!Number.isFinite(base)) return ['—', '—', '—', '—', '—'];
+  const row = [1, 2, 3, 4, 5].map((c) => base * c);
+  if (key === 'payNR') {
+    const max = Number(values.payNRMax);
+    row[4] = Number.isFinite(max) ? max : '—';
+  }
+  return row;
+};
+
+function AcesPaytableEditor({ section, values, setValue, invalid }) {
+  const editable = section.fields.filter((f) => f.key !== 'payNRMax');
+  const nrMax = section.fields.find((f) => f.key === 'payNRMax');
   return (
-    <div className="casino-bets-filters casino-payout-settings" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-      <div className="filter-group" style={{ marginBottom: 4 }}>
-        <label style={{ fontWeight: 600 }}>Aces &amp; Eights Paytable — per-coin base × coins (royal jumps at coin 5). Deck is always a fair 52-card shuffle.</label>
-      </div>
+    <div className="casino-gamecfg-paytable-wrap">
       <table className="aces-paytable-editor" style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ textAlign: 'right', color: '#94a3b8' }}>
@@ -571,66 +266,279 @@ function AcesAndEightsPayoutSettings({ token }) {
           </tr>
         </thead>
         <tbody>
-          {ACES_PAY_ORDER.filter((k) => k !== 'payNRMax').map((key) => {
-            const lim = ACES_PAYOUT_LIMITS[key];
-            const locked = lim.min === lim.max;
-            const row = derivedRow(key);
+          {editable.map((field) => {
+            const locked = field.min === field.max;
+            const row = acesDerivedRow(values, field.key);
             return (
-              <tr key={key} style={{ borderTop: '1px solid #1e293b' }}>
-                <td style={{ textAlign: 'left', padding: '3px 4px' }}>{lim.label}</td>
+              <tr key={field.key} style={{ borderTop: '1px solid #e5eef7' }}>
+                <td style={{ textAlign: 'left', padding: '3px 4px' }}>{field.label}</td>
                 <td style={{ textAlign: 'right', padding: '3px 4px' }}>
                   <input
                     type="number"
-                    min={lim.min}
-                    max={lim.max}
+                    min={field.min}
+                    max={field.max}
                     step={1}
                     disabled={locked}
-                    value={values[key] ?? ''}
-                    onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
-                    style={{ width: 52, textAlign: 'right', ...(invalid(key) ? { borderColor: '#dc2626' } : {}) }}
-                    title={locked ? 'Locked (dominant hand)' : `${lim.min}–${lim.max}`}
+                    value={values[field.key] ?? ''}
+                    onChange={(e) => setValue(field.key, e.target.value)}
+                    style={{ width: 52, textAlign: 'right', ...(invalid(field) ? { borderColor: '#dc2626' } : {}) }}
+                    title={locked ? 'Locked (dominant hand)' : `${field.min}–${field.max}`}
                   />
-                  {!locked && <span style={{ color: '#64748b', marginLeft: 4 }}>{lim.min}–{lim.max}</span>}
+                  {!locked && <span className="casino-gamecfg-hint" style={{ display: 'inline', marginLeft: 4 }}>{field.min}–{field.max}</span>}
                 </td>
                 {row.map((v, i) => (
-                  <td key={i} style={{ textAlign: 'right', padding: '3px 6px', color: key === 'payNR' && i === 4 ? '#eab308' : '#cbd5e1' }}>{v}</td>
+                  <td key={i} style={{ textAlign: 'right', padding: '3px 6px', color: field.key === 'payNR' && i === 4 ? '#b45309' : '#334155' }}>{v}</td>
                 ))}
               </tr>
             );
           })}
-          <tr style={{ borderTop: '1px solid #1e293b' }}>
-            <td style={{ textAlign: 'left', padding: '3px 4px', color: '#eab308' }}>{ACES_PAYOUT_LIMITS.payNRMax.label}</td>
-            <td style={{ textAlign: 'right', padding: '3px 4px' }}>
-              <input
-                type="number"
-                min={ACES_PAYOUT_LIMITS.payNRMax.min}
-                max={ACES_PAYOUT_LIMITS.payNRMax.max}
-                step={1}
-                value={values.payNRMax ?? ''}
-                onChange={(e) => setValues((prev) => ({ ...prev, payNRMax: e.target.value }))}
-                style={{ width: 60, textAlign: 'right', ...(invalid('payNRMax') ? { borderColor: '#dc2626' } : {}) }}
-                title={`${ACES_PAYOUT_LIMITS.payNRMax.min}–${ACES_PAYOUT_LIMITS.payNRMax.max}`}
-              />
-              <span style={{ color: '#64748b', marginLeft: 4 }}>{ACES_PAYOUT_LIMITS.payNRMax.min}–{ACES_PAYOUT_LIMITS.payNRMax.max}</span>
-            </td>
-            <td colSpan={5} style={{ textAlign: 'right', padding: '3px 6px', color: '#64748b' }}>overrides the royal at 5 coins</td>
-          </tr>
+          {nrMax && (
+            <tr style={{ borderTop: '1px solid #e5eef7' }}>
+              <td style={{ textAlign: 'left', padding: '3px 4px', color: '#b45309' }}>{nrMax.label}</td>
+              <td style={{ textAlign: 'right', padding: '3px 4px' }}>
+                <input
+                  type="number"
+                  min={nrMax.min}
+                  max={nrMax.max}
+                  step={1}
+                  value={values.payNRMax ?? ''}
+                  onChange={(e) => setValue('payNRMax', e.target.value)}
+                  style={{ width: 60, textAlign: 'right', ...(invalid(nrMax) ? { borderColor: '#dc2626' } : {}) }}
+                  title={`${nrMax.min}–${nrMax.max}`}
+                />
+                <span className="casino-gamecfg-hint" style={{ display: 'inline', marginLeft: 4 }}>{nrMax.min}–{nrMax.max}</span>
+              </td>
+              <td colSpan={5} style={{ textAlign: 'right', padding: '3px 6px', color: '#64748b' }}>overrides the royal at 5 coins</td>
+            </tr>
+          )}
         </tbody>
       </table>
-      <div className="filter-group" style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
-        <button type="button" className="btn-small btn-accent" onClick={() => save(false)} disabled={saving || anyInvalid}>
-          {saving ? 'Saving…' : 'Save Paytable'}
-        </button>
-        <button type="button" className="btn-small" onClick={() => save(true)} disabled={saving}>
-          Reset to Default
-        </button>
+    </div>
+  );
+}
+
+function GameConfigPanel({ token, game, entry, onSaved, onDirtyChange }) {
+  const [values, setValues] = useState(() => seedConfigValues(entry, game));
+  const [snapshot, setSnapshot] = useState(values);
+  const [status, setStatus] = useState({ kind: '', text: '' });
+  const [saving, setSaving] = useState(false);
+
+  const fields = useMemo(() => registryFields(entry), [entry]);
+  const dirty = useMemo(() => fields.some((f) => values[f.key] !== snapshot[f.key]), [fields, values, snapshot]);
+  const anyInvalid = fields.some((f) => configFieldInvalid(f, values[f.key]));
+
+  useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
+
+  const setValue = (key, value) => setValues((prev) => ({ ...prev, [key]: value }));
+  const invalid = (field) => configFieldInvalid(field, values[field.key]);
+
+  const save = async () => {
+    if (!game || saving || !dirty || anyInvalid) return;
+    try {
+      setSaving(true);
+      setStatus({ kind: '', text: '' });
+      const payoutConfig = entry.buildPayload(values);
+      const updated = await updateAdminCasinoGame(game.id, {
+        metadata: { ...(game.metadata || {}), payoutConfig },
+      }, token);
+      const applied = updated?.metadata?.payoutConfig || {};
+      const next = {};
+      fields.forEach((f) => {
+        if (f.type === 'checkbox') next[f.key] = Math.round(Number(applied[f.key] ?? payoutConfig[f.key])) >= 1;
+        else next[f.key] = String(applied[f.key] ?? payoutConfig[f.key]);
+      });
+      setValues(next);
+      setSnapshot(next);
+      setStatus({ kind: 'ok', text: entry.successText(applied, values) });
+      onSaved(updated || game);
+    } catch (err) {
+      setStatus({ kind: 'error', text: err.message || 'Failed to save payout config' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resetToDefaults = () => {
+    if (!window.confirm('Reset the paytable to the default values? Nothing is applied until you press Save.')) return;
+    const next = {};
+    fields.forEach((f) => {
+      next[f.key] = f.type === 'checkbox' ? !!entry.defaults[f.key] : String(entry.defaults[f.key]);
+    });
+    setValues(next);
+    setStatus({ kind: '', text: '' });
+  };
+
+  return (
+    <div className="casino-gamecfg-panel">
+      <div className="casino-gamecfg-panel-head">
+        <span className="casino-gamecfg-title">{entry.label}</span>
+        <span className={`casino-net-pill ${String(game.status).toLowerCase() === 'active' ? 'is-positive' : 'is-neutral'}`}>
+          {String(game.status).toLowerCase() === 'active' ? 'enabled' : 'disabled'}
+        </span>
+        <span className="casino-gamecfg-info">{entry.infoLine}</span>
+      </div>
+      {entry.sections.map((section) => (
+        <div className="casino-gamecfg-section" key={section.id}>
+          <div className="casino-gamecfg-section-title">{section.title}</div>
+          {section.note && <div className="casino-gamecfg-section-note">{section.note}</div>}
+          {section.kind === 'paytable' ? (
+            <AcesPaytableEditor section={section} values={values} setValue={setValue} invalid={invalid} />
+          ) : section.fields.length > 0 && (
+            <div className="casino-gamecfg-grid">
+              {section.fields.map((field) => (
+                <div className="filter-group casino-gamecfg-field" key={field.key}>
+                  <label>{field.label}</label>
+                  {field.type === 'checkbox' ? (
+                    <label className="casino-gamecfg-check">
+                      <input
+                        type="checkbox"
+                        checked={!!values[field.key]}
+                        onChange={(e) => setValue(field.key, e.target.checked)}
+                      />
+                      {values[field.key] ? field.checkboxText[0] : field.checkboxText[1]}
+                    </label>
+                  ) : (
+                    <>
+                      <input
+                        type="number"
+                        min={field.min}
+                        max={field.max}
+                        step={field.step}
+                        value={values[field.key] ?? ''}
+                        onChange={(e) => setValue(field.key, e.target.value)}
+                        style={invalid(field) ? { borderColor: '#dc2626' } : undefined}
+                      />
+                      <span className="casino-gamecfg-hint">{field.min}–{field.max}</span>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+      <div className="casino-gamecfg-footer">
+        {dirty && <span className="casino-gamecfg-dirty">● Unsaved changes</span>}
         {status.text && (
-          <span style={{ alignSelf: 'center', color: status.kind === 'error' ? '#dc2626' : '#16a34a' }}>{status.text}</span>
+          <span className={status.kind === 'error' ? 'casino-gamecfg-status-err' : 'casino-gamecfg-status-ok'}>{status.text}</span>
         )}
+        {entry.resettable && (
+          <button type="button" className="btn-small" onClick={resetToDefaults} disabled={saving}>
+            Reset to Default
+          </button>
+        )}
+        <button type="button" className="btn-small btn-accent" onClick={save} disabled={saving || !dirty || anyInvalid}>
+          {saving ? 'Saving…' : `Save ${entry.label}`}
+        </button>
       </div>
     </div>
   );
 }
+
+function CasinoGameConfigCard({ token }) {
+  const [games, setGames] = useState(null);
+  const [loadError, setLoadError] = useState('');
+  const [activeSlug, setActiveSlug] = useState('');
+  // In-memory only (per approved spec): selection and dirty state reset on a
+  // full page reload; dirty tracking guards tab switches within the session.
+  const activeDirtyRef = useRef(false);
+
+  const loadGames = useCallback(async () => {
+    try {
+      // One consolidated load. Omitting category (backend treats missing as
+      // 'lobby' = no category filter) + all:true (admin-only, includes
+      // disabled tiles) returns every game; the SAME toPublicGame serializer
+      // shapes both the all:true and per-category responses.
+      const payload = await getCasinoGames({ token, category: '', limit: 100, all: true });
+      setGames(Array.isArray(payload?.games) ? payload.games : []);
+    } catch (err) {
+      setLoadError(err.message || 'Failed to load casino game configs');
+    }
+  }, [token]);
+
+  useEffect(() => { loadGames(); }, [loadGames]);
+
+  const rows = useMemo(() => {
+    const list = (games || []).map((g) => ({
+      game: g,
+      slug: String(g?.slug || ''),
+      label: CASINO_GAME_CONFIG_REGISTRY[g?.slug]?.label || g?.name || g?.slug || 'Game',
+    }));
+    list.sort((a, b) => a.label.localeCompare(b.label));
+    return list;
+  }, [games]);
+
+  useEffect(() => {
+    if (!activeSlug && rows.length > 0) setActiveSlug(rows[0].slug);
+  }, [rows, activeSlug]);
+
+  const selectTab = (slug) => {
+    if (slug === activeSlug) return;
+    if (activeDirtyRef.current && !window.confirm('Discard unsaved changes for this game?')) return;
+    activeDirtyRef.current = false;
+    setActiveSlug(slug);
+  };
+
+  const handleSaved = useCallback((updated) => {
+    setGames((prev) => (prev || []).map((g) => (g.id === updated?.id ? updated : g)));
+  }, []);
+
+  const handleDirtyChange = useCallback((d) => { activeDirtyRef.current = d; }, []);
+
+  if (loadError) return <div className="casino-gamecfg-card"><div className="casino-gamecfg-panel casino-gamecfg-empty">{loadError}</div></div>;
+  if (!games || rows.length === 0) return null;
+
+  const active = rows.find((r) => r.slug === activeSlug) || rows[0];
+  const entry = CASINO_GAME_CONFIG_REGISTRY[active.slug];
+
+  return (
+    <div className="casino-gamecfg-card">
+      <div className="tabs-container casino-gamecfg-tabs">
+        {rows.map((row) => {
+          const enabled = String(row.game?.status || '').toLowerCase() === 'active';
+          return (
+            <button
+              type="button"
+              key={row.slug}
+              className={`tab${row.slug === active.slug ? ' active' : ''}`}
+              onClick={() => selectTab(row.slug)}
+            >
+              {row.label}
+              <span
+                className={`casino-net-pill casino-gamecfg-tab-badge ${enabled ? 'is-positive' : 'is-neutral'}`}
+                title={enabled ? 'enabled' : 'disabled'}
+                aria-label={enabled ? 'enabled' : 'disabled'}
+              >
+                {enabled ? '●' : '○'}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {entry ? (
+        <GameConfigPanel
+          key={active.slug}
+          token={token}
+          game={active.game}
+          entry={entry}
+          onSaved={handleSaved}
+          onDirtyChange={handleDirtyChange}
+        />
+      ) : (
+        <div className="casino-gamecfg-panel">
+          <div className="casino-gamecfg-panel-head">
+            <span className="casino-gamecfg-title">{active.label}</span>
+            <span className={`casino-net-pill ${String(active.game?.status || '').toLowerCase() === 'active' ? 'is-positive' : 'is-neutral'}`}>
+              {String(active.game?.status || '').toLowerCase() === 'active' ? 'enabled' : 'disabled'}
+            </span>
+          </div>
+          <div className="casino-gamecfg-empty">No admin-configurable settings for this game yet.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 const EMPTY_FILTERS = {
   game: '',
@@ -965,11 +873,7 @@ function CasinoBetsView() {
         {error && <div className="casino-bets-error">{error}</div>}
         {!loading && !error && (
           <>
-            {localStorage.getItem('userRole') === 'admin' && <BaccaratPayoutSettings token={token} />}
-            {localStorage.getItem('userRole') === 'admin' && <BogeymanPayoutSettings token={token} />}
-            {localStorage.getItem('userRole') === 'admin' && <AmericanRoulettePayoutSettings token={token} />}
-            {localStorage.getItem('userRole') === 'admin' && <AcesAndEightsPayoutSettings token={token} />}
-            {localStorage.getItem('userRole') === 'admin' && <ArabianPayoutSettings token={token} />}
+            {localStorage.getItem('userRole') === 'admin' && <CasinoGameConfigCard token={token} />}
             <div className="casino-bets-kpi-grid">
               {summaryCards.map((card) => (
                 <div className={`casino-kpi-card tone-${card.tone}`} key={card.label}>
