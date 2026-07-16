@@ -2457,7 +2457,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const oddsColCount = marketCount + (showTtColumn ? 1 : 0);
     const oddsCellWidth = oddsColCount >= 4 ? 50 : 54;
     const oddsColGap = oddsColCount >= 4 ? 3 : 4;
-    const boardGridTemplate = `minmax(0, 1fr) ${Array.from({ length: oddsColCount }, () => `${oddsCellWidth}px`).join(' ')}${isTeaserMode ? '' : ' 32px'}`;
+    const boardGridTemplate = `minmax(0, 1fr) ${Array.from({ length: oddsColCount }, () => `${oddsCellWidth}px`).join(' ')}${isTeaserMode ? '' : ' 22px'}`;
     // 1st-inning totals at 0.5 IS the NRFI/YRFI market — relabel chips so bettors
     // recognise it. Selection name stays "Over"/"Under" for settlement (totals
     // resolution in SportsbookBetSupport::selectionResult matches on substring
@@ -2827,9 +2827,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
             )}
 
             {/* Body: team info | odds | vertical Props column. The Props
-                column is a narrow (32px) right-edge bar with the label
-                running top-to-bottom, spanning both team rows. Dropped in
-                teaser mode (the Props panel is hidden there). */}
+                column is a narrow right-edge bar (22px visible, 32px tap
+                target) with the label running top-to-bottom, spanning both
+                team rows. Dropped in teaser mode (the Props panel is hidden
+                there). */}
             <div style={{
                 display: 'grid',
                 gridTemplateColumns: boardGridTemplate,
@@ -2936,12 +2937,24 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         style={{
                             background: blocked ? '#444' : 'linear-gradient(135deg, #a020f0, #d946ef)',
                             color: '#fff',
+                            // The visible bar is the 22px padding box; 5px
+                            // transparent side borders widen the tap target
+                            // to 32px (accessibility floor), overhanging the
+                            // 3-4px column gap and the card's 12px right
+                            // padding. borderRadius 9px/4px minus the 5px
+                            // border leaves the same 4px rounded corner on
+                            // the visible bar as before.
+                            backgroundClip: 'padding-box',
                             border: 'none',
-                            borderRadius: 4,
-                            width: '100%',
+                            borderLeft: '5px solid transparent',
+                            borderRight: '5px solid transparent',
+                            borderRadius: '9px / 4px',
+                            boxSizing: 'border-box',
+                            width: 32,
+                            flexShrink: 0,
                             // Vertical text: "Props" reads top-to-bottom rather
                             // than horizontally, so the button stays a slim
-                            // right-edge bar (32px column) with no clipping.
+                            // right-edge bar with no clipping.
                             writingMode: 'vertical-rl',
                             textOrientation: 'mixed',
                             fontSize: 11,
