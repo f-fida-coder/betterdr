@@ -1,0 +1,1 @@
+blocknote=&c2=34&c5=25&resultamt=5.00&dbup=N&h7=N&jackpot=&h4=N&c6=&newbalance=1946.70&result=JB&ingame=1&c3=52&c1=12&iserr=0&tcounter=&c7=&h1=N&c4=17&messageids=&availablebalance=&h6=N&h2=N&h5=N&lastgameid=43357434&h3=N

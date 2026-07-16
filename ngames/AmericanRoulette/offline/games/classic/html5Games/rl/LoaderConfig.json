@@ -1,0 +1,43 @@
+{
+    "images": {
+        "menu-sounds-off": "../common/img/buttons/sounds-off.png",
+        "menu-cashier": "../common/img/buttons/cashier.png",
+        "menu-close": "../common/img/buttons/close.png",
+        "menu-history": "../common/img/buttons/history.png",
+        "menu-info": "../common/img/buttons/info.png",
+        "menu-sounds-on": "../common/img/buttons/sounds-on.png",
+        "menu-fast-play": "../common/img/buttons/fast-play.png",
+        "menu-normal-play": "../common/img/buttons/normal-play.png",
+        "chipTransfer-BuyIn_Button": "../common/img/chipTransfer/BuyIn_Button.png",
+        "chipTransfer-BuyIn_CloseX": "../common/img/chipTransfer/BuyIn_CloseX.png",
+        "chipTransfer-BuyIn_Dialog_Window": "../common/img/chipTransfer/BuyIn_Dialog_Window.png",
+        "chipTransfer-BuyIn_Tab": "../common/img/chipTransfer/BuyIn_Tab.png",
+        "roulette-wheel":"images/roulette-wheel.png",
+        "bordes-todos":"images/bordes-todos.png",
+        "background":"images/background.jpg",
+        "history":"images/history.png",
+        "numbers-table":"images/numbers-table.png",
+        "numbers-table-clear":"images/numbers-table-clear.gif",
+        "table-color":"images/table-color.jpg",
+        "winner-area-bg":"images/winner-area-bg.PNG",
+        "win-number-zero":"images/win-number-zero.png",
+        "wood-border":"images/wood-border.png",       
+        "btn-normal":"images/buttons/btn-normal.png",
+        "btn-over":"images/buttons/btn-over.png",
+        "chip-Chip-Blue":"images/chips/Chip-Blue.png",
+        "chip-Chip-Blue-Table":"images/chips/Chip-Blue-Table.png",
+        "chip-Chip-Gray":"images/chips/Chip-Gray.png",
+        "chip-Chip-Gray-Table":"images/chips/Chip-Gray-Table.png",
+        "chip-Chip-Green":"images/chips/Chip-Green.png",
+        "chip-Chip-Green-Table":"images/chips/Chip-Green-Table.png",
+        "chip-Chip-Red":"images/chips/Chip-Red.png",
+        "chip-Chip-Red-Table":"images/chips/Chip-Red-Table.png",
+        "chip-Chip-Violet":"images/chips/Chip-Violet.png",
+        "chip-Chip-Violet-Table":"images/chips/Chip-Violet-Table.png",        
+        "background":"images/background.jpg",
+        "chips-lbls-container":"images/container/chips-lbls-container.png"
+    },
+
+    "sounds":{}
+}
+

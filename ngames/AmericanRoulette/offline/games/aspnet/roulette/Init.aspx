@@ -1,0 +1,1 @@
+max_cn=100&max_ff=125&max_hs=50&max_st=75&max_su=25&max_sx=150&max_vs=50&max_xs=50&max_xt=75&tcountertype=&blocknote=&iserr=0&messageids=&jackpot=&availablebalance=&maxb=100.00&sid=1&tcounter=&minb=1.00&bal=1831.20&lastgameid=34682117

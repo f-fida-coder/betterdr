@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tales of Terror (Offline)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#000; overflow:hidden; }
+  #game { border:0; width:100%; height:100%; display:block; }
+</style>
+</head>
+<body>
+<iframe id="game" allowfullscreen></iframe>
+<script>
+  // Launch the offline slot with the same URL params the casino used,
+  // pointed at local files + the local mock server (no network needed).
+  // Values are placed raw (getUrlVars does not decode) — commas must stay literal.
+  var params = {
+    Token: '',
+    CasinoGameId: '393',
+    AccountId: '1',
+    Lang: 'en',
+    gamepath: '../aspNET/',
+    gamesession: 'offline|393|1|1|OFFLINE|en',
+    lang: 'en',
+    gamecode: 'SL5R-TT',
+    showcashier: '0',
+    showhistory: '1',
+    showtype: '1',
+    showchips: '0.01,0.05,0.10,0.25,0.50,1.00',
+    shownavbar: '1',
+    showrebates: '0',
+    gamelibs: '(AutoMan)Default-b3,(BuyIn)Default-b7,(Dummy)Animation,(JackpotBar)Center-b10,(NavBar)Classic-b9',
+    currency: 'USD,$,¢,p,5,2',
+    noexit: '1'
+  };
+  var qs = Object.keys(params).map(function (k) { return k + '=' + params[k]; }).join('&');
+  document.getElementById('game').src =
+    'offline/games/classic/html5Games/SL5r-TT/INDEx.HTml?' + qs;
+</script>
+</body>
+</html>

@@ -193,8 +193,15 @@ Off krne ke liye odds
 Check krne ke liye kiya status hai on ya off    `
 `php php-backend/scripts/feed-switch.php status`
 database mein jane ke liye 
-`mysql -u bettor -p bettorplays247`
-odds api ko off ke liye 
-`cd ~/htdocs/www.bettorplays247.com/betterdr && printf '\nODDS_API_MASTER_ENABLED=false\n' >> .env && printf '\nODDS_API_MASTER_ENABLED=false\n' >> .env.production && pkill -f oddsapi-worker.php`
-aur ON ke iye 
-`cd ~/htdocs/www.bettorplays247.com/betterdr && sed -i 's/^ODDS_API_MASTER_ENABLED=.*/ODDS_API_MASTER_ENABLED=true/' .env .env.production && pkill -f oddsapi-worker.php`
+`/Users/mac/Desktop/ngames`
+odds api ko OFF ke liye (idempotent — purani line delete kar ke EK nayi likhta hai, chaaron env files me; audit 2026-07-16)
+`cd ~/htdocs/www.bettorplays247.com/betterdr && for f in .env .env.production php-backend/.env php-backend/.env.production; do sed -i '/^ODDS_API_MASTER_ENABLED=/d' "$f"; printf 'ODDS_API_MASTER_ENABLED=false\n' >> "$f"; done && grep -c 'ODDS_API_MASTER_ENABLED=false' .env .env.production php-backend/.env php-backend/.env.production && pkill -f oddsapi-worker.php`
+aur ON ke liye
+`cd ~/htdocs/www.bettorplays247.com/betterdr && for f in .env .env.production php-backend/.env php-backend/.env.production; do sed -i '/^ODDS_API_MASTER_ENABLED=/d' "$f"; printf 'ODDS_API_MASTER_ENABLED=true\n' >> "$f"; done && grep -c 'ODDS_API_MASTER_ENABLED=true' .env .env.production php-backend/.env php-backend/.env.production && pkill -f oddsapi-worker.php`
+verify (75s baad — watchdog respawn + flag effect):
+`cd ~/htdocs/www.bettorplays247.com/betterdr && pgrep -af oddsapi-worker.php && tail -1 php-backend/logs/oddsapi-worker.stdout.log`
+
+> ⚠️ **env.runtime kabhi delete mat karna** (project root ki 19-byte file, `APP_ENV=production`).
+> PHP `gethostname()` ab bare `srv1713630` deta hai (hstgr detection dead) — CLI workers
+> production mode me SIRF is file ki wajah se hain. Delete hui to sab workers silently
+> dev mode (root `.env` primary) me chale jayenge. (Verified 2026-07-16)

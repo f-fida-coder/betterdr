@@ -1,0 +1,1 @@
+blocknote=&iserr=0&messageids=&jackpot=&availablebalance=&rslt=-1.00&tcounter=&spin=22&bal=1830.20&lastgameid=34682120

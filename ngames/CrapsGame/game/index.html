@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" /> 
+    <title>CRAPS</title>
+    <meta name="viewport" content="user-scalable=0"/>
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link type="text/css" rel="stylesheet" href="fonts/fonts.css" />
+    <link type="text/css" rel="stylesheet" href="../common/styles/ms-cashier-v3.5.css" />
+    <link type="text/css" rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/cp.css"/>
+    <link rel="stylesheet" href="css/highlights.css"/>
+    <link rel="stylesheet" href="css/clicks.css"/>
+    <link rel="stylesheet" href="css/chips.css"/>
+    <link rel="stylesheet" href="css/results.css"/>
+
+  <style type="text/css">
+  <!—-
+      * {
+          -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: rgba(0,0,0,0);
+      -webkit-text-size-adjust: none;
+      -webkit-user-select: none;
+      -webkit-backface-visibility: hidden;
+      -webkit-perspective: 1000;
+      -webkit-transform:translate3d(0,0,0);
+      -webkit-touch-callout: none;
+      }
+  -->
+  </style>
+
+  
+    
+</head>
+<body ontouchmove="blockMove()">
+    <div id="global" class="main-content">
+        <div id="table-bg"></div>
+        <div id="preLoadHandler" class="progress-fix" style="z-index:999999999; width:100%; height:100%; position:absolute; top:0; left:0; background-size: 100% 100%;
+    background-repeat: no-repeat;">
+            <div id="devices-img" style="position:absolute; top:0; left:0;width:100%; height:100%; background-image: url('data:image/png;base64,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');background-repeat: no-repeat;background-size:8.5%;background-position-x: center;background-position-y:74.4%;"></div>
+
+            <div id="progressBar" class="tiny-green" style="top:797px !important;">
+                <div style="width: 0%;"></div>
+            </div>
+        </div>
+
+        <div id="tip-msg">TIP:To remove a chip hold SHIFT and click on it</div>
+        
+
+        <div id="error-message" style="display: none;">
+            <div id="message-text-span" class="message-text-span">--</div>
+        </div>
+
+        <div id="info-message" style="display: none;">
+            <div id="info-message-content" class="message-text-span">
+                <span id="info-message-text">--</span> 
+                <div id="message-ok-btn" class="is-ml" ml-key="BuyIn_fld_Ok">--</div>
+            </div>
+        </div>
+
+        <div id="PageContainer" class="PageContainer">
+            <div id="PageContainerInner">  
+                    <div id="game-container"></div>
+                    <div id="top-bg"></div> 
+                    <div id="puck"></div> 
+                    
+
+                    <!--<div id='dices-lft-6'>
+                        <div id='dices-lft-6-d1' class="sta-d"></div>
+                        <div id='dices-lft-6-d2' class="sta-d"></div>
+                    </div>-->
+
+                    <div id="bet_div" class="bet_div bet_div_container_spin">
+                        <div id='dices-dpb-1'>
+                            <div id='dices-dpb-1-d1' class="din-d-y"></div>
+                            <div id='dices-dpb-1-d2' class="din-d-y"></div>
+                        </div>
+
+                        <div id='dices-dpb-2'>
+                            <div id='dices-dpb-2-d1' class="din-d-y"></div>
+                            <div id='dices-dpb-2-d2' class="din-d-y"></div>
+                        </div>
+
+                        <div id='dices-dcm'>
+                            <div id='dices-dcm-d1' class="din-d-w"></div>
+                            <div id='dices-dcm-d2' class="din-d-w"></div>
+                        </div>
+
+                        <div id='tr-sv-pay'>
+                            <div id='tr-sv-pay1' class="sv-pay pay-ifo">0 to 1</div>
+                            <div id='tr-sv-pay2' class="sv-pay pay-ifo">0 to 1</div>
+                            
+                        </div>
+
+                        <div id='tr-hd6-pay' class='hd6-pay pay-ifo'>0 to 1</div>
+                        <div id='tr-hd10-pay' class='hd10-pay pay-ifo'>0 to 1</div>
+                        <div id='tr-hd8-pay' class='hd8-pay pay-ifo'>0 to 1</div>
+                        <div id='tr-hd4-pay' class='hd4-pay pay-ifo'>0 to 1</div>
+                        <div id='tr-hn3-pay' class='hn3-pay pay-ifo'>0 to 1</div>
+                        <div id='tr-hn2-pay' class='hn2-pay pay-ifo'>0 to 1</div>
+                        <div id='tr-hn12-pay' class='hn12-pay pay-ifo'>0 to 1</div>
+                        <div id='tr-hn11-pay' class='hn11-pay pay-ifo'>0 to 1</div>
+                        <div id='tr-ac-pay' class='ac-pay pay-ifo'>0 to 1</div>
+
+                        <div id='pay-d1' class=''></div>
+                        <div id='pay-d2' class=''></div>
+                        
+                        <div id="dice-roll-table">
+                            <div id="canvas"></div>
+                        </div>
+                        <div id="table-bet-a"></div>
+                        <div id='hl-ba-pa' class='pa bet-area-hlighy'>  </div>
+                        <div id='hl-ba-big6' class='bg6 bet-area-hlighy'></div>  
+                        <div id='hl-ba-big8' class='bg8 bet-area-hlighy'></div>
+                        <div id='hl-ba-dpV' class='dp bet-area-hlighy'> </div> 
+                        <div id='hl-ba-dpH' class='dp bet-area-hlighy'> </div> 
+                        <div id='hl-ba-fd' class='fd bet-area-hlighy'>  </div>
+                        <div id='hl-ba-come' class='cm bet-area-hlighy'>  </div>
+                        <div id='hl-ba-dontcome' class='dc bet-area-hlighy'>  </div>
+                        <div id='hl-ba-sv' class='sv bet-area-hlighy'></div> 
+                        <div id='hl-ba-hd6' class='hd6 bet-area-hlighy'></div> 
+                        <div id='hl-ba-hd10' class='hd10 bet-area-hlighy'></div> 
+                        <div id='hl-ba-hd8' class='hd8 bet-area-hlighy'></div> 
+                        <div id='hl-ba-hd4' class='hd4 bet-area-hlighy'></div>
+                        <div id='hl-ba-hn3' class='hn3 bet-area-hlighy'></div> 
+                        <div id='hl-ba-hn2' class='hn2 bet-area-hlighy'></div>
+                        <div id='hl-ba-hn12' class='hn12 bet-area-hlighy'></div>
+                        <div id='hl-ba-hn11' class='hn11 bet-area-hlighy'></div>
+                        <div id='hl-ba-ac' class='ac bet-area-hlighy'></div>
+                        
+                        <div id='hl-ba-opa' class='opa bet-area-hlighy'></div>
+                        <div id='hl-ba-pw4' class='pw4 bet-area-hlighy'></div>
+                        <div id='hl-ba-pw5' class='pw5 bet-area-hlighy'></div>
+                        <div id='hl-ba-pw6' class='pw6 bet-area-hlighy'></div>
+                        <div id='hl-ba-pw8' class='pw8 bet-area-hlighy'></div>
+                        <div id='hl-ba-pw9' class='pw9 bet-area-hlighy'></div>
+                        <div id='hl-ba-pw10' class='pw10 bet-area-hlighy'></div>
+
+                        <div id='hl-ba-by4' class='by4 bet-area-hlighy'></div>
+                        <div id='hl-ba-by5' class='by5 bet-area-hlighy'></div>
+                        <div id='hl-ba-by6' class='by6 bet-area-hlighy'></div>
+                        <div id='hl-ba-by8' class='by8 bet-area-hlighy'></div>
+                        <div id='hl-ba-by9' class='by9 bet-area-hlighy'></div>
+                        <div id='hl-ba-by10' class='by10 bet-area-hlighy'></div>
+
+                        <div id='hl-ba-oco4' class='oco4 bet-area-hlighy'></div>
+                        <div id='hl-ba-oco5' class='oco5 bet-area-hlighy'></div>
+                        <div id='hl-ba-oco6' class='oco6 bet-area-hlighy'></div>
+                        <div id='hl-ba-oco8' class='oco8 bet-area-hlighy'></div>
+                        <div id='hl-ba-oco9' class='oco9 bet-area-hlighy'></div>
+                        <div id='hl-ba-oco10' class='oco10 bet-area-hlighy'></div>
+
+                        <div id='hl-ba-co4' class='co4 bet-area-hlighy'></div>
+                        <div id='hl-ba-co5' class='co5 bet-area-hlighy'></div>
+                        <div id='hl-ba-co6' class='co6 bet-area-hlighy'></div>
+                        <div id='hl-ba-co8' class='co8 bet-area-hlighy'></div>
+                        <div id='hl-ba-co9' class='co9 bet-area-hlighy'></div>
+                        <div id='hl-ba-co10' class='co10 bet-area-hlighy'></div>
+
+                        <div id='hl-ba-odo4' class='odo4 bet-area-hlighy'></div>
+                        <div id='hl-ba-odo5' class='odo5 bet-area-hlighy'></div>
+                        <div id='hl-ba-odo6' class='odo6 bet-area-hlighy'></div>
+                        <div id='hl-ba-odo8' class='odo8 bet-area-hlighy'></div>
+                        <div id='hl-ba-odo9' class='odo9 bet-area-hlighy'></div>
+                        <div id='hl-ba-odo10' class='odo10 bet-area-hlighy'></div>
+
+                        <div id='hl-ba-pl4' class='pl4 bet-area-hlighy'></div>
+                        <div id='hl-ba-pl5' class='pl5 bet-area-hlighy'></div>
+                        <div id='hl-ba-pl6' class='pl6 bet-area-hlighy'></div>
+                        <div id='hl-ba-pl8' class='pl8 bet-area-hlighy'></div>
+                        <div id='hl-ba-pl9' class='pl9 bet-area-hlighy'></div>
+                        <div id='hl-ba-pl10' class='pl10 bet-area-hlighy'></div>
+
+                        <div id='hl-ba-do4' class='do4 bet-area-hlighy'></div>
+                        <div id='hl-ba-do5' class='do5 bet-area-hlighy'></div>
+                        <div id='hl-ba-do6' class='do6 bet-area-hlighy'></div>
+                        <div id='hl-ba-do8' class='do8 bet-area-hlighy'></div>
+                        <div id='hl-ba-do9' class='do9 bet-area-hlighy'></div>
+                        <div id='hl-ba-do10' class='do10 bet-area-hlighy'></div>
+
+                        <div id='hl-ba-ly4' class='ly4 bet-area-hlighy'></div>
+                        <div id='hl-ba-ly5' class='ly5 bet-area-hlighy'></div>
+                        <div id='hl-ba-ly6' class='ly6 bet-area-hlighy'></div>
+                        <div id='hl-ba-ly8' class='ly8 bet-area-hlighy'></div>
+                        <div id='hl-ba-ly9' class='ly9 bet-area-hlighy'></div>
+                        <div id='hl-ba-ly10' class='ly10 bet-area-hlighy'></div>
+
+                        <div id='click-ba-opa' btype="opa" class='click-ba-opa click-area clck-ba'></div>
+                        <div id='click-ba-pa-P1' btype="pa" class='click-ba-pa click-area clck-ba'></div>
+                        <div id='click-ba-pa-P2'  btype="pa" class='click-ba-pa click-area clck-ba'></div>
+                        <div id='click-ba-pa-P3'  btype="pa" class='click-ba-pa click-area clck-ba'></div>
+
+                        <div id='click-ba-bg6'  btype="bg" class='click-ba-bg6 click-area clck-ba'></div>
+                        <div id='click-ba-bg8'  btype="bg" class='click-ba-bg8 click-area clck-ba'></div>
+
+                        <div id='click-ba-dp-V'  btype="dp" class='click-ba-dp click-area clck-ba'></div>
+                        <div id='click-ba-dp-H'  btype="dp" class='click-ba-dp click-area clck-ba'></div>
+
+                        <div id='click-ba-fd'  btype="fd" class='click-ba-fd click-area clck-ba'></div>
+
+                        <div id='click-ba-cm' btype="cm" class='click-ba-cm click-area clck-ba'></div>
+
+                        <div id='click-ba-dc' btype="dc" class='click-ba-dc click-area clck-ba'></div>
+
+                        <div id='click-ba-sv' btype="sv" class='click-ba-sv click-area clck-ba'></div>
+                        <div id='click-ba-hd6' btype="hd" class='click-ba-hd6 click-area clck-ba'></div>
+                        <div id='click-ba-hd10' btype="hd" class='click-ba-hd10 click-area clck-ba'></div>
+                        <div id='click-ba-hd8' btype="hd" class='click-ba-hd8 click-area clck-ba'></div>
+                        <div id='click-ba-hd4' btype="hd" class='click-ba-hd4 click-area clck-ba'></div>
+                        <div id='click-ba-hn3' btype="hn" class='click-ba-hn3 click-area clck-ba'></div>
+                        <div id='click-ba-hn2' btype="hn" class='click-ba-hn2 click-area clck-ba'></div>
+                        <div id='click-ba-hn12' btype="hn" class='click-ba-hn12 click-area clck-ba'></div>
+                        <div id='click-ba-hn11' btype="hn" class='click-ba-hn11 click-area clck-ba'></div>
+                        <div id='click-ba-ac' btype="ac" class='click-ba-ac click-area clck-ba'></div>
+
+
+                        
+                        <div id='click-ba-pw4' btype="pw" class='click-ba-pw4 click-area clck-ba'></div>
+                        <div id='click-ba-pw5' btype="pw" class='click-ba-pw5 click-area clck-ba'></div>
+                        <div id='click-ba-pw6' btype="pw" class='click-ba-pw6 click-area clck-ba'></div>
+                        <div id='click-ba-pw8' btype="pw" class='click-ba-pw8 click-area clck-ba'></div>
+                        <div id='click-ba-pw9' btype="pw" class='click-ba-pw9 click-area clck-ba'></div>
+                        <div id='click-ba-pw10' btype="pw" class='click-ba-pw10 click-area clck-ba'></div>
+
+
+                        <div id='click-ba-by4' btype="by" class='click-ba-by4 click-area clck-ba'></div>
+                        <div id='click-ba-by5' btype="by" class='click-ba-by5 click-area clck-ba'></div>
+                        <div id='click-ba-by6' btype="by" class='click-ba-by6 click-area clck-ba'></div>
+                        <div id='click-ba-by8' btype="by" class='click-ba-by8 click-area clck-ba'></div>
+                        <div id='click-ba-by9' btype="by" class='click-ba-by9 click-area clck-ba'></div>
+                        <div id='click-ba-by10' btype="by" class='click-ba-by10 click-area clck-ba'></div>
+
+
+                        <div id='click-ba-oco4' btype="oco" class='click-ba-oco4 click-area clck-ba'></div>
+                        <div id='click-ba-oco5' btype="oco" class='click-ba-oco5 click-area clck-ba'></div>
+                        <div id='click-ba-oco6' btype="oco" class='click-ba-oco6 click-area clck-ba'></div>
+                        <div id='click-ba-oco8' btype="oco" class='click-ba-oco8 click-area clck-ba'></div>
+                        <div id='click-ba-oco9' btype="oco" class='click-ba-oco9 click-area clck-ba'></div>
+                        <div id='click-ba-oco10' btype="oco" class='click-ba-oco10 click-area clck-ba'></div>
+
+                        <div id='click-ba-co4' btype="co" class='click-ba-co4 click-area clck-ba'></div>
+                        <div id='click-ba-co5' btype="co" class='click-ba-co5 click-area clck-ba'></div>
+                        <div id='click-ba-co6' btype="co" class='click-ba-co6 click-area clck-ba'></div>
+                        <div id='click-ba-co8' btype="co" class='click-ba-co8 click-area clck-ba'></div>
+                        <div id='click-ba-co9' btype="co" class='click-ba-co9 click-area clck-ba'></div>
+                        <div id='click-ba-co10' btype="co" class='click-ba-co10 click-area clck-ba'></div>
+
+                        <div id='click-ba-odo4' btype="odo" class='click-ba-odo4 click-area clck-ba'></div>
+                        <div id='click-ba-odo5' btype="odo" class='click-ba-odo5 click-area clck-ba'></div>
+                        <div id='click-ba-odo6' btype="odo" class='click-ba-odo6 click-area clck-ba'></div>
+                        <div id='click-ba-odo8' btype="odo" class='click-ba-odo8 click-area clck-ba'></div>
+                        <div id='click-ba-odo9' btype="odo" class='click-ba-odo9 click-area clck-ba'></div>
+                        <div id='click-ba-odo10' btype="odo" class='click-ba-odo10 click-area clck-ba'></div>
+
+                        <div id='click-ba-do4' btype="do" class='click-ba-do4 click-area clck-ba'></div>
+                        <div id='click-ba-do5' btype="do" class='click-ba-do5 click-area clck-ba'></div>
+                        <div id='click-ba-do6' btype="do" class='click-ba-do6 click-area clck-ba'></div>
+                        <div id='click-ba-do8' btype="do" class='click-ba-do8 click-area clck-ba'></div>
+                        <div id='click-ba-do9' btype="do" class='click-ba-do9 click-area clck-ba'></div>
+                        <div id='click-ba-do10' btype="do" class='click-ba-do10 click-area clck-ba'></div>
+
+                        <div id='click-ba-pl4' btype="pl" class='click-ba-pl4 click-area clck-ba'></div>
+                        <div id='click-ba-pl5' btype="pl" class='click-ba-pl5 click-area clck-ba'></div>
+                        <div id='click-ba-pl6' btype="pl" class='click-ba-pl6 click-area clck-ba'></div>
+                        <div id='click-ba-pl8' btype="pl" class='click-ba-pl8 click-area clck-ba'></div>
+                        <div id='click-ba-pl9' btype="pl" class='click-ba-pl9 click-area clck-ba'></div>
+                        <div id='click-ba-pl10' btype="pl" class='click-ba-pl10 click-area clck-ba'></div>
+
+                        <div id='click-ba-ly4' btype="ly" class='click-ba-ly4 click-area clck-ba'></div>
+                        <div id='click-ba-ly5' btype="ly" class='click-ba-ly5 click-area clck-ba'></div>
+                        <div id='click-ba-ly6' btype="ly" class='click-ba-ly6 click-area clck-ba'></div>
+                        <div id='click-ba-ly8' btype="ly" class='click-ba-ly8 click-area clck-ba'></div>
+                        <div id='click-ba-ly9' btype="ly" class='click-ba-ly9 click-area clck-ba'></div>
+                        <div id='click-ba-ly10' btype="ly" class='click-ba-ly10 click-area clck-ba'></div>
+
+                        <div id='chipbet-ba-opa' class='chipbet-opa chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-pa' class='chipbet-pa chipbet-area chipbet-ba'></div>
+
+                        <div id='chipbet-ba-bg6' class='chipbet-bg6 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-bg8' class='chipbet-bg8 chipbet-area chipbet-ba'></div>
+                       
+                        <div id='chipbet-ba-dp' class='chipbet-ba-dp chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-odp' class='chipbet-ba-odp chipbet-area chipbet-ba'></div>
+
+                        <div id='chipbet-ba-fd' class='chipbet-ba-fd chipbet-area chipbet-ba'></div>
+
+                        <div id='chipbet-ba-cm' class='chipbet-ba-cm chipbet-area chipbet-ba'></div>
+
+                        <div id='chipbet-ba-dc' class='chipbet-ba-dc chipbet-area chipbet-ba'></div>
+
+                        <div id='chipbet-ba-sv' class='chipbet-ba-sv chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-hd6' class='chipbet-ba-hd6 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-hd10' class='chipbet-ba-hd10 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-hd8' class='chipbet-ba-hd8 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-hd4' class='chipbet-ba-hd4 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-hn3' class='chipbet-ba-hn3 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-hn2' class='chipbet-ba-hn2 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-hn12' class='chipbet-ba-hn12 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-hn11' class='chipbet-ba-hn11 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-ac' class='chipbet-ba-ac chipbet-area chipbet-ba'></div>
+                        
+                        <div id='chipbet-ba-pw4' class='chipbet-ba-pw4 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-pw5' class='chipbet-ba-pw5 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-pw6' class='chipbet-ba-pw6 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-pw8' class='chipbet-ba-pw8 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-pw9' class='chipbet-ba-pw9 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-pw10' class='chipbet-ba-pw10 chipbet-area chipbet-ba'></div>
+
+                        <div id='chipbet-ba-by4' class='chipbet-ba-by4 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-by5' class='chipbet-ba-by5 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-by6' class='chipbet-ba-by6 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-by8' class='chipbet-ba-by8 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-by9' class='chipbet-ba-by9 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-by10' class='chipbet-ba-by10 chipbet-area chipbet-ba'></div>
+
+                        <div id='chipbet-ba-oco4' class='chipbet-ba-oco4 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-oco5' class='chipbet-ba-oco5 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-oco6' class='chipbet-ba-oco6 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-oco8' class='chipbet-ba-oco8 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-oco9' class='chipbet-ba-oco9 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-oco10' class='chipbet-ba-oco10 chipbet-area chipbet-ba'></div>
+
+                        <div id='chipbet-ba-co4' class='chipbet-ba-co4 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-co5' class='chipbet-ba-co5 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-co6' class='chipbet-ba-co6 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-co8' class='chipbet-ba-co8 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-co9' class='chipbet-ba-co9 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-co10' class='chipbet-ba-co10 chipbet-area chipbet-ba'></div>
+
+                        <div id='chipbet-ba-odo4' class='chipbet-ba-odo4 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-odo5' class='chipbet-ba-odo5 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-odo6' class='chipbet-ba-odo6 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-odo8' class='chipbet-ba-odo8 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-odo9' class='chipbet-ba-odo9 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-odo10' class='chipbet-ba-odo10 chipbet-area chipbet-ba'></div>
+
+                        <div id='chipbet-ba-do4' class='chipbet-ba-do4 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-do5' class='chipbet-ba-do5 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-do6' class='chipbet-ba-do6 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-do8' class='chipbet-ba-do8 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-do9' class='chipbet-ba-do9 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-do10' class='chipbet-ba-do10 chipbet-area chipbet-ba'></div>
+
+                        <div id='chipbet-ba-pl4' class='chipbet-ba-pl4 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-pl5' class='chipbet-ba-pl5 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-pl6' class='chipbet-ba-pl6 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-pl8' class='chipbet-ba-pl8 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-pl9' class='chipbet-ba-pl9 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-pl10' class='chipbet-ba-pl10 chipbet-area chipbet-ba'></div>
+
+                        <div id='chipbet-ba-ly4' class='chipbet-ba-ly4 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-ly5' class='chipbet-ba-ly5 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-ly6' class='chipbet-ba-ly6 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-ly8' class='chipbet-ba-ly8 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-ly9' class='chipbet-ba-ly9 chipbet-area chipbet-ba'></div>
+                        <div id='chipbet-ba-ly10' class='chipbet-ba-ly10 chipbet-area chipbet-ba'></div>
+
+                        <!-- Result Bets -->
+
+                        <div id='chipres-res-opa' class='chipbet-res-opa chipres-area chipbet-res'></div>
+                        <div id='chipres-res-pa' class='chipbet-res-pa chipres-area chipbet-res'></div>
+                        <div id='chipres-res-bg6' class='chipbet-res-bg6 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-bg8' class='chipbet-res-bg8 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-dp' class='chipbet-res-dp chipres-area chipbet-res'></div>
+                        <div id='chipres-res-odp' class='chipbet-res-odp chipres-area chipbet-res'></div>
+                        <div id='chipres-res-fd' class='chipbet-res-fd chipres-area chipbet-res'></div>
+                        <div id='chipres-res-cm' class='chipbet-res-cm chipres-area chipbet-res'></div>
+                        <div id='chipres-res-dc' class='chipbet-res-dc chipres-area chipbet-res'></div>
+
+                        <div id='chipres-res-sv' class='chipbet-res-sv chipres-area chipbet-res'></div>
+                        <div id='chipres-res-hd6' class='chipbet-res-hd6 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-hd10' class='chipbet-res-hd10 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-hd8' class='chipbet-res-hd8 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-hd4' class='chipbet-res-hd4 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-hn3' class='chipbet-res-hn3 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-hn2' class='chipbet-res-hn2 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-hn12' class='chipbet-res-hn12 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-hn11' class='chipbet-res-hn11 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-ac' class='chipbet-res-ac chipres-area chipbet-res'></div>
+                        
+                        <div id='chipres-res-pw4' class='chipbet-res-pw4 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-pw5' class='chipbet-res-pw5 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-pw6' class='chipbet-res-pw6 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-pw8' class='chipbet-res-pw8 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-pw9' class='chipbet-res-pw9 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-pw10' class='chipbet-res-pw10 chipres-area chipbet-res'></div>
+
+                        <div id='chipres-res-by4' class='chipbet-res-by4 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-by5' class='chipbet-res-by5 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-by6' class='chipbet-res-by6 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-by8' class='chipbet-res-by8 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-by9' class='chipbet-res-by9 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-by10' class='chipbet-res-by10 chipres-area chipbet-res'></div>
+
+                        <div id='chipres-res-oco4' class='chipbet-res-oco4 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-oco5' class='chipbet-res-oco5 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-oco6' class='chipbet-res-oco6 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-oco8' class='chipbet-res-oco8 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-oco9' class='chipbet-res-oco9 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-oco10' class='chipbet-res-oco10 chipres-area chipbet-res'></div>
+
+                        <div id='chipres-res-co4' class='chipbet-res-co4 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-co5' class='chipbet-res-co5 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-co6' class='chipbet-res-co6 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-co8' class='chipbet-res-co8 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-co9' class='chipbet-res-co9 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-co10' class='chipbet-res-co10 chipres-area chipbet-res'></div>
+
+                        <div id='chipres-res-odo4' class='chipbet-res-odo4 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-odo5' class='chipbet-res-odo5 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-odo6' class='chipbet-res-odo6 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-odo8' class='chipbet-res-odo8 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-odo9' class='chipbet-res-odo9 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-odo10' class='chipbet-res-odo10 chipres-area chipbet-res'></div>
+
+                        <div id='chipres-res-do4' class='chipbet-res-do4 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-do5' class='chipbet-res-do5 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-do6' class='chipbet-res-do6 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-do8' class='chipbet-res-do8 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-do9' class='chipbet-res-do9 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-do10' class='chipbet-res-do10 chipres-area chipbet-res'></div>
+
+                        <div id='chipres-res-pl4' class='chipbet-res-pl4 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-pl5' class='chipbet-res-pl5 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-pl6' class='chipbet-res-pl6 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-pl8' class='chipbet-res-pl8 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-pl9' class='chipbet-res-pl9 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-pl10' class='chipbet-res-pl10 chipres-area chipbet-res'></div>
+
+                        <div id='chipres-res-ly4' class='chipbet-res-ly4 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-ly5' class='chipbet-res-ly5 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-ly6' class='chipbet-res-ly6 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-ly8' class='chipbet-res-ly8 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-ly9' class='chipbet-res-ly9 chipres-area chipbet-res'></div>
+                        <div id='chipres-res-ly10' class='chipbet-res-ly10 chipres-area chipbet-res'></div>
+
+
+                        <div id='chipbet-come-anim' class='chipbet-come-anim'></div>
+                        <div id='chipbet-dontcome-anim' class='chipbet-dontcome-anim'></div>
+
+                    </div>
+                </div> 
+
+                
+                <div id="area-msg">Good Luck</div>
+                <div id="main">
+                      <div id="platform">
+                        <div id="dice">
+                          <div class="side front uno">
+                            <div class="dot center"></div>
+                          </div>
+                          <div class="side front inner"></div>
+                          <div class="side top dos">
+                            <div class="dot dtop dleft"></div>
+                            <div class="dot dbottom dright"></div>
+                          </div>
+                          <div class="side top inner"></div>
+                          <div class="side right tres">
+                            <div class="dot dtop dleft"></div>
+                            <div class="dot center"></div>
+                            <div class="dot dbottom dright"></div>
+                          </div>
+                          <div class="side right inner"></div>
+                          <div class="side left cuatro">
+                            <div class="dot dtop dleft"></div>
+                            <div class="dot dtop dright"></div>
+                            <div class="dot dbottom dleft"></div>
+                            <div class="dot dbottom dright"></div>
+                          </div>
+                          <div class="side left inner"></div>
+                          <div class="side bottom cinco">
+                            <div class="dot center"></div>
+                            <div class="dot dtop dleft"></div>
+                            <div class="dot dtop dright"></div>
+                            <div class="dot dbottom dleft"></div>
+                            <div class="dot dbottom dright"></div>
+                          </div>
+                          <div class="side bottom inner"></div>
+                          <div class="side back seis">
+                            <div class="dot dtop dleft"></div>
+                            <div class="dot dtop dright"></div>
+                            <div class="dot dbottom dleft"></div>
+                            <div class="dot dbottom dright"></div>
+                            <div class="dot center dleft"></div>
+                            <div class="dot center dright"></div>
+                          </div>
+                          <div class="side back inner"></div>
+                          <div class="side cover x"></div>
+                          <div class="side cover y"></div>
+                          <div class="side cover z"></div>
+                        </div>
+
+                        <div id="dice-2">
+                          <div class="side front uno">
+                            <div class="dot center"></div>
+                          </div>
+                          <div class="side front inner"></div>
+                          <div class="side top dos">
+                            <div class="dot dtop dleft"></div>
+                            <div class="dot dbottom dright"></div>
+                          </div>
+                          <div class="side top inner"></div>
+                          <div class="side right tres">
+                            <div class="dot dtop dleft"></div>
+                            <div class="dot center"></div>
+                            <div class="dot dbottom dright"></div>
+                          </div>
+                          <div class="side right inner"></div>
+                          <div class="side left cuatro">
+                            <div class="dot dtop dleft"></div>
+                            <div class="dot dtop dright"></div>
+                            <div class="dot dbottom dleft"></div>
+                            <div class="dot dbottom dright"></div>
+                          </div>
+                          <div class="side left inner"></div>
+                          <div class="side bottom cinco">
+                            <div class="dot center"></div>
+                            <div class="dot dtop dleft"></div>
+                            <div class="dot dtop dright"></div>
+                            <div class="dot dbottom dleft"></div>
+                            <div class="dot dbottom dright"></div>
+                          </div>
+                          <div class="side bottom inner"></div>
+                          <div class="side back seis">
+                            <div class="dot dtop dleft"></div>
+                            <div class="dot dtop dright"></div>
+                            <div class="dot dbottom dleft"></div>
+                            <div class="dot dbottom dright"></div>
+                            <div class="dot center dleft"></div>
+                            <div class="dot center dright"></div>
+                          </div>
+                          <div class="side back inner"></div>
+                          <div class="side cover x"></div>
+                          <div class="side cover y"></div>
+                          <div class="side cover z"></div>
+                        </div>
+                      </div>
+
+                    <div id="dices-top" class="dice">
+                        <ol class="die-list even-roll" data-roll="1" id="die-1">
+                        <li class="die-item" data-side="1">
+                            <div class="dice-face-1"></div>
+                        </li>
+                        <li class="die-item" data-side="2">
+                            <div class="dice-face-2"></div>
+                        </li>
+                        <li class="die-item" data-side="3">
+                            <div class="dice-face-3"></div>
+                        </li>
+                        <li class="die-item" data-side="4">
+                            <div class="dice-face-4"></div>
+                        </li>
+                        <li class="die-item" data-side="5">
+                            <div class="dice-face-5"></div>
+                        </li>
+                        <li class="die-item" data-side="6">
+                            <div class="dice-face-6"></div>
+                        </li>
+                        </ol>
+                        <ol class="die-list odd-roll" data-roll="1" id="die-2">
+                        <li class="die-item" data-side="1">
+                            <div class="dice-face-1"></div>
+                        </li>
+                        <li class="die-item" data-side="2">
+                            <div class="dice-face-2"></div>
+                        </li>
+                        <li class="die-item" data-side="3">
+                            <div class="dice-face-3"></div>
+                        </li>
+                        <li class="die-item" data-side="4">
+                            <div class="dice-face-4"></div>
+                        </li>
+                        <li class="die-item" data-side="5">
+                            <div class="dice-face-5"></div>
+                        </li>
+                        <li class="die-item" data-side="6">
+                            <div class="dice-face-6"></div>
+                        </li>
+                        </ol>
+                    </div>
+                </div>
+
+                <div id="betContainer">
+                    <div id="bet-bg"></div> 
+                    <div id="r-btn-back"><span id='r-text-back' >Contacting Server..</span>
+                        <div class="load-10">
+                            <div class="bar"></div>
+                        </div>
+                    </div> 
+
+                    <div id="btn-add-remove" class='btn-add-class'>Adding Bets</div> 
+
+                    <div id="r-btn"><span id='r-text' class="is-ml" ml-key="lbl_btn_Roll" ></span></div> 
+                    <div id="chips-lbls-container">
+                        <ul id="chips-btns-container"></ul>
+                    </div>
+                    <table id="game-fields-container">
+                        <tr style="">
+                            <td style="width: 15%;">
+                                <span id="total-bet-lbl" class="fields-lbl is-ml" ml-key="lbl_TotalBet">BET</span>
+                            </td>
+                            <td style="width: 15%;">
+                                <span id="total-bet-val" class="fields-val" >--</span>
+                            </td>
+                            
+                            <td style="width: 15%;">
+                                <span id="total-paid-lbl" class="fields-lbl is-ml" ml-key="lbl_Paid">PAID</span>
+                            </td>
+
+                            <td style="width: 15%;">
+                                <span id="total-win-val" class="fields-val">--</span>
+                            </td>
+
+                            <td style="width: 15%;">
+                                <span id="credits-lbl" class="fields-lbl is-ml" ml-key="lbl_Credits">CREDITS</span>
+                            </td>
+
+                            <td style="width: 15%;">
+                                <span id="credits-val" class="fields-val">--</span>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div id="nav-bar">
+                    <div id="nav-bar-overlay"></div>
+                    <ul id="menu-items">    
+                        <li id="fastPlayButton"></li>           
+                        <li id="soundOffButton"></li>
+                        <li id="cashierButton"></li>
+                        <li id="historyButton"></li>
+                        <li id="helpButton"></li>   
+                        <li id="closeButton"></li>
+                    </ul>
+
+                </div>
+            </div>
+        </div>
+
+    <div id="historyContainer">            
+        <div id="history-overlay"></div>
+        <div id="history-back-to-game"><span id="back-to-game-history-label" class=" is-ml" ml-key="BuyIn_fld_Exit">--</span> </div>
+        <div id="history-content"></div>
+    </div>
+    <div id="helpContainer">
+        <div id="help-overlay"></div>
+        <div id="help-content">
+            <div id="close-click-payout"></div>
+        </div>
+    </div>
+
+    </div>
+
+
+    <script type="text/javascript" src="../common/globalconfig.js"></script>
+
+    
+    <script type="text/javascript" src="../common/lib/jquery-1.8.3.min.js"></script>
+    <!-- offline backend: answers Recover/roll/heartbeat/lang locally (no server needed) -->
+    <script type="text/javascript" src="js/offline-server.js"></script>
+    <script type="text/javascript" src="../common/lib/soundmanager2.js"></script>
+
+    <script type="text/javascript" src="../common/lib/preloadjs-0.6.2.min.js"></script>
+    <script type="text/javascript" src="../common/lib/soundjs-0.6.2.min.js"></script>
+
+    <script type="text/javascript" src="../common/js/Preloader.js"></script>
+    <script type="text/javascript" src="../common/lib/accounting.min.js"></script>          
+    <script type="text/javascript" src="../common/js/utils.js"></script>
+    <script type="text/javascript" src="../common/js/ms-global-object.js"></script>
+    <script type="text/javascript" src="../common/js/ms-server-connector.js"></script>
+    <script type="text/javascript" src="js/web-connector.js"></script>
+
+    <script type="text/javascript" src="../common/js/ms-cashier-v3.5.js"></script>
+    <script type="text/javascript" src="../common/js/ms-heartbeat-manager.js"></script>
+    <script type="text/javascript" src="../common/js/ms-language.js"></script>
+    <script type="text/javascript" src="../common/js/GameLoader.js"></script>
+    <script type="text/javascript" src="../common/js/ms-audio-manage-v1.4.js"></script>
+
+    <script type="text/javascript" src="../common/lib/three.min.js"></script>
+    <script type="text/javascript" src="../common/lib/cannon.min.js"></script>
+    <script type="text/javascript" src="../common/lib/teal.js"></script>
+    <script type="text/javascript" src="js/dice-table.js"></script>
+    <script type="text/javascript" src="js/dice-table-main.js"></script>
+
+    <script type="text/javascript" src="js/ie-fixes.js"></script>
+    <script type="text/javascript" src="js/game-config.js"></script>
+    <script type="text/javascript" src="js/game-data.js"></script>
+    <script type="text/javascript" src="js/craps.js"></script>
+    <script type="text/javascript" src="js/web-connector.js"></script>
+</body>
+</html>

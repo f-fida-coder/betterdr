@@ -1,0 +1,60 @@
+@font-face { 
+ font-family: 'Roboto';  
+ src: url('Roboto-Black.eot');  
+ src: url('Roboto-Black.eot?#iefix') format('embedded-opentype'),  
+     url('Roboto-Black.woff2') format('woff2'),  
+      url('Roboto-Black.woff') format('woff'),  
+      url('Roboto-Black.ttf') format('truetype');  
+ font-weight: normal;  
+ font-style: normal;  
+ }  
+ 
+
+@font-face { 
+ font-family: 'Myriad Pro';  
+ src: url('MyriadPro-Black.eot');  
+ src: url('MyriadPro-Black.eot?#iefix') format('embedded-opentype'),  
+     url('MyriadPro-Black.woff2') format('woff2'),  
+      url('MyriadPro-Black.woff') format('woff'),  
+      url('MyriadPro-Black.ttf') format('truetype');  
+ font-weight: normal;  
+ font-style: normal;  
+ }  
+ 
+
+
+
+@font-face { 
+ font-family: 'Cabin Condensed';  
+ src: url('CabinCondensed-Bold.eot');  
+ src: url('CabinCondensed-Bold.eot?#iefix') format('embedded-opentype'),  
+     url('CabinCondensed-Bold.woff2') format('woff2'),  
+      url('CabinCondensed-Bold.woff') format('woff'),  
+      url('CabinCondensed-Bold.ttf') format('truetype');  
+ font-weight: normal;  
+ font-style: normal;  
+ }  
+
+@font-face { 
+ font-family: 'Myriad Pro Cond';  
+ src: url('MyriadPro-BoldCond.eot');  
+ src: url('MyriadPro-BoldCond.eot?#iefix') format('embedded-opentype'),  
+     url('MyriadPro-BoldCond.woff2') format('woff2'),  
+      url('MyriadPro-BoldCond.woff') format('woff'),  
+      url('MyriadPro-BoldCond.ttf') format('truetype');  
+ font-weight: normal;  
+ font-style: normal;  
+ }  
+
+
+ @font-face { 
+    font-family: 'Afterglow Regular';  
+    src: url('afterglow-regular-webfont.eot');  
+    src: url('afterglow-regular-webfont.eot?#iefix') format('embedded-opentype'),  
+        url('afterglow-regular-webfont.woff2') format('woff2'),  
+         url('afterglow-regular-webfont.woff') format('woff'),  
+         url('afterglow-regular-webfont.ttf') format('truetype');  
+    font-weight: normal;  
+    font-style: normal;  
+    }  
+   

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>American Roulette</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="stylesheet" href="css/rl.css">
+</head>
+<body>
+<div id="stage">
+    <!-- history strip -->
+    <div id="history-bar">
+        <div id="history-label">HISTORY</div>
+        <div id="history-nums"></div>
+    </div>
+
+    <!-- top-left menu -->
+    <div id="menu">
+        <img id="btn-sound" class="menu-btn" src="../common/img/buttons/sounds-on.png" title="Sounds on/off" alt="sound">
+        <img id="btn-speed" class="menu-btn" src="../common/img/buttons/fast-play.png" title="Fast / normal play" alt="speed">
+        <img id="btn-info"  class="menu-btn" src="../common/img/buttons/info.png" title="Payouts" alt="info">
+    </div>
+
+    <!-- announcement -->
+    <div id="announce"></div>
+
+    <!-- wheel -->
+    <div id="wheel-area">
+        <img id="wheel" src="images/roulette-wheel.png" alt="wheel">
+        <div id="ball"></div>
+        <div id="win-badge"></div>
+    </div>
+    <div id="limits">MIN $1.00 &nbsp;•&nbsp; MAX $100.00</div>
+
+    <!-- betting table -->
+    <div id="table-frame"></div>
+    <div id="table-felt"></div>
+    <div id="table-wrap">
+        <img id="table-img" src="images/numbers-table.png" alt="table" draggable="false">
+        <div id="chips-layer"></div>
+        <div id="spot-highlight"></div>
+    </div>
+
+    <!-- bottom bar -->
+    <div id="bottom-bar">
+        <div id="readouts">
+            <div class="readout"><span class="ro-label">BALANCE</span><span class="ro-value" id="ro-balance">$0.00</span></div>
+            <div class="readout"><span class="ro-label">BET</span><span class="ro-value" id="ro-bet">$0.00</span></div>
+            <div class="readout"><span class="ro-label">WIN</span><span class="ro-value" id="ro-win">$0.00</span></div>
+        </div>
+        <div id="chip-tray"></div>
+        <div id="action-btns">
+            <div class="act-btn" id="btn-undo">UNDO</div>
+            <div class="act-btn" id="btn-clear">CLEAR</div>
+            <div class="act-btn" id="btn-rebet">REBET</div>
+            <div class="act-btn" id="btn-spin">SPIN</div>
+        </div>
+    </div>
+
+    <!-- payouts dialog -->
+    <div id="info-dialog">
+        <div id="info-close">&times;</div>
+        <h2>American Roulette — Payouts</h2>
+        <table>
+            <tr><td>Straight up (one number)</td><td>35 : 1</td></tr>
+            <tr><td>Split (two numbers)</td><td>17 : 1</td></tr>
+            <tr><td>Street / Basket 0-00-2 (three numbers)</td><td>11 : 1</td></tr>
+            <tr><td>Corner (four numbers)</td><td>8 : 1</td></tr>
+            <tr><td>Five bet (0, 00, 1, 2, 3)</td><td>6 : 1</td></tr>
+            <tr><td>Six line (six numbers)</td><td>5 : 1</td></tr>
+            <tr><td>Dozen / Column</td><td>2 : 1</td></tr>
+            <tr><td>Red / Black / Odd / Even / 1-18 / 19-36</td><td>1 : 1</td></tr>
+        </table>
+        <p>Place chips on the table, then press SPIN.<br>
+        Click on the lines between numbers for splits, corners, streets and six lines.</p>
+    </div>
+</div>
+<script src="js/mock-server.js"></script>
+<script src="js/rl-game.js"></script>
+</body>
+</html>

@@ -1,0 +1,521 @@
+.chipbet-area{
+    cursor: pointer;
+    float: left;
+    position: absolute;
+    z-index: 21;
+}
+
+/*chipbet AREAS*/
+
+
+#chipbet-ba-opa{  
+    height: 40px;
+    left: 843px;
+    top: 780px;
+    width: 40px;
+}
+
+#chipbet-ba-pa{
+    height: 40px;
+    left: 843px;
+    top: 714px;
+    width: 40px;
+
+}
+
+#chipbet-ba-bg6{
+    height: 40px;
+    left: 543px;
+    top: 509px;
+    width: 40px;
+}
+
+#chipbet-ba-bg8{
+    height: 40px;
+    left: 653px;
+    top: 607px;
+    width: 40px;
+}
+
+#chipbet-ba-dp{
+    height: 40px;
+    left: 886px;
+    top: 612px;
+    width: 40px;
+}
+
+#chipbet-ba-odp{
+    height: 40px;
+    left: 1056px;
+    top: 612px;
+    width: 40px;
+}
+
+#chipbet-ba-fd{
+    height: 40px;
+    left: 865px;
+    top: 504px;
+    width: 40px;
+}
+
+#chipbet-ba-cm{
+    height: 40px;
+    left: 887px;
+    top: 381px;
+    width: 40px;
+}
+
+#chipbet-ba-dc{
+    height: 40px;
+    left: 630px;
+    top: 222px;
+    width: 40px;
+}
+
+#chipbet-ba-sv{
+    height: 40px;
+    left: 1512px;
+    top: 281px;
+    width: 40px;
+}
+
+#chipbet-ba-hd6{
+    height: 40px;
+    left: 1429px;
+    top: 367px;
+    width: 40px;
+}
+
+#chipbet-ba-hd10{
+    height: 40px;
+    left: 1598px;
+    top: 367px;
+    width: 40px;
+}
+
+#chipbet-ba-hd8{
+    height: 40px;
+    left: 1428px;
+    top: 456px;
+    width: 40px;
+}
+
+#chipbet-ba-hd4{
+    height: 40px;
+    left: 1598px;
+    top: 456px;
+    width: 40px;
+}
+
+#chipbet-ba-hn3{
+    height: 40px;
+    left: 1428px;
+    top: 548px;
+    width: 40px;
+}
+
+#chipbet-ba-hn2{
+    height: 40px;
+    left: 1598px;
+    top: 548px;
+    width: 40px;
+}
+
+#chipbet-ba-hn12{
+    height: 40px;
+    left: 1428px;
+    top: 643px;
+    width: 40px;
+}
+
+#chipbet-ba-hn11{
+    height: 40px;
+    left: 1598px;
+    top: 643px;
+    width: 40px;
+}
+
+#chipbet-ba-ac{
+    height: 40px;
+    left: 1513px;
+    top: 732px;
+    width: 40px;
+}
+
+/*chipbet PW*/
+#chipbet-ba-pw4{
+    height: 29px;
+    left: 743px;
+    top: 305px;
+    width: 29px;
+}
+
+#chipbet-ba-pw5{
+    height: 29px;
+    left: 836px;
+    top: 305px;
+    width: 29px;
+}
+
+#chipbet-ba-pw6{
+    height: 29px;
+    left: 929px;
+    top: 305px;
+    width: 29px;
+    z-index: 20;
+}
+
+#chipbet-ba-pw8{
+    height: 29px;
+    left: 1021px;
+    top: 305px;
+    width: 29px;
+}
+
+#chipbet-ba-pw9{
+    height: 29px;
+    left: 1113px;
+    top: 305px;
+    width: 29px;
+}
+
+#chipbet-ba-pw10{
+    height: 29px;
+    left: 1201px;
+    top: 305px;
+    width: 29px;
+}
+
+/*chipbet BY*/
+#chipbet-ba-by4{
+    height: 29px;
+    left: 748px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipbet-ba-by5{
+    height: 29px;
+    left: 841px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipbet-ba-by6{
+    height: 29px;
+    left: 933px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipbet-ba-by8{
+    height: 29px;
+    left: 1026px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipbet-ba-by9{
+    height: 29px;
+    left: 1118px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipbet-ba-by10{
+    height: 29px;
+    left: 1205px;
+    top: 258px;
+    width: 29px;
+}
+
+/*chipbet OCO*/
+
+#chipbet-ba-oco4{
+    height: 29px;
+    left: 701px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipbet-ba-oco5{
+    height: 29px;
+    left: 788px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipbet-ba-oco6{
+    height: 29px;
+    left: 880px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipbet-ba-oco8{
+    height: 29px;
+    left: 972px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipbet-ba-oco9{
+    height: 29px;
+    left: 1065px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipbet-ba-oco10{
+    height: 29px;
+    left: 1158px;
+    top: 258px;
+    width: 29px;
+}
+
+
+
+/*chipbet CO*/
+
+#chipbet-ba-co4{
+    height: 29px;
+    left: 701px;
+    top: 186px;
+    width: 29px;
+
+}
+
+#chipbet-ba-co5{
+    height: 29px;
+    left: 788px;
+    top: 186px;
+    width: 29px;
+}
+
+#chipbet-ba-co6{
+    height: 29px;
+    left: 880px;
+    top: 186px;
+    width: 29px;
+}
+
+#chipbet-ba-co8{
+    height: 29px;
+    left: 972px;
+    top: 186px;
+    width: 29px;
+}
+
+#chipbet-ba-co9{
+    height: 29px;
+    left: 1065px;
+    top: 186px;
+    width: 29px;
+}
+
+#chipbet-ba-co10{
+    height: 29px;
+    left: 1158px;
+    top: 186px;
+    width: 29px;
+}
+
+/*chipbet ODO*/
+
+#chipbet-ba-odo4{
+    height: 29px;
+    left: 701px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipbet-ba-odo5{
+    height: 29px;
+    left: 788px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipbet-ba-odo6{
+    height: 29px;
+    left: 880px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipbet-ba-odo8{
+    height: 29px;
+    left: 972px;
+    top: 140px;
+    width: 29px;
+
+}
+
+#chipbet-ba-odo9{
+    height: 29px;
+    left: 1065px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipbet-ba-odo10{
+    height: 29px;
+    left: 1158px;
+    top: 140px;
+    width: 29px;
+}
+
+/*chipbet PL*/
+#chipbet-ba-pl4{
+    height: 29px;
+    left: 748px;
+    top: 140px;
+    width: 29px;
+
+}
+
+#chipbet-ba-pl5{
+    height: 29px;
+    left: 841px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipbet-ba-pl6{
+    height: 29px;
+    left: 933px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipbet-ba-pl8{
+    height: 29px;
+    left: 1026px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipbet-ba-pl9{
+    height: 29px;
+    left: 1118px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipbet-ba-pl10{
+    height: 29px;
+    left: 1205px;
+    top: 140px;
+    width: 29px;
+}
+
+/*chipbet DO*/
+
+#chipbet-ba-do4{
+    height: 29px;
+    left: 701px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipbet-ba-do5{
+    height: 29px;
+    left: 788px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipbet-ba-do6{
+    height: 29px;
+    left: 880px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipbet-ba-do8{
+    height: 29px;
+    left: 972px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipbet-ba-do9{
+    height: 29px;
+    left: 1065px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipbet-ba-do10{
+    height: 29px;
+    left: 1158px;
+    top: 101px;
+    width: 29px;
+}
+
+/*chipbet LY*/
+#chipbet-ba-ly4{
+    height: 29px;
+    left: 748px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipbet-ba-ly5{
+    height: 29px;
+    left: 841px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipbet-ba-ly6{
+    height: 29px;
+    left: 933px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipbet-ba-ly8{
+    height: 29px;
+    left: 1026px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipbet-ba-ly9{
+    height: 29px;
+    left: 1118px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipbet-ba-ly10{
+    height: 29px;
+    left: 1205px;
+    top: 101px;
+    width: 29px;
+}
+
+/*anim*/
+#chipbet-come-anim{
+    float: left;
+    position: absolute;
+    z-index: 21;
+    height: 40px;
+    left: 887px;
+    top: 381px;
+    width: 40px;
+    display: none;
+}
+
+
+#chipbet-dontcome-anim{
+    float: left;
+    position: absolute;
+    z-index: 21;
+    height: 40px;
+    left: 630px;
+    top: 222px;
+    width: 40px;
+    display: none;
+}

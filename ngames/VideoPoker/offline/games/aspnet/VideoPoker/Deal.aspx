@@ -1,0 +1,1 @@
+jackpot=&blocknote=&c2=26&c5=32&availablebalance=&h7=N&gameid=43357434&h4=N&c6=&newbalance=1941.70&result=-&ingame=1&c3=48&c1=37&iserr=0&tcounter=&c7=&h1=N&c4=28&messageids=&h6=N&h2=N&h5=N&lastgameid=43357434&h3=N

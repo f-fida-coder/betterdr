@@ -1,0 +1,1 @@
+&hid0=454354026&res0=-4.00&dc1=27&blocknote=&iserr=0&dex=17&isovr=1&messageids=&availablebalance=&tcounter=&bal=2004.75&jackpot=&dtot=19&upds=0&lastgameid=454354026&hnds=1

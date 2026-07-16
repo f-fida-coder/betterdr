@@ -1,0 +1,1 @@
+mult=&blocknote=&messageids=&iserr=0&brvars=&reels=|ADH|HFX|EGB|CHF|EGA|&brclid=&cow=0&tcounter=&gid=611134490&frees=0&morls=&availablebalance=&afeat=0&fsmult=&cuvars=&bal=1968.75&reesa=&jackpot=&lastgameid=611134490&mysts=&hits=&brpayt=&brmult=

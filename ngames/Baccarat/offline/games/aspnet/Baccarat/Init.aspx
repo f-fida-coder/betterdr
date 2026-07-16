@@ -1,0 +1,1 @@
+road=T&blocknote=&iserr=0&availablebalance=&comm=5.00&messageids=&sid=1&tcounter=&bal=1947.20&jackpot=&tcountertype=&maxb=100.00&minb=1.00&stats=0,0,1,0,0,0,0&lastgameid=23882651&tiep=8.0000

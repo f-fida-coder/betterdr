@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Double Bonus Poker</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#000; overflow:hidden; }
+  #game { border:0; width:100%; height:100%; display:block; }
+</style>
+</head>
+<body>
+<iframe id="game" allowfullscreen></iframe>
+<script>
+  // Portable launcher for the offline Double Bonus Poker build. The game's own
+  // engine runs against local files; the offline backend (game/offline-server.js)
+  // answers every server call, so no network / login is required. To embed
+  // elsewhere, copy the whole DoubleBonus folder and load this index.html.
+  var params = {
+    gamesession: 'offline|VPDB|1|1|OFFLINE|en',
+    lang: 'en',
+    gamecode: 'VPDB',
+    showcashier: '0',
+    showhistory: '1',
+    showtype: '1',
+    currency: 'USD,$,¢,p,5,2',
+    accountid: '1',
+    noexit: '1'
+  };
+  var qs = Object.keys(params).map(function (k) { return k + '=' + params[k]; }).join('&');
+  document.getElementById('game').src = 'game/index.html?' + qs;
+</script>
+</body>
+</html>

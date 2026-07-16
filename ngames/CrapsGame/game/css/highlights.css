@@ -1,0 +1,895 @@
+.bet-area-hlighy{
+    display: none;
+}
+
+/* Highlight bet areas*/
+#hl-ba-big6{
+    background-image: url(../images/highlights/On_6_Big.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 168px;
+    left: 517px;
+    position: absolute;
+    top: 463px;
+    width: 121px;
+    z-index: 20;
+}
+#hl-ba-big8{
+    background-image: url(../images/highlights/On_8_Big.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 114px;
+    left: 561px;
+    position: absolute;
+    top: 558px;
+    width: 182px;
+    z-index: 20;
+}
+#hl-ba-pa
+{
+    background-image: url(../images/highlights/On_Pass_Line.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 640px;
+    left: 402px;
+    position: absolute;
+    top: 139px;
+    width: 750px;
+    z-index: 20;
+}
+
+#hl-ba-dpV{
+    background-image: url(../images/highlights/On_Dont_Pass_Bar_01.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 365px;
+    left: 517px;
+    position: absolute;
+    top: 97px;
+    width: 89px;
+    z-index: 20;
+}
+
+#hl-ba-dpH{
+    background-image: url(../images/highlights/On_Dont_Pass_Bar_02.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 82px;
+    left: 745px;
+    position: absolute;
+    top: 592px;
+    width: 407px;
+    z-index: 20;
+}
+
+
+#hl-ba-fd{
+    background-image: url(../images/highlights/On_2_to_12.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 129px;
+    left: 607px;
+    position: absolute;
+    top: 462px;
+    width: 545px;
+    z-index: 20;
+}
+
+#hl-ba-come{
+    background-image: url(../images/highlights/On_Come.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 125px;
+    left: 607px;
+    position: absolute;
+    top: 337px;
+    width: 546px;
+    z-index: 20;
+}
+
+
+#hl-ba-dontcome{
+    background-image: url(../images/highlights/On_Dont_Come_Bar_01.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 240px;
+    left: 607px;
+    position: absolute;
+    top: 97px;
+    width: 86px;
+    z-index: 20;
+}
+
+
+#hl-ba-sv{
+    background-image: url(../images/highlights/On_7_Seven.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 123px;
+    left: 1368px;
+    position: absolute;
+    top: 236px;
+    width: 329px;
+    z-index: 20;
+}
+
+#hl-ba-hd6{
+background-image: url(../images/highlights/On_3_to_3.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 93px;
+    left: 1363px;
+    position: absolute;
+    top: 338px;
+    width: 169px;
+    z-index: 20;
+}
+
+#hl-ba-hd10{
+background-image: url(../images/highlights/On_5_to_5.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 93px;
+    left: 1533px;
+    position: absolute;
+    top: 338px;
+    width: 169px;
+    z-index: 20;
+}
+
+#hl-ba-hd8{
+background-image: url(../images/highlights/On_4_to_4.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 109px;
+    left: 1363px;
+    position: absolute;
+    top: 414px;
+    width: 169px;
+    z-index: 20;
+}
+
+
+#hl-ba-hd4{
+background-image: url(../images/highlights/On_2_to_2.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 111px;
+    left: 1533px;
+    position: absolute;
+    top: 413px;
+    width: 169px;
+    z-index: 20;
+}
+
+
+#hl-ba-hn3{
+    background-image: url(../images/highlights/On_1_to_2.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 111px;
+    left: 1363px;
+    position: absolute;
+    top: 507px;
+    width: 169px;
+    z-index: 20;
+}
+    
+#hl-ba-hn2{
+    background-image: url(../images/highlights/On_1_to_1.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 111px;
+    left: 1533px;
+    position: absolute;
+    top: 506px;
+    width: 169px;
+    z-index: 20;
+
+}
+
+#hl-ba-hn12{
+    background-image: url(../images/highlights/On_6_to_6.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 141px;
+    left: 1363px;
+    position: absolute;
+    top: 601px;
+    width: 169px;
+    z-index: 20;
+}
+
+#hl-ba-hn11{
+    background-image: url(../images/highlights/On_6_to_5.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 143px;
+    left: 1533px;
+    position: absolute;
+    top: 600px;
+    width: 169px;
+    z-index: 20;
+}
+
+
+#hl-ba-ac{
+    background-image: url(../images/highlights/On_Any_Craps.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 99px;
+    left: 1362px;
+    position: absolute;
+    top: 710px;
+    width: 340px;
+    z-index: 20;
+}
+
+
+#hl-ba-opa{
+    background-image: url(../images/highlights/On_Down.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 37px;
+    left: 613px;
+    position: absolute;
+    top: 780px;
+    width: 490px;
+    z-index: 20;
+}
+
+/*PW*/
+#hl-ba-pw4{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 743px;
+    position: absolute;
+    top: 305px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-pw5{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 836px;
+    position: absolute;
+    top: 305px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-pw6{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 929px;
+    position: absolute;
+    top: 305px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-pw8{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1021px;
+    position: absolute;
+    top: 305px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-pw9{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1113px;
+    position: absolute;
+    top: 305px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-pw10{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1201px;
+    position: absolute;
+    top: 305px;
+    width: 29px;
+    z-index: 20;
+}
+
+/*BY*/
+#hl-ba-by4{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 748px;
+    position: absolute;
+    top: 258px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-by5{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 841px;
+    position: absolute;
+    top: 258px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-by6{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 933px;
+    position: absolute;
+    top: 258px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-by8{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1026px;
+    position: absolute;
+    top: 258px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-by9{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1118px;
+    position: absolute;
+    top: 258px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-by10{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1205px;
+    position: absolute;
+    top: 258px;
+    width: 29px;
+    z-index: 20;
+}
+
+/*OCO*/
+
+#hl-ba-oco4{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 701px;
+    position: absolute;
+    top: 258px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-oco5{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 788px;
+    position: absolute;
+    top: 258px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-oco6{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 880px;
+    position: absolute;
+    top: 258px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-oco8{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 972px;
+    position: absolute;
+    top: 258px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-oco9{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1065px;
+    position: absolute;
+    top: 258px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-oco10{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1158px;
+    position: absolute;
+    top: 258px;
+    width: 29px;
+    z-index: 20;
+}
+
+
+/*CO*/
+
+#hl-ba-co4{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 701px;
+    position: absolute;
+    top: 186px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-co5{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 788px;
+    position: absolute;
+    top: 186px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-co6{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 880px;
+    position: absolute;
+    top: 186px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-co8{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 972px;
+    position: absolute;
+    top: 186px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-co9{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1065px;
+    position: absolute;
+    top: 186px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-co10{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1158px;
+    position: absolute;
+    top: 186px;
+    width: 29px;
+    z-index: 20;
+}
+
+/*ODO*/
+
+#hl-ba-odo4{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 701px;
+    position: absolute;
+    top: 140px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-odo5{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 788px;
+    position: absolute;
+    top: 140px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-odo6{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 880px;
+    position: absolute;
+    top: 140px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-odo8{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 972px;
+    position: absolute;
+    top: 140px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-odo9{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1065px;
+    position: absolute;
+    top: 140px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-odo10{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1158px;
+    position: absolute;
+    top: 140px;
+    width: 29px;
+    z-index: 20;
+}
+
+/*PL*/
+#hl-ba-pl4{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 748px;
+    position: absolute;
+    top: 140px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-pl5{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 841px;
+    position: absolute;
+    top: 140px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-pl6{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 933px;
+    position: absolute;
+    top: 140px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-pl8{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1026px;
+    position: absolute;
+    top: 140px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-pl9{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1118px;
+    position: absolute;
+    top: 140px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-pl10{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1205px;
+    position: absolute;
+    top: 140px;
+    width: 29px;
+    z-index: 20;
+}
+
+/*DO*/
+
+#hl-ba-do4{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 701px;
+    position: absolute;
+    top: 101px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-do5{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 788px;
+    position: absolute;
+    top: 101px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-do6{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 880px;
+    position: absolute;
+    top: 101px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-do8{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 972px;
+    position: absolute;
+    top: 101px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-do9{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1065px;
+    position: absolute;
+    top: 101px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-do10{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1158px;
+    position: absolute;
+    top: 101px;
+    width: 29px;
+    z-index: 20;
+}
+
+/*LY*/
+#hl-ba-ly4{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 748px;
+    position: absolute;
+    top: 101px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-ly5{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 841px;
+    position: absolute;
+    top: 101px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-ly6{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 933px;
+    position: absolute;
+    top: 101px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-ly8{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1026px;
+    position: absolute;
+    top: 101px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-ly9{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1118px;
+    position: absolute;
+    top: 101px;
+    width: 29px;
+    z-index: 20;
+}
+
+#hl-ba-ly10{
+    background-image: url(../images/highlights/On_Circle.png);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    float: left;
+    height: 29px;
+    left: 1205px;
+    position: absolute;
+    top: 101px;
+    width: 29px;
+    z-index: 20;
+}

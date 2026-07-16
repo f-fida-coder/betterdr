@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>GAME NAME</title>
+	<meta name="viewport" content="minimum-scale=0.9, maximum-scale=0.9, initial-scale=0.9">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<link type="text/css" rel="stylesheet" href="fonts/fonts.css" />
+	<link type="text/css" rel="stylesheet" href="../common/styles/ms-cashier-v3.5.css" />
+	<link type="text/css" rel="stylesheet" href="css/slots.css" />
+	<link type="text/css" rel="stylesheet" href="css/styles.css" />
+	<link type="text/css" rel="stylesheet" href="css/styles-bonus.css" />
+
+</head>
+
+<body>
+<div id="global">
+	<div id="preLoadHandler" class="progress-fix" style="background:#000;z-index:999999999; width:100%; height:100%; position:absolute; top:0; left:0;;background-image: url('data:image/png;base64,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');background-repeat: no-repeat;background-size: 25%;background-position-x: center;background-position-y:32%;">
+			<div id="progressBar" class="tiny-green" style="top:59% !important;">
+				<div style="width: 0%;"></div>
+			</div>
+		</div>
+
+	<div id="error-message" style="display: none;">
+		<div id="message-text-span" class="message-text-span">--</div>
+	</div>
+
+	<div id="info-message" style="display: none;">
+		<div id="info-message-content" class="message-text-span">
+			<span id="info-message-text">--</span> 
+			<div id="message-ok-btn" class="is-ml" ml-key="lbl_br_Ok">--</div>
+		</div>
+	</div>
+
+	<div id="PageContainer">
+		<div id="PageContainerInner"> 
+
+			<div id="slotMachineContainer">
+
+				<div id="ReelContainer">
+					<div id="ReelContainer1">
+						<div id="reel1" class="">
+							<div id="reel-sub-0" ></div>
+						</div>
+					</div>
+					<div id="ReelContainer2">
+						<div id="reel2" class="">
+							<div id="reel-sub-1" ></div>
+						</div>
+					</div>
+					<div id="ReelContainer3">
+						<div id="reel3" class="">
+							<div id="reel-sub-2"></div>
+						</div>
+					</div>
+					<div id="ReelContainer4">
+						<div id="reel4" class="">
+							<div id="reel-sub-3"></div>
+						</div>
+					</div>
+					<div id="ReelContainer5">
+						<div id="reel5" class="">
+							<div id="reel-sub-4"></div>
+						</div>
+					</div>
+					<div id="reelOverlay"></div>
+				</div>
+
+				<div id="betContainer">
+					<span id="lastWin"></span>
+					<span id="credits">--</span>
+					<span id="free-spins-label" class=" is-ml" ml-key="lbl_FreeSpins">--</span>
+					<span id="total-bet-label" class="total-bet-label-2"></span>
+					<span id="val-total-bet">--</span>
+					<div id="lines-bet-btn" class="lines-btn-enabled">
+						<p id="val-lines" class="label-info val-lines-btn-enabled" >--</p>
+						
+					</div>
+
+					<div id="coin-value-btn" class="coin-value-btn-enabled">
+						<span id="bet"></span>
+					</div>
+
+					<div id="lbl-container" class="lbl-container-enabled">
+
+					</div>
+					
+					<div id="fs-container">
+						
+						<span id="val-fs">--</span>
+					</div>
+
+				</div>
+
+				
+
+				<div id="hight-light-container">
+					<span id="high-light-icon-re1-ro1" class="high-light-icon"></span>
+					<span id="high-light-icon-re1-ro2" class="high-light-icon"></span>
+					<span id="high-light-icon-re1-ro3" class="high-light-icon"></span>
+					<span id="high-light-icon-re2-ro1" class="high-light-icon"></span>
+					<span id="high-light-icon-re2-ro2" class="high-light-icon"></span>
+					<span id="high-light-icon-re2-ro3" class="high-light-icon"></span>
+					<span id="high-light-icon-re3-ro1" class="high-light-icon"></span>
+					<span id="high-light-icon-re3-ro2" class="high-light-icon"></span>
+					<span id="high-light-icon-re3-ro3" class="high-light-icon"></span>
+					<span id="high-light-icon-re4-ro1" class="high-light-icon"></span>
+					<span id="high-light-icon-re4-ro2" class="high-light-icon"></span>
+					<span id="high-light-icon-re4-ro3" class="high-light-icon"></span>
+					<span id="high-light-icon-re5-ro1" class="high-light-icon"></span>
+					<span id="high-light-icon-re5-ro2" class="high-light-icon"></span>
+					<span id="high-light-icon-re5-ro3" class="high-light-icon"></span>
+				</div>
+
+				<div id="lines-container">
+					<img id="line1" class="line-image" src="images/lines/Line_01.png" alt="line1"/>
+					<img id="line2" class="line-image" src="images/lines/Line_02.png" alt="line2"/>
+					<img id="line3" class="line-image" src="images/lines/Line_03.png" alt="line3"/>
+					<img id="line4" class="line-image" src="images/lines/Line_04.png" alt="line4"/>
+					<img id="line5" class="line-image" src="images/lines/Line_05.png" alt="line5"/>
+					<img id="line6" class="line-image" src="images/lines/Line_06.png" alt="line6"/>
+					<img id="line7" class="line-image" src="images/lines/Line_07.png" alt="line7"/>
+					<img id="line8" class="line-image" src="images/lines/Line_08.png" alt="line8"/>
+					<img id="line9" class="line-image" src="images/lines/Line_09.png" alt="line9"/>
+					<img id="line10" class="line-image" src="images/lines/Line_10.png" alt="line10"/>
+					<img id="line11" class="line-image" src="images/lines/Line_11.png" alt="line11"/>
+					<img id="line12" class="line-image" src="images/lines/Line_12.png" alt="line12"/>
+					<img id="line13" class="line-image" src="images/lines/Line_13.png" alt="line13"/>
+					<img id="line14" class="line-image" src="images/lines/Line_14.png" alt="line14"/>
+					<img id="line15" class="line-image" src="images/lines/Line_15.png" alt="line15"/>
+					<img id="line16" class="line-image" src="images/lines/Line_16.png" alt="line16"/>
+					<img id="line17" class="line-image" src="images/lines/Line_17.png" alt="line17"/>
+					<img id="line18" class="line-image" src="images/lines/Line_18.png" alt="line18"/>
+					<img id="line19" class="line-image" src="images/lines/Line_19.png" alt="line19"/>
+					<img id="line20" class="line-image" src="images/lines/Line_20.png" alt="line20"/>
+					<img id="line21" class="line-image" src="images/lines/Line_21.png" alt="line21"/>
+					<img id="line22" class="line-image" src="images/lines/Line_22.png" alt="line22"/>
+					<img id="line23" class="line-image" src="images/lines/Line_23.png" alt="line23"/>
+					<img id="line24" class="line-image" src="images/lines/Line_24.png" alt="line24"/>
+					<img id="line25" class="line-image" src="images/lines/Line_25.png" alt="line25"/>
+					<span id="credits-box1" class="line-credits winnerBox1-1" >0100</span>
+					<span id="credits-box2" class="line-credits winnerBox1-2" >0200</span>
+					<span id="credits-box3" class="line-credits winnerBox1-3" >0300</span>
+					<span id="credits-box4" class="line-credits winnerBox2-1" >0400</span>
+					<span id="credits-box5" class="line-credits winnerBox2-2" >0500</span>
+					<span id="credits-box6" class="line-credits winnerBox2-3" >0600</span>
+					<span id="credits-box7" class="line-credits winnerBox3-1" >0700</span>
+					<span id="credits-box8" class="line-credits winnerBox3-2" >0800</span>
+					<span id="credits-box9" class="line-credits winnerBox3-3" >0900</span>
+					<span id="credits-box10" class="line-credits winnerBox4-1" >1000</span>
+					<span id="credits-box11" class="line-credits winnerBox4-2" >1100</span>
+					<span id="credits-box12" class="line-credits winnerBox4-3" >1200</span>
+					<span id="credits-box13" class="line-credits winnerBox5-1" >1300</span>
+					<span id="credits-box14" class="line-credits winnerBox5-2" >1400</span>
+					<span id="credits-box15" class="line-credits winnerBox5-3" >1500</span>
+					<span id="credits-box16" class="line-credits">1600</span>
+					<span id="credits-box17" class="line-credits">1700</span>
+					<span id="credits-box18" class="line-credits">1800</span>
+					<span id="credits-box19" class="line-credits">1900</span>
+					<span id="credits-box20" class="line-credits">2000</span>
+					<span id="credits-box21" class="line-credits">2100</span>
+					<span id="credits-box22" class="line-credits">2200</span>
+					<span id="credits-box23" class="line-credits">2300</span>
+					<span id="credits-box24" class="line-credits">2400</span>
+					<span id="credits-box25" class="line-credits">2500</span>
+				</div>
+
+				<div id="spinButton"></div>
+				<div id="stopButton"></div>
+			</div>
+
+			<div id="nav-bar">
+				<div id="nav-bar-overlay"></div>
+				<ul id="menu-items">	
+					<li id="fastPlayButton"></li>				
+					<li id="soundOffButton"></li>
+					<li id="cashierButton"></li>
+					<li id="historyButton"></li>
+					<li id="helpButton"></li>				
+					<li id="closeButton"></li>
+				</ul>
+
+			</div>
+
+
+
+			<script type="text/javascript">
+				var machineName = 'default';
+				//var minBet = 1;
+				//var maxBet = 10;
+				//var numIconsPerReel = 6;
+				var windowID = 9999;
+			</script>
+
+			
+			<script type="text/javascript" src="../common/globalconfig.js"></script>
+			<script type="text/javascript" src="../common/lib/jquery-1.8.3.min.js"></script>
+			<!-- offline backend: answers Init/Spin/heartbeat/lang locally (no server needed) -->
+			<script type="text/javascript" src="js/offline-server.js"></script>
+			<script type="text/javascript" src="../common/lib/jquery-ui-1.8.17.custom.min.js"></script>
+			<script type="text/javascript" src="../common/lib/soundmanager2.js"></script>
+
+			<script type="text/javascript" src="../common/lib/preloadjs-0.6.2.min.js"></script>
+			<script type="text/javascript" src="../common/lib/soundjs-0.6.2.min.js"></script>
+
+			<script type="text/javascript" src="../common/js/Preloader.js"></script>
+			<script type="text/javascript" src="../common/lib/accounting.min.js"></script>			
+			<script type="text/javascript" src="../common/js/utils.js"></script>
+			<script type="text/javascript" src="../common/js/ms-global-object.js"></script>
+			<script type="text/javascript" src="../common/js/ms-server-connector.js"></script>
+			<script type="text/javascript" src="../common/js/ms-cashier-v3.5.js"></script>
+			<script type="text/javascript" src="../common/js/ms-heartbeat-manager.js"></script>
+			<script type="text/javascript" src="../common/js/ms-language.js"></script>
+			<script type="text/javascript" src="../common/js/GameLoader.js"></script>
+			<script type="text/javascript" src="../common/js/ms-audio-manage-v1.4.js"></script>
+			
+			<script type="text/javascript" src="js/game-config.js"></script>
+			<script type="text/javascript" src="js/slots.js"></script>
+			<script type="text/javascript" src="js/bonus.js"></script>
+		</div>	
+	</div>
+	<div id="historyContainer">
+			
+		<div id="history-overlay"></div>
+		<div id="history-back-to-game"><span id="back-to-game-history-label" class=" is-ml" ml-key="lbl_przt_Back">--</span> </div>
+		<div id="history-content"></div>
+	</div>
+	<div id="helpContainer">
+		<div id="help-overlay"></div>
+		<div id="help-content"><iframe id="payout-iframe" src="" height="100%" width="100%" style="border:none;"></iframe>
+			<div id="close-click-payout"></div>
+		</div>
+	</div>
+
+	<div id="bonus-container">
+		<div id="bonus-overlay"></div>
+		<div id="bonus-play">
+            <div id="price-1" class="price ">5</div>
+            <div id="price-2" class="price ">500</div>
+            <div id="price-3" class="price ">10</div>
+            <div id="price-4" class="price ">40</div>
+            <div id="price-5" class="price ">5</div>
+            <div id="price-6" class="price ">75</div>
+            <div id="price-7" class="price ">15</div>
+            <div id="price-8" class="price ">30</div>
+            <div id="price-9" class="price ">5</div>
+            <div id="price-18" class="price ">250</div>
+            <div id="price-17" class="price ">5</div>
+            <div id="price-16" class="price ">30</div>
+            <div id="price-15" class="price ">15</div>
+            <div id="price-14" class="price ">50</div>
+            <div id="price-13" class="price ">5</div>
+            <div id="price-12" class="price ">40</div>
+            <div id="price-11" class="price ">10</div>
+            <div id="price-10" class="price ">100</div>
+            <div id="price-19" class="price ">10</div>
+            <div id="price-20" class="price ">25</div>
+            <div id="price-21" class="price ">5</div>
+            <div id="price-22" class="price ">40</div>
+            <div id="price-23" class="price ">15</div>
+            <div id="price-24" class="price ">50</div>
+            <div id="price-25" class="price ">5</div>
+            <div id="price-26" class="price ">30</div>
+            <div id="price-27" class="price ">10</div>
+            <div id="price-36" class="price ">30</div>
+            <div id="price-35" class="price ">10</div>
+            <div id="price-34" class="price ">40</div>
+            <div id="price-33" class="price ">5</div>
+            <div id="price-32" class="price ">75</div>
+            <div id="price-31" class="price ">15</div>
+            <div id="price-30" class="price ">25</div>
+            <div id="price-29" class="price ">5</div>
+            <div id="price-28" class="price ">100</div>
+		</div>
+		<div id="won-mult">--</div>
+        <div id="won-container">
+        	<div id="coins-won-text" class="is-ml" ml-key="lbl_br_Won">--</div>
+        	<div id="won-test">--</div>
+        	<div id="try-again-text" class="is-ml" ml-key="lbl_br_Again">--</div>
+        	<div id="tries-left-text" class="is-ml" ml-key="lbl_br_Tries">--</div>
+        	<div id="tries-left-val">--</div>
+        	<div id="btn-yes" class="is-ml" ml-key="lbl_br_Yes">--</div>
+        	<div id="btn-no" class="is-ml" ml-key="lbl_br_No">--</div>
+        	<div id="click-no-text" class="is-ml" ml-key="lbl_br_Keep">--</div>
+        </div>
+
+        <div id="won-container-2">
+        	<div id="coins-won-text-2" class="is-ml" ml-key="lbl_br_Won">--</div>
+        	<div id="won-test-2">--</div>
+
+        	<div id="tries-left-text-2" class="is-ml" ml-key="lbl_br_Tries">--</div>
+        	<div id="tries-left-val-2">--</div>
+        	<div id="btn-ok" class="is-ml" ml-key="lbl_br_Ok">--</div>
+
+        </div>
+
+	</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,50 @@
+@font-face { 
+ font-family: 'Roboto';  
+ src: url('Roboto-Black.eot');  
+ src: url('Roboto-Black.eot?#iefix') format('embedded-opentype'),  
+     url('Roboto-Black.woff2') format('woff2'),  
+      url('Roboto-Black.woff') format('woff'),  
+      url('Roboto-Black.ttf') format('truetype');  
+ font-weight: normal;  
+ font-style: normal;  
+ }  
+ 
+
+@font-face { 
+ font-family: 'Myriad Pro';  
+ src: url('MyriadPro-Black.eot');  
+ src: url('MyriadPro-Black.eot?#iefix') format('embedded-opentype'),  
+     url('MyriadPro-Black.woff2') format('woff2'),  
+      url('MyriadPro-Black.woff') format('woff'),  
+      url('MyriadPro-Black.ttf') format('truetype');  
+ font-weight: normal;  
+ font-style: normal;  
+ }  
+ 
+
+
+
+@font-face { 
+ font-family: 'Cabin Condensed';  
+ src: url('CabinCondensed-Bold.eot');  
+ src: url('CabinCondensed-Bold.eot?#iefix') format('embedded-opentype'),  
+     url('CabinCondensed-Bold.woff2') format('woff2'),  
+      url('CabinCondensed-Bold.woff') format('woff'),  
+      url('CabinCondensed-Bold.ttf') format('truetype');  
+ font-weight: normal;  
+ font-style: normal;  
+ }  
+
+
+@font-face {
+    font-family: 'cripta-cus';
+    src: url('cripta-cus.eot');
+    src: url('cripta-cus.eot?#iefix') format('embedded-opentype'),
+         url('cripta-cus.woff2') format('woff2'),
+         url('cripta-cus.woff') format('woff'),
+         url('cripta-cus.ttf') format('truetype'),
+         url('cripta-cus.svg#estebanregular') format('svg');
+    font-weight: normal;
+    font-style: normal;
+
+}

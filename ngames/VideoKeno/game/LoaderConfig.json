@@ -1,0 +1,25 @@
+{
+    "images": {
+        "menu-sounds-off": "../common/img/buttons/sounds-off.png",
+        "menu-cashier": "../common/img/buttons/cashier.png",
+        "menu-close": "../common/img/buttons/close.png",
+        "menu-history": "../common/img/buttons/history.png",
+        "menu-info": "../common/img/buttons/info.png",
+        "menu-sounds-on": "../common/img/buttons/sounds-on.png",
+        "menu-fast-play": "../common/img/buttons/fast-play.png",
+        "menu-normal-play": "../common/img/buttons/normal-play.png",
+        "chipTransfer-BuyIn_Button": "../common/img/chipTransfer/BuyIn_Button.png",
+        "chipTransfer-BuyIn_CloseX": "../common/img/chipTransfer/BuyIn_CloseX.png",
+        "chipTransfer-BuyIn_Dialog_Window": "../common/img/chipTransfer/BuyIn_Dialog_Window.png",
+        "chipTransfer-BuyIn_Tab": "../common/img/chipTransfer/BuyIn_Tab.png",
+        "background":"images/background.jpg",
+        "ball-3d":"images/ball-3d.png",
+        "boquilla":"images/boquilla.png",
+        "button_portrait":"images/buttons/button_portrait.png",
+        "buttons_landscape_bkgd":"images/buttons/buttons_landscape_bkgd.gif",
+        "label_area_bg":"images/buttons/label_area_bg.png"
+    },
+
+    "sounds":{}
+}
+

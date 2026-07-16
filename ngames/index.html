@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Blackjack (Offline)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#000; overflow:hidden; }
+  #game { border:0; width:100%; height:100%; display:block; }
+</style>
+</head>
+<body>
+<iframe id="game" allowfullscreen></iframe>
+<script>
+  // Launch the offline BJ-SH game with the same URL params the casino used,
+  // but pointed at local files + the local mock server (no network needed).
+  var params = {
+    Token: '',
+    CasinoGameId: '275',
+    AccountId: '1',
+    Lang: 'en',
+    gamepath: '../aspNET/',
+    gamesession: 'offline|275|1|1|OFFLINE|en',
+    lang: 'en',
+    gamecode: 'BJSH',
+    showcashier: '0',
+    showhistory: '1',
+    showtype: '1',
+    showchips: '1,5,25,100,500',
+    shownavbar: '1',
+    showrebates: '0',
+    currency: 'USD,$,¢,p,5,2',
+    noexit: '1'
+  };
+  // NOTE: values are placed raw (not URL-encoded). The game's getUrlVars()
+  // does not decode, so commas in showchips/currency must stay literal —
+  // encoding them breaks the chip list (shows "1%2C5%2C..." instead of chips).
+  var qs = Object.keys(params)
+    .map(function (k) { return k + '=' + params[k]; })
+    .join('&');
+  document.getElementById('game').src =
+    'offline/games/classic/html5Games/BJ-SH/index.html?' + qs;
+</script>
+</body>
+</html>
+
+
+
+
+//
+blackjack
+baccarat

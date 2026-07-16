@@ -1,0 +1,541 @@
+.chipres-area{
+    cursor: pointer;
+    float: left;
+    position: absolute;
+    z-index: 21;
+}
+
+/*chipres AREAS*/
+
+
+#chipres-res-opa{  
+    height: 40px;
+    left: 843px;
+    top: 780px;
+    width: 40px;
+}
+
+#chipres-res-pa{
+    height: 40px;
+    left: 843px;
+    top: 714px;
+    width: 40px;
+
+}
+
+#chipres-res-bg6{
+    height: 40px;
+    left: 543px;
+    top: 509px;
+    width: 40px;
+}
+
+#chipres-res-bg8{
+    height: 40px;
+    left: 653px;
+    top: 607px;
+    width: 40px;
+}
+
+#chipres-res-dp{
+    height: 40px;
+    left: 886px;
+    top: 612px;
+    width: 40px;
+}
+
+#chipres-res-odp{
+    height: 40px;
+    left: 1056px;
+    top: 612px;
+    width: 40px;
+}
+
+#chipres-res-fd{
+    height: 40px;
+    left: 865px;
+    top: 504px;
+    width: 40px;
+}
+
+#chipres-res-cm{
+    height: 40px;
+    left: 887px;
+    top: 381px;
+    width: 40px;
+}
+
+#chipres-res-dc{
+    height: 40px;
+    left: 630px;
+    top: 222px;
+    width: 40px;
+}
+
+#chipres-res-sv{
+    height: 40px;
+    left: 1512px;
+    top: 281px;
+    width: 40px;
+}
+
+#chipres-res-hd6{
+    height: 40px;
+    left: 1429px;
+    top: 367px;
+    width: 40px;
+}
+
+#chipres-res-hd10{
+    height: 40px;
+    left: 1598px;
+    top: 367px;
+    width: 40px;
+}
+
+#chipres-res-hd8{
+    height: 40px;
+    left: 1428px;
+    top: 456px;
+    width: 40px;
+}
+
+#chipres-res-hd4{
+    height: 40px;
+    left: 1598px;
+    top: 456px;
+    width: 40px;
+}
+
+#chipres-res-hn3{
+    height: 40px;
+    left: 1428px;
+    top: 548px;
+    width: 40px;
+}
+
+#chipres-res-hn2{
+    height: 40px;
+    left: 1598px;
+    top: 548px;
+    width: 40px;
+}
+
+#chipres-res-hn12{
+    height: 40px;
+    left: 1428px;
+    top: 643px;
+    width: 40px;
+}
+
+#chipres-res-hn11{
+    height: 40px;
+    left: 1598px;
+    top: 643px;
+    width: 40px;
+}
+
+#chipres-res-ac{
+    height: 40px;
+    left: 1513px;
+    top: 732px;
+    width: 40px;
+}
+
+/*chipres PW*/
+#chipres-res-pw4{
+    height: 29px;
+    left: 743px;
+    top: 305px;
+    width: 29px;
+}
+
+#chipres-res-pw5{
+    height: 29px;
+    left: 836px;
+    top: 305px;
+    width: 29px;
+}
+
+#chipres-res-pw6{
+    height: 29px;
+    left: 929px;
+    top: 305px;
+    width: 29px;
+    z-index: 20;
+}
+
+#chipres-res-pw8{
+    height: 29px;
+    left: 1021px;
+    top: 305px;
+    width: 29px;
+}
+
+#chipres-res-pw9{
+    height: 29px;
+    left: 1113px;
+    top: 305px;
+    width: 29px;
+}
+
+#chipres-res-pw10{
+    height: 29px;
+    left: 1201px;
+    top: 305px;
+    width: 29px;
+}
+
+/*chipres BY*/
+#chipres-res-by4{
+    height: 29px;
+    left: 748px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipres-res-by5{
+    height: 29px;
+    left: 841px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipres-res-by6{
+    height: 29px;
+    left: 933px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipres-res-by8{
+    height: 29px;
+    left: 1026px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipres-res-by9{
+    height: 29px;
+    left: 1118px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipres-res-by10{
+    height: 29px;
+    left: 1205px;
+    top: 258px;
+    width: 29px;
+}
+
+/*chipres OCO*/
+
+#chipres-res-oco4{
+    height: 29px;
+    left: 701px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipres-res-oco5{
+    height: 29px;
+    left: 788px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipres-res-oco6{
+    height: 29px;
+    left: 880px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipres-res-oco8{
+    height: 29px;
+    left: 972px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipres-res-oco9{
+    height: 29px;
+    left: 1065px;
+    top: 258px;
+    width: 29px;
+}
+
+#chipres-res-oco10{
+    height: 29px;
+    left: 1158px;
+    top: 258px;
+    width: 29px;
+}
+
+
+
+/*chipres CO*/
+
+#chipres-res-co4{
+    height: 29px;
+    left: 701px;
+    top: 186px;
+    width: 29px;
+
+}
+
+#chipres-res-co5{
+    height: 29px;
+    left: 788px;
+    top: 186px;
+    width: 29px;
+}
+
+#chipres-res-co6{
+    height: 29px;
+    left: 880px;
+    top: 186px;
+    width: 29px;
+}
+
+#chipres-res-co8{
+    height: 29px;
+    left: 972px;
+    top: 186px;
+    width: 29px;
+}
+
+#chipres-res-co9{
+    height: 29px;
+    left: 1065px;
+    top: 186px;
+    width: 29px;
+}
+
+#chipres-res-co10{
+    height: 29px;
+    left: 1158px;
+    top: 186px;
+    width: 29px;
+}
+
+/*chipres ODO*/
+
+#chipres-res-odo4{
+    height: 29px;
+    left: 701px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipres-res-odo5{
+    height: 29px;
+    left: 788px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipres-res-odo6{
+    height: 29px;
+    left: 880px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipres-res-odo8{
+    height: 29px;
+    left: 972px;
+    top: 140px;
+    width: 29px;
+
+}
+
+#chipres-res-odo9{
+    height: 29px;
+    left: 1065px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipres-res-odo10{
+    height: 29px;
+    left: 1158px;
+    top: 140px;
+    width: 29px;
+}
+
+/*chipres PL*/
+#chipres-res-pl4{
+    height: 29px;
+    left: 748px;
+    top: 140px;
+    width: 29px;
+
+}
+
+#chipres-res-pl5{
+    height: 29px;
+    left: 841px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipres-res-pl6{
+    height: 29px;
+    left: 933px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipres-res-pl8{
+    height: 29px;
+    left: 1026px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipres-res-pl9{
+    height: 29px;
+    left: 1118px;
+    top: 140px;
+    width: 29px;
+}
+
+#chipres-res-pl10{
+    height: 29px;
+    left: 1205px;
+    top: 140px;
+    width: 29px;
+}
+
+/*chipres DO*/
+
+#chipres-res-do4{
+    height: 29px;
+    left: 701px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipres-res-do5{
+    height: 29px;
+    left: 788px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipres-res-do6{
+    height: 29px;
+    left: 880px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipres-res-do8{
+    height: 29px;
+    left: 972px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipres-res-do9{
+    height: 29px;
+    left: 1065px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipres-res-do10{
+    height: 29px;
+    left: 1158px;
+    top: 101px;
+    width: 29px;
+}
+
+/*chipres LY*/
+#chipres-res-ly4{
+    height: 29px;
+    left: 748px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipres-res-ly5{
+    height: 29px;
+    left: 841px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipres-res-ly6{
+    height: 29px;
+    left: 933px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipres-res-ly8{
+    height: 29px;
+    left: 1026px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipres-res-ly9{
+    height: 29px;
+    left: 1118px;
+    top: 101px;
+    width: 29px;
+}
+
+#chipres-res-ly10{
+    height: 29px;
+    left: 1205px;
+    top: 101px;
+    width: 29px;
+}
+
+/*anim*/
+#chipres-come-anim{
+    float: left;
+    position: absolute;
+    z-index: 21;
+    height: 40px;
+    left: 887px;
+    top: 381px;
+    width: 40px;
+    display: none;
+}
+
+
+#chipres-dontcome-anim{
+    float: left;
+    position: absolute;
+    z-index: 21;
+    height: 40px;
+    left: 630px;
+    top: 222px;
+    width: 40px;
+    display: none;
+}
+
+.chips-number-res{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    font-size: 45px;
+    text-align: center;
+    height: 50px;
+}
+
+.chips-number-lose{
+
+    color: #f97070;
+}
+
+.chips-number-win{
+
+    color: #7aff00;
+}
