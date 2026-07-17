@@ -9,6 +9,7 @@ import { isOutrightLeg, outrightLegText } from '../utils/outrightLabel';
 import '../mybets.css';
 import { consumeMyBetsInitialFilter } from './myBetsState';
 import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
+import { splitPeriodMarketKey } from '../utils/periods';
 
 const money = (value) => `$${Math.round(Number(value || 0))}`;
 const moneySigned = (value) => {
@@ -82,7 +83,12 @@ const normalizeStatus = (value) => String(value || 'pending').trim().toLowerCase
 // explicit `buyPoints` flag adds a trailing "(BP)" so buy-points / teaser
 // shifts are visually distinct from the base line.
 const legPickLabel = (leg) => {
-    const market = String(leg?.marketType || '').toLowerCase();
+    // Period-suffixed core keys ('totals_1st_5_innings', 'h2h_q1', …) render
+    // on their BASE market with the period chip label ('F5', '1Q') prefixed,
+    // so a period leg never reads like a full-game leg. Non-period keys pass
+    // through splitPeriodMarketKey unchanged.
+    const { base: market, periodLabel } = splitPeriodMarketKey(leg?.marketType);
+    const periodPrefix = periodLabel ? `${periodLabel} ` : '';
     const selection = String(leg?.selection || '').trim();
     const pointRaw = leg?.point;
     const point = Number.isFinite(Number(pointRaw)) ? Number(pointRaw) : null;
@@ -92,13 +98,13 @@ const legPickLabel = (leg) => {
 
     if (market === 'spreads') {
         const line = point === null ? '' : formatSpreadValue(point);
-        return { label: 'Spread', pick: selection, line: line ? `${line}${bpSuffix}` : bpSuffix.trim() };
+        return { label: `${periodPrefix}Spread`, pick: selection, line: line ? `${line}${bpSuffix}` : bpSuffix.trim() };
     }
     if (market === 'totals') {
         const isUnder = selection.toLowerCase().startsWith('u');
         const line = point === null ? '' : formatLineValue(Math.abs(point));
         return {
-            label: isUnder ? 'Under' : 'Over',
+            label: `${periodPrefix}${isUnder ? 'Under' : 'Over'}`,
             pick: '',
             line: line ? `${line}${bpSuffix}` : bpSuffix.trim(),
         };
@@ -130,7 +136,8 @@ const legPickLabel = (leg) => {
     }
     // h2h / moneyline / anything else: never show a line, never the
     // stored point=0 sentinel that older rows leak into selection text.
-    return { label: 'ML', pick: selection, line: '' };
+    // Period moneylines get the period prefix ("F5 ML").
+    return { label: `${periodPrefix}ML`, pick: selection, line: '' };
 };
 
 const formatStatus = (value) => {
@@ -227,7 +234,10 @@ const ticketSummary = (bet) => {
         return `${selections.length || 1}-leg ${label}`;
     }
     const leg = selections[0] || {};
-    const market = String(leg?.marketType || '').toLowerCase();
+    // Period-suffixed core keys summarize on their BASE market with the
+    // period chip label appended ("Over 3.5 F5") — never as a bare
+    // full-game line.
+    const { base: market, periodLabel: legPeriod } = splitPeriodMarketKey(leg?.marketType);
     const point = Number.isFinite(Number(leg?.point)) ? Number(leg.point) : null;
     const selection = String(leg?.selection || '').trim();
     // Admin write-in: the description IS the summary — no team/line grammar,
@@ -238,12 +248,14 @@ const ticketSummary = (bet) => {
     if (market === 'spreads') {
         const line = point === null ? '' : formatSpreadValue(point);
         const team = String(leg?.selectionFull || '').trim() || selection;
-        return line ? `${team} ${line}` : team || 'Spread';
+        const text = line ? `${team} ${line}` : team || 'Spread';
+        return legPeriod ? `${text} ${legPeriod}` : text;
     }
     if (market === 'totals') {
         const isUnder = selection.toLowerCase().startsWith('u');
         const line = point === null ? '' : formatLineValue(Math.abs(point));
-        return line ? `${isUnder ? 'Under' : 'Over'} ${line}` : (isUnder ? 'Under' : 'Over');
+        const text = line ? `${isUnder ? 'Under' : 'Over'} ${line}` : (isUnder ? 'Under' : 'Over');
+        return legPeriod ? `${text} ${legPeriod}` : text;
     }
     // Outright/futures: "Vikings to win Super Bowl" — the "ML" fallback
     // below would mislabel a futures pick as a moneyline.
@@ -251,9 +263,9 @@ const ticketSummary = (bet) => {
         return outrightLegText(leg)
             || String(leg?.selectionFull || '').trim() || selection || 'Pick';
     }
-    // h2h / moneyline / fallback
+    // h2h / moneyline / fallback (period moneylines read "Rays F5 ML")
     const team = String(leg?.selectionFull || '').trim() || selection || 'Pick';
-    return `${team} ML`;
+    return legPeriod ? `${team} ${legPeriod} ML` : `${team} ML`;
 };
 
 // "Line moved" detail for a repriced leg, or null when the leg booked at
@@ -288,7 +300,9 @@ const legDescription = (leg, oddsFormat) => {
 };
 
 const legDescriptionBase = (leg, oddsFormat) => {
-    const market = String(leg?.marketType || '').toLowerCase();
+    // Period-suffixed core keys describe on their BASE market with the
+    // period chip label inline ("Over 3.5 F5 (Rays @ Red Sox) -180").
+    const { base: market, periodLabel: legPeriod } = splitPeriodMarketKey(leg?.marketType);
     const point = Number.isFinite(Number(leg?.point)) ? Number(leg.point) : null;
     const selection = String(leg?.selection || '').trim();
     const odds = formatOdds(leg?.odds, oddsFormat);
@@ -297,7 +311,7 @@ const legDescriptionBase = (leg, oddsFormat) => {
         // truncate ("New York Yankees -1.5 +1…" → "Yankees -1.5 +133").
         const team = mascotName(leg?.selectionFull, selection) || 'Pick';
         const line = point === null ? '' : formatSpreadValue(point);
-        return [team, line, odds].filter(Boolean).join(' ');
+        return [team, line, legPeriod, odds].filter(Boolean).join(' ');
     }
     if (market === 'totals') {
         // Game total (not a team total — that market type is `team_totals` and
@@ -312,7 +326,7 @@ const legDescriptionBase = (leg, oddsFormat) => {
         const home = mascotName(snap.homeTeamFull, snap.homeTeam);
         const game = away && home ? `(${away} @ ${home})` : '';
         const ou = isUnder ? 'Under' : 'Over';
-        return [ou, line, game, odds].filter(Boolean).join(' ');
+        return [ou, line, legPeriod, game, odds].filter(Boolean).join(' ');
     }
     // Admin write-in: render the FULL free-text description + odds. The
     // moneyline fallback below would mascot-shorten it to its last word
@@ -339,9 +353,10 @@ const legDescriptionBase = (leg, oddsFormat) => {
             || String(leg?.selectionFull || '').trim() || selection || 'Pick';
         return [text, odds].filter(Boolean).join(' ');
     }
-    // Moneyline / fallback → mascot-only team + odds ("Tigers +105").
+    // Moneyline / fallback → mascot-only team + odds ("Tigers +105");
+    // period moneylines carry the chip label ("Rays F5 -140").
     const team = mascotName(leg?.selectionFull, selection) || 'Pick';
-    return [team, odds].filter(Boolean).join(' ');
+    return [team, legPeriod, odds].filter(Boolean).join(' ');
 };
 
 // Parent-row label for multi-leg tickets, e.g. "Parlay - 3 Teams".
@@ -637,7 +652,9 @@ const legLogoTeams = (leg) => {
         // guessing the home team, which would render a confidently-wrong crest.
         return [{ name: '', abbr: '', neutral: true }];
     }
-    const market = String(leg?.marketType || '').toLowerCase();
+    // Base market drives crest routing — a period total ('totals_1st_5_innings')
+    // is still a game total and shows both matchup crests.
+    const market = splitPeriodMarketKey(leg?.marketType).base;
     const snap = leg?.matchSnapshot || {};
     // A GAME total is the combined score of BOTH teams — show the two matchup
     // crests, never a single team's (which mis-reads as a team total). Mirrors
@@ -935,12 +952,12 @@ const ticketTypeLabel = (bet) => {
 // ("Bobby Witt Jr. Under 0.5 Home Runs", the full write-in text, etc.).
 // No odds here — the panel prints those on their own row.
 const legSelectionFullText = (leg) => {
-    const market = String(leg?.marketType || '').toLowerCase();
+    const { base: market, periodLabel: legPeriod } = splitPeriodMarketKey(leg?.marketType);
     const point = Number.isFinite(Number(leg?.point)) ? Number(leg.point) : null;
     const full = String(leg?.selectionFull || '').trim() || String(leg?.selection || '').trim() || 'Pick';
     if (market === 'spreads') {
         const line = point === null ? '' : formatSpreadValue(point);
-        return [full, line].filter(Boolean).join(' ');
+        return [full, line, legPeriod].filter(Boolean).join(' ');
     }
     if (market === 'totals') {
         const isUnder = String(leg?.selection || '').trim().toLowerCase().startsWith('u');
@@ -949,7 +966,7 @@ const legSelectionFullText = (leg) => {
         const away = String(snap.awayTeamFull || snap.awayTeam || '').trim();
         const home = String(snap.homeTeamFull || snap.homeTeam || '').trim();
         const game = away && home ? `(${away} @ ${home})` : '';
-        return [isUnder ? 'Under' : 'Over', line, game].filter(Boolean).join(' ');
+        return [isUnder ? 'Under' : 'Over', line, legPeriod, game].filter(Boolean).join(' ');
     }
     if (isPlayerPropMarket(leg?.marketType)) {
         return [full, prettyPlayerMarketLabel(leg?.marketType)].filter(Boolean).join(' ');
@@ -962,10 +979,11 @@ const legSelectionFullText = (leg) => {
 // settled tickets (Game Spread / Total / Moneyline) so the player
 // sees the same wording across the platform.
 const legMarketLabel = (leg) => {
-    const market = String(leg?.marketType || '').toLowerCase();
-    if (market === 'spreads') return 'Game Spread';
-    if (market === 'totals') return 'Total';
-    if (market === 'h2h' || market === 'moneyline' || market === 'ml') return 'Moneyline';
+    const { base: market, periodLabel } = splitPeriodMarketKey(leg?.marketType);
+    const prefix = periodLabel ? `${periodLabel} ` : '';
+    if (market === 'spreads') return `${prefix}Game Spread`;
+    if (market === 'totals') return `${prefix}Total`;
+    if (market === 'h2h' || market === 'moneyline' || market === 'ml') return `${prefix}Moneyline`;
     return market ? market.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Pick';
 };
 

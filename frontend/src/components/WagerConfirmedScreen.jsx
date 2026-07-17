@@ -4,6 +4,7 @@ import { formatOdds, formatLineValue, formatSpreadValue, americanToDecimal } fro
 import { isOutrightLeg, outrightLegText } from '../utils/outrightLabel';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
+import { splitPeriodMarketKey } from '../utils/periods';
 import { formatMoneyWholeFloored } from '../utils/money';
 
 // 2dp w/ thousands separator. Mirrors the bet-review modal's formatAmount
@@ -45,11 +46,20 @@ const fmtTimestamp = (value) => {
 };
 
 const lineSuffix = (leg) => {
-    const market = String(leg?.marketType || '').toLowerCase();
+    // Base market drives signed-vs-unsigned formatting; period-suffixed
+    // keys ('spreads_1st_5_innings') format like their base market.
+    const market = splitPeriodMarketKey(leg?.marketType).base;
     const label = market === 'spreads'
         ? formatSpreadValue(leg?.point ?? leg?.line, { fallback: '' })
         : formatLineValue(leg?.point ?? leg?.line, { fallback: '' });
     return label ? ` (${label})` : '';
+};
+
+// Period tag for period-market legs (DISPLAY only): "Over (3.5) · F5".
+// Empty for full-game legs, so existing receipts are untouched.
+const periodMarketTag = (leg) => {
+    const { periodLabel } = splitPeriodMarketKey(leg?.marketType);
+    return periodLabel ? ` · ${periodLabel}` : '';
 };
 
 // Friendly stat label appended inline for player-prop legs (DISPLAY only):
@@ -296,7 +306,7 @@ const WagerConfirmedScreen = ({
                                             <i className="fa-solid fa-circle-check" style={{ color: '#16a34a', marginTop: 3, fontSize: 11 }} />
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ fontWeight: 700, color: '#0f172a', wordBreak: 'break-word' }}>
-                                                    {legSelectionText(leg) || '-'}{propMarketSuffix(leg)}{lineSuffix(leg)}
+                                                    {legSelectionText(leg) || '-'}{propMarketSuffix(leg)}{lineSuffix(leg)}{periodMarketTag(leg)}
                                                 </div>
                                                 <div style={{ fontSize: 11, color: '#64748b' }}>
                                                     {matchTitle(leg) || (leg.matchId || '')}

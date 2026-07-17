@@ -158,7 +158,7 @@ export const scanMarketsForSuffixes = (markets, out) => {
     }
 };
 
-const periodFromSuffix = (suffix) => {
+export const periodFromSuffix = (suffix) => {
     const raw = String(suffix || '').toLowerCase();
     if (!raw || raw === '') return null;
 
@@ -197,6 +197,24 @@ const periodFromSuffix = (suffix) => {
         label: raw.replace(/^_+/, '').replace(/_/g, ' ').toUpperCase(),
         suffix: raw,
     };
+};
+
+// Split a core game-market key into base + period: 'totals_1st_5_innings'
+// → { base:'totals', suffix:'_1st_5_innings', periodLabel:'F5' }. Only the
+// recognized period families (qN/hN/pN/1st_N_innings/set_N) split; anything
+// else — including h2h_3_way* and prop/alt keys — returns the whole key as
+// `base` with an empty label, so exact-match display logic is unaffected.
+// This is the single decoder for period-suffixed slip legs (the fix for the
+// F5-books-as-full-game bug: legs now CARRY the suffixed key end-to-end).
+const PERIOD_SUFFIX_RE = /^(_q\d+|_h\d+|_p\d+|_1st_\d+_innings|_set_\d+)$/;
+export const splitPeriodMarketKey = (marketType) => {
+    const key = String(marketType || '').toLowerCase();
+    const m = key.match(/^(h2h|spreads|totals)(_[a-z0-9_]+)$/);
+    if (!m || !PERIOD_SUFFIX_RE.test(m[2])) {
+        return { base: key, suffix: '', periodLabel: '' };
+    }
+    const p = periodFromSuffix(m[2]);
+    return { base: m[1], suffix: m[2], periodLabel: p ? p.label : '' };
 };
 
 export const buildVisiblePeriods = (preset, availableSuffixes) => {

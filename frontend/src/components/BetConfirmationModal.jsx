@@ -4,6 +4,7 @@ import { formatOdds, formatSpreadValue, formatLineValue } from '../utils/odds';
 import { formatSiteDateTime } from '../utils/timezone';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
 import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
+import { splitPeriodMarketKey } from '../utils/periods';
 import { mascotName } from '../utils/teamLogos';
 
 // Confirmation-modal money formatter — always 2dp with thousands
@@ -29,7 +30,10 @@ const prettyMode = (mode) => String(mode || 'straight').replace('_', ' ').toUppe
 // market). The leg's line value lives on `line` (set at add-to-slip) with
 // `point` as a fallback for legs that carry only the placement field.
 const legHeadline = (selection = {}, oddsFormat) => {
-  const market = String(selection?.marketType || selection?.type || '').toLowerCase();
+  // Period-suffixed core keys render on the BASE market with the period
+  // chip label appended ("Over 3.5 F5 -180") so the review modal can never
+  // present a period leg as a full-game leg.
+  const { base: market, periodLabel } = splitPeriodMarketKey(selection?.marketType || selection?.type);
   const odds = formatOdds(selection.odds, oddsFormat);
   const point = Number.isFinite(Number(selection?.line))
     ? Number(selection.line)
@@ -38,13 +42,13 @@ const legHeadline = (selection = {}, oddsFormat) => {
     // <Mascot> <signed line> <odds> → "Yankees -1.5 +133".
     const team = mascotName(selection.selectionFull, selection.selection);
     const line = point === null ? '' : formatSpreadValue(point);
-    return [team, line, odds].filter(Boolean).join(' ');
+    return [team, line, periodLabel, odds].filter(Boolean).join(' ');
   }
   if (market === 'totals') {
     // Over/Under <line> <odds> → "Over 8.5 -115" (no literal "TOTAL").
     const isUnder = String(selection.selection || '').trim().toLowerCase().startsWith('u');
     const line = point === null ? '' : formatLineValue(Math.abs(point));
-    return [isUnder ? 'Under' : 'Over', line, odds].filter(Boolean).join(' ');
+    return [isUnder ? 'Under' : 'Over', line, periodLabel, odds].filter(Boolean).join(' ');
   }
   // Player props: keep the full selection (player + side + line) + stat label.
   if (isPlayerPropMarket(selection?.marketType || selection?.type)) {
@@ -52,9 +56,9 @@ const legHeadline = (selection = {}, oddsFormat) => {
     const label = prettyPlayerMarketLabel(selection?.marketType || selection?.type);
     return [pick, label, odds].filter(Boolean).join(' ');
   }
-  // moneyline / h2h / fallback → mascot + ML.
+  // moneyline / h2h / fallback → mascot + ML (+ period label when suffixed).
   const team = mascotName(selection.selectionFull, selection.selection);
-  return [team, 'ML', odds].filter(Boolean).join(' ');
+  return [team, periodLabel ? `${periodLabel} ML` : 'ML', odds].filter(Boolean).join(' ');
 };
 
 const formatGameTime = (selection = {}) => {

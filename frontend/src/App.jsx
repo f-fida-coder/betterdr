@@ -27,6 +27,7 @@ import LoadingSpinner from './components/LoadingSpinner';
 import { useToast } from './contexts/ToastContext';
 import { OddsFormatProvider } from './contexts/OddsFormatContext';
 import { formatLineValue, formatOdds, formatSpreadValue, normalizeOddsFormat, readStoredOddsFormat, writeStoredOddsFormat } from './utils/odds';
+import { splitPeriodMarketKey } from './utils/periods';
 import useWebSocket from './hooks/useWebSocket';
 import useLiveSyncPoll from './hooks/useLiveSyncPoll';
 import useNetworkStatus from './hooks/useNetworkStatus';
@@ -694,19 +695,22 @@ function AppInner() {
     }
   }, [resumeConfirmLeg, resumeOpenParlay, token, showToast]);
 
-  // Human label for the confirm dialog, e.g. "Ghana +2 -104".
+  // Human label for the confirm dialog, e.g. "Ghana +2 -104". Period-
+  // suffixed core keys resolve on their base market and append the period
+  // chip label ("Over 3.5 F5 -180").
   const resumeLegLabel = useCallback((item) => {
     if (!item) return '';
     const name = String(item.selectionFull || item.selection || '').trim();
-    const mt = String(item.marketType || '').toLowerCase();
+    const { base: mt, periodLabel } = splitPeriodMarketKey(item.marketType);
     let line = '';
     if (mt === 'spreads' && Number.isFinite(Number(item.line))) {
       line = ` ${formatSpreadValue(Number(item.line))}`;
     } else if (mt === 'totals' && Number.isFinite(Number(item.line))) {
       line = ` ${formatLineValue(Math.abs(Number(item.line)))}`;
     }
+    const period = periodLabel ? ` ${periodLabel}` : '';
     const price = formatOdds(item.odds, oddsFormat);
-    return `${name}${line} ${price}`.trim();
+    return `${name}${line}${period} ${price}`.trim();
   }, [oddsFormat]);
 
   // Bridge for components that aren't passed `onViewChange` directly

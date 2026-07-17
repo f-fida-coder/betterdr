@@ -3822,6 +3822,36 @@ final class BetsController
             ]);
         }
 
+        // ── Core-line point integrity ──────────────────────────────────────
+        // If the client submitted an explicit point but rung-authentication
+        // above could NOT pin it (the core main-line fall-through added in
+        // 4850d994 for the open-parlay resume flow), the lenient name/side
+        // match may have resolved an outcome at a DIFFERENT line — e.g. an
+        // F5 "Over 3.5" leg landing on the full-game "Over 8.5" main line,
+        // which then booked silently because the price check only compares
+        // odds and -110 beats -180 (ticket 2104a022bc8b1393c7d8bfec).
+        // Booking any line other than the one the user clicked is never
+        // acceptable: reject loudly with both points so the client can
+        // re-sync and the player can re-confirm. Rung-pinned outcomes match
+        // by construction; h2h outcomes carry no point and are unaffected.
+        if ($submittedPoint !== null && !$isPropMarket
+            && isset($outcome['point']) && is_numeric($outcome['point'])
+            && abs((float) $outcome['point'] - $submittedPoint) > 1e-6) {
+            $fmtPoint = static function (float $p): string {
+                return rtrim(rtrim(number_format($p, 2, '.', ''), '0'), '.');
+            };
+            throw new ApiException(
+                'The line for ' . $selection . ' has changed from ' . $fmtPoint($submittedPoint)
+                . ' to ' . $fmtPoint((float) $outcome['point']) . '. Please refresh your bet slip and try again.',
+                409,
+                [
+                    'code' => 'LINE_CHANGED',
+                    'submittedPoint' => $submittedPoint,
+                    'officialPoint' => (float) $outcome['point'],
+                ]
+            );
+        }
+
         // Convert the upstream decimal price to a rounded American integer —
         // this is the canonical source of truth. Re-derive the exact decimal
         // from the integer so Risk/Win arithmetic is always clean (no upstream

@@ -25,6 +25,7 @@ import { resolveDepositFreeplayBonusPreview } from '../../utils/freeplayBonus';
 import { formatUsPhone, generateIdentityPassword, normalizeIdentityName } from '../../utils/identityPassword';
 import { getMoneyToneClass, toMoneyNumber, formatMoneyWholeFloored } from '../../utils/money';
 import { isOutrightLeg, outrightLegText } from '../../utils/outrightLabel';
+import { splitPeriodMarketKey } from '../../utils/periods';
 
 const DEFAULT_FORM = {
   password: '',
@@ -2922,17 +2923,20 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
               return american > 0 ? `+${american}` : `${american}`;
             };
             const legLine = (leg) => {
-              const market = String(leg?.marketType || '').toLowerCase();
+              // Period-suffixed core keys render on their base market with
+              // the period chip label ("Over 3.5 F5 -180").
+              const { base: market, periodLabel } = splitPeriodMarketKey(leg?.marketType);
+              const period = periodLabel ? ` ${periodLabel}` : '';
               const selection = String(leg?.selection || '').trim();
               const point = Number(leg?.point);
               const american = americanFromDecimal(leg?.odds);
               if (market === 'spreads' && Number.isFinite(point)) {
                 const signed = point > 0 ? `+${point}` : `${point}`;
-                return `${selection} ${signed}${american ? ` ${american}` : ''}`.trim();
+                return `${selection} ${signed}${period}${american ? ` ${american}` : ''}`.trim();
               }
               if (market === 'totals' && Number.isFinite(point)) {
                 const isUnder = selection.toLowerCase().startsWith('u');
-                return `${isUnder ? 'Under' : 'Over'} ${Math.abs(point)}${american ? ` ${american}` : ''}`.trim();
+                return `${isUnder ? 'Under' : 'Over'} ${Math.abs(point)}${period}${american ? ` ${american}` : ''}`.trim();
               }
               // Outright/futures: say WHICH future — "Vikings to win Super
               // Bowl +5000" (PO 2026-07-08). Falls back to plain name + odds

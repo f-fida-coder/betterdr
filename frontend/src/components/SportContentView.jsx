@@ -869,6 +869,15 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 } : null);
 
                 return {
+                    // Active period context, carried on the extracted odds so
+                    // the add-to-slip callsites can tag legs with the SUFFIXED
+                    // market key ('totals_1st_5_innings') instead of the bare
+                    // full-game key. Without this the payload said "full-game
+                    // totals" while the board showed F5 numbers, and the
+                    // backend booked the full-game main line (silent market
+                    // substitution — ticket 2104a022bc8b1393c7d8bfec).
+                    periodSuffix: suffix || '',
+                    periodLabel: suffix ? (activePeriod.label || '') : '',
                     spread: {
                         homePoint: spreadHome?.point ?? null,
                         homeOdds: parseOddsNumber(spreadHome?.price),
@@ -1123,6 +1132,15 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             }
         }));
     };
+
+    // Period-aware market key/label for core board adds. When a period tab
+    // (F5 / 1Q / 1H …) is active, the slip leg must carry the suffixed
+    // market key so placement resolves the PERIOD market, and the label
+    // must say so ("Spread (F5)") so the slip reads unambiguously.
+    const periodMarketKey = (base, odds) => `${base}${odds?.periodSuffix || ''}`;
+    const periodMarketLabel = (label, odds) => (
+        odds?.periodSuffix ? `${label} (${odds.periodLabel || 'Period'})` : label
+    );
 
     // Add an alternate-spread rung to the slip. Dispatches the SAME
     // betslip:add contract the "+" sheet (MatchDetailView.addSelection) uses
@@ -1577,7 +1595,11 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 // Read the raw match: the mapped `match.odds` is the flat
                                                 // extractOdds shape (no markets list); extendedMarkets only
                                                 // lives on rawMatch (top-level or under rawMatch.odds).
-                                                const altMarket = normalizedMode !== 'teaser' ? getMatchMarket(match.rawMatch, 'alternate_spreads') : null;
+                                                // Full-game only: the alt ladder is the FULL-GAME
+                                                // alternate_spreads market, so offering it while a
+                                                // period tab (F5/1Q/…) is active would sell full-game
+                                                // rungs under a period heading. Fail closed.
+                                                const altMarket = (normalizedMode !== 'teaser' && !match.odds?.periodSuffix) ? getMatchMarket(match.rawMatch, 'alternate_spreads') : null;
                                                 const norm = (s) => String(s || '').trim().toLowerCase();
                                                 const awayName = norm(match.team1.name);
                                                 const homeName = norm(match.team2.name);
@@ -1662,7 +1684,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: formatSpreadDisplay(match.odds.spread.awayPoint, match.odds.spread.awayOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'spreads', match.odds.spread.awayOdds, matchName, 'Spread', match.odds.spread.awayPoint, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.spread.awayAlternateLines }),
+                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, periodMarketKey('spreads', match.odds), match.odds.spread.awayOdds, matchName, periodMarketLabel('Spread', match.odds), match.odds.spread.awayPoint, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.spread.awayAlternateLines }),
                                                             available: awayAvail,
                                                             peerAvailable: homeAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1670,7 +1692,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         })}
                                                         {renderOddsButton({
                                                             label: formatSpreadDisplay(match.odds.spread.homePoint, match.odds.spread.homeOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'spreads', match.odds.spread.homeOdds, matchName, 'Spread', match.odds.spread.homePoint, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.spread.homeAlternateLines }),
+                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, periodMarketKey('spreads', match.odds), match.odds.spread.homeOdds, matchName, periodMarketLabel('Spread', match.odds), match.odds.spread.homePoint, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.spread.homeAlternateLines }),
                                                             available: homeAvail,
                                                             peerAvailable: awayAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1689,7 +1711,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: formatOdds(match.odds.moneyline.awayOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'h2h', match.odds.moneyline.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline', null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
+                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, periodMarketKey('h2h', match.odds), match.odds.moneyline.awayOdds, `${match.team1.name} vs ${match.team2.name}`, periodMarketLabel('Moneyline', match.odds), null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
                                                             available: awayAvail,
                                                             peerAvailable: homeAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1697,7 +1719,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         })}
                                                         {renderOddsButton({
                                                             label: formatOdds(match.odds.moneyline.homeOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'h2h', match.odds.moneyline.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline', null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
+                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, periodMarketKey('h2h', match.odds), match.odds.moneyline.homeOdds, `${match.team1.name} vs ${match.team2.name}`, periodMarketLabel('Moneyline', match.odds), null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
                                                             available: homeAvail,
                                                             peerAvailable: awayAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1709,7 +1731,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                             so settlement grades it draw-aware. */}
                                                         {hasValidOdds(match.odds.moneyline.drawOdds) && renderOddsButton({
                                                             label: `Draw ${formatOdds(match.odds.moneyline.drawOdds, oddsFormat)}`,
-                                                            onClick: () => handleAddToSlip(match.id, 'Draw', 'h2h', match.odds.moneyline.drawOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline', null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
+                                                            onClick: () => handleAddToSlip(match.id, 'Draw', periodMarketKey('h2h', match.odds), match.odds.moneyline.drawOdds, `${match.team1.name} vs ${match.team2.name}`, periodMarketLabel('Moneyline', match.odds), null, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey }),
                                                             available: hasValidOdds(match.odds.moneyline.drawOdds),
                                                             peerAvailable: awayAvail || homeAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1755,7 +1777,11 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 // event without priced team totals still yields false →
                                                 // static Total label, no toggle. (Was a hardcoded MLB/soccer
                                                 // allow-list, which hid WNBA's priced team totals.)
-                                                const hasTeamTotals = teamHasTT('away') || teamHasTT('home');
+                                                // Team totals are FULL-GAME markets — suppress the
+                                                // toggle on period tabs (same reason as the alt
+                                                // ladder gate above: never sell a full-game line
+                                                // under a period heading).
+                                                const hasTeamTotals = !match.odds?.periodSuffix && (teamHasTT('away') || teamHasTT('home'));
 
                                                 // Alternate-total ladder. Suppressed in teaser mode (teaser
                                                 // legs price off the main total) — matching the alt-spread gate.
@@ -1888,7 +1914,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: overLabel,
-                                                            onClick: () => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, matchName, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.total.overAlternateLines, buyPointsAvailable: match.odds.total.overBuyPointsAvailable }),
+                                                            onClick: () => handleAddToSlip(match.id, 'Over', periodMarketKey('totals', match.odds), match.odds.total.overOdds, matchName, periodMarketLabel(totalLabel, match.odds), match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.total.overAlternateLines, buyPointsAvailable: match.odds.total.overBuyPointsAvailable }),
                                                             available: overAvail,
                                                             peerAvailable: underAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1896,7 +1922,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         })}
                                                         {renderOddsButton({
                                                             label: underLabel,
-                                                            onClick: () => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, matchName, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.total.underAlternateLines, buyPointsAvailable: match.odds.total.underBuyPointsAvailable }),
+                                                            onClick: () => handleAddToSlip(match.id, 'Under', periodMarketKey('totals', match.odds), match.odds.total.underOdds, matchName, periodMarketLabel(totalLabel, match.odds), match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.total.underAlternateLines, buyPointsAvailable: match.odds.total.underBuyPointsAvailable }),
                                                             available: underAvail,
                                                             peerAvailable: overAvail,
                                                             disabled: match.rawMatch?.isBettable === false,

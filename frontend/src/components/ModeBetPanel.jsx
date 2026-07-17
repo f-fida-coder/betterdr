@@ -13,6 +13,7 @@ import WagerConfirmedScreen from './WagerConfirmedScreen';
 import TeaserTypePicker from './TeaserTypePicker';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
 import { prettyPlayerMarketLabel, isPlayerPropMarket, formatPropSelectionTitle } from '../utils/propBuilderMarkets';
+import { splitPeriodMarketKey } from '../utils/periods';
 
 // Minimal structural fallbacks — NO hardcoded multipliers.
 // Real values always come from rulesByMode (loaded from DB via /api/betting/rules).
@@ -270,14 +271,18 @@ const trimNumber = (n) => {
     return Number(n.toFixed(2)).toString();
 };
 
-// Bet-type base label: 'Spread', 'Moneyline', 'Total'.
+// Bet-type base label: 'Spread', 'Moneyline', 'Total'. Period-suffixed core
+// keys ('totals_1st_5_innings', 'h2h_q1', …) resolve on their BASE market
+// and carry the period chip label as a prefix — "F5 Total", "1Q Moneyline" —
+// so a period leg can never read like a full-game leg on the slip.
 const betTypeBaseLabel = (marketType) => {
-    const k = String(marketType || '').toLowerCase();
-    if (k === 'h2h') return 'Moneyline';
-    if (k === 'spreads') return 'Spread';
-    if (k === 'totals') return 'Total';
-    if (k === 'alternate_totals_cards') return 'Total Cards';
-    if (k === 'alternate_spreads_cards') return 'Card Handicap';
+    const { base, periodLabel } = splitPeriodMarketKey(marketType);
+    const prefix = periodLabel ? `${periodLabel} ` : '';
+    if (base === 'h2h') return `${prefix}Moneyline`;
+    if (base === 'spreads') return `${prefix}Spread`;
+    if (base === 'totals') return `${prefix}Total`;
+    if (base === 'alternate_totals_cards') return 'Total Cards';
+    if (base === 'alternate_spreads_cards') return 'Card Handicap';
     // Player props (and any non-core market) get the friendly stat label —
     // never the raw uppercase wire key (e.g. BATTER_RUNS_SCORED).
     return prettyPlayerMarketLabel(marketType) || 'Bet';
@@ -288,7 +293,7 @@ const betTypeBaseLabel = (marketType) => {
 // 'Total Under 47.5' depending on market type and selection name.
 const betTypeLineLabel = (sel) => {
     const base = betTypeBaseLabel(sel?.marketType);
-    const market = String(sel?.marketType || '').toLowerCase();
+    const market = splitPeriodMarketKey(sel?.marketType).base;
     const line = Number(sel?.line);
     if ((market === 'spreads' || market === 'alternate_spreads_cards') && Number.isFinite(line)) {
         const signed = line > 0 ? `+${trimNumber(line)}` : trimNumber(line);
@@ -1456,7 +1461,11 @@ const ModeBetPanel = ({
             selection: String(sel?.selection || ''),
             marketType: String(sel?.marketType || ''),
             odds: Number.isFinite(Number(sel?.odds)) ? Number(Number(sel.odds).toFixed(4)) : null,
-            ...(Number.isFinite(Number(sel?.point)) ? { point: Number(sel.point) } : {}),
+            // Line identity mirrors the placement payload (point, falling
+            // back to the board `line`) so a moved line = a new requestId.
+            ...(Number.isFinite(Number(sel?.point))
+                ? { point: Number(sel.point) }
+                : (Number.isFinite(Number(sel?.line)) ? { point: Number(sel.line) } : {})),
             // STRAIGHT-mode stakes live PER LEG (effectiveCombinedRisk is 0
             // for straight, so the ticket-level `amount` above never sees
             // them) and MUST be in the signature: the requestId reuses while
@@ -2038,7 +2047,16 @@ const ModeBetPanel = ({
                 selection: sel.selection,
                 odds: Number(sel.odds),
                 type: sel.marketType || 'straight',
-                ...(Number.isFinite(Number(sel.point)) ? { point: Number(sel.point) } : {}),
+                // Exact clicked line: alt rungs carry it as `point`; core board
+                // legs carry it as `line`. Send it (except Buy Points, which
+                // keeps its no-point contract) so the server pins/validates the
+                // rung the user actually clicked and can never book a moved or
+                // substituted line silently.
+                ...(Number.isFinite(Number(sel.point))
+                    ? { point: Number(sel.point) }
+                    : (Math.abs(Number(sel.boughtPoints) || 0) <= 1e-9 && Number.isFinite(Number(sel.line))
+                        ? { point: Number(sel.line) }
+                        : {})),
                 ...(Math.abs(Number(sel.boughtPoints)) > 1e-9 ? { boughtPoints: Number(sel.boughtPoints) } : {}),
             })),
         };
@@ -2490,9 +2508,16 @@ const ModeBetPanel = ({
                     selection: sel.selection,
                     odds: Number(sel.odds),
                     type: sel.marketType || 'straight',
-                    // Exact alt rung point (signed) so the server pins the rung
-                    // by (name + point), not name alone.
-                    ...(Number.isFinite(Number(sel.point)) ? { point: Number(sel.point) } : {}),
+                    // Exact clicked line: alt rungs carry it as `point`; core
+                    // board legs carry it as `line`. Send it (except Buy
+                    // Points, which keeps its no-point contract) so the server
+                    // pins/validates the rung the user actually clicked and can
+                    // never book a moved or substituted line silently.
+                    ...(Number.isFinite(Number(sel.point))
+                        ? { point: Number(sel.point) }
+                        : (Math.abs(Number(sel.boughtPoints) || 0) <= 1e-9 && Number.isFinite(Number(sel.line))
+                            ? { point: Number(sel.line) }
+                            : {})),
                     ...(Math.abs(Number(sel.boughtPoints)) > 1e-9 ? { boughtPoints: Number(sel.boughtPoints) } : {}),
                     // MLB listed-pitcher Action waiver, per side.
                     ...(isMlbSportKey(sel.sportKey) ? { pitcherAction: { home: !!sel.pitcherAction?.home, away: !!sel.pitcherAction?.away } } : {}),

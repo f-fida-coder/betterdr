@@ -26,6 +26,7 @@ import {
     getPeriodsForSports,
     scanMarketsForSuffixes,
     buildVisiblePeriods,
+    periodFromSuffix,
 } from '../utils/periods';
 import TeaserTypePicker from './TeaserTypePicker';
 import PropBuilderModal from './PropBuilderModal';
@@ -843,6 +844,15 @@ const MobileContentView = ({
         const altTotalOutcomes = Array.isArray(altTotalMarket?.outcomes) ? altTotalMarket.outcomes : [];
         const totalRefPoint = totalOverOutcome?.point ?? totalUnderOutcome?.point ?? null;
         return {
+            // Active period context, carried on the extracted odds so
+            // addIfAllowed callsites tag legs with the SUFFIXED market key
+            // ('totals_1st_5_innings'), never the bare full-game key. The
+            // bare key made placement book the full-game main line while
+            // the board showed F5 numbers (silent market substitution —
+            // ticket 2104a022bc8b1393c7d8bfec). Per-match suffix matters:
+            // multi-sport view resolves a different period per league.
+            periodSuffix: suffix || '',
+            periodLabel: suffix ? (periodFromSuffix(suffix)?.label || '') : '',
             altSpreads: {
                 away: buildAltSpreadLadder(altSpreadOutcomes, awayName),
                 home: buildAltSpreadLadder(altSpreadOutcomes, homeName),
@@ -2327,6 +2337,10 @@ const matchCardSignature = (match) => {
 const matchCardSelectionSnapshot = (match, selectedKeys) => {
     if (!match?.id || !selectedKeys) return '';
     const key = (marketType, selection) => `${match.id}|${marketType}|${selection}`;
+    // Slip legs added from a period view carry the SUFFIXED market key
+    // (e.g. 'totals_1st_5_innings'), so the snapshot must probe the same
+    // key or highlight toggles never re-render the memoized card.
+    const sfx = match.odds?.periodSuffix || '';
     const tt = match.odds?.teamTotals || {};
     const ttKeys = ['away', 'home'].flatMap((teamSide) =>
         ['over', 'under']
@@ -2335,12 +2349,12 @@ const matchCardSelectionSnapshot = (match, selectedKeys) => {
             .map((name) => selectedKeys.has(key('team_totals', name)))
     );
     return [
-        selectedKeys.has(key('spreads', match.team1)),
-        selectedKeys.has(key('spreads', match.team2)),
-        selectedKeys.has(key('h2h', match.team1)),
-        selectedKeys.has(key('h2h', match.team2)),
-        selectedKeys.has(key('totals', 'Over')),
-        selectedKeys.has(key('totals', 'Under')),
+        selectedKeys.has(key(`spreads${sfx}`, match.team1)),
+        selectedKeys.has(key(`spreads${sfx}`, match.team2)),
+        selectedKeys.has(key(`h2h${sfx}`, match.team1)),
+        selectedKeys.has(key(`h2h${sfx}`, match.team2)),
+        selectedKeys.has(key(`totals${sfx}`, 'Over')),
+        selectedKeys.has(key(`totals${sfx}`, 'Under')),
         ...ttKeys,
     ].join('|');
 };
@@ -2405,6 +2419,12 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
         ? (match.bettingBlockedReason || 'Betting is temporarily unavailable for this event.')
         : null;
     const isSelected = (marketType, selection) => selectedKeys.has(`${match.id}|${marketType}|${selection}`);
+    // Period-aware market key/label for core cell adds: on a period view
+    // (F5/1Q/…) the slip leg carries the SUFFIXED market key so placement
+    // resolves the period market, and the label says so ("Spread (F5)").
+    // isSelected callers use the same key so highlights track the period leg.
+    const pmk = (base) => `${base}${match.odds?.periodSuffix || ''}`;
+    const pml = (label) => (match.odds?.periodSuffix ? `${label} (${match.odds.periodLabel || 'Period'})` : label);
     // MLB listed-pitcher Action toggles. Default {false,false} = listed pitcher
     // (the protected default — the bet voids if a listed starter is scratched).
     // Checking a side takes Action: the bet stands regardless of that pitcher.
@@ -2900,13 +2920,13 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <OddsCell
                         empty={match.odds.spreadAwayPrice === null || isQuarterLine(match.odds.spreadAwayPoint)}
                         disabled={blocked || match.odds.spreadAwayPrice === null || isQuarterLine(match.odds.spreadAwayPoint)}
-                        selected={isSelected('spreads', match.team1) && !blocked}
+                        selected={isSelected(pmk('spreads'), match.team1) && !blocked}
                         main={formatSpreadValue(teaserPreview.spread(match.odds.spreadAwayPoint))}
                         juice={formatOdds(match.odds.spreadAwayPrice, oddsFormat)}
                         title={teaserPoints > 0 && Number.isFinite(Number(match.odds.spreadAwayPoint))
                             ? `Was ${formatSpreadValue(match.odds.spreadAwayPoint)} (teaser +${teaserPoints})`
                             : undefined}
-                        onClick={() => addIfAllowed(match.id, match.team1, 'spreads', match.odds.spreadAwayPrice, matchName, 'Spread', match.odds.spreadAwayPoint, match.odds.spreadAwayAlternateLines)}
+                        onClick={() => addIfAllowed(match.id, match.team1, pmk('spreads'), match.odds.spreadAwayPrice, matchName, pml('Spread'), match.odds.spreadAwayPoint, match.odds.spreadAwayAlternateLines)}
                     />
                     )
                 )}
@@ -2914,10 +2934,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <OddsCell
                         empty={match.odds.moneylineAway === null}
                         disabled={blocked || match.odds.moneylineAway === null}
-                        selected={isSelected('h2h', match.team1) && !blocked}
+                        selected={isSelected(pmk('h2h'), match.team1) && !blocked}
                         main={formatOdds(match.odds.moneylineAway, oddsFormat)}
                         juice=""
-                        onClick={() => addIfAllowed(match.id, match.team1, 'h2h', match.odds.moneylineAway, matchName, 'Moneyline', null)}
+                        onClick={() => addIfAllowed(match.id, match.team1, pmk('h2h'), match.odds.moneylineAway, matchName, pml('Moneyline'), null)}
                     />
                 )}
                 {visibleMarkets.showTotals && (
@@ -2927,13 +2947,13 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <OddsCell
                         empty={match.odds.totalOverPrice === null || isQuarterLine(match.odds.totalPoint)}
                         disabled={blocked || match.odds.totalOverPrice === null || isQuarterLine(match.odds.totalPoint)}
-                        selected={isSelected('totals', 'Over') && !blocked}
+                        selected={isSelected(pmk('totals'), 'Over') && !blocked}
                         main={totalsOverDisplay}
                         juice={formatOdds(match.odds.totalOverPrice, oddsFormat)}
                         title={teaserPoints > 0 && match.odds.totalPoint !== null
                             ? `Was O ${formatLineValue(match.odds.totalPoint)} (teaser −${teaserPoints})`
                             : undefined}
-                        onClick={() => addIfAllowed(match.id, 'Over', 'totals', match.odds.totalOverPrice, matchName, totalsMarketLabel, match.odds.totalPoint, match.odds.totalOverAlternateLines, match.odds.totalOverBuyPointsAvailable)}
+                        onClick={() => addIfAllowed(match.id, 'Over', pmk('totals'), match.odds.totalOverPrice, matchName, pml(totalsMarketLabel), match.odds.totalPoint, match.odds.totalOverAlternateLines, match.odds.totalOverBuyPointsAvailable)}
                     />
                     )
                 )}
@@ -3032,13 +3052,13 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <OddsCell
                         empty={match.odds.spreadHomePrice === null || isQuarterLine(match.odds.spreadHomePoint)}
                         disabled={blocked || match.odds.spreadHomePrice === null || isQuarterLine(match.odds.spreadHomePoint)}
-                        selected={isSelected('spreads', match.team2) && !blocked}
+                        selected={isSelected(pmk('spreads'), match.team2) && !blocked}
                         main={formatSpreadValue(teaserPreview.spread(match.odds.spreadHomePoint))}
                         juice={formatOdds(match.odds.spreadHomePrice, oddsFormat)}
                         title={teaserPoints > 0 && Number.isFinite(Number(match.odds.spreadHomePoint))
                             ? `Was ${formatSpreadValue(match.odds.spreadHomePoint)} (teaser +${teaserPoints})`
                             : undefined}
-                        onClick={() => addIfAllowed(match.id, match.team2, 'spreads', match.odds.spreadHomePrice, matchName, 'Spread', match.odds.spreadHomePoint, match.odds.spreadHomeAlternateLines)}
+                        onClick={() => addIfAllowed(match.id, match.team2, pmk('spreads'), match.odds.spreadHomePrice, matchName, pml('Spread'), match.odds.spreadHomePoint, match.odds.spreadHomeAlternateLines)}
                     />
                     )
                 )}
@@ -3046,10 +3066,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <OddsCell
                         empty={match.odds.moneylineHome === null}
                         disabled={blocked || match.odds.moneylineHome === null}
-                        selected={isSelected('h2h', match.team2) && !blocked}
+                        selected={isSelected(pmk('h2h'), match.team2) && !blocked}
                         main={formatOdds(match.odds.moneylineHome, oddsFormat)}
                         juice=""
-                        onClick={() => addIfAllowed(match.id, match.team2, 'h2h', match.odds.moneylineHome, matchName, 'Moneyline', null)}
+                        onClick={() => addIfAllowed(match.id, match.team2, pmk('h2h'), match.odds.moneylineHome, matchName, pml('Moneyline'), null)}
                     />
                 )}
                 {visibleMarkets.showTotals && (
@@ -3059,13 +3079,13 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <OddsCell
                         empty={match.odds.totalUnderPrice === null || isQuarterLine(match.odds.totalPoint)}
                         disabled={blocked || match.odds.totalUnderPrice === null || isQuarterLine(match.odds.totalPoint)}
-                        selected={isSelected('totals', 'Under') && !blocked}
+                        selected={isSelected(pmk('totals'), 'Under') && !blocked}
                         main={totalsUnderDisplay}
                         juice={formatOdds(match.odds.totalUnderPrice, oddsFormat)}
                         title={teaserPoints > 0 && match.odds.totalPoint !== null
                             ? `Was U ${formatLineValue(match.odds.totalPoint)} (teaser +${teaserPoints})`
                             : undefined}
-                        onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, totalsMarketLabel, match.odds.totalPoint, match.odds.totalUnderAlternateLines, match.odds.totalUnderBuyPointsAvailable)}
+                        onClick={() => addIfAllowed(match.id, 'Under', pmk('totals'), match.odds.totalUnderPrice, matchName, pml(totalsMarketLabel), match.odds.totalPoint, match.odds.totalUnderAlternateLines, match.odds.totalUnderBuyPointsAvailable)}
                     />
                     )
                 )}
@@ -3097,10 +3117,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     {visibleMarkets.showSpread && <span />}
                     <OddsCell
                         disabled={blocked || match.odds.moneylineDraw === null}
-                        selected={isSelected('h2h', 'Draw') && !blocked}
+                        selected={isSelected(pmk('h2h'), 'Draw') && !blocked}
                         main={formatOdds(match.odds.moneylineDraw, oddsFormat)}
                         juice=""
-                        onClick={() => addIfAllowed(match.id, 'Draw', 'h2h', match.odds.moneylineDraw, matchName, 'Moneyline', null)}
+                        onClick={() => addIfAllowed(match.id, 'Draw', pmk('h2h'), match.odds.moneylineDraw, matchName, pml('Moneyline'), null)}
                     />
                     {visibleMarkets.showTotals && <span />}
                     {showTtColumn && <span />}
