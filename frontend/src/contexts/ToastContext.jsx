@@ -10,9 +10,10 @@ export const ToastProvider = ({ children }) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
   }, []);
 
-  const showToast = useCallback((message, type = 'info') => {
+  const showToast = useCallback((message, type = 'info', options = {}) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setToasts((prev) => [...prev, { id, message, type }]);
+    const position = options.position === 'bottom' ? 'bottom' : 'top';
+    setToasts((prev) => [...prev, { id, message, type, position }]);
     window.setTimeout(() => {
       removeToast(id);
     }, 4000);
@@ -43,7 +44,23 @@ export const ToastProvider = ({ children }) => {
         flexDirection: 'column',
         alignItems: 'flex-end',
       }}>
-        {toasts.map((toast) => (
+        {toasts.filter((toast) => toast.position !== 'bottom').map((toast) => (
+          <ToastNotification key={toast.id} toast={toast} onClose={removeToast} />
+        ))}
+      </div>
+      <div style={{
+        position: 'fixed',
+        bottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 'max-content',
+        maxWidth: 'calc(100vw - 32px)',
+        zIndex: 2000,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+      }}>
+        {toasts.filter((toast) => toast.position === 'bottom').map((toast) => (
           <ToastNotification key={toast.id} toast={toast} onClose={removeToast} />
         ))}
       </div>

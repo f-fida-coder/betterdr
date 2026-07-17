@@ -14,6 +14,7 @@ import {
 } from '../../api';
 import { formatUsPhone, generateIdentityPassword, normalizeIdentityName } from '../../utils/identityPassword';
 import { annotateDuplicatePlayers } from '../../utils/duplicatePlayers';
+import { useToast } from '../../contexts/ToastContext';
 
 const derivePlayerPrefix = (value) => {
   const normalized = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -429,6 +430,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
 };
 
 function CustomerCreationWorkspace({ initialType = 'player' }) {
+  const { showToast } = useToast();
   const withTimeout = (promise, timeoutMs, message) => {
     let timeoutId;
     const timeoutPromise = new Promise((_, reject) => {
@@ -604,6 +606,10 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   }, [initialType]);
 
   const handleCreateCustomer = async ({ overrideDuplicate = false } = {}) => {
+    const rejectCreate = (message) => {
+      setError(message);
+      showToast(message, 'error', { position: 'bottom' });
+    };
     try {
       setCreateLoading(true);
       if (!overrideDuplicate) {
@@ -612,7 +618,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       setError('');
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       if (!token) {
-        setError('Please login to create users.');
+        rejectCreate('Please login to create users.');
         return;
       }
       const requiredIdentityMissing =
@@ -623,7 +629,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
         !String(newCustomer.password || '').trim();
 
       if (requiredIdentityMissing) {
-        setError('Username, first name, last name, phone number, and password are required.');
+        rejectCreate('Username, first name, last name, phone number, and password are required.');
         return;
       }
 
@@ -634,11 +640,11 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
           String(newCustomer.creditLimit ?? '').trim() === '' ||
           String(newCustomer.balanceOwed ?? '').trim() === '';
         if (requiredLimitsMissing) {
-          setError('Min bet, max bet, credit limit, and settle limit are required for players.');
+          rejectCreate('Min bet, max bet, credit limit, and settle limit are required for players.');
           return;
         }
         if (currentRole !== 'agent' && !String(newCustomer.agentId || '').trim()) {
-          setError('Please assign this player to a regular Agent.');
+          rejectCreate('Please assign this player to a regular Agent.');
           return;
         }
       }
@@ -752,7 +758,9 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       setImportErrors([]);
       setImportForceAgentAssignment(true);
       const createdLabel = createdType === 'player' ? 'Player' : createdType === 'agent' ? 'Agent' : 'Master Agent';
-      setImportSummary(result?.assigned ? `${createdLabel} assigned successfully.` : `${createdLabel} created successfully.`);
+      const successMessage = result?.assigned ? `${createdLabel} assigned successfully.` : `${createdLabel} created successfully.`;
+      setImportSummary(successMessage);
+      showToast(successMessage, 'success', { position: 'bottom' });
 
       if (currentRole === 'agent') {
         const data = await getMyPlayers(token);
@@ -783,7 +791,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       } else {
         setDuplicateWarning(null);
       }
-      setError(err.message || 'Failed to create user');
+      rejectCreate(err.message || 'Failed to create user');
     } finally {
       setCreateLoading(false);
     }
@@ -1324,7 +1332,12 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       )}
       {!loadingContext && (
         <>
-          {error && <div className="error-state">{error}</div>}
+          {error && (
+            <div className="error-state" role="alert">
+              <i className="fa-solid fa-circle-exclamation"></i>
+              <span>{error}</span>
+            </div>
+          )}
           {duplicateWarning && (
             <div className="duplicate-warning-state">
               <div className="duplicate-warning-title">Duplicate Player</div>
@@ -1363,7 +1376,12 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
               </div>
             </div>
           )}
-          {importSummary && <div className="success-state">{importSummary}</div>}
+          {importSummary && (
+            <div className="success-state">
+              <i className="fa-solid fa-circle-check"></i>
+              <span>{importSummary}</span>
+            </div>
+          )}
           {importedUsernames.length > 0 && (
             <div className="success-state" style={{ marginTop: '8px' }}>
               Imported usernames: {importedUsernames.slice(0, 20).join(', ')}{importedUsernames.length > 20 ? ` (+${importedUsernames.length - 20} more)` : ''}
@@ -2235,6 +2253,42 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
               font-weight: 700;
               letter-spacing: 0.02em;
               text-transform: uppercase;
+            }
+            .error-state,
+            .success-state {
+              display: flex;
+              align-items: flex-start;
+              gap: 10px;
+              border-radius: 10px;
+              padding: 12px 14px;
+              margin-bottom: 10px;
+              font-size: 13px;
+              font-weight: 600;
+              line-height: 1.45;
+            }
+            .error-state {
+              border: 1px solid #fca5a5;
+              border-left: 4px solid #dc2626;
+              background: #fef2f2;
+              color: #991b1b;
+            }
+            .error-state i {
+              color: #dc2626;
+              font-size: 15px;
+              line-height: 1.3;
+              flex-shrink: 0;
+            }
+            .success-state {
+              border: 1px solid #86efac;
+              border-left: 4px solid #16a34a;
+              background: #f0fdf4;
+              color: #166534;
+            }
+            .success-state i {
+              color: #16a34a;
+              font-size: 15px;
+              line-height: 1.3;
+              flex-shrink: 0;
             }
             .duplicate-warning-state {
               border: 1px solid #f1d178;

@@ -1186,14 +1186,18 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
         setExpandedLegKey((cur) => (cur === key ? null : key));
     };
 
-    // Kicked off when a Round Robin row gets expanded for the first
-    // time. No-op when the cache already has the group (or a fetch is
-    // in flight for it). Errors are surfaced inline under the row so
-    // the user can retry by collapsing/re-expanding.
-    const ensureRoundRobinChildren = React.useCallback((groupId) => {
+    // Round Robin children load eagerly for every group in the list —
+    // child parlays render expanded by default (each one wins/loses
+    // independently, so hiding them behind a tap made mixed outcomes
+    // easy to miss). No-op when the cache already has the group (or a
+    // fetch is in flight). A failed fetch stays failed until the user
+    // taps the inline retry row — without the force flag, the eager
+    // effect below would hammer a failing endpoint on every render.
+    const ensureRoundRobinChildren = React.useCallback((groupId, { force = false } = {}) => {
         if (!groupId) return;
         const entry = roundRobinChildren[groupId];
         if (entry && (entry.state === 'loading' || entry.state === 'ready')) return;
+        if (entry && entry.state === 'error' && !force) return;
         setRoundRobinChildren(prev => ({ ...prev, [groupId]: { state: 'loading', children: [] } }));
         const token = localStorage.getItem('token');
         getRoundRobinChildren(groupId, token)
@@ -1208,6 +1212,17 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                 }));
             });
     }, [roundRobinChildren]);
+
+    // Eager-load children for every Round Robin group in the list so
+    // the child parlays are visible without any tap. Re-runs when the
+    // cache updates are no-ops (loading/ready/error all skip).
+    React.useEffect(() => {
+        if (!Array.isArray(bets)) return;
+        bets.forEach((bet) => {
+            if (!isRoundRobinGroup(bet)) return;
+            ensureRoundRobinChildren(String(bet?.groupId || bet?.id || ''));
+        });
+    }, [bets, ensureRoundRobinChildren]);
 
     const isGraded = mode === 'graded';
 
@@ -1241,34 +1256,29 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                 const winTheme = (status === 'pending' || status === 'pending_approval') ? 'pending' : amount.theme;
 
                 if (isRoundRobinGroup(bet)) {
-                    // Round Robin parent row. Children are lazy-loaded
-                    // from /api/bets/group/:id/children on the first
-                    // expand and cached in `roundRobinChildren` so the
-                    // initial My Bets payload stays bounded regardless
-                    // of parlay count. The expanded view reuses the
-                    // standard parlay-leg rendering for each child.
+                    // Round Robin parent row. Children are fetched
+                    // eagerly (effect above) from
+                    // /api/bets/group/:id/children and cached in
+                    // `roundRobinChildren`, then rendered expanded by
+                    // default — same treatment as a normal parlay's leg
+                    // rows, since each child parlay wins or loses on
+                    // its own. Tapping the parent toggles the standard
+                    // ticket details panel, matching other multi-leg
+                    // rows. The My Bets payload itself still ships
+                    // without children, so it stays bounded regardless
+                    // of parlay count.
                     const groupId = String(bet?.groupId || bet?.id || '');
                     const cacheEntry = roundRobinChildren[groupId];
                     const childrenState = cacheEntry?.state || 'idle';
                     const children = cacheEntry?.children || [];
-                    const handleToggle = () => {
-                        toggleExpanded(betId);
-                        // Fire fetch on the open transition. (We can't
-                        // read the post-update expandedBetId here, so
-                        // gate on the *current* state — if we're about
-                        // to open, ensure the cache.)
-                        if (expandedBetId !== betId) {
-                            ensureRoundRobinChildren(groupId);
-                        }
-                    };
                     return (
                         <React.Fragment key={betId}>
                             <div
                                 className={`my-bets-table-row parent expandable${isExpanded ? ' expanded' : ''}`}
                                 role="button"
                                 tabIndex={0}
-                                onClick={handleToggle}
-                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleToggle(); } }}
+                                onClick={() => toggleExpanded(betId)}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(betId); } }}
                             >
                                 <span className="my-bets-table-col-desc">
                                     {multiLegLabel(bet)}
@@ -1276,7 +1286,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                 {!isGraded && <span className="my-bets-table-col-risk"><RiskAmount bet={bet} /></span>}
                                 <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
                             </div>
-                            {isExpanded && childrenState === 'loading' && (
+                            {(childrenState === 'loading' || childrenState === 'idle') && (
                                 <div className="my-bets-table-row leg" style={{ justifyContent: 'center', padding: '14px 16px' }}>
                                     <span className="my-bets-table-col-desc" style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#6b7280' }}>
                                         <i className="fa-solid fa-spinner fa-spin" />
@@ -1286,17 +1296,24 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                     <span className="my-bets-table-col-win" />
                                 </div>
                             )}
-                            {isExpanded && childrenState === 'error' && (
-                                <div className="my-bets-table-row leg" style={{ padding: '14px 16px' }}>
+                            {childrenState === 'error' && (
+                                <div
+                                    className="my-bets-table-row leg expandable"
+                                    role="button"
+                                    tabIndex={0}
+                                    style={{ padding: '14px 16px' }}
+                                    onClick={() => ensureRoundRobinChildren(groupId, { force: true })}
+                                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ensureRoundRobinChildren(groupId, { force: true }); } }}
+                                >
                                     <span className="my-bets-table-col-desc" style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#dc2626' }}>
                                         <i className="fa-solid fa-circle-exclamation" />
-                                        {cacheEntry?.error || 'Failed to load parlays'} — collapse and re-expand to retry.
+                                        {cacheEntry?.error || 'Failed to load parlays'} — tap to retry.
                                     </span>
                                     {!isGraded && <span className="my-bets-table-col-risk" />}
                                     <span className="my-bets-table-col-win" />
                                 </div>
                             )}
-                            {isExpanded && childrenState === 'ready' && children.map((child, ci) => {
+                            {childrenState === 'ready' && children.map((child, ci) => {
                                 const childRisk = Number(child?.riskAmount || child?.amount || 0);
                                 const childStatus = normalizeStatus(child?.status);
                                 const childPayout = payoutValue(child, maxBet);
@@ -1351,6 +1368,9 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                     </React.Fragment>
                                 );
                             })}
+                            {isExpanded && (
+                                <BetDetailsPanel bet={bet} oddsFormat={oddsFormat} />
+                            )}
                         </React.Fragment>
                     );
                 }
