@@ -27,11 +27,17 @@
 -- --------------------------------------------------------
 -- 1) round_robin_groups
 -- --------------------------------------------------------
+-- NOTE (2026-07-17): `migrated_at` added — SqlRepository::insertOne writes it
+-- on every doc table (the generic ensureTable DDL has always included it);
+-- this file predated that and its absence broke the first prod RR placement
+-- with "Unknown column 'migrated_at'". Kept in the CREATE for fresh installs
+-- and added via a guarded ALTER below for tables created from the old file.
 CREATE TABLE IF NOT EXISTS `round_robin_groups` (
   `id`           VARCHAR(24) NOT NULL,
   `doc`          JSON NOT NULL,
   `created_at`   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `migrated_at`  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   -- Generated columns mirror the doc shape:
   --   { id, userId, ticketId, sizes:[...], selectionCount, parlayCount,
@@ -78,12 +84,37 @@ CREATE TABLE IF NOT EXISTS `round_robin_groups` (
 -- A single-column index on parent_group_id alone wouldn't help the
 -- predominant top-level filter; composite is strictly better here.
 -- --------------------------------------------------------
-ALTER TABLE `bets`
-  ADD COLUMN `j_parent_group_id` VARCHAR(24)
-    GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, '$.parentGroupId'))) STORED;
+-- Guarded (idempotent, 2026-07-17): MySQL 8 has no IF NOT EXISTS for ADD
+-- COLUMN/KEY, and this file must be safely RE-RUNNABLE — the prod install ran
+-- the pre-`migrated_at` version of this file, so the fixed file gets executed
+-- again on the same database. Each ALTER is applied only when its target is
+-- absent (INFORMATION_SCHEMA check + prepared statement).
+SET @has_col := (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bets' AND COLUMN_NAME = 'j_parent_group_id');
+SET @ddl := IF(@has_col = 0,
+  'ALTER TABLE `bets` ADD COLUMN `j_parent_group_id` VARCHAR(24) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, ''$.parentGroupId''))) STORED',
+  'SELECT ''bets.j_parent_group_id already present'' AS skipped');
+PREPARE mig_stmt FROM @ddl; EXECUTE mig_stmt; DEALLOCATE PREPARE mig_stmt;
 
-ALTER TABLE `bets`
-  ADD KEY `idx_bets_user_parent_group` (`j_user_id`, `j_parent_group_id`);
+SET @has_idx := (SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bets' AND INDEX_NAME = 'idx_bets_user_parent_group');
+SET @ddl := IF(@has_idx = 0,
+  'ALTER TABLE `bets` ADD KEY `idx_bets_user_parent_group` (`j_user_id`, `j_parent_group_id`)',
+  'SELECT ''idx_bets_user_parent_group already present'' AS skipped');
+PREPARE mig_stmt FROM @ddl; EXECUTE mig_stmt; DEALLOCATE PREPARE mig_stmt;
+
+-- --------------------------------------------------------
+-- 3) round_robin_groups.migrated_at — repair for tables created from the
+--    pre-2026-07-17 version of this file (SqlRepository::insertOne writes
+--    this column on every doc table; without it RR placement fails with
+--    "Unknown column 'migrated_at'").
+-- --------------------------------------------------------
+SET @has_mig := (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'round_robin_groups' AND COLUMN_NAME = 'migrated_at');
+SET @ddl := IF(@has_mig = 0,
+  'ALTER TABLE `round_robin_groups` ADD COLUMN `migrated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+  'SELECT ''round_robin_groups.migrated_at already present'' AS skipped');
+PREPARE mig_stmt FROM @ddl; EXECUTE mig_stmt; DEALLOCATE PREPARE mig_stmt;
 
 -- --------------------------------------------------------
 -- Verify
