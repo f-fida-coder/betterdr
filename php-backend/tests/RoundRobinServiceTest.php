@@ -45,8 +45,11 @@ TestRunner::run('combinationCount: By 2 + By 3 over 5 legs = 20', function (): v
 });
 
 TestRunner::run('combinationCount: invalid sizes are skipped', function (): void {
-    // size = 1 (below min) and size = 5 (== n, not allowed) are dropped.
-    TestRunner::assertEquals(10, RoundRobinService::combinationCount(5, [1, 3, 5]), 'only size 3 contributes');
+    // size = 1 (below min) and size = 6 (> n) are dropped. size == n is VALID
+    // since 2026-07-17 ("By N's" on N legs = the single full parlay) — the
+    // old `k >= n` drop was the deliberate bound this change removed.
+    TestRunner::assertEquals(10, RoundRobinService::combinationCount(5, [1, 3, 6]), 'only size 3 contributes');
+    TestRunner::assertEquals(11, RoundRobinService::combinationCount(5, [1, 3, 5]), 'size 5 (== n) now adds the full parlay: 10 + 1');
 });
 
 TestRunner::run('nCr: classic values', function (): void {

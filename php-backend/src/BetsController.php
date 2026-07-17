@@ -743,7 +743,13 @@ final class BetsController
             // Same-game ticket detection (≥2 legs share a matchId). Drives the
             // SGP leg cap, the haircut snapshot, and the tighter payout ceiling.
             // False for every cross-game parlay → those stay completely untouched.
-            $isSameGame = $type === 'parlay'
+            // round_robin added 2026-07-17: the GROUP-level leg cap below applies
+            // (every child has ≤ selectionCount legs, so capping the group covers
+            // all children); the parlay-only uses of $isSameGame further down
+            // (payout ceiling ~line 946, doc snapshot ~line 1173) are never
+            // reached by RR — it dispatches to placeRoundRobin and returns first,
+            // and the per-child equivalents live in priceRoundRobinChild.
+            $isSameGame = in_array($type, ['parlay', 'round_robin'], true)
                 && !empty($sgpCfg['enabled'])
                 && SportsbookBetSupport::isSameGameTicket($validatedSelections);
             if ($isSameGame && count($validatedSelections) > (int) $sgpCfg['maxLegs']) {
@@ -840,7 +846,8 @@ final class BetsController
                     $validatedSelections,
                     $modeRule,
                     $useFreeplay,
-                    $betAmount
+                    $betAmount,
+                    $sgpCfg
                 );
                 $requestDocOwned = false; // placeRoundRobin owns the doc closure now
                 return;
@@ -2053,6 +2060,9 @@ final class BetsController
      * @param array<string, mixed> $body
      * @param array<int, array<string, mixed>> $validatedSelections
      * @param array<string, mixed> $modeRule
+     * @param array<string, mixed> $sgpCfg live SGP config (sgpConfig()) — rates
+     *        snapshotted per same-game child; composition was already validated
+     *        upstream (validateTicketComposition, whole-group tier-1 rejection)
      */
     private function placeRoundRobin(
         array $user,
@@ -2063,7 +2073,8 @@ final class BetsController
         array $validatedSelections,
         array $modeRule,
         bool $useFreeplay,
-        float $stakePerParlay
+        float $stakePerParlay,
+        array $sgpCfg = []
     ): void {
         $selectionCount = count($validatedSelections);
 
@@ -2073,9 +2084,11 @@ final class BetsController
         foreach ($rawSizes as $s) {
             if (!is_numeric($s)) continue;
             $intSize = (int) $s;
-            if ($intSize < 2 || $intSize >= $selectionCount) {
+            // k = selectionCount allowed since 2026-07-17 ("By N's" on N legs =
+            // the single full parlay, matching competitor round robin pickers).
+            if ($intSize < 2 || $intSize > $selectionCount) {
                 throw new ApiException(
-                    'Round Robin sizes must be between 2 and ' . ($selectionCount - 1) . ' for ' . $selectionCount . ' selections',
+                    'Round Robin sizes must be between 2 and ' . $selectionCount . ' for ' . $selectionCount . ' selections',
                     400,
                     ['code' => 'INVALID_ROUND_ROBIN_SIZE']
                 );
@@ -2117,37 +2130,32 @@ final class BetsController
         foreach ($sizes as $size) {
             $combinations = RoundRobinService::generateCombinations($validatedSelections, $size);
             foreach ($combinations as $combo) {
-                $combinedDecimal = 1.0;
-                foreach ($combo as $sel) {
-                    $combinedDecimal *= (float) ($sel['odds'] ?? 0);
-                }
+                // Single pricing source (shared with the unit tests):
+                // cross-game children keep the historical 2dp-product math
+                // byte-identical; same-game children (2026-07-17) price via
+                // the SAME calculatePotentialPayout the standalone parlay
+                // uses — product → profit haircut → American lock → round —
+                // with the 3× ceiling tightened to sgpMaxPayoutMultiplier
+                // and the clamp snapshotted for settlement. See
+                // SportsbookBetSupport::priceRoundRobinChild.
+                $priced = SportsbookBetSupport::priceRoundRobinChild($combo, $stakePerParlay, $maxBetLimit, $sgpCfg);
+                $combinedDecimal = $priced['rawDecimal'];
                 if ($combinedDecimal <= 1.0) {
                     throw new ApiException('Round Robin child has non-positive odds', 400);
                 }
-                $childPayout = round($stakePerParlay * $combinedDecimal, 2);
+                $childPayout = $priced['potentialPayout'];
+                $childWin = $priced['winAmount'];
 
-                // Per-child win cap follows the parlay convention: the
-                // operator's exposure on each child is the win amount,
-                // not the stake. Mirrors the placeBet $isCombinedMode
-                // path so a Round Robin child can't sneak past the
-                // 3 × maxBet ceiling that a standalone parlay obeys.
-                $childWin = max(0.0, $childPayout - $stakePerParlay);
-                if ($maxBetLimit > 0) {
-                    $cap = $maxBetLimit * 3.0;
-                    if ($childWin > $cap) {
-                        $childPayout = $stakePerParlay + $cap;
-                        $childWin = $cap;
-                    }
-                }
                 // Track the worst child for the house absolute win ceiling —
                 // EACH child ticket must individually fit under
                 // MAX_PARLAY_PAYOUT (a Round Robin can't route large exposure
                 // through many small parlays). Checked once after the loop so
                 // the "reduce stake to $X" suggestion is computed from the
                 // BINDING (longest-odds) child and one resubmit satisfies
-                // every child. Post-3×-clamp win vs unclamped decimal: the
-                // clamp is monotone in the odds, so the max-win child is
-                // also the max-decimal child.
+                // every child. Post-clamp win vs unclamped decimal: the
+                // clamp and the haircut are monotone in the odds, so the
+                // max-win child is also the max-decimal child; a haircut
+                // child's suggestion is conservative (never over-allows).
                 if ($childWin > $rrWorstChildWin) {
                     $rrWorstChildWin = $childWin;
                     $rrWorstChildDecimal = $combinedDecimal;
@@ -2165,6 +2173,8 @@ final class BetsController
                     'selections' => $combo,
                     'combinedDecimal' => $combinedDecimal,
                     'potentialPayout' => $childPayout,
+                    'isSameGame' => $priced['isSameGame'],
+                    'payoutCapAmount' => $priced['payoutCapAmount'],
                 ];
             }
         }
@@ -2319,6 +2329,20 @@ final class BetsController
                     'type' => 'parlay',
                     'potentialPayout' => $plan['potentialPayout'],
                     'combinedOdds' => $childCombinedOdds,
+                    // SGP snapshots — same pattern as placeBet's parlay doc
+                    // (~line 1173): rates frozen at placement so a later
+                    // platformsettings edit never re-prices this child, and
+                    // evaluateTicket (type='parlay') re-runs the identical
+                    // haircut from them at settlement. Null on cross-game
+                    // children → settlement byte-identical to legacy rows.
+                    'sgpHaircutPct' => !empty($plan['isSameGame']) ? (float) ($sgpCfg['haircutPct'] ?? 0.0) : null,
+                    'sgpPropHaircutPct' => !empty($plan['isSameGame']) ? (float) ($sgpCfg['propHaircutPct'] ?? 0.0) : null,
+                    // Payout-cap snapshot (win dollars) — set whenever the
+                    // 3×/SGP-multiplier clamp actually reduced this child
+                    // (same-game AND cross-game since 2026-07-17); settlement
+                    // re-applies it as a ceiling (applyPayoutCapSnapshot).
+                    // Null on unclamped children.
+                    'payoutCapAmount' => $plan['payoutCapAmount'] ?? null,
                     'status' => 'pending',
                     'isFreeplay' => $useFreeplay,
                     'freeplayAmountUsed' => (float) min(

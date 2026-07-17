@@ -81,7 +81,10 @@ final class RoundRobinService
         $total = 0;
         foreach ($sizes as $size) {
             $size = (int) $size;
-            if ($size < 2 || $size >= $selectionCount) {
+            // k = selectionCount allowed since 2026-07-17: "By N's" on N legs
+            // is the single full parlay (nCr(N,N) = 1) — the same bound change
+            // as the placement validator and the FE size generator.
+            if ($size < 2 || $size > $selectionCount) {
                 continue;
             }
             $total += self::nCr($selectionCount, $size);

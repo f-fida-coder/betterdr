@@ -766,6 +766,112 @@ final class SportsbookBetSupport
     }
 
     /**
+     * Human label for a leg in the named-pair TIER-1 conflict error. The
+     * selection string usually already carries the line ("Over 9.5"); when it
+     * doesn't and the leg has a numeric point, append it so "Boston" -1.5 vs
+     * "Boston" -2.5 read as distinct picks.
+     *
+     * @param array<string,mixed> $leg
+     */
+    private static function sgpLegLabel(array $leg): string
+    {
+        $sel = trim((string) ($leg['selection'] ?? ''));
+        if ($sel === '') {
+            $sel = trim((string) ($leg['marketType'] ?? 'selection'));
+        }
+        $point = $leg['point'] ?? null;
+        if (is_numeric($point)) {
+            $pointText = rtrim(rtrim(number_format((float) $point, 2, '.', ''), '0'), '.');
+            if ($pointText !== '' && !str_contains($sel, $pointText)) {
+                $sel .= ' ' . $pointText; // signed already for negative spreads
+            }
+        }
+        return $sel;
+    }
+
+    /**
+     * Price ONE Round Robin child parlay — the single source for the RR
+     * child-pricing loop (BetsController::placeRoundRobin) and its unit tests.
+     *
+     * Cross-game children (no two legs share a matchId) keep the historical
+     * math BYTE-IDENTICAL: payout = round(stake × product(leg odds), 2), 3×maxBet
+     * win clamp, no snapshots — zero change to non-SGP round robin behavior.
+     *
+     * Same-game children (2026-07-17, PO-approved) price EXACTLY like the
+     * standalone same-game parlay of the same legs, via the SAME shared pricer
+     * placement/quote/settlement already agree on (calculatePotentialPayout:
+     * product → profit-only haircut → American-line lock → whole-dollar round).
+     * Settlement parity is automatic: the child row is type='parlay' carrying
+     * the sgpHaircutPct/sgpPropHaircutPct snapshot, and evaluateTicket re-runs
+     * the identical transform from those rates. The 3× ceiling tightens to
+     * sgpMaxPayoutMultiplier when stricter (mirrors placeBet), and EVERY
+     * clamped child — same-game or cross-game — snapshots the cap
+     * (payoutCapAmount) so applyPayoutCapSnapshot re-applies it at settlement
+     * (cross-game added 2026-07-17, closing the historical evaporating-clamp
+     * gap); both the multiplier clamp and the absolute MAX_PARLAY_PAYOUT cap
+     * (asserted by the caller off rawDecimal + winAmount) are enforced together.
+     *
+     * rawDecimal is the UNCLAMPED, un-haircut leg-odds product — required by
+     * assertWinWithinCap's stake-suggestion contract. For a same-game child the
+     * haircut makes the true win smaller than rawDecimal implies, so the
+     * suggestion is conservative (never overstates the allowed stake).
+     *
+     * @param array<int,array<string,mixed>> $combo validated selections of this child
+     * @param array{enabled?:bool,haircutPct?:float,propHaircutPct?:float,maxLegs?:int,maxPayoutMultiplier?:float} $sgpCfg
+     * @return array{potentialPayout: float, rawDecimal: float, isSameGame: bool, payoutCapAmount: float|null, winAmount: float}
+     */
+    public static function priceRoundRobinChild(array $combo, float $stakePerParlay, float $maxBetLimit, array $sgpCfg): array
+    {
+        $rawDecimal = 1.0;
+        foreach ($combo as $sel) {
+            $rawDecimal *= (float) ($sel['odds'] ?? 0);
+        }
+
+        $isSameGame = self::isSameGameTicket($combo);
+        if ($isSameGame) {
+            $childPayout = self::calculatePotentialPayout(
+                'parlay',
+                $stakePerParlay,
+                $combo,
+                [],
+                (float) ($sgpCfg['haircutPct'] ?? 0.0),
+                (float) ($sgpCfg['propHaircutPct'] ?? 0.0)
+            );
+        } else {
+            $childPayout = round($stakePerParlay * $rawDecimal, 2);
+        }
+
+        $childWin = max(0.0, $childPayout - $stakePerParlay);
+        $payoutCapAmount = null;
+        if ($maxBetLimit > 0) {
+            $payoutMultiplier = $isSameGame
+                ? min(3.0, (float) ($sgpCfg['maxPayoutMultiplier'] ?? 3.0))
+                : 3.0;
+            $cap = $maxBetLimit * $payoutMultiplier;
+            if ($childWin > $cap) {
+                $childPayout = $stakePerParlay + $cap;
+                $childWin = $cap;
+                // Settlement ceiling snapshot for EVERY clamped child —
+                // same-game and cross-game alike (PO 2026-07-17, closing the
+                // historical gap where a cross-game child's 3× clamp silently
+                // evaporated at settlement and the child settled at the
+                // UNCAPPED recompute). applyPayoutCapSnapshot re-applies it
+                // as a ceiling; unclamped children stay null → settlement
+                // byte-identical to legacy rows.
+                $payoutCapAmount = (float) $cap;
+            }
+        }
+
+        return [
+            'potentialPayout' => $childPayout,
+            'rawDecimal' => $rawDecimal,
+            'isSameGame' => $isSameGame,
+            'payoutCapAmount' => $payoutCapAmount,
+            'winAmount' => $childWin,
+        ];
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $validatedSelections
      * @param array{enabled?:bool}|array<string,mixed> $sgpConfig live SGP config; empty/disabled ⇒ full hard block
      */
@@ -810,11 +916,16 @@ final class SportsbookBetSupport
             }
         }
 
-        // SGP only relaxes pure PARLAY tickets and only when explicitly enabled.
-        // Every other combined type (teaser/if_bet/reverse/round_robin) — and
-        // parlay when SGP is off — keeps the full hard block: any shared event
-        // is rejected. This is the fail-safe gate (§4).
-        $sgpOn = $betType === 'parlay' && !empty($sgpConfig['enabled']);
+        // SGP relaxes PARLAY tickets and — since 2026-07-17 (PO approval) —
+        // ROUND ROBIN groups, and only when explicitly enabled. Round robin is
+        // validated at the GROUP level here (whole-group rejection on any
+        // TIER-1 pair — never a silently filtered child subset), and each
+        // same-game CHILD is then priced with the identical haircut machinery
+        // (priceRoundRobinChild). Every other combined type (teaser/if_bet/
+        // reverse) — and open parlays, whose create/add-leg paths pass no
+        // config — keeps the full hard block: any shared event is rejected.
+        // This is the fail-safe gate (§4).
+        $sgpOn = in_array($betType, ['parlay', 'round_robin'], true) && !empty($sgpConfig['enabled']);
 
         // Group legs by event so we can inspect same-game clusters.
         $byMatch = [];
@@ -836,16 +947,28 @@ final class SportsbookBetSupport
                     'code' => 'INVALID_COMBINATION',
                 ]);
             }
-            // SGP on: allow the cluster UNLESS a TIER-1 pair conflicts.
+            // SGP on: allow the cluster UNLESS a TIER-1 pair conflicts. The
+            // error NAMES the conflicting pair (PO decision 2026-07-17) so the
+            // player knows exactly which two picks to change — for a round
+            // robin this rejects the WHOLE group, never a filtered subset
+            // (a displayed parlay count that isn't nCr is dispute bait).
             $n = count($legs);
             for ($i = 0; $i < $n; $i++) {
                 for ($j = $i + 1; $j < $n; $j++) {
                     $conflict = self::sameGameConflict($legs[$i], $legs[$j]);
                     if ($conflict !== null) {
-                        throw new ApiException('Unsupported same-game combination. Select different events.', 400, [
-                            'code' => 'INVALID_COMBINATION',
-                            'reason' => $conflict,
-                        ]);
+                        $labelA = self::sgpLegLabel($legs[$i]);
+                        $labelB = self::sgpLegLabel($legs[$j]);
+                        throw new ApiException(
+                            'These picks can\'t be combined from the same game: "' . $labelA . '" + "' . $labelB . '". Change one of them.',
+                            400,
+                            [
+                                'code' => 'INVALID_COMBINATION',
+                                'reason' => $conflict,
+                                'legA' => $labelA,
+                                'legB' => $labelB,
+                            ]
+                        );
                     }
                 }
             }
