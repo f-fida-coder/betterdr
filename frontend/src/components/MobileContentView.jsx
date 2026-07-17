@@ -871,6 +871,11 @@ const MobileContentView = ({
             totalUnderPrice: parseOddsNumber(totalUnderOutcome?.price),
             totalOverAlternateLines: Array.isArray(totalOverOutcome?.alternateLines) ? totalOverOutcome.alternateLines : null,
             totalUnderAlternateLines: Array.isArray(totalUnderOutcome?.alternateLines) ? totalUnderOutcome.alternateLines : null,
+            // Server hint: totals ladders are default-hidden on the board, so
+            // this flags which totals cells can reveal one on demand (the slip
+            // shows its collapsed Buy Points trigger only when true).
+            totalOverBuyPointsAvailable: totalOverOutcome?.buyPointsAvailable === true,
+            totalUnderBuyPointsAvailable: totalUnderOutcome?.buyPointsAvailable === true,
             teamTotals: {
                 away: { over: teamTotalLeg('away', 'over'), under: teamTotalLeg('away', 'under') },
                 home: { over: teamTotalLeg('home', 'over'), under: teamTotalLeg('home', 'under') },
@@ -1493,6 +1498,9 @@ const MobileContentView = ({
                 // totals only). null for other markets / when the API didn't
                 // supply it — the slip's dropdown then uses its local ladder.
                 alternateLines: Array.isArray(meta?.alternateLines) ? meta.alternateLines : null,
+                // Server hint that a hidden totals ladder can be revealed on
+                // demand — gates the slip's collapsed Buy Points trigger.
+                buyPointsAvailable: meta?.buyPointsAvailable === true,
             },
         }));
     }, []);
@@ -2477,7 +2485,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const totalsUnderDisplay = isNrfiContext
         ? 'NRFI'
         : (match.odds.totalPoint === null ? '—' : `U ${formatLineValue(teaserPreview.total(match.odds.totalPoint, 'Under'))}`);
-    const addIfAllowed = (matchId, selection, marketType, odds, matchName, marketLabel, line = null, alternateLines = null) => {
+    const addIfAllowed = (matchId, selection, marketType, odds, matchName, marketLabel, line = null, alternateLines = null, buyPointsAvailable = false) => {
         if (blocked) return;
         // Resolve the leg's full DISPLAY name from the short selection
         // — team markets map to the full "City Mascot"; Over/Under pass through.
@@ -2498,6 +2506,9 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
             sportKey: String(match?.sportKey || match?.sport || '').toLowerCase(),
             selectionFull,
             alternateLines: Array.isArray(alternateLines) ? alternateLines : null,
+            // Server hint that a hidden totals ladder can be revealed on
+            // demand — gates the slip's collapsed Buy Points trigger.
+            buyPointsAvailable: buyPointsAvailable === true,
             // Listed pitchers + the player's current Action choice, so the slip
             // shows the toggles and placement captures who was listed at bet time.
             pitchers: showPitchers ? match.pitchers : null,
@@ -2922,7 +2933,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         title={teaserPoints > 0 && match.odds.totalPoint !== null
                             ? `Was O ${formatLineValue(match.odds.totalPoint)} (teaser −${teaserPoints})`
                             : undefined}
-                        onClick={() => addIfAllowed(match.id, 'Over', 'totals', match.odds.totalOverPrice, matchName, totalsMarketLabel, match.odds.totalPoint, match.odds.totalOverAlternateLines)}
+                        onClick={() => addIfAllowed(match.id, 'Over', 'totals', match.odds.totalOverPrice, matchName, totalsMarketLabel, match.odds.totalPoint, match.odds.totalOverAlternateLines, match.odds.totalOverBuyPointsAvailable)}
                     />
                     )
                 )}
@@ -3054,7 +3065,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         title={teaserPoints > 0 && match.odds.totalPoint !== null
                             ? `Was U ${formatLineValue(match.odds.totalPoint)} (teaser +${teaserPoints})`
                             : undefined}
-                        onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, totalsMarketLabel, match.odds.totalPoint, match.odds.totalUnderAlternateLines)}
+                        onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, totalsMarketLabel, match.odds.totalPoint, match.odds.totalUnderAlternateLines, match.odds.totalUnderBuyPointsAvailable)}
                     />
                     )
                 )}

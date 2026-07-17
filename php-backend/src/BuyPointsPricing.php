@@ -327,7 +327,11 @@ final class BuyPointsPricing
         // football totals or run/puck-line sports (those stay feed-anchored). Every
         // house-safety guard in the loop below (no-tie skip, ML floor) STILL applies.
         $flat = self::usesFlatCents($sportKey, $m);
-        $baseDecimal = ($flat || $priceByPoint === []) ? self::baseLineDecimal($pool, $m, $selection, $basePoint) : null;
+        // Feed-anchored totals carry a monotonicity clamp (below) whose payout
+        // ceiling is seeded by the base line's OWN price, so resolve the base
+        // decimal for them too — not just for flat/synth ladders.
+        $feedTotals = !$flat && $m === 'totals';
+        $baseDecimal = ($flat || $feedTotals || $priceByPoint === []) ? self::baseLineDecimal($pool, $m, $selection, $basePoint) : null;
 
         if (!$flat && $priceByPoint === []) {
             // No feed alt ladder for this selection. Configured no-alt-feed
@@ -343,6 +347,14 @@ final class BuyPointsPricing
         if ($flat && $baseDecimal === null) {
             return []; // no base-line price → can't anchor the flat ladder
         }
+        if ($feedTotals && $baseDecimal === null) {
+            // Monotonicity clamp needs the base price as its ceiling. No
+            // trustworthy base → no totals ladder AT ALL for this leg (omit,
+            // never guess — team decision 2026-07-17). Rare in practice: a
+            // missing base price means the feed data for this leg is already
+            // incomplete.
+            return [];
+        }
         $baseAmerican = $flat ? SportsbookBetSupport::decimalToAmericanInt($baseDecimal) : 0;
 
         $isSpread = $m === 'spreads';
@@ -352,6 +364,9 @@ final class BuyPointsPricing
         $mlDecimal = $isSpread ? self::sideMoneylineDecimal($pool, $selection) : null;
 
         $maxSteps = $flat ? self::FLAT_MAX_HALF_STEPS : self::MAX_HALF_STEPS;
+        // Feed-anchored totals: payout ceiling for the monotonicity clamp,
+        // seeded by the base line's own price and tightened rung by rung.
+        $totalsCeil = $feedTotals ? $baseDecimal : INF;
         $ladder = [];
         for ($steps = 1; $steps <= $maxSteps; $steps++) {
             $points = $steps * self::HALF_POINT;
@@ -394,6 +409,20 @@ final class BuyPointsPricing
                 continue;
             }
 
+            // Monotonicity clamp (feed-anchored totals only): every buy rung
+            // must pay STRICTLY LESS than the previous surviving rung, with the
+            // ceiling seeded by the base line's own price. A feed glitch that
+            // prices an easier total at the same-or-better payout (the "free
+            // points" leak the flat-cents comment above describes) is OMITTED —
+            // never repriced (omit-don't-synthesize, mirroring the spreads-side
+            // clamp in fillNoTieWinZone). A dropped rung does NOT loosen the
+            // ceiling, so later rungs are judged against the last SURVIVING
+            // payout. Flat ladders are monotonic by construction and spreads
+            // keep their existing (untouched) ML-floor/fill logic.
+            if ($feedTotals && $exactDecimal >= $totalsCeil - 1e-9) {
+                continue;
+            }
+
             // ML floor: a bettor-favorable bought spread (line >= 0) can't pay
             // more than the side moneyline. Missing ML → fail safe, omit.
             if ($isSpread && $line >= -1e-9) {
@@ -408,6 +437,9 @@ final class BuyPointsPricing
                 'decimal' => $exactDecimal,
                 'american' => $american,
             ];
+            if ($feedTotals) {
+                $totalsCeil = $exactDecimal;
+            }
         }
 
         // No-tie spreads: the feed ladder above OMITS the win zone (|line| < 1)

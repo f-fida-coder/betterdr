@@ -57,6 +57,11 @@ final class MatchesController
             return true;
         }
 
+        if ($method === 'GET' && preg_match('#^/api/matches/([a-fA-F0-9]{24})/buy-points$#', $path, $m) === 1) {
+            $this->getMatchBuyPoints($m[1]);
+            return true;
+        }
+
         if ($method === 'POST' && $path === '/api/matches/fetch-odds') {
             $this->fetchOddsPublic();
             return true;
@@ -1106,6 +1111,96 @@ final class MatchesController
     }
 
     /**
+     * GET /api/matches/{id}/buy-points?market=totals&selection=Over&point=9.5
+     *
+     * On-demand Buy Points ladder for ONE totals selection. Totals ladders are
+     * default-hidden on the board payload (attachBuyPointsLadders gate,
+     * BUY_POINTS_TOTALS_ON_BOARD) — this is how a player who explicitly asks
+     * gets one: the betslip taps this once per leg and grafts the response
+     * onto the leg's alternateLines, after which the existing dropdown →
+     * placement → settlement pipeline runs unchanged.
+     *
+     * STATELESS + CACHE-ISOLATED by design (2026-07-17 requirements):
+     *  - one findOne on `matches` by primary key + pure PHP compute;
+     *  - never reads or writes ANY SharedFileCache namespace (in particular
+     *    not the public board cache), so board cache keys/variants are
+     *    untouched;
+     *  - no per-user/per-session state is created anywhere — nothing to
+     *    expire, nothing that grows across calls;
+     *  - response is ≤ MAX_HALF_STEPS rungs (~6), no-store.
+     *
+     * Guards: Bearer auth (any actor), per-client rate limit (fixed-size
+     * windowed counters in the existing file/APCu RateLimiter — the only
+     * write this endpoint can cause, bounded per client key and overwritten
+     * every window), totals-only market allowlist, numeric point.
+     */
+    private function getMatchBuyPoints(string $id): void
+    {
+        try {
+            $actor = $this->protectAny();
+            if ($actor === null) {
+                return; // 401/403 already sent
+            }
+            // Per-client abuse guard (sends 429 itself when tripped). Default
+            // 60/min is ~10× a human tapping legs, and keeps a scripted client
+            // from turning the doc read into DB load. Env-tunable like every
+            // other RateLimiter endpoint (RATE_LIMIT_BUY_POINTS_LADDER_*).
+            $max = $this->envInt('RATE_LIMIT_BUY_POINTS_LADDER_MAX', 60);
+            $window = $this->envInt('RATE_LIMIT_BUY_POINTS_LADDER_WINDOW', 60);
+            if (RateLimiter::enforce($this->db, 'buy_points_ladder', $max, $window)) {
+                return;
+            }
+
+            // Totals only: spreads ladders still ride the board payload, so an
+            // on-demand spread fetch has no legitimate caller (and keeping the
+            // surface minimal is the point of the gate).
+            $marketType = strtolower(trim((string) ($_GET['market'] ?? '')));
+            if ($marketType !== 'totals') {
+                Response::json(['message' => 'Only totals Buy Points are served on demand.'], 400);
+                return;
+            }
+            $selection = trim((string) ($_GET['selection'] ?? ''));
+            $selLower = strtolower($selection);
+            if ($selection === '' || strlen($selection) > 80
+                || (!str_contains($selLower, 'over') && !str_contains($selLower, 'under'))) {
+                Response::json(['message' => 'selection must be the Over/Under side of the total.'], 400);
+                return;
+            }
+            $pointRaw = $_GET['point'] ?? null;
+            if (!is_numeric($pointRaw) || !is_finite((float) $pointRaw)) {
+                Response::json(['message' => 'point must be the numeric base total line.'], 400);
+                return;
+            }
+            $point = (float) $pointRaw;
+
+            $match = $this->db->findOne('matches', ['id' => SqlRepository::id($id)]);
+            if ($match === null) {
+                Response::json(['message' => 'Match not found'], 404);
+                return;
+            }
+            // Same visibility gate as getMatchById so a hidden/suspended match
+            // can't be probed through this endpoint.
+            $annotated = SportsbookHealth::applyBettingAvailability($this->db, $match);
+            if (($annotated['isPublicVisible'] ?? false) !== true) {
+                Response::json(['message' => 'Match not available'], 404);
+                return;
+            }
+
+            $ladder = self::buyPointsLadderForSelection($annotated, $marketType, $selection, $point);
+            Response::json([
+                'matchId' => $id,
+                'market' => $marketType,
+                'selection' => $selection,
+                'point' => $point,
+                'alternateLines' => $ladder,
+            ], 200, self::NO_STORE_HEADER);
+        } catch (Throwable $e) {
+            Logger::exception($e, 'getMatchBuyPoints failed', ['matchId' => $id]);
+            Response::json(['message' => 'Server Error fetching buy points'], 500);
+        }
+    }
+
+    /**
      * Stamp each player-prop outcome with `teamSide` ('home'|'away') from the
      * pid→side map. Outcomes whose pid isn't in the map (player not rostered /
      * no pid) are left untagged so the Prop Builder still shows them under "All".
@@ -1383,6 +1478,39 @@ final class MatchesController
             if (!BuyPointsPricing::isAllowedMarket($marketKey)) {
                 continue;
             }
+            // Totals buy points are DEFAULT-HIDDEN on the board (Nicky
+            // 2026-07-17: books don't advertise totals buy points; only show
+            // when a player specifically asks). DISPLAY policy only — pricing
+            // (BuyPointsPricing) is untouched, placement still accepts a
+            // legitimately-requested totals rung, and the frontend reveals a
+            // leg's ladder on demand via GET /api/matches/{id}/buy-points
+            // (getMatchBuyPoints), which prices from the same single source.
+            // BUY_POINTS_TOTALS_ON_BOARD=true restores the old always-on-board
+            // behavior without a deploy. Spreads are unaffected.
+            //
+            // Instead of the ladder, each eligible totals outcome carries a
+            // one-byte `buyPointsAvailable` hint so the betslip only offers
+            // the collapsed Buy Points trigger where a reveal can succeed —
+            // no dead-end pill on disabled sports (this loop is only reached
+            // for isSportEnabled sports; the early return above covers the
+            // rest). Cheap eligibility only (numeric line, not manually
+            // overridden) — the full ladder is deliberately NOT computed
+            // here, so a feed with no alt prices can still resolve to an
+            // empty on-demand ladder ("Not available") in rare cases.
+            if ($marketKey === 'totals' && !self::buyPointsTotalsOnBoard()) {
+                $outcomes = is_array($market['outcomes'] ?? null) ? $market['outcomes'] : [];
+                foreach ($outcomes as $oi => $outcome) {
+                    if (!is_array($outcome) || !is_numeric($outcome['point'] ?? null)) {
+                        continue;
+                    }
+                    if (strtolower((string) ($outcome['source'] ?? '')) === ManualOddsOverlay::SOURCE_TAG) {
+                        continue; // overridden line: no ladder would be served
+                    }
+                    $outcomes[$oi]['buyPointsAvailable'] = true;
+                }
+                $markets[$mi]['outcomes'] = $outcomes;
+                continue;
+            }
             $outcomes = is_array($market['outcomes'] ?? null) ? $market['outcomes'] : [];
             foreach ($outcomes as $oi => $outcome) {
                 if (!is_array($outcome)) {
@@ -1429,6 +1557,106 @@ final class MatchesController
             $markets[$mi]['outcomes'] = $outcomes;
         }
         return $markets;
+    }
+
+    /**
+     * Whether TOTALS buy-points ladders ride on the board payload. DEFAULT
+     * FALSE (hidden) per Nicky 2026-07-17 — flip BUY_POINTS_TOTALS_ON_BOARD
+     * to true to restore the pre-2026-07-17 always-attached behavior. This is
+     * board DISPLAY policy only; it must never gate pricing or placement.
+     */
+    public static function buyPointsTotalsOnBoard(): bool
+    {
+        $flag = strtolower(trim((string) (Env::get('BUY_POINTS_TOTALS_ON_BOARD', 'false') ?? 'false')));
+        return in_array($flag, ['true', '1', 'on', 'yes'], true);
+    }
+
+    /**
+     * Buy Points ladder for ONE spread/total selection of a stored match doc,
+     * in the same alternateLines shape attachBuyPointsLadders emits
+     * ([{points, line, odds, americanOdds}]). Serves the on-demand endpoint
+     * (getMatchBuyPoints) — deliberately NOT behind the totals board gate, so
+     * a player who asks still gets the ladder while the board stays clean.
+     *
+     * PURE READ: no cache read/write, no doc mutation, no per-user state. The
+     * pool mirrors placement's collectMatchMarkets (canonical odds.markets +
+     * odds.extendedMarkets) and pricing is BuyPointsPricing::ladderFromFeed —
+     * the identical single source placement reprices against, so what this
+     * returns is what places and settles.
+     *
+     * Fail-closed empties (no guessed prices, matching board + placement):
+     * base outcome absent at the exact (side, point), manually-overridden base
+     * (ManualOddsOverlay — placement rejects BUY_POINTS_OVERRIDDEN_LINE),
+     * sport not enabled, or no feed prices.
+     *
+     * @param array<string,mixed> $match
+     * @return list<array{points: float, line: float, odds: float, americanOdds: int}>
+     */
+    public static function buyPointsLadderForSelection(array $match, string $marketType, string $selection, float $point): array
+    {
+        $marketType = strtolower(trim($marketType));
+        if (!BuyPointsPricing::isAllowedMarket($marketType)) {
+            return [];
+        }
+        $canonical = self::canonicalizeOddsMarkets($match);
+        $odds = is_array($canonical['odds'] ?? null) ? $canonical['odds'] : [];
+        $markets = is_array($odds['markets'] ?? null) ? $odds['markets'] : [];
+        $extended = is_array($odds['extendedMarkets'] ?? null) ? $odds['extendedMarkets'] : [];
+
+        // The base outcome must exist on the canonical market at the exact
+        // (side, point) being asked about — otherwise the "base line" the
+        // client wants to buy from isn't the one the board serves (stale tab,
+        // moved line) and a ladder would anchor on the wrong price.
+        $base = null;
+        $selLower = strtolower(trim($selection));
+        foreach ($markets as $market) {
+            if (!is_array($market) || strtolower((string) ($market['key'] ?? '')) !== $marketType) {
+                continue;
+            }
+            $outcomes = is_array($market['outcomes'] ?? null) ? $market['outcomes'] : [];
+            foreach ($outcomes as $outcome) {
+                if (!is_array($outcome) || !is_numeric($outcome['point'] ?? null)) {
+                    continue;
+                }
+                if ((int) round((float) $outcome['point'] * 2) !== (int) round($point * 2)) {
+                    continue;
+                }
+                $name = strtolower((string) ($outcome['name'] ?? ''));
+                $sameSide = $marketType === 'totals'
+                    ? ((str_contains($selLower, 'over') && str_contains($name, 'over'))
+                        || (str_contains($selLower, 'under') && str_contains($name, 'under')))
+                    : strcasecmp(trim($selection), trim((string) ($outcome['name'] ?? ''))) === 0;
+                if ($sameSide) {
+                    $base = $outcome;
+                    break 2;
+                }
+            }
+        }
+        if ($base === null) {
+            return [];
+        }
+        if (strtolower((string) ($base['source'] ?? '')) === ManualOddsOverlay::SOURCE_TAG) {
+            return [];
+        }
+
+        $pool = array_merge($markets, $extended);
+        $ladder = BuyPointsPricing::ladderFromFeed(
+            (string) ($match['sportKey'] ?? ''),
+            $marketType,
+            (string) ($base['name'] ?? $selection),
+            (float) $base['point'],
+            $pool
+        );
+        $out = [];
+        foreach ($ladder as $rung) {
+            $out[] = [
+                'points' => $rung['points'],
+                'line' => $rung['line'],
+                'odds' => $rung['decimal'],
+                'americanOdds' => $rung['american'],
+            ];
+        }
+        return $out;
     }
 
     /**

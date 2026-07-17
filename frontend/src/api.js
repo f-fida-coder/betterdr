@@ -835,6 +835,21 @@ export const quoteBet = async (betData, token) => {
     return response.json();
 };
 
+// On-demand Buy Points ladder for ONE totals selection. Totals ladders are
+// default-hidden on the board payload (server gate BUY_POINTS_TOTALS_ON_BOARD,
+// Nicky 2026-07-17) — the betslip calls this once when the player taps the
+// collapsed Buy Points row on a totals leg. Returns { alternateLines: [...] }
+// in the exact shape board outcomes carry for spreads, so the leg grafts it on
+// and the existing dropdown → placement pipeline runs unchanged. Read-only on
+// the server: one doc read, no caching, no state.
+export const fetchBuyPointsLadder = async (matchId, { selection, point }, token) => {
+    const response = await fetchWithRefresh(
+        buildApiUrl(`/matches/${matchId}/buy-points`, { market: 'totals', selection, point }),
+        { method: 'GET', token }
+    );
+    return parseJsonResponse(response, 'Could not load Buy Points');
+};
+
 export const placeBet = async (betData, token, { requestId = '' } = {}) => {
     const normalizedType = normalizeBetMode(betData?.type || 'straight');
     const normalizedSelections = Array.isArray(betData?.selections)

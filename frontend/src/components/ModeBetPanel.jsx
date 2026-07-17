@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { placeBet, quoteBet, createOpenParlay, normalizeBetMode, createRequestId } from '../api';
+import { placeBet, quoteBet, createOpenParlay, normalizeBetMode, createRequestId, fetchBuyPointsLadder } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal, roundCombinedToAmericanDecimal } from '../utils/odds';
@@ -1821,6 +1821,66 @@ const ModeBetPanel = ({
     // tap still switches bet mode as before.
     useDismissableSurface(openBuyPointsId !== null, () => setOpenBuyPointsId(null));
 
+    // On-demand totals ladders: totals buy points are default-hidden on the
+    // board payload (server gate BUY_POINTS_TOTALS_ON_BOARD), so a totals leg
+    // arrives with no alternateLines. Tapping the collapsed Buy Points row
+    // fetches this ONE leg's ladder and grafts it onto the leg, after which
+    // the standard dropdown (buildBuyPointsOptions) takes over unchanged.
+    // Per-leg status: 'loading' | 'none' (server says no ladder) | 'error'
+    // (tap again to retry); absent = not asked yet or already grafted. All
+    // transient component state — nothing persisted anywhere.
+    const [buyPointsFetch, setBuyPointsFetch] = useState({});
+    // One in-flight fetch per leg (double-tap guard).
+    const buyPointsInFlightRef = useRef(new Set());
+    // Latest selections for the async graft: the fetch can resolve after the
+    // slip changed (leg added/removed), and mapping over a stale closure
+    // array would clobber those edits.
+    const selectionsRef = useRef(selections);
+    selectionsRef.current = selections;
+
+    const revealBuyPoints = async (sel) => {
+        if (buyPointsInFlightRef.current.has(sel.id)) return;
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        buyPointsInFlightRef.current.add(sel.id);
+        setBuyPointsFetch((s) => ({ ...s, [sel.id]: 'loading' }));
+        try {
+            const data = await fetchBuyPointsLadder(
+                sel.matchId,
+                { selection: sel.selection, point: Number(sel.line) },
+                token
+            );
+            // Keep only shape-valid rungs (finite line, decimal odds > 1) —
+            // a malformed entry would be dropped by buildBuyPointsOptions
+            // anyway, and an all-invalid ladder must resolve to 'none', not
+            // an endlessly re-tappable pill.
+            const alts = (Array.isArray(data?.alternateLines) ? data.alternateLines : [])
+                .filter((alt) => Number.isFinite(Number(alt?.line)) && Number(alt?.odds) > 1);
+            if (alts.length === 0) {
+                setBuyPointsFetch((s) => ({ ...s, [sel.id]: 'none' }));
+                return;
+            }
+            const current = selectionsRef.current;
+            if (!current.some((s) => s.id === sel.id)) return; // leg removed mid-fetch
+            const next = current.map((s) => (s.id === sel.id ? { ...s, alternateLines: alts } : s));
+            // Sync the ref BEFORE the parent re-renders: a second graft
+            // resolving in the same tick must see this one's result, or its
+            // map over the pre-graft array would silently drop it.
+            selectionsRef.current = next;
+            onSelectionsChange(next);
+            setBuyPointsFetch((s) => {
+                const nextState = { ...s };
+                delete nextState[sel.id];
+                return nextState;
+            });
+            setOpenBuyPointsId(sel.id); // open the dropdown the player asked for
+        } catch {
+            setBuyPointsFetch((s) => ({ ...s, [sel.id]: 'error' }));
+        } finally {
+            buyPointsInFlightRef.current.delete(sel.id);
+        }
+    };
+
     // Apply a Buy Points alternate to a selection. Mutates this leg's
     // line + odds AND records the audit fields the placement payload
     // sends to the backend: `boughtPoints` (magnitude), `originalLine`,
@@ -3308,6 +3368,19 @@ const ModeBetPanel = ({
                     const supportsBuyPoints = BUY_POINTS_ENABLED && (market === 'spreads' || market === 'totals') && normalizedMode !== 'teaser';
                     const buyPointsOptions = supportsBuyPoints ? buildBuyPointsOptions(sel) : [];
                     const buyPointsOpen = openBuyPointsId === sel.id;
+                    // Totals legs arrive with no alternateLines (server default-
+                    // hides totals ladders) → options is just [base]. Show the
+                    // collapsed on-demand trigger instead of the dropdown; a
+                    // successful reveal grafts alternateLines onto the leg and
+                    // options.length > 1 flips this leg to the dropdown above.
+                    // Gated on the server's per-outcome buyPointsAvailable hint
+                    // so disabled sports get NO pill at all instead of a
+                    // tap-to-dead-end.
+                    const buyPointsFetchState = buyPointsFetch[sel.id];
+                    const showBuyPointsTrigger = supportsBuyPoints
+                        && market === 'totals'
+                        && sel.buyPointsAvailable === true
+                        && buyPointsOptions.length === 1;
                     // Flags this leg if its *risk* (stake) trips the
                     // user's per-account min/max bet limit. Drives the
                     // red border + inline chip so the user sees *which*
@@ -3624,6 +3697,56 @@ const ModeBetPanel = ({
                                                     })}
                                                 </div>
                                         )}
+                                    </div>
+                                )}
+
+                                {/* Collapsed Buy Points trigger — TOTALS only.
+                                    Totals ladders are default-hidden on the
+                                    board (books don't advertise them; Nicky
+                                    2026-07-17). Same pill as the dropdown
+                                    trigger above so it reads as one family;
+                                    first tap fetches this leg's ladder, then
+                                    the dropdown above takes over. 'none' =
+                                    server confirmed no ladder → inert row so
+                                    the tap doesn't feel swallowed. */}
+                                {showBuyPointsTrigger && (
+                                    <div style={{ marginTop: 6 }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => revealBuyPoints(sel)}
+                                            disabled={buyPointsFetchState === 'loading' || buyPointsFetchState === 'none'}
+                                            style={{
+                                                width: '100%',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                gap: 8,
+                                                padding: '5px 10px',
+                                                background: '#fff',
+                                                border: `1px solid ${palette.cardBorder}`,
+                                                borderRadius: 8,
+                                                fontSize: 12,
+                                                fontWeight: 700,
+                                                color: palette.textPrimary,
+                                                cursor: buyPointsFetchState === 'none' ? 'default' : 'pointer',
+                                                opacity: buyPointsFetchState === 'none' ? 0.6 : 1,
+                                                transition: 'border-color 120ms ease',
+                                                lineHeight: 1.2,
+                                            }}
+                                        >
+                                            <span style={{ color: palette.textMuted, letterSpacing: 0.3 }}>Buy Points</span>
+                                            <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                                                <span style={{ fontVariantNumeric: 'tabular-nums', color: buyPointsFetchState ? palette.textMuted : palette.textPrimary }}>
+                                                    {buyPointsFetchState === 'loading' ? 'Loading…'
+                                                        : buyPointsFetchState === 'none' ? 'Not available'
+                                                        : buyPointsFetchState === 'error' ? 'Tap to retry'
+                                                        : 'Show options'}
+                                                </span>
+                                                {buyPointsFetchState !== 'none' && (
+                                                    <i className="fa-solid fa-chevron-down" style={{ fontSize: 10, color: palette.textFaint }} />
+                                                )}
+                                            </span>
+                                        </button>
                                     </div>
                                 )}
 

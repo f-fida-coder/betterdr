@@ -895,6 +895,11 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                         overAlternateLines: Array.isArray(totalOver?.alternateLines) ? totalOver.alternateLines : null,
                         underOdds: parseOddsNumber(totalUnder?.price),
                         underAlternateLines: Array.isArray(totalUnder?.alternateLines) ? totalUnder.alternateLines : null,
+                        // Server hint: totals ladders are default-hidden on the
+                        // board; true = the slip may offer the on-demand
+                        // collapsed Buy Points trigger for this side.
+                        overBuyPointsAvailable: totalOver?.buyPointsAvailable === true,
+                        underBuyPointsAvailable: totalUnder?.buyPointsAvailable === true,
                     },
                     teamTotals: {
                         away: {
@@ -1097,6 +1102,9 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 // totals only). null for other markets / when the API didn't
                 // supply it — the slip's dropdown then uses its local ladder.
                 alternateLines: Array.isArray(meta?.alternateLines) ? meta.alternateLines : null,
+                // Server hint that a hidden totals ladder can be revealed on
+                // demand — gates the slip's collapsed Buy Points trigger.
+                buyPointsAvailable: meta?.buyPointsAvailable === true,
                 isLive: !!meta?.isLive,
                 // MLB listed pitchers, carried into the slip so the leg can
                 // render the per-pitcher "Action" toggles. Null for non-MLB.
@@ -1880,7 +1888,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: overLabel,
-                                                            onClick: () => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, matchName, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.total.overAlternateLines }),
+                                                            onClick: () => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, matchName, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.total.overAlternateLines, buyPointsAvailable: match.odds.total.overBuyPointsAvailable }),
                                                             available: overAvail,
                                                             peerAvailable: underAvail,
                                                             disabled: match.rawMatch?.isBettable === false,
@@ -1888,7 +1896,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                         })}
                                                         {renderOddsButton({
                                                             label: underLabel,
-                                                            onClick: () => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, matchName, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.total.underAlternateLines }),
+                                                            onClick: () => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, matchName, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE', pitchers: match.pitchers, sportKey: match.sportKey, alternateLines: match.odds.total.underAlternateLines, buyPointsAvailable: match.odds.total.underBuyPointsAvailable }),
                                                             available: underAvail,
                                                             peerAvailable: overAvail,
                                                             disabled: match.rawMatch?.isBettable === false,

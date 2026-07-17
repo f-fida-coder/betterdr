@@ -450,6 +450,146 @@ TestRunner::run('ladderFromFeed — totals Under priced from feed; line grows', 
     TestRunner::assertEqualsFloat(48.5, $ladder[1]['line'], 'under rung2 grows to 48.5', 1e-9);
 });
 
+// ── totals monotonicity clamp (2026-07-17) ──────────────────────────────────
+// Feed-anchored totals only: every buy rung must pay STRICTLY LESS than the
+// previous SURVIVING rung, ceiling seeded by the base line's own price.
+// Violating rungs are OMITTED, never repriced. Missing base price → the whole
+// ladder is omitted (no trustworthy ceiling anchor). Spreads and the flat-
+// cents (basketball) path are untouched.
+
+TestRunner::run('totals clamp — non-strictly-worse feed rung omitted; later rungs judged vs last SURVIVING payout', function () use ($mkPool, $amer): void {
+    // MLB Over 9.5 @ 1.91. The feed glitches 8.5 at 1.80 — a BETTER payout
+    // than the harder 9.0 rung (1.74) — and repeats 1.62 at 7.5 (equal, not
+    // strictly worse than 8.0's 1.62). Both leak "free points" and must be
+    // omitted; 8.0 and 7.0 survive because they're judged against the last
+    // SURVIVING rung, not the dropped one.
+    $pool = $mkPool([
+        'totals'           => [['name' => 'Over', 'point' => 9.5, 'price' => 1.91]],
+        'alternate_totals' => [
+            ['name' => 'Over', 'point' => 9.0, 'price' => 1.74],
+            ['name' => 'Over', 'point' => 8.5, 'price' => 1.80], // violates vs 1.74 → omit
+            ['name' => 'Over', 'point' => 8.0, 'price' => 1.62],
+            ['name' => 'Over', 'point' => 7.5, 'price' => 1.62], // equal, not strictly worse → omit
+            ['name' => 'Over', 'point' => 7.0, 'price' => 1.40],
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('baseball_mlb', 'totals', 'Over', 9.5, $pool);
+    $lines = array_map(static fn ($r) => $r['line'], $ladder);
+    TestRunner::assertEquals([9.0, 8.0, 7.0], $lines, '8.5 and 7.5 clamped out; 9.0/8.0/7.0 survive');
+    TestRunner::assertEquals($amer(1.74), $ladder[0]['american'], '9.0 keeps its feed price (never repriced)');
+    TestRunner::assertEquals($amer(1.62), $ladder[1]['american'], '8.0 keeps its feed price');
+    TestRunner::assertEquals($amer(1.40), $ladder[2]['american'], '7.0 keeps its feed price');
+});
+
+TestRunner::run('totals clamp — first rung not strictly worse than the BASE line is omitted (free half-point leak)', function () use ($mkPool, $amer): void {
+    // Feed prices the easier 9.0 at the SAME 1.91 as the 9.5 base — a free
+    // half-point. Ceiling is seeded by the base price, so 9.0 is omitted and
+    // the properly-worse 8.5 survives.
+    $pool = $mkPool([
+        'totals'           => [['name' => 'Over', 'point' => 9.5, 'price' => 1.91]],
+        'alternate_totals' => [
+            ['name' => 'Over', 'point' => 9.0, 'price' => 1.91], // same as base → omit
+            ['name' => 'Over', 'point' => 8.5, 'price' => 1.74],
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('baseball_mlb', 'totals', 'Over', 9.5, $pool);
+    $lines = array_map(static fn ($r) => $r['line'], $ladder);
+    TestRunner::assertEquals([8.5], $lines, '9.0 omitted (== base payout); 8.5 kept');
+    TestRunner::assertEquals($amer(1.74), $ladder[0]['american'], '8.5 from feed');
+});
+
+TestRunner::run('totals clamp — missing base line price omits the ENTIRE ladder (no ceiling anchor, fail safe)', function () use ($mkPool): void {
+    // Alt prices exist but the base totals market is absent → no trustworthy
+    // ceiling. Team decision 2026-07-17: omit the whole ladder, don't fall
+    // back to an unanchored (infinity-ceiling) clamp.
+    $noBase = $mkPool([
+        'alternate_totals' => [
+            ['name' => 'Over', 'point' => 9.0, 'price' => 1.74],
+            ['name' => 'Over', 'point' => 8.5, 'price' => 1.62],
+        ],
+    ]);
+    TestRunner::assertEquals(0, count(BuyPointsPricing::ladderFromFeed('baseball_mlb', 'totals', 'Over', 9.5, $noBase)), 'no base market → []');
+
+    // Base market present but at a DIFFERENT point than the one being bought
+    // from (stale/moved line) → same omit.
+    $wrongPoint = $mkPool([
+        'totals'           => [['name' => 'Over', 'point' => 10.5, 'price' => 1.91]],
+        'alternate_totals' => [
+            ['name' => 'Over', 'point' => 9.0, 'price' => 1.74],
+        ],
+    ]);
+    TestRunner::assertEquals(0, count(BuyPointsPricing::ladderFromFeed('baseball_mlb', 'totals', 'Over', 9.5, $wrongPoint)), 'base at another point → []');
+});
+
+TestRunner::run('totals clamp — Under side clamps the same way (direction-aware)', function () use ($mkPool): void {
+    // Under buys UP. 48.5 priced better than 48.0 → omitted.
+    $pool = $mkPool([
+        'totals'           => [['name' => 'Under', 'point' => 47.5, 'price' => 1.91]],
+        'alternate_totals' => [
+            ['name' => 'Under', 'point' => 48.0, 'price' => 1.80],
+            ['name' => 'Under', 'point' => 48.5, 'price' => 1.85], // violates vs 1.80 → omit
+            ['name' => 'Under', 'point' => 49.0, 'price' => 1.66],
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('americanfootball_nfl', 'totals', 'Under', 47.5, $pool);
+    $lines = array_map(static fn ($r) => $r['line'], $ladder);
+    TestRunner::assertEquals([48.0, 49.0], $lines, '48.5 clamped out on the Under side');
+});
+
+TestRunner::run('totals clamp — SPREADS are NOT clamped (existing spread logic untouched)', function () use ($mkPool, $amer): void {
+    // Same "violation" shape on a feed-anchored SPREAD ladder: -2.5 pays more
+    // than the harder -3.0. Below pick'em the ML floor never binds and there
+    // is deliberately no spread monotonicity clamp in this change — both
+    // rungs pass through exactly as the feed priced them.
+    $pool = $mkPool([
+        'spreads'           => [['name' => 'Chiefs', 'point' => -3.5, 'price' => 1.91]],
+        'h2h'               => [['name' => 'Chiefs', 'price' => 1.50]],
+        'alternate_spreads' => [
+            ['name' => 'Chiefs', 'point' => -3.0, 'price' => 1.83],
+            ['name' => 'Chiefs', 'point' => -2.5, 'price' => 1.90], // would violate a clamp; spreads keep it
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('tennis_atp', 'spreads', 'Chiefs', -3.5, $pool);
+    TestRunner::assertEquals(2, count($ladder), 'both spread rungs kept');
+    TestRunner::assertEquals($amer(1.90), $ladder[1]['american'], '-2.5 keeps its feed price (no spread clamp)');
+});
+
+TestRunner::run('totals clamp — placement lookup: clean rung still prices; clamped-out rung returns null', function () use ($mkPool, $amer): void {
+    // Same single source as display: a rung the clamp omitted can be neither
+    // SHOWN nor PLACED (BUY_POINTS_NO_FEED_PRICE), and a clean rung places at
+    // its feed price.
+    $pool = $mkPool([
+        'totals'           => [['name' => 'Over', 'point' => 9.5, 'price' => 1.91]],
+        'alternate_totals' => [
+            ['name' => 'Over', 'point' => 9.0, 'price' => 1.74],
+            ['name' => 'Over', 'point' => 8.5, 'price' => 1.80], // clamped out
+        ],
+    ]);
+    $ok = BuyPointsPricing::priceBoughtPointFromFeed('baseball_mlb', 'totals', 'Over', 9.5, 0.5, $pool);
+    TestRunner::assertTrue($ok !== null, '0.5 buy (9.0) still places');
+    TestRunner::assertEquals($amer(1.74), $ok['american'], 'placed at the feed price');
+    $clamped = BuyPointsPricing::priceBoughtPointFromFeed('baseball_mlb', 'totals', 'Over', 9.5, 1.0, $pool);
+    TestRunner::assertTrue($clamped === null, '1.0 buy (8.5) was clamped out → null → placement rejects');
+});
+
+TestRunner::run('totals clamp — basketball flat-cents totals unaffected (ignores irregular feed alts)', function () use ($mkPool): void {
+    // Basketball totals are priced by the flat-cents model off the base price
+    // (monotonic by construction) — an absurd feed alt (220.0 at 2.50, way
+    // better than the base) is IGNORED, not clamped, and rungs march +10c.
+    $pool = $mkPool([
+        'totals'           => [['name' => 'Over', 'point' => 220.5, 'price' => 1.9090909]], // -110
+        'alternate_totals' => [
+            ['name' => 'Over', 'point' => 220.0, 'price' => 2.50], // ignored by the flat model
+        ],
+    ]);
+    $ladder = BuyPointsPricing::ladderFromFeed('basketball_nba', 'totals', 'Over', 220.5, $pool);
+    TestRunner::assertEquals(4, count($ladder), 'flat ladder: 4 half-steps (2.0-pt cap)');
+    TestRunner::assertEquals(-120, $ladder[0]['american'], 'rung1 = base -110 worsened 10c → -120, NOT the 2.50 feed alt');
+    TestRunner::assertEquals(-130, $ladder[1]['american'], 'rung2 -130');
+    TestRunner::assertEquals(-140, $ladder[2]['american'], 'rung3 -140');
+    TestRunner::assertEquals(-150, $ladder[3]['american'], 'rung4 -150');
+});
+
 TestRunner::run('ladderFromFeed — ML floor omits a bettor-favorable rung priced better than the moneyline', function () use ($mkPool): void {
     // Jets +2.5 underdog (ML +150 = 2.5 decimal). Buying points only adds
     // cushion (line >= 0), so each rung must not pay MORE than the ML.
