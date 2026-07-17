@@ -328,6 +328,23 @@ const legDescriptionBase = (leg, oddsFormat) => {
         const ou = isUnder ? 'Under' : 'Over';
         return [ou, line, legPeriod, game, odds].filter(Boolean).join(' ');
     }
+    // Team total: the selection embeds the team, not a side prefix
+    // ("Tampa Bay Over"), so the moneyline fallback below would drop the
+    // line entirely. Read the structured side/teamSide grading fields
+    // first (canonical since placement stores them), fall back to parsing
+    // the selection text for older legs. "Rays Team Total Over 3.5 -145".
+    if (market === 'team_totals') {
+        const sideRaw = String(leg?.side || '').toLowerCase();
+        const isUnder = sideRaw ? sideRaw === 'under' : /(?:^|\s)under\s*$/i.test(selection);
+        const line = point === null ? '' : formatLineValue(Math.abs(point));
+        const snap = leg?.matchSnapshot || {};
+        const teamSide = String(leg?.teamSide || '').toLowerCase();
+        const teamFromSnap = teamSide === 'away' ? mascotName(snap.awayTeamFull, snap.awayTeam)
+            : teamSide === 'home' ? mascotName(snap.homeTeamFull, snap.homeTeam) : '';
+        const teamFromSelection = selection.replace(/\s+(over|under)\s*$/i, '').trim();
+        const team = teamFromSnap || (/^(over|under)$/i.test(teamFromSelection) ? '' : teamFromSelection);
+        return [team, 'Team Total', isUnder ? 'Under' : 'Over', line, legPeriod, odds].filter(Boolean).join(' ');
+    }
     // Admin write-in: render the FULL free-text description + odds. The
     // moneyline fallback below would mascot-shorten it to its last word
     // ("…to win the Masters outright" → "outright"), which is nonsense here.
@@ -970,6 +987,12 @@ const legSelectionFullText = (leg) => {
     }
     if (isPlayerPropMarket(leg?.marketType)) {
         return [full, prettyPlayerMarketLabel(leg?.marketType)].filter(Boolean).join(' ');
+    }
+    // Team total: selectionFull is the bare outcome name ("Tampa Bay
+    // Over") — append the booked line so the panel shows the full pick.
+    if (market === 'team_totals') {
+        const line = point === null ? '' : formatLineValue(Math.abs(point));
+        return [full, line, legPeriod].filter(Boolean).join(' ');
     }
     return full;
 };

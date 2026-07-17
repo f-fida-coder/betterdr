@@ -138,6 +138,41 @@ final class BuyPointsPricing
             || strtolower(trim($sportKey)) === 'soccer';
     }
 
+    /**
+     * Sports where Buy Points is PERMANENTLY disabled by business rule,
+     * independent of the BUY_POINTS_ENABLED_SPORTS allowlist. Adding a key
+     * here hard-locks buy-points for that sport across BOTH markets (spreads
+     * AND totals) and across BOTH the display ladder and placement pricing —
+     * isSportEnabled() is the single sport-level gate all three call sites go
+     * through, so this exclusion cannot be bypassed by populating the env
+     * allowlist for other sports later.
+     *
+     *   baseball_*  — Buy Points disabled for MLB et al (business decision
+     *                 2026-07-17). Run-line is conventionally fixed at ±1.5 and
+     *                 books here don't advertise buying the total, so the
+     *                 product offers neither. Prefix-matched so every baseball
+     *                 league (baseball_mlb, baseball_ncaa, …) is covered.
+     */
+    private const BUY_POINTS_DISABLED_SPORT_PREFIXES = ['baseball_'];
+
+    /**
+     * Whether Buy Points is permanently disabled for this sport by business
+     * rule (never overridable via env). See BUY_POINTS_DISABLED_SPORT_PREFIXES.
+     */
+    private static function isBuyPointsDisabledSport(string $sportKey): bool
+    {
+        $k = strtolower(trim($sportKey));
+        if ($k === 'baseball') {
+            return true;
+        }
+        foreach (self::BUY_POINTS_DISABLED_SPORT_PREFIXES as $prefix) {
+            if (str_starts_with($k, $prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static function isNoTieSport(string $sportKey): bool
     {
         $k = strtolower(trim($sportKey));
@@ -203,12 +238,13 @@ final class BuyPointsPricing
      * lock 2026-06-16): the data path is feed-anchored, but each sport must be
      * verified before its money flow is re-opened. Re-enable sport-by-sport by
      * adding its key to the env — no redeploy needed. Three-way sports (soccer)
-     * are never eligible regardless of the env (D3).
+     * are never eligible regardless of the env (D3), and business-disabled
+     * sports (baseball) are hard-locked regardless of the env too.
      */
     public static function isSportEnabled(string $sportKey): bool
     {
         $k = strtolower(trim($sportKey));
-        if ($k === '' || self::isThreeWaySport($k)) {
+        if ($k === '' || self::isThreeWaySport($k) || self::isBuyPointsDisabledSport($k)) {
             return false;
         }
         $csv = (string) Env::get('BUY_POINTS_ENABLED_SPORTS', '');

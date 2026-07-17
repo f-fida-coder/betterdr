@@ -86,6 +86,9 @@ jobs:
       - name: Board / bet-mode drift check
         run: node tools/qa/board-parity.mjs
 
+      - name: Round Robin preview math (k=N bound + backend parity)
+        run: node tools/qa/round-robin-preview.mjs
+
       - name: Build
         working-directory: frontend
         run: npm run build

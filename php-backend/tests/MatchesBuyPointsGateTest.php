@@ -56,8 +56,10 @@ require_once __DIR__ . '/../src/MatchesController.php';
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
-// MLB doc: feed-anchored spreads AND totals, both with clean alt ladders, so
-// with no gate BOTH markets would carry alternateLines.
+// NHL doc: feed-anchored spreads AND totals, both with clean alt ladders, so
+// with no gate BOTH markets would carry alternateLines. (Uses hockey — a
+// run/puck-line sport pricing-identical to baseball — as the enabled vehicle,
+// since baseball is now hard-disabled for buy points by business rule.)
 $mkMarkets = static function (): array {
     return [
         [
@@ -125,7 +127,7 @@ $altsOf = static function (array $markets, string $key, int $outcomeIdx = 0): ?a
 // Enable MLB for the whole suite; restore at the end.
 $prevEnabled = $_ENV['BUY_POINTS_ENABLED_SPORTS'] ?? null;
 $prevOnBoard = $_ENV['BUY_POINTS_TOTALS_ON_BOARD'] ?? null;
-$_ENV['BUY_POINTS_ENABLED_SPORTS'] = 'baseball_mlb';
+$_ENV['BUY_POINTS_ENABLED_SPORTS'] = 'icehockey_nhl';
 unset($_ENV['BUY_POINTS_TOTALS_ON_BOARD']);
 
 // ── env flag parsing ─────────────────────────────────────────────────────────
@@ -160,7 +162,7 @@ $outcomeOf = static function (array $markets, string $key, int $outcomeIdx = 0):
 
 TestRunner::run('attachBuyPointsLadders — DEFAULT: totals ladder absent, buyPointsAvailable hint stamped, spreads still attached', function () use ($mkMarkets, $mkExtended, $attach, $altsOf, $outcomeOf): void {
     unset($_ENV['BUY_POINTS_TOTALS_ON_BOARD']);
-    $out = $attach($mkMarkets(), 'baseball_mlb', $mkExtended());
+    $out = $attach($mkMarkets(), 'icehockey_nhl', $mkExtended());
 
     TestRunner::assertTrue($altsOf($out, 'totals', 0) === null, 'Over outcome carries NO alternateLines by default');
     TestRunner::assertTrue($altsOf($out, 'totals', 1) === null, 'Under outcome carries NO alternateLines by default');
@@ -189,14 +191,28 @@ TestRunner::run('attachBuyPointsLadders — buyPointsAvailable NOT stamped for d
         }
     }
     unset($m);
-    $out = $attach($markets, 'baseball_mlb', $mkExtended());
+    $out = $attach($markets, 'icehockey_nhl', $mkExtended());
     TestRunner::assertFalse(array_key_exists('buyPointsAvailable', $outcomeOf($out, 'totals', 0) ?? []), 'manual Over → no hint');
     TestRunner::assertTrue(($outcomeOf($out, 'totals', 1)['buyPointsAvailable'] ?? null) === true, 'untouched Under still hinted');
 });
 
+TestRunner::run('attachBuyPointsLadders — baseball hard-disabled: NO spread ladder, NO totals hint, even with BUY_POINTS_TOTALS_ON_BOARD=true', function () use ($mkMarkets, $mkExtended, $attach, $altsOf, $outcomeOf): void {
+    // Business rule 2026-07-17: baseball buy points is permanently off (both
+    // markets), regardless of the env allowlist OR the totals-on-board flag.
+    // The suite's allowlist ($_ENV[BUY_POINTS_ENABLED_SPORTS]) does NOT list
+    // baseball, and isBuyPointsDisabledSport() would block it even if it did.
+    $_ENV['BUY_POINTS_TOTALS_ON_BOARD'] = 'true'; // most permissive display state
+    $out = $attach($mkMarkets(), 'baseball_mlb', $mkExtended());
+    unset($_ENV['BUY_POINTS_TOTALS_ON_BOARD']);
+
+    TestRunner::assertTrue($altsOf($out, 'spreads', 0) === null, 'baseball spreads: NO ladder attached');
+    TestRunner::assertTrue($altsOf($out, 'totals', 0) === null, 'baseball totals: NO ladder attached');
+    TestRunner::assertFalse(array_key_exists('buyPointsAvailable', $outcomeOf($out, 'totals', 0) ?? []), 'baseball totals: NO buyPointsAvailable hint');
+});
+
 TestRunner::run('attachBuyPointsLadders — BUY_POINTS_TOTALS_ON_BOARD=true restores totals attachment', function () use ($mkMarkets, $mkExtended, $attach, $altsOf): void {
     $_ENV['BUY_POINTS_TOTALS_ON_BOARD'] = 'true';
-    $out = $attach($mkMarkets(), 'baseball_mlb', $mkExtended());
+    $out = $attach($mkMarkets(), 'icehockey_nhl', $mkExtended());
     unset($_ENV['BUY_POINTS_TOTALS_ON_BOARD']);
 
     $overAlts = $altsOf($out, 'totals', 0);
@@ -209,7 +225,7 @@ TestRunner::run('attachBuyPointsLadders — BUY_POINTS_TOTALS_ON_BOARD=true rest
 TestRunner::run('buyPointsLadderForSelection — serves the totals ladder while the board gate is ON', function () use ($mkMarkets, $mkExtended): void {
     unset($_ENV['BUY_POINTS_TOTALS_ON_BOARD']); // gate on (default-hidden)
     $match = [
-        'sportKey' => 'baseball_mlb',
+        'sportKey' => 'icehockey_nhl',
         'odds' => ['markets' => $mkMarkets(), 'extendedMarkets' => $mkExtended()],
     ];
     $ladder = MatchesController::buyPointsLadderForSelection($match, 'totals', 'Over', 9.5);
@@ -220,7 +236,7 @@ TestRunner::run('buyPointsLadderForSelection — serves the totals ladder while 
 
     // Same single source as placement: the endpoint rung IS the placement rung.
     $pool = array_merge($mkMarkets(), $mkExtended());
-    $placed = BuyPointsPricing::priceBoughtPointFromFeed('baseball_mlb', 'totals', 'Over', 9.5, 0.5, $pool);
+    $placed = BuyPointsPricing::priceBoughtPointFromFeed('icehockey_nhl', 'totals', 'Over', 9.5, 0.5, $pool);
     TestRunner::assertTrue($placed !== null, 'placement prices the same 0.5 buy');
     TestRunner::assertEquals($placed['american'], $ladder[0]['americanOdds'], 'endpoint american == placement american');
 
@@ -241,14 +257,14 @@ TestRunner::run('buyPointsLadderForSelection — fail-closed empties: manual bas
     }
     unset($m);
     $manualMatch = [
-        'sportKey' => 'baseball_mlb',
+        'sportKey' => 'icehockey_nhl',
         'odds' => ['markets' => $manualMarkets, 'extendedMarkets' => $mkExtended()],
     ];
     TestRunner::assertEquals(0, count(MatchesController::buyPointsLadderForSelection($manualMatch, 'totals', 'Over', 9.5)), 'manual base → []');
 
     // Requested point not on the served base market (stale client) → [].
     $match = [
-        'sportKey' => 'baseball_mlb',
+        'sportKey' => 'icehockey_nhl',
         'odds' => ['markets' => $mkMarkets(), 'extendedMarkets' => $mkExtended()],
     ];
     TestRunner::assertEquals(0, count(MatchesController::buyPointsLadderForSelection($match, 'totals', 'Over', 10.5)), 'point mismatch → []');

@@ -2938,6 +2938,17 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                 const isUnder = selection.toLowerCase().startsWith('u');
                 return `${isUnder ? 'Under' : 'Over'} ${Math.abs(point)}${period}${american ? ` ${american}` : ''}`.trim();
               }
+              // Team total: selection embeds the team ("Tampa Bay Over"), so the
+              // fallback below would drop the line. Structured side field first,
+              // trailing-word parse for older legs — "Tampa Bay Team Total Over 3.5 -145".
+              if (market === 'team_totals' && Number.isFinite(point)) {
+                const sideRaw = String(leg?.side || '').toLowerCase();
+                const isUnder = sideRaw ? sideRaw === 'under' : /(?:^|\s)under\s*$/i.test(selection);
+                const teamFromSelection = selection.replace(/\s+(over|under)\s*$/i, '').trim();
+                const team = /^(over|under)$/i.test(teamFromSelection) ? '' : teamFromSelection;
+                const parts = [team, 'Team Total', isUnder ? 'Under' : 'Over', Math.abs(point)].filter(Boolean).join(' ');
+                return `${parts}${period}${american ? ` ${american}` : ''}`.trim();
+              }
               // Outright/futures: say WHICH future — "Vikings to win Super
               // Bowl +5000" (PO 2026-07-08). Falls back to plain name + odds
               // when the competition can't be resolved.

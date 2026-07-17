@@ -14,6 +14,7 @@ import TeaserTypePicker from './TeaserTypePicker';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
 import { prettyPlayerMarketLabel, isPlayerPropMarket, formatPropSelectionTitle } from '../utils/propBuilderMarkets';
 import { splitPeriodMarketKey } from '../utils/periods';
+import { roundRobinCombinationCount, roundRobinMaxWin as computeRoundRobinMaxWin } from '../utils/roundRobin';
 
 // Minimal structural fallbacks — NO hardcoded multipliers.
 // Real values always come from rulesByMode (loaded from DB via /api/betting/rules).
@@ -56,28 +57,9 @@ const OPEN_PARLAY_MAX_LEGS = 8;
 // settlement, which grades only the real added legs at their real odds.
 const OPEN_PARLAY_PLACEHOLDER_AMERICAN = -110;
 
-// nCr-based combination count for the Round Robin live readout. n is the
-// selection count, `sizes` is the user's chosen "By X's" set. Mirrors
-// php-backend RoundRobinService::combinationCount.
-const nCr = (n, k) => {
-    if (k < 0 || k > n) return 0;
-    if (k === 0 || k === n) return 1;
-    k = Math.min(k, n - k);
-    let result = 1;
-    for (let i = 0; i < k; i++) {
-        result = Math.floor((result * (n - i)) / (i + 1));
-    }
-    return result;
-};
-const roundRobinCombinationCount = (selectionCount, sizes) => {
-    let total = 0;
-    for (const size of (sizes || [])) {
-        const k = Number(size);
-        if (!Number.isFinite(k) || k < 2 || k >= selectionCount) continue;
-        total += nCr(selectionCount, k);
-    }
-    return total;
-};
+// Round Robin combination-count + max-win math lives in ../utils/roundRobin
+// (imported above) so it is unit-tested in CI — the previous inline copy
+// carried a stale `k >= N` bound that zeroed the "By N's" preview.
 
 // ── Same-Game Parlay (SGP) correlation profit-haircut ───────────────────────
 // The backend (SportsbookBetSupport::calculatePotentialPayout) shrinks a
@@ -281,6 +263,7 @@ const betTypeBaseLabel = (marketType) => {
     if (base === 'h2h') return `${prefix}Moneyline`;
     if (base === 'spreads') return `${prefix}Spread`;
     if (base === 'totals') return `${prefix}Total`;
+    if (base === 'team_totals') return `${prefix}Team Total`;
     if (base === 'alternate_totals_cards') return 'Total Cards';
     if (base === 'alternate_spreads_cards') return 'Card Handicap';
     // Player props (and any non-core market) get the friendly stat label —
@@ -301,6 +284,14 @@ const betTypeLineLabel = (sel) => {
     }
     if ((market === 'totals' || market === 'alternate_totals_cards') && Number.isFinite(line)) {
         const isUnder = String(sel?.selection || '').toUpperCase().startsWith('U');
+        return `${base} ${isUnder ? 'Under' : 'Over'} ${trimNumber(Math.abs(line))}`;
+    }
+    // Team totals: the selection name embeds the team, not the side prefix
+    // ("Tampa Bay Over"), so read the structured side meta first and fall
+    // back to the trailing word — never startsWith like game totals.
+    if (market === 'team_totals' && Number.isFinite(line)) {
+        const sideMeta = String(sel?.teamTotal?.side || '').toLowerCase();
+        const isUnder = sideMeta ? sideMeta === 'under' : /(?:^|\s)under\s*$/i.test(String(sel?.selection || ''));
         return `${base} ${isUnder ? 'Under' : 'Over'} ${trimNumber(Math.abs(line))}`;
     }
     return base;
@@ -1280,42 +1271,25 @@ const ModeBetPanel = ({
 
     const roundRobinTotalRisk = roundRobinStakePerParlay * roundRobinParlayCount;
 
-    // Sum of every child parlay's max payout — read-only display.
+    // Sum of every child parlay's max payout — read-only display. The
+    // combinatorial iteration + k-bound live in the tested ../utils/roundRobin
+    // helper; the SGP profit-haircut stays here because it needs the raw
+    // selection shape (matchId sharing + player-prop detection). For each
+    // combination the helper multiplies the snapped leg odds, then this
+    // callback shrinks a SAME-GAME child's profit (2+ legs share a matchId,
+    // allowed since 2026-07-17) exactly like the backend's priceRoundRobinChild
+    // so the display can't overstate the booked max win. Cross-game children
+    // return fraction 0. Display-only; the backend stays the authority.
     const roundRobinMaxWin = useMemo(() => {
-        if (normalizedMode !== 'round_robin' || roundRobinParlayCount === 0 || roundRobinStakePerParlay <= 0) return 0;
-        let total = 0;
-        for (const size of roundRobinSizes) {
-            const k = Number(size);
-            if (!Number.isFinite(k) || k < 2 || k > legCount) continue;
-            // For each combination at this size, payout = stake × product(odds).
-            // Iterating combinations to sum exactly matches the backend's
-            // child-by-child accumulator and handles uneven leg odds
-            // correctly (no shortcut average works here). A SAME-GAME child
-            // (2+ of its legs share a matchId — allowed since 2026-07-17)
-            // additionally gets the SGP profit-only haircut, mirroring the
-            // backend's priceRoundRobinChild so this display can't overstate
-            // the booked max win. Cross-game children are untouched
-            // (fraction 0). Display-only; the backend stays the authority.
-            const visit = (start, acc) => {
-                if (acc.length === k) {
-                    let combined = 1;
-                    for (const idx of acc) combined *= exactDecimalForLeg(selections[idx]?.odds);
-                    const comboLegs = acc.map((idx) => selections[idx]).filter(Boolean);
-                    const hc = sgpHaircutFraction(comboLegs);
-                    if (hc > 0 && combined > 1) combined = 1 + (combined - 1) * (1 - hc);
-                    total += roundRobinStakePerParlay * combined;
-                    return;
-                }
-                for (let i = start; i < legCount; i++) {
-                    acc.push(i);
-                    visit(i + 1, acc);
-                    acc.pop();
-                }
-            };
-            visit(0, []);
-        }
-        return total;
-    }, [normalizedMode, roundRobinSizes, roundRobinStakePerParlay, roundRobinParlayCount, legCount, selections]);
+        if (normalizedMode !== 'round_robin') return 0;
+        const legDecimals = selections.map((sel) => exactDecimalForLeg(sel?.odds));
+        return computeRoundRobinMaxWin(
+            legDecimals,
+            roundRobinSizes,
+            roundRobinStakePerParlay,
+            (indexes) => sgpHaircutFraction(indexes.map((idx) => selections[idx]).filter(Boolean)),
+        );
+    }, [normalizedMode, roundRobinSizes, roundRobinStakePerParlay, legCount, selections]);
 
     const validationErrors = useMemo(() => {
         const errors = [];

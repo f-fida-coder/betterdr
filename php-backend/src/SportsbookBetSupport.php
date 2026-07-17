@@ -2457,7 +2457,9 @@ final class SportsbookBetSupport
         }
         $marketType = strtolower((string) ($selection['marketType'] ?? ''));
         $point = (float) $selection['point'];
-        if ($marketType === 'totals') {
+        // Totals lines (game or team, any period suffix) are unsigned — a
+        // "+3.50" reads like a spread on an audit row.
+        if (str_starts_with($marketType, 'totals') || str_starts_with($marketType, 'team_totals')) {
             return '(' . number_format($point, 2) . ')';
         }
         return '(' . ($point > 0 ? '+' : '') . number_format($point, 2) . ')';
