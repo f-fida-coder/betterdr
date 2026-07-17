@@ -35,6 +35,7 @@ const STYLE_FEEDBACK = {
 };
 
 const CasinoView = React.lazy(() => import('./CasinoView'));
+const OnboardingGate = React.lazy(() => import('./OnboardingGate'));
 const PropsView = React.lazy(() => import('./PropsView'));
 const PropBuilderView = React.lazy(() => import('./PropBuilderView'));
 const RulesView = React.lazy(() => import('./RulesView'));
@@ -102,6 +103,22 @@ function UserDashboardShell({
     window.addEventListener('search:open-match', handleOpen);
     return () => window.removeEventListener('search:open-match', handleOpen);
   }, []);
+
+  // First-login onboarding gate (bet defaults + rules acknowledgment).
+  // `user.onboarding.required` is server-derived on every /auth/me, so the
+  // gate shows on login for any player who hasn't completed both steps —
+  // new AND existing accounts. Dismissal is SESSION-SCOPED React state
+  // (deliberately not persisted): closing lets the player browse, but the
+  // gate returns on the next login and re-opens immediately when a bet
+  // attempt hits the server's ONBOARDING_REQUIRED block (`onboarding:show`,
+  // dispatched by ModeBetPanel's placement error handler).
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  useEffect(() => {
+    const handleShow = () => setOnboardingDismissed(false);
+    window.addEventListener('onboarding:show', handleShow);
+    return () => window.removeEventListener('onboarding:show', handleShow);
+  }, []);
+  const onboardingRequired = user?.role === 'user' && user?.onboarding?.required === true;
 
   // Mobile parity with DashboardMain: when the selection contains a futures
   // entry, render OutrightsView instead of the regular match-list
@@ -270,6 +287,14 @@ function UserDashboardShell({
           match={searchOpenMatch}
           onClose={() => setSearchOpenMatch(null)}
         />
+      )}
+      {onboardingRequired && !onboardingDismissed && (
+        <Suspense fallback={null}>
+          <OnboardingGate
+            user={user}
+            onDismiss={() => setOnboardingDismissed(true)}
+          />
+        </Suspense>
       )}
     </div>
   );

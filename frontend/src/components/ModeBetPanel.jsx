@@ -2583,6 +2583,17 @@ const ModeBetPanel = ({
                 showToast(capText, 'error');
                 return;
             }
+            // Server-side onboarding gate: the player dismissed (or never saw)
+            // the first-login setup, so placement is blocked until bet
+            // defaults + rules acknowledgment are complete. Re-open the gate
+            // right here instead of leaving them stuck on an error toast.
+            if (String(error?.code || '') === 'ONBOARDING_REQUIRED') {
+                window.dispatchEvent(new Event('onboarding:show'));
+                const gateText = error.message || 'Finish your account setup to place bets.';
+                setMessage({ type: 'error', text: gateText });
+                showToast(gateText, 'warning');
+                return;
+            }
             const errorText = error.message || 'Failed to place bet';
             setMessage({ type: 'error', text: errorText });
             showToast(errorText, 'error');

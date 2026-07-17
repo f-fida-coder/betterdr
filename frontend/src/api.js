@@ -583,6 +583,41 @@ export const updateProfile = async (profileData, token) => {
     return data;
 };
 
+// One-shot rules acknowledgment from the first-login onboarding gate.
+// Server stamps timestamp + version + IP (immutable once set for the
+// current rules version) and returns the full me-shape payload, which we
+// prime into the auth caches so `onboarding.required` flips without
+// waiting out the 15s me-cache TTL.
+export const acknowledgeRules = async (token) => {
+    const response = await fetch(buildApiUrl('/auth/acknowledge-rules'), {
+        method: 'POST',
+        headers: getHeaders(token),
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to acknowledge rules');
+    }
+    const data = await response.json();
+    if (token && data?.user) {
+        primeMeCache(token, data.user);
+        primeAuthBootstrapCache({ token, role: data.user.role, user: data.user, source: 'rules-ack' });
+    }
+    return data;
+};
+
+// Player-facing house rules (admin-managed `rules` collection, active docs
+// only). Rendered in the onboarding gate's acknowledgment step.
+export const getContentRules = async (token) => {
+    const response = await fetch(buildApiUrl('/content/rules'), {
+        headers: getHeaders(token),
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to load rules');
+    }
+    return response.json();
+};
+
 const buildMatchesParams = (status = '', options = {}) => {
     const params = {};
     if (status) {

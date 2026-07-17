@@ -332,6 +332,18 @@ final class BetsController
                 return;
             }
 
+            // First-login onboarding gate — players must set bet defaults AND
+            // acknowledge the platform rules before any sportsbook stake is
+            // accepted. Server-side so a stale cached bundle (no onboarding
+            // UI) can't bypass the gate. Browsing/odds stay open; only money
+            // commitment is blocked. Derived per-request from the user doc
+            // via the same OnboardingPolicy /auth/me uses.
+            if (OnboardingPolicy::placementBlocked($user)) {
+                throw new ApiException('Please set your bet defaults and acknowledge the platform rules before placing bets.', 403, [
+                    'code' => 'ONBOARDING_REQUIRED',
+                ]);
+            }
+
             $body = Http::jsonBody();
             $requestId = SportsbookBetSupport::normalizeRequestId((string) (($body['requestId'] ?? '') ?: Http::header('x-request-id')));
             if ($requestId === '') {
@@ -1322,6 +1334,14 @@ final class BetsController
                 return;
             }
 
+            // Same first-login onboarding gate as placeBet — an open parlay
+            // commits a stake at creation, so it is equally blocked.
+            if (OnboardingPolicy::placementBlocked($user)) {
+                throw new ApiException('Please set your bet defaults and acknowledge the platform rules before placing bets.', 403, [
+                    'code' => 'ONBOARDING_REQUIRED',
+                ]);
+            }
+
             $body = Http::jsonBody();
             $requestId = SportsbookBetSupport::normalizeRequestId((string) (($body['requestId'] ?? '') ?: Http::header('x-request-id')));
             if ($requestId === '') {
@@ -1759,6 +1779,14 @@ final class BetsController
             $user = $this->protect();
             if ($user === null) {
                 return;
+            }
+
+            // Same first-login onboarding gate as placeBet — adding a leg
+            // reprices the ticket's committed stake, so it is equally blocked.
+            if (OnboardingPolicy::placementBlocked($user)) {
+                throw new ApiException('Please set your bet defaults and acknowledge the platform rules before placing bets.', 403, [
+                    'code' => 'ONBOARDING_REQUIRED',
+                ]);
             }
 
             $body = Http::jsonBody();

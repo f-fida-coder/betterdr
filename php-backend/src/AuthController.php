@@ -134,6 +134,10 @@ final class AuthController
             $this->updateProfile();
             return true;
         }
+        if ($path === '/api/auth/acknowledge-rules' && $method === 'POST') {
+            $this->acknowledgeRules();
+            return true;
+        }
         if ($path === '/api/auth/gambling-limits' && $method === 'GET') {
             $this->getGamblingLimits();
             return true;
@@ -807,6 +811,83 @@ final class AuthController
         }
     }
 
+    /**
+     * POST /api/auth/acknowledge-rules — the one-shot rules acknowledgment
+     * from the first-login onboarding gate. Deliberately NOT part of the
+     * merge-style /auth/profile update: this is a legal stamp (server
+     * clock + IP + user agent), immutable once set for the current
+     * RULES_VERSION — re-sends are idempotent no-ops, and a version bump
+     * archives the prior stamp to rulesAckHistory instead of overwriting it.
+     */
+    private function acknowledgeRules(): void
+    {
+        try {
+            $user = $this->protect();
+            if ($user === null) {
+                return;
+            }
+
+            // Non-player roles have nothing to acknowledge — respond OK so a
+            // stray call can't error-loop a shared frontend surface.
+            if (!OnboardingPolicy::isPlayer($user)) {
+                Response::json([
+                    'message' => 'Rules acknowledgment is not required for this account',
+                    'user' => $this->buildMePayload($user),
+                ]);
+                return;
+            }
+
+            if (OnboardingPolicy::rulesAckSatisfied($user)) {
+                // Immutable: the original stamp stands; repeat calls no-op.
+                Response::json([
+                    'message' => 'Rules already acknowledged',
+                    'user' => $this->buildMePayload($user),
+                ]);
+                return;
+            }
+
+            $now = SqlRepository::nowUtc();
+            $ack = [
+                'acknowledgedAt' => $now,
+                'version' => OnboardingPolicy::RULES_VERSION,
+                'ip' => IpUtils::clientIp(),
+                'userAgent' => Http::header('user-agent') !== '' ? Http::header('user-agent') : null,
+            ];
+            $updates = ['rulesAck' => $ack, 'updatedAt' => $now];
+
+            // A stale ack from an OLDER rules version is archived, never lost —
+            // the audit trail must show every version the player accepted.
+            $previousAck = is_array($user['rulesAck'] ?? null) ? $user['rulesAck'] : null;
+            if ($previousAck !== null) {
+                $history = is_array($user['rulesAckHistory'] ?? null) ? $user['rulesAckHistory'] : [];
+                $history[] = $previousAck;
+                $updates['rulesAckHistory'] = $history;
+            }
+
+            $this->db->updateOne('users', ['id' => SqlRepository::id((string) $user['id'])], $updates);
+            $user['rulesAck'] = $ack;
+            if (isset($updates['rulesAckHistory'])) {
+                $user['rulesAckHistory'] = $updates['rulesAckHistory'];
+            }
+
+            Logger::info('Rules acknowledged', [
+                'userId' => (string) $user['id'],
+                'version' => OnboardingPolicy::RULES_VERSION,
+                'ip' => $ack['ip'],
+            ], 'auth');
+
+            Response::json([
+                'message' => 'Rules acknowledged',
+                'user' => $this->buildMePayload($user),
+            ]);
+        } catch (Throwable $e) {
+            Logger::error('Rules acknowledgment failed', [
+                'error' => $e->getMessage(),
+            ], 'auth');
+            Response::json(['message' => 'Server error acknowledging rules'], 500);
+        }
+    }
+
     private function protect(): ?array
     {
         $auth = Http::header('authorization');
@@ -1007,6 +1088,12 @@ final class AuthController
             'agentBillingStatus' => $user['agentBillingStatus'] ?? null,
             'dashboardLayout' => $user['dashboardLayout'] ?? null,
             'settings' => is_array($user['settings'] ?? null) ? $user['settings'] : null,
+            // First-login onboarding state — DERIVED from the doc on every
+            // read (never stored), so login, /auth/me, and the placement
+            // gate can never disagree. Present in the LOGIN payload too:
+            // App seeds its user object from here, and the gate must show
+            // on the very first render after login, not one me-refresh later.
+            'onboarding' => OnboardingPolicy::state($user),
             'permissions' => $user['permissions'] ?? null,
             'gamblingLimits' => is_array($user['gamblingLimits'] ?? null) ? $user['gamblingLimits'] : null,
             'selfExcludedUntil' => $user['selfExcludedUntil'] ?? null,
@@ -1067,6 +1154,10 @@ final class AuthController
             'agentBillingStatus' => $user['agentBillingStatus'] ?? null,
             'dashboardLayout' => $user['dashboardLayout'] ?? null,
             'settings' => is_array($user['settings'] ?? null) ? $user['settings'] : null,
+            // First-login onboarding state — DERIVED from the doc on every
+            // read (never stored), so the frontend gate, /auth/me, and the
+            // ONBOARDING_REQUIRED placement gate can never disagree.
+            'onboarding' => OnboardingPolicy::state($user),
             'permissions' => $user['permissions'] ?? null,
             'gamblingLimits' => is_array($user['gamblingLimits'] ?? null) ? $user['gamblingLimits'] : null,
             'selfExcludedUntil' => $user['selfExcludedUntil'] ?? null,
