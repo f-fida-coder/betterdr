@@ -32,3 +32,11 @@ releases/
 # Pre-deploy DB snapshots (php-backend/scripts/backup-store.php).
 # Gzipped SQL dumps containing PII + money rows — NEVER commit.
 backups/
+
+# Server runtime files — live ONLY on the VPS working tree, never in git.
+# env.runtime holds APP_ENV=production (deleting it silently drops CLI
+# workers into dev mode — see project_cli_env_split); storage/ is runtime
+# logs/cache. Ignored so a server-side `git status` stays clean and these
+# can never be swept up by an accidental `git add -A` or `git clean`.
+env.runtime
+php-backend/storage/
