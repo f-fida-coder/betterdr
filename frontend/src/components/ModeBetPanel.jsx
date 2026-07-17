@@ -1741,7 +1741,13 @@ const ModeBetPanel = ({
             // saved default on its next first open.
             if (!slipFirstOpenedRef.current) {
                 slipFirstOpenedRef.current = true;
-                setStakeMode(defaultStakeMode);
+                // Read the CURRENT default mode via the live snapshot, not the
+                // closure: this listener registers once ([] deps), so the bare
+                // `defaultStakeMode` here froze at first render and stomped a
+                // just-saved preference (e.g. saved WIN, slip opened showing
+                // the pre-save mode) — the exact stale-closure problem the
+                // seedCtxRef pattern already solves for the amount seed above.
+                setStakeMode(ctx.defaultStakeMode || 'risk');
             }
         };
         window.addEventListener('betslip:open', handleOpen);
@@ -1749,7 +1755,7 @@ const ModeBetPanel = ({
     }, []);
 
     // Keep the open-listener's live snapshot current every render.
-    seedCtxRef.current = { normalizedMode, wager, defaultAmountForMode };
+    seedCtxRef.current = { normalizedMode, wager, defaultAmountForMode, defaultStakeMode };
 
     // Re-seed the stake when the mode switches between buckets (straight ↔
     // parlay-like), but ONLY while the wager is untouched — empty, or still
