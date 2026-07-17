@@ -364,10 +364,27 @@ final class CasinoController
     // player-neutral (the deck was committed at deal; time reveals nothing).
     private const ACES_AND_EIGHTS_ABANDON_SECONDS = 86400;
 
+    // The games the platform actually OFFERS. Player-facing listing and the
+    // category counters serve ONLY these slugs — the casinogames table still
+    // carries legacy imported placeholder rows plus delisted games with real
+    // bet history (blackjack, baccarat, stud-poker, arabian-treasure) that
+    // must stay for auditability but never be shown. Mirrors the frontend
+    // LOCAL_GAME_META / OFFERED_GAME_SLUGS lists — keep all three in sync
+    // when a game launches. Admin all=true listings stay unfiltered so the
+    // catalog truth remains inspectable.
+    private const OFFERED_GAME_SLUGS = [
+        self::THREE_CARD_POKER_GAME_SLUG,
+        self::ACES_AND_EIGHTS_GAME_SLUG,
+        self::AMERICAN_ROULETTE_GAME_SLUG,
+        self::ARABIAN_GAME_SLUG,
+        self::BACCARAT_CLASSIC_GAME_SLUG,
+        self::BOGEYMAN_GAME_SLUG,
+        self::CRAPS_GAME_SLUG,
+        self::JURASSIC_RUN_GAME_SLUG,
+    ];
+
     private const DEFAULT_CASINO_GAMES = [
-        ['provider' => 'internal', 'name' => 'Single Hand ($1-$100)', 'slug' => 'single-hand-1-100', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#115e59', 'icon' => 'fa-solid fa-diamond', 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Baccarat', 'slug' => 'baccarat-classic', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#9f1239', 'icon' => 'fa-solid fa-gem', 'imageUrl' => '/games/baccarat-classic/images/poster.jpg', 'tags' => ['table games', 'baccarat', 'in-house'], 'isFeatured' => true],
-        ['provider' => 'internal', 'name' => 'Blackjack', 'slug' => 'blackjack', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0b5563', 'icon' => 'fa-solid fa-club', 'imageUrl' => '/games/blackjack/src/images/misc/table.png', 'tags' => ['table games', 'blackjack', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Craps', 'slug' => 'craps', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0a4f3a', 'icon' => 'fa-solid fa-dice-six', 'imageUrl' => '/games/craps/sprites/board_table.jpg', 'tags' => ['table games', 'craps', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Arabian Game', 'slug' => 'arabian', 'category' => 'slots', 'minBet' => 0.3, 'maxBet' => 30, 'themeColor' => '#7e22ce', 'icon' => 'fa-solid fa-scroll', 'imageUrl' => '/games/arabian/sprites/200x200.jpg', 'tags' => ['slots', 'arabian', 'in-house', 'server settled'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Jurassic Run', 'slug' => 'jurassic-run', 'category' => 'slots', 'minBet' => 1, 'maxBet' => 5000, 'rtp' => 95.0, 'volatility' => 'medium', 'themeColor' => '#166534', 'icon' => 'fa-solid fa-dragon', 'imageUrl' => '/games/jurassic-run/assets/images/background_middle.webp', 'tags' => ['slots', 'jurassic', 'in-house', 'server settled', 'progressive jackpot'], 'isFeatured' => true, 'metadata' => ['paylines' => 10, 'reels' => 5, 'rows' => 3, 'jackpotType' => 'progressive', 'jackpotContributionPercent' => 5, 'freeSpinAwards' => [3 => 2, 4 => 3, 5 => 4], 'rngVersion' => 'jurassic-slot-v1', 'fairness' => ['outcomeSource' => 'server_rng', 'spinIndependence' => true], 'features' => ['wild', 'free_spins', 'progressive_jackpot']]],
@@ -375,8 +392,6 @@ final class CasinoController
         ['provider' => 'internal', 'name' => '3-Card Poker', 'slug' => '3card-poker', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 300, 'themeColor' => '#1a3a5c', 'icon' => 'fa-solid fa-cards', 'imageUrl' => '/games/3-card-poker/sprites/200x200.jpg', 'tags' => ['table games', 'poker', '3-card poker', 'in-house'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'American Roulette', 'slug' => 'american-roulette', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 5000, 'themeColor' => '#b91c1c', 'icon' => 'fa-solid fa-circle-notch', 'imageUrl' => '/games/american-roulette/images/poster.jpg', 'tags' => ['table games', 'roulette', 'in-house', 'server settled'], 'isFeatured' => true, 'metadata' => ['wheel' => 'american', 'pockets' => 38, 'rngVersion' => 'csprng-wheel-american-v1', 'fairness' => ['outcomeSource' => 'server_rng', 'spinIndependence' => true], 'positionMax' => ['straight' => 25, 'split' => 50, 'street' => 75, 'basket' => 75, 'corner' => 100, 'fivebet' => 125, 'sixline' => 150, 'dozen' => 100, 'column' => 100, 'color' => 100, 'parity' => 100, 'range' => 100]]],
         ['provider' => 'internal', 'name' => 'Aces & Eights', 'slug' => 'aces-and-eights', 'category' => 'video_poker', 'minBet' => 0.25, 'maxBet' => 25, 'rtp' => 96.8, 'volatility' => 'high', 'themeColor' => '#0f766e', 'icon' => 'fa-solid fa-cards', 'imageUrl' => '/games/aces-and-eights/game/_build/img/bkgdVPA8.png', 'tags' => ['video poker', 'aces and eights', 'in-house', 'server settled'], 'isFeatured' => true, 'metadata' => ['gameType' => 'video_poker', 'coinValues' => [0.25, 0.50, 1.00, 2.00, 5.00], 'maxCoins' => 5, 'rngVersion' => 'vp-a8-csprng-deck-v1', 'fairness' => ['outcomeSource' => 'server_rng', 'deckCommittedAtDeal' => true]]],
-        ['provider' => 'internal', 'name' => 'Jacks or Better', 'slug' => 'jacks-or-better', 'category' => 'video_poker', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#be123c', 'icon' => 'fa-solid fa-cards'],
-        ['provider' => 'internal', 'name' => 'Video Keno', 'slug' => 'video-keno', 'category' => 'specialty_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#0ea5e9', 'icon' => 'fa-solid fa-table-cells-large'],
     ];
 
     public static function handleFallbackRoute(string $method, string $path, string $jwtSecret): bool
@@ -640,6 +655,14 @@ final class CasinoController
                     $allGames,
                     fn(array $game): bool => !in_array(strtolower((string) ($game['slug'] ?? '')), self::REMOVED_GAME_SLUGS, true)
                 ));
+                if (!$includeAll) {
+                    // Players only ever see the offered catalog; legacy import
+                    // rows and delisted-with-history games never leave the API.
+                    $games = array_values(array_filter(
+                        $games,
+                        fn(array $game): bool => in_array(strtolower((string) ($game['slug'] ?? '')), self::OFFERED_GAME_SLUGS, true)
+                    ));
+                }
                 $total = count($games);
                 $games = array_slice($games, $skip, $limit);
 
@@ -701,7 +724,8 @@ final class CasinoController
                 ]);
                 $activeGames = array_values(array_filter(
                     $activeGames,
-                    fn(array $game): bool => !in_array(strtolower((string) ($game['slug'] ?? '')), self::REMOVED_GAME_SLUGS, true)
+                    fn(array $game): bool => in_array(strtolower((string) ($game['slug'] ?? '')), self::OFFERED_GAME_SLUGS, true)
+                        && !in_array(strtolower((string) ($game['slug'] ?? '')), self::REMOVED_GAME_SLUGS, true)
                 ));
 
                 $counts = [
