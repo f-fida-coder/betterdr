@@ -89,6 +89,9 @@ jobs:
       - name: Round Robin preview math (k=N bound + backend parity)
         run: node tools/qa/round-robin-preview.mjs
 
+      - name: Bet-slip / receipt selection labels (shared formatLegLabel)
+        run: node tools/qa/leg-label.mjs
+
       - name: Build
         working-directory: frontend
         run: npm run build

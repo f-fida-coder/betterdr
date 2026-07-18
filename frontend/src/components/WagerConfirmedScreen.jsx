@@ -1,11 +1,9 @@
 import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
-import { formatOdds, formatLineValue, formatSpreadValue, americanToDecimal } from '../utils/odds';
-import { isOutrightLeg, outrightLegText } from '../utils/outrightLabel';
+import { formatOdds, americanToDecimal } from '../utils/odds';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
-import { prettyPlayerMarketLabel, isPlayerPropMarket } from '../utils/propBuilderMarkets';
-import { splitPeriodMarketKey } from '../utils/periods';
 import { formatMoneyWholeFloored } from '../utils/money';
+import { formatLegLabel } from '../utils/legLabel';
 
 // 2dp w/ thousands separator. Mirrors the bet-review modal's formatAmount
 // so the post-placement Risk tile matches exactly. Integer rounding
@@ -45,39 +43,9 @@ const fmtTimestamp = (value) => {
     return `${formatted} ${getSiteTimezoneLabel(tz)}`;
 };
 
-const lineSuffix = (leg) => {
-    // Base market drives signed-vs-unsigned formatting; period-suffixed
-    // keys ('spreads_1st_5_innings') format like their base market.
-    const market = splitPeriodMarketKey(leg?.marketType).base;
-    const label = market === 'spreads'
-        ? formatSpreadValue(leg?.point ?? leg?.line, { fallback: '' })
-        : formatLineValue(leg?.point ?? leg?.line, { fallback: '' });
-    return label ? ` (${label})` : '';
-};
-
-// Period tag for period-market legs (DISPLAY only): "Over (3.5) · F5".
-// Empty for full-game legs, so existing receipts are untouched.
-const periodMarketTag = (leg) => {
-    const { periodLabel } = splitPeriodMarketKey(leg?.marketType);
-    return periodLabel ? ` · ${periodLabel}` : '';
-};
-
-// Friendly stat label appended inline for player-prop legs (DISPLAY only):
-// "Osuna Over 0.5 Runs Scored". Empty for game markets.
-const propMarketSuffix = (leg) => (
-    isPlayerPropMarket(leg?.marketType) ? ` ${prettyPlayerMarketLabel(leg?.marketType)}` : ''
-);
-
-// Selection text for the receipt row (DISPLAY only). Futures legs read
-// "Vikings to win Super Bowl" (PO 2026-07-08 — bare name + odds didn't say
-// which future); unresolvable competition falls back to the raw selection
-// name, and every other market keeps its selection untouched.
-const legSelectionText = (leg) => {
-    if (isOutrightLeg(leg)) {
-        return outrightLegText(leg) || leg?.selection || '';
-    }
-    return leg?.selection || '';
-};
+// Per-leg selection text is now the shared one-line formatLegLabel (imported)
+// — same short format as the betslip and My Bets ("Detroit Tigers -1.5",
+// "Over 12", "Tampa Bay Team Total Over 3.5", "Vikings to win Super Bowl").
 
 // "Line moved" note under a repriced leg. Booking auto-accepts favorable
 // moves and small in-band adverse moves, placing at the official current
@@ -306,7 +274,7 @@ const WagerConfirmedScreen = ({
                                             <i className="fa-solid fa-circle-check" style={{ color: '#16a34a', marginTop: 3, fontSize: 11 }} />
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ fontWeight: 700, color: '#0f172a', wordBreak: 'break-word' }}>
-                                                    {legSelectionText(leg) || '-'}{propMarketSuffix(leg)}{lineSuffix(leg)}{periodMarketTag(leg)}
+                                                    {formatLegLabel(leg) || '-'}
                                                 </div>
                                                 <div style={{ fontSize: 11, color: '#64748b' }}>
                                                     {matchTitle(leg) || (leg.matchId || '')}

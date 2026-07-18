@@ -14,6 +14,7 @@ import TeaserTypePicker from './TeaserTypePicker';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
 import { prettyPlayerMarketLabel, isPlayerPropMarket, formatPropSelectionTitle } from '../utils/propBuilderMarkets';
 import { splitPeriodMarketKey } from '../utils/periods';
+import { formatLegLabel } from '../utils/legLabel';
 import { roundRobinCombinationCount, roundRobinMaxWin as computeRoundRobinMaxWin } from '../utils/roundRobin';
 
 // Minimal structural fallbacks — NO hardcoded multipliers.
@@ -254,48 +255,10 @@ const trimNumber = (n) => {
 };
 
 // Bet-type base label: 'Spread', 'Moneyline', 'Total'. Period-suffixed core
-// keys ('totals_1st_5_innings', 'h2h_q1', …) resolve on their BASE market
-// and carry the period chip label as a prefix — "F5 Total", "1Q Moneyline" —
-// so a period leg can never read like a full-game leg on the slip.
-const betTypeBaseLabel = (marketType) => {
-    const { base, periodLabel } = splitPeriodMarketKey(marketType);
-    const prefix = periodLabel ? `${periodLabel} ` : '';
-    if (base === 'h2h') return `${prefix}Moneyline`;
-    if (base === 'spreads') return `${prefix}Spread`;
-    if (base === 'totals') return `${prefix}Total`;
-    if (base === 'team_totals') return `${prefix}Team Total`;
-    if (base === 'alternate_totals_cards') return 'Total Cards';
-    if (base === 'alternate_spreads_cards') return 'Card Handicap';
-    // Player props (and any non-core market) get the friendly stat label —
-    // never the raw uppercase wire key (e.g. BATTER_RUNS_SCORED).
-    return prettyPlayerMarketLabel(marketType) || 'Bet';
-};
-
-// Bet-type + line shown to the left of American odds on the card. Returns
-// 'Spread -1.5' / 'Spread +2.5', 'Moneyline', or 'Total Over 54.5' /
-// 'Total Under 47.5' depending on market type and selection name.
-const betTypeLineLabel = (sel) => {
-    const base = betTypeBaseLabel(sel?.marketType);
-    const market = splitPeriodMarketKey(sel?.marketType).base;
-    const line = Number(sel?.line);
-    if ((market === 'spreads' || market === 'alternate_spreads_cards') && Number.isFinite(line)) {
-        const signed = line > 0 ? `+${trimNumber(line)}` : trimNumber(line);
-        return `${base} ${signed}`;
-    }
-    if ((market === 'totals' || market === 'alternate_totals_cards') && Number.isFinite(line)) {
-        const isUnder = String(sel?.selection || '').toUpperCase().startsWith('U');
-        return `${base} ${isUnder ? 'Under' : 'Over'} ${trimNumber(Math.abs(line))}`;
-    }
-    // Team totals: the selection name embeds the team, not the side prefix
-    // ("Tampa Bay Over"), so read the structured side meta first and fall
-    // back to the trailing word — never startsWith like game totals.
-    if (market === 'team_totals' && Number.isFinite(line)) {
-        const sideMeta = String(sel?.teamTotal?.side || '').toLowerCase();
-        const isUnder = sideMeta ? sideMeta === 'under' : /(?:^|\s)under\s*$/i.test(String(sel?.selection || ''));
-        return `${base} ${isUnder ? 'Under' : 'Over'} ${trimNumber(Math.abs(line))}`;
-    }
-    return base;
-};
+// keys ('totals_1st_5_innings', 'h2h_q1', …). The one-line selection label
+// (moneyline/spread/total/team-total/period) is built by the shared
+// ../utils/legLabel formatLegLabel — used by the betslip, the receipt, and
+// mirrored by My Bets — so all surfaces read identically.
 
 // Line notation used in the Buy Points dropdown: -10.5 -> '-10.5',
 // 47.5 -> '47.5' (unsigned for totals), 10 -> '+10' / '10'. DECIMALS by
@@ -751,7 +714,7 @@ const ModeBetPanel = ({
     // arithmetic op + string formatting), and the slip render loop
     // calls it once per leg — memoizing buys nothing measurable.
     const legPreviewLine = (sel) => {
-        const baseLabel = betTypeLineLabel(sel);
+        const baseLabel = formatLegLabel(sel);
         if (normalizedMode !== 'teaser' || !selectedTeaserType) return baseLabel;
         const market = String(sel?.marketType || '').toLowerCase();
         if (market !== 'spreads' && market !== 'totals') return baseLabel;
@@ -777,13 +740,16 @@ const ModeBetPanel = ({
         if (market === 'spreads') {
             const adjSign = adjN > 0 ? `+${trim(adjN)}` : trim(adjN);
             const baseSign = baseN > 0 ? `+${trim(baseN)}` : trim(baseN);
-            mainText = `Spread ${adjSign}`;
+            // Short format: "{team} {teased line}" (the signed line implies spread).
+            const team = String(sel?.selectionFull || sel?.selection || 'Pick').trim();
+            mainText = `${team} ${adjSign}`;
             bpText = `(BP ${baseSign})`;
         } else {
             const isUnder = String(sel?.selection || '').toUpperCase().startsWith('U');
             const sideWord = isUnder ? 'Under' : 'Over';
             const sideShort = isUnder ? 'U' : 'O';
-            mainText = `Total ${sideWord} ${trim(Math.abs(adjN))}`;
+            // Short format: "Over 48.5" (no "Total" prefix).
+            mainText = `${sideWord} ${trim(Math.abs(adjN))}`;
             bpText = `(BP ${sideShort} ${trim(Math.abs(baseN))})`;
         }
         return (
@@ -3368,11 +3334,11 @@ const ModeBetPanel = ({
                         ? (sel?.wagerOverride?.winRaw ?? '')
                         : (win > 0 ? formatMoney(win) : '');
                     const matchupTitle = String(sel.matchName || sel.selection || '').toUpperCase();
-                    // Teaser-aware line text: legPreviewLine returns the
-                    // adjusted line + a muted "(BP …)" suffix when teaser
-                    // mode + a type is picked. Falls through to the plain
-                    // base label in every other mode.
-                    const betTypeText = legPreviewLine(sel);
+                    // One-line selection label (shared formatLegLabel via
+                    // legPreviewLine). Teaser mode swaps in the adjusted line +
+                    // a muted "(BP …)" base-line suffix; every other mode gets
+                    // the plain short label ("Detroit Tigers -1.5", "Over 12").
+                    const legLabelText = legPreviewLine(sel);
                     // Player props show the friendly stat label inline right
                     // after the selection ("Osuna Over 0.5 Runs Scored") rather
                     // than as a separate raw-key line below the odds.
@@ -3501,7 +3467,7 @@ const ModeBetPanel = ({
                                 }}>
                                     <span>{isProp
                                         ? formatPropSelectionTitle(sel.selectionFull || sel.selection, propMarketLabel)
-                                        : `${sel.selectionFull || sel.selection}${propMarketLabel ? ` ${propMarketLabel}` : ''}`}</span>
+                                        : legLabelText}</span>
                                     {sel.isLive && (
                                         // LIVE BET pill — flagged at add-to-slip
                                         // time from match.isLive, which is true
@@ -3553,19 +3519,16 @@ const ModeBetPanel = ({
                                     </div>
                                 )}
 
-                                {/* Bet type + line on the left, American odds
-                                    (always green) on the right. ML bets only
-                                    show 'Moneyline' on the left. */}
+                                {/* American odds (always green), right-aligned.
+                                    The full selection label now lives on the
+                                    title line above, so this row is odds-only. */}
                                 <div style={{
                                     display: 'flex',
-                                    justifyContent: 'space-between',
+                                    justifyContent: 'flex-end',
                                     alignItems: 'baseline',
                                     fontSize: 13,
                                     gap: 8,
                                 }}>
-                                    <span style={{ fontWeight: 700, color: palette.textPrimary, fontVariantNumeric: 'tabular-nums' }}>
-                                        {isProp ? null : betTypeText}
-                                    </span>
                                     <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}>
                                         {/* ODDS_CHANGED delta chip: old → new, set by
                                             handleOddsChanged when the server repriced
