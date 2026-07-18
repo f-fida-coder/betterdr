@@ -1344,6 +1344,10 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                 const childWinCell = childStatus === 'pending' ? moneyWhole(childPayout) : winCellContent(childAmount);
                                 const childWinTheme = childStatus === 'pending' ? 'pending' : childAmount.theme;
                                 const childSelections = Array.isArray(child?.selections) ? child.selections : [];
+                                // Child-parlay W/L badge: a fully-decided child (e.g. all legs
+                                // won) reads as W even while its siblings wait on a live leg.
+                                // Same resolveStatusBadge + badge classes as regular tickets.
+                                const childBadge = resolveStatusBadge({ status: childStatus, gradeReason: child?.gradeReason });
                                 return (
                                     <React.Fragment key={`${betId}-child-${child?.id || ci}`}>
                                         <div className="my-bets-table-row leg">
@@ -1351,12 +1355,24 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                                 <span className="my-bets-table-leg-text" style={{ fontWeight: 600 }}>
                                                     Parlay {ci + 1} · {childSelections.length}-leg
                                                 </span>
+                                                {childBadge?.label && (
+                                                    <span
+                                                        className={`my-bets-table-leg-status ${childStatus}`}
+                                                        title={childBadge?.title || ''}
+                                                    >{childBadge.label}</span>
+                                                )}
                                             </span>
                                             {!isGraded && <span className="my-bets-table-col-risk"><RiskAmount bet={child} /></span>}
                                             <span className={`my-bets-table-col-win ${childWinTheme}`}>{childWinCell}</span>
                                         </div>
                                         {childSelections.map((leg, idx) => {
                                             const childLegLive = isLegLive(leg, child);
+                                            // Per-leg W/L badge — a leg whose game has ended shows
+                                            // its result as soon as it grades, without waiting for
+                                            // the whole parlay. Same pattern as regular parlay legs;
+                                            // pending legs resolve to null (no badge, just LIVE).
+                                            const childLegStatus = normalizeStatus(leg?.status);
+                                            const childLegBadge = resolveStatusBadge({ status: childLegStatus, gradeReason: leg?.gradeReason });
                                             // Composite leg index keeps Round Robin child legs
                                             // inside the same single-open expandedLegKey the
                                             // parent-ticket legs use.
@@ -1377,6 +1393,12 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                                             <span className={`my-bets-table-leg-text${isOutrightLeg(leg) ? ' wrap' : ''}`}>{legDescription(leg, oddsFormat)}</span>
                                                             {childLegLive && (
                                                                 <span className="my-bets-table-live-badge" aria-label="Live game">{legBadgeLabel(leg, child)}</span>
+                                                            )}
+                                                            {childLegBadge?.label && (
+                                                                <span
+                                                                    className={`my-bets-table-leg-status ${childLegStatus}`}
+                                                                    title={childLegBadge?.title || ''}
+                                                                >{childLegBadge.label}</span>
                                                             )}
                                                         </span>
                                                         {!isGraded && <span className="my-bets-table-col-risk" />}
