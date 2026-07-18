@@ -3219,27 +3219,98 @@ final class BetsController
                     }
                     continue;
                 }
-                // Status filter: if the user is filtering pending/won/lost,
-                // only show the group when its aggregate matches.
-                $groupStatus = (string) ($group['status'] ?? 'pending');
-                if ($status !== '' && $status !== 'all' && $groupStatus !== $status) {
-                    continue;
-                }
-                // Sort children deterministically (by roundRobinIndex if
-                // present, else createdAt) so the expanded view reads
-                // top-to-bottom in placement order.
+                // Sort children deterministically by roundRobinIndex so both
+                // the group's expanded view and the "Parlay X of N" history
+                // rows read top-to-bottom in placement order.
                 usort($children, function (array $a, array $b): int {
                     $ai = isset($a['roundRobinIndex']) ? (int) $a['roundRobinIndex'] : PHP_INT_MAX;
                     $bi = isset($b['roundRobinIndex']) ? (int) $b['roundRobinIndex'] : PHP_INT_MAX;
                     return $ai <=> $bi;
                 });
-                // Children are NOT embedded here — the frontend fetches
-                // them lazily via GET /api/bets/group/:id/children when
-                // the user expands the group row. Keeps the My Bets list
-                // payload bounded regardless of how many parlays the
-                // round robin generated. We do return parlayCount so the
-                // collapsed row label ("Round Robin — N Parlays") is
-                // correct without a fetch.
+
+                // Partition by settlement state. Each child is an independent
+                // parlay that settles + pays on its own, so once terminal it
+                // belongs in history, not lingering under a still-pending group.
+                $pendingChildren = [];
+                $settledChildren = [];
+                foreach ($children as $child) {
+                    $cs = strtolower((string) ($child['status'] ?? 'pending'));
+                    if (in_array($cs, ['won', 'lost', 'void', 'push'], true)) {
+                        $settledChildren[] = $child;
+                    } else {
+                        $pendingChildren[] = $child;
+                    }
+                }
+                $originalParlayCount = (int) ($group['parlayCount'] ?? count($children));
+                $groupStatus = (string) ($group['status'] ?? 'pending');
+                $isMixed = $pendingChildren !== [] && $settledChildren !== [];
+
+                // MIXED group (some children settled while others are still
+                // live): the settled children surface INDIVIDUALLY, tagged so
+                // the UI reads "Round Robin — Parlay X of N", and the group row
+                // represents only the pending remainder. Display/grouping only:
+                // each child bet doc, its settlement and payout are untouched.
+                if ($isMixed) {
+                    foreach ($settledChildren as $child) {
+                        $cs = strtolower((string) ($child['status'] ?? ''));
+                        if ($status !== '' && $status !== 'all' && $cs !== $status) {
+                            continue; // honor an explicit status filter (getMyBets uses '' = all)
+                        }
+                        $row = $this->enrichBetDocument($child);
+                        // Traceability tag — links this settled parlay back to
+                        // its round robin (display only).
+                        $row['roundRobinGroupId'] = $groupId;
+                        $row['roundRobinIndex'] = isset($child['roundRobinIndex']) ? (int) $child['roundRobinIndex'] : null;
+                        $row['roundRobinGroupParlayCount'] = $originalParlayCount;
+                        $formatted[] = $row;
+                    }
+                    // Pending-remainder group row. Totals recomputed from the
+                    // pending children so the shown exposure matches what's
+                    // actually still live — DISPLAY figures only; the
+                    // authoritative pending balance is computed server-side.
+                    if ($status === '' || $status === 'all' || in_array($status, self::LIVE_STAKE_STATUSES, true)) {
+                        $pendingRisk = 0.0;
+                        $pendingPayout = 0.0;
+                        foreach ($pendingChildren as $pc) {
+                            $pendingRisk += (float) ($pc['riskAmount'] ?? $pc['amount'] ?? 0);
+                            $pendingPayout += (float) ($pc['potentialPayout'] ?? 0);
+                        }
+                        $pendingCount = count($pendingChildren);
+                        $formatted[] = [
+                            'id' => (string) ($group['id'] ?? $groupId),
+                            'groupId' => (string) ($group['id'] ?? $groupId),
+                            'ticketId' => (string) ($group['ticketId'] ?? ''),
+                            'type' => 'round_robin',
+                            'status' => 'pending',
+                            'createdAt' => $group['createdAt'] ?? ($children[0]['createdAt'] ?? ''),
+                            'settledAt' => null,
+                            'amount' => $pendingRisk,
+                            'riskAmount' => $pendingRisk,
+                            'potentialPayout' => $pendingPayout,
+                            'payout' => 0.0,
+                            'sizes' => is_array($group['sizes'] ?? null) ? array_values($group['sizes']) : [],
+                            'selectionCount' => (int) ($group['selectionCount'] ?? 0),
+                            'parlayCount' => $pendingCount,
+                            'originalParlayCount' => $originalParlayCount,
+                            'stakePerParlay' => (float) ($group['stakePerParlay'] ?? 0),
+                            'isFreeplay' => (bool) ($group['isFreeplay'] ?? false),
+                            'description' => 'Round Robin — ' . $pendingCount . ' of ' . $originalParlayCount . ' parlays',
+                            'selections' => [],
+                            'combinedOdds' => 1.0,
+                        ];
+                    }
+                    continue;
+                }
+
+                // NON-MIXED group (all pending, or all settled): one group row
+                // with the full aggregate, exactly as before. Honor the filter.
+                if ($status !== '' && $status !== 'all' && $groupStatus !== $status) {
+                    continue;
+                }
+                // Children are NOT embedded here — the frontend fetches them
+                // lazily via GET /api/bets/group/:id/children. parlayCount lets
+                // the collapsed label ("Round Robin — N Parlays") render without
+                // a fetch.
                 $formatted[] = [
                     'id' => (string) ($group['id'] ?? $groupId),
                     'groupId' => (string) ($group['id'] ?? $groupId),
@@ -3254,10 +3325,11 @@ final class BetsController
                     'payout' => (float) ($group['totalPayout'] ?? 0),
                     'sizes' => is_array($group['sizes'] ?? null) ? array_values($group['sizes']) : [],
                     'selectionCount' => (int) ($group['selectionCount'] ?? 0),
-                    'parlayCount' => (int) ($group['parlayCount'] ?? count($children)),
+                    'parlayCount' => $originalParlayCount,
+                    'originalParlayCount' => $originalParlayCount,
                     'stakePerParlay' => (float) ($group['stakePerParlay'] ?? 0),
                     'isFreeplay' => (bool) ($group['isFreeplay'] ?? false),
-                    'description' => 'Round Robin — ' . ($group['parlayCount'] ?? count($children)) . ' parlays',
+                    'description' => 'Round Robin — ' . $originalParlayCount . ' parlays',
                     // selections empty + combinedOdds 1.0 keeps shape
                     // compatibility with the multi-leg renderer; children
                     // carry the actual legs (lazy-loaded).
@@ -4338,7 +4410,24 @@ final class BetsController
                 return $ai <=> $bi;
             });
 
-            $rows = array_map(fn(array $b) => $this->enrichBetDocument($b), $children);
+            // MIXED group (some settled, some still live): the group row in the
+            // pending list represents only the pending remainder — its settled
+            // children have moved to history as individual "Parlay X of N" rows
+            // (see computeUserBets) — so this expansion returns only the pending
+            // children. All-pending or all-settled groups return every child.
+            $pending = [];
+            $settled = [];
+            foreach ($children as $child) {
+                $cs = strtolower((string) ($child['status'] ?? 'pending'));
+                if (in_array($cs, ['won', 'lost', 'void', 'push'], true)) {
+                    $settled[] = $child;
+                } else {
+                    $pending[] = $child;
+                }
+            }
+            $visible = ($pending !== [] && $settled !== []) ? $pending : $children;
+
+            $rows = array_map(fn(array $b) => $this->enrichBetDocument($b), $visible);
 
             Response::json([
                 'groupId' => $groupId,

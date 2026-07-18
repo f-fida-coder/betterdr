@@ -379,7 +379,20 @@ const legDescriptionBase = (leg, oddsFormat) => {
 // Parent-row label for multi-leg tickets, e.g. "Parlay - 3 Teams".
 const multiLegLabel = (bet) => {
     const type = String(bet?.type || '').toLowerCase();
+    // A settled Round Robin child that has moved to history on its own is a
+    // normal parlay doc tagged with its group origin — label it so the link
+    // to the round robin is preserved: "Round Robin — Parlay 1 of 3".
+    const rrIndex = Number(bet?.roundRobinIndex);
+    const rrGroupCount = Number(bet?.roundRobinGroupParlayCount);
+    if (type !== 'round_robin' && Number.isFinite(rrIndex) && Number.isFinite(rrGroupCount) && rrGroupCount > 0) {
+        return `Round Robin — Parlay ${rrIndex + 1} of ${rrGroupCount}`;
+    }
     if (type === 'round_robin') {
+        // Backend supplies the exact label (handles the "N of M parlays"
+        // pending-remainder wording); fall back to a count if it's absent.
+        if (typeof bet?.description === 'string' && bet.description.trim() !== '') {
+            return bet.description;
+        }
         const parlayCount = Number.isFinite(Number(bet?.parlayCount)) ? Number(bet.parlayCount) : (bet?.childBets?.length || 0);
         return `Round Robin — ${parlayCount} Parlays`;
     }
@@ -1279,30 +1292,21 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                 const winTheme = (status === 'pending' || status === 'pending_approval') ? 'pending' : amount.theme;
 
                 if (isRoundRobinGroup(bet)) {
-                    // Round Robin parent row. Children are fetched
-                    // eagerly (effect above) from
-                    // /api/bets/group/:id/children and cached in
-                    // `roundRobinChildren`, then rendered expanded by
-                    // default — same treatment as a normal parlay's leg
-                    // rows, since each child parlay wins or loses on
-                    // its own. Tapping the parent toggles the standard
-                    // ticket details panel, matching other multi-leg
-                    // rows. The My Bets payload itself still ships
-                    // without children, so it stays bounded regardless
-                    // of parlay count.
+                    // Round Robin parent row. Children are fetched eagerly
+                    // (effect above) from /api/bets/group/:id/children and
+                    // rendered inline by default — each child parlay wins or
+                    // loses on its own. The parent is now a NON-INTERACTIVE
+                    // grouping label: it just anchors the child rows and shows
+                    // the (pending-remainder) aggregate. There's nothing left
+                    // to expand/collapse — children render inline — so the row
+                    // no longer toggles a details panel.
                     const groupId = String(bet?.groupId || bet?.id || '');
                     const cacheEntry = roundRobinChildren[groupId];
                     const childrenState = cacheEntry?.state || 'idle';
                     const children = cacheEntry?.children || [];
                     return (
                         <React.Fragment key={betId}>
-                            <div
-                                className={`my-bets-table-row parent expandable${isExpanded ? ' expanded' : ''}`}
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => toggleExpanded(betId)}
-                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(betId); } }}
-                            >
+                            <div className="my-bets-table-row parent">
                                 <span className="my-bets-table-col-desc">
                                     {multiLegLabel(bet)}
                                 </span>
@@ -1413,9 +1417,6 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                     </React.Fragment>
                                 );
                             })}
-                            {isExpanded && (
-                                <BetDetailsPanel bet={bet} oddsFormat={oddsFormat} />
-                            )}
                         </React.Fragment>
                     );
                 }

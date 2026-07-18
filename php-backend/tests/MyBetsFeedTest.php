@@ -326,6 +326,98 @@ TestRunner::run('Explicit status filter path unchanged (no union, no double rows
     TestRunner::assertContains('live_manual_489', $ids, 'pending filter still works');
 });
 
+// ── Round Robin: settled children move to history (Option A, 2026-07-18) ──────
+//
+// A mixed group (some children settled, others still live) splits in the feed:
+// settled children surface as individual "Parlay X of N" history rows; the
+// group row represents only the pending remainder with recomputed totals.
+// Fully-settled and all-pending groups stay as one whole group row.
+
+/** @return MyBetsMockSqlRepository */
+function rrGroupSeed(string $c0Status, string $c1Status, string $c2Status, string $groupStatus): MyBetsMockSqlRepository
+{
+    $userId = 'rr_user';
+    $groupId = 'rr_grp';
+    $child = static fn(int $idx, string $status, float $risk, float $payout): array => [
+        'id' => 'rr_child_' . $idx,
+        'userId' => $userId,
+        'parentGroupId' => $groupId,
+        'roundRobinIndex' => $idx,
+        'roundRobinSize' => 2,
+        'status' => $status,
+        'type' => 'parlay',
+        'amount' => $risk,
+        'riskAmount' => $risk,
+        'potentialPayout' => $payout,
+        'createdAt' => sprintf('2026-07-17T16:40:%02d+00:00', $idx),
+        'selections' => [],
+    ];
+    return new MyBetsMockSqlRepository([
+        'bets' => [
+            $child(0, $c0Status, 100, 206),
+            $child(1, $c1Status, 100, 250),
+            $child(2, $c2Status, 100, 272),
+        ],
+        'round_robin_groups' => [[
+            'id' => $groupId, 'userId' => $userId, 'status' => $groupStatus,
+            'parlayCount' => 3, 'selectionCount' => 3, 'sizes' => [2],
+            'totalRisk' => 300, 'totalPotentialPayout' => 728, 'totalPayout' => 0,
+            'stakePerParlay' => 100, 'createdAt' => '2026-07-17T16:40:32+00:00',
+        ]],
+        'casino_bets' => [], 'bet_selections' => [], 'matches' => [],
+    ]);
+}
+
+TestRunner::run('RR mixed group: settled child becomes an individual "Parlay X of N" row; group row is the pending remainder', function (): void {
+    // Parlay 1 (idx0) won; Parlays 2 & 3 still pending. Group aggregate pending.
+    $db = rrGroupSeed('won', 'pending', 'pending', 'pending');
+    $rows = myBetsCompute(myBetsController($db), 'rr_user', '', 50);
+
+    $groupRows = array_values(array_filter($rows, static fn(array $r): bool => ($r['type'] ?? '') === 'round_robin'));
+    $childRows = array_values(array_filter($rows, static fn(array $r): bool => ($r['id'] ?? '') === 'rr_child_0'));
+
+    TestRunner::assertEquals(1, count($groupRows), 'exactly one round_robin group row');
+    $g = $groupRows[0];
+    TestRunner::assertEquals('pending', (string) $g['status'], 'group row is pending');
+    TestRunner::assertEquals(2, (int) $g['parlayCount'], 'group shows 2 pending parlays');
+    TestRunner::assertEquals(3, (int) $g['originalParlayCount'], 'original parlay count preserved (3)');
+    TestRunner::assertEquals(200.0, (float) $g['riskAmount'], 'risk recomputed from pending children (2 x 100)');
+    TestRunner::assertEquals(522.0, (float) $g['potentialPayout'], 'to-win recomputed from pending children (250 + 272)');
+    TestRunner::assertEquals('Round Robin — 2 of 3 parlays', (string) $g['description'], 'label reflects pending remainder');
+
+    TestRunner::assertEquals(1, count($childRows), 'settled child surfaces as its own row');
+    TestRunner::assertEquals('won', (string) $childRows[0]['status'], 'settled child keeps its won status');
+    TestRunner::assertEquals(0, (int) $childRows[0]['roundRobinIndex'], 'tagged with its index');
+    TestRunner::assertEquals(3, (int) $childRows[0]['roundRobinGroupParlayCount'], 'tagged with group parlay count for "X of N"');
+
+    // Pending children are NOT emitted individually (lazy-loaded under the group).
+    $ids = array_map(static fn(array $r): string => (string) ($r['id'] ?? ''), $rows);
+    TestRunner::assertTrue(!in_array('rr_child_1', $ids, true) && !in_array('rr_child_2', $ids, true), 'pending children stay under the group, not individual rows');
+});
+
+TestRunner::run('RR fully-settled group: one whole group row, no individual child rows (no double-display)', function (): void {
+    $db = rrGroupSeed('won', 'lost', 'won', 'won');
+    $rows = myBetsCompute(myBetsController($db), 'rr_user', '', 50);
+    $groupRows = array_values(array_filter($rows, static fn(array $r): bool => ($r['type'] ?? '') === 'round_robin'));
+    $ids = array_map(static fn(array $r): string => (string) ($r['id'] ?? ''), $rows);
+
+    TestRunner::assertEquals(1, count($groupRows), 'one group row for the fully-settled group');
+    TestRunner::assertEquals(3, (int) $groupRows[0]['parlayCount'], 'shows all 3 parlays');
+    TestRunner::assertEquals(300.0, (float) $groupRows[0]['riskAmount'], 'full aggregate risk');
+    foreach (['rr_child_0', 'rr_child_1', 'rr_child_2'] as $cid) {
+        TestRunner::assertTrue(!in_array($cid, $ids, true), $cid . ' not emitted individually (stays grouped)');
+    }
+});
+
+TestRunner::run('RR all-pending group: unchanged — one group row with the full count', function (): void {
+    $db = rrGroupSeed('pending', 'pending', 'pending', 'pending');
+    $rows = myBetsCompute(myBetsController($db), 'rr_user', '', 50);
+    $groupRows = array_values(array_filter($rows, static fn(array $r): bool => ($r['type'] ?? '') === 'round_robin'));
+    TestRunner::assertEquals(1, count($groupRows), 'one group row');
+    TestRunner::assertEquals(3, (int) $groupRows[0]['parlayCount'], 'all 3 parlays pending');
+    TestRunner::assertEquals(300.0, (float) $groupRows[0]['riskAmount'], 'full risk while all pending');
+});
+
 TestRunner::run('Live tickets are never duplicated when they already sit inside the window', function (): void {
     [$db, $liveIds] = myBetsSeed(3, 3);   // tiny history: live rows are IN the window
     $c = myBetsController($db);
