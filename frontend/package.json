@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/subset-fontawesome.mjs && vite build",
-    "build:check": "node scripts/subset-fontawesome.mjs && vite build && node scripts/check-bundle-budget.mjs",
+    "build": "node scripts/subset-fontawesome.mjs && vite build && node scripts/gen-version.mjs",
+    "build:check": "node scripts/subset-fontawesome.mjs && vite build && node scripts/gen-version.mjs && node scripts/check-bundle-budget.mjs",
     "check-budget": "node scripts/check-bundle-budget.mjs",
     "analyze": "open ../bundle-stats.html",
     "subset-fontawesome": "node scripts/subset-fontawesome.mjs",

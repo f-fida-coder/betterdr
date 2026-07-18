@@ -16,6 +16,7 @@ import {
 } from './api'
 import { useEffect, useState } from 'react'
 import { ToastProvider } from './contexts/ToastContext.jsx'
+import UpdateBanner from './components/UpdateBanner.jsx'
 import { loadExternalPresentationAssets, initializePhase3AOptimizations } from './utils/performanceOptimization.js'
 
 const AdminPanel = lazy(() => import('./components/AdminPanel.jsx'))
@@ -173,6 +174,7 @@ const mountApp = () => {
   createRoot(document.getElementById('root')).render(
     <StrictMode>
       <ToastProvider>
+        <UpdateBanner />
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<RouteShell><App /></RouteShell>} />
