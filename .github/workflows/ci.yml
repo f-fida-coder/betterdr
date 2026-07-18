@@ -92,6 +92,9 @@ jobs:
       - name: Bet-slip / receipt selection labels (shared formatLegLabel)
         run: node tools/qa/leg-label.mjs
 
+      - name: My Bets logo cache identity (same-city collision guard)
+        run: node tools/qa/team-logo-key.mjs
+
       - name: Build
         working-directory: frontend
         run: npm run build

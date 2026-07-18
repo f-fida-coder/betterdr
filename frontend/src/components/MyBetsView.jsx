@@ -4,6 +4,7 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatLineValue, formatOdds, formatSpreadValue, americanToDecimal } from '../utils/odds';
 import { formatSiteDateTime } from '../utils/timezone';
 import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri, mascotName } from '../utils/teamLogos';
+import { teamLogoKey } from '../utils/teamLogoKey';
 import { formatMoneyWholeFloored, formatMoneyWholeRounded } from '../utils/money';
 import { isOutrightLeg, outrightLegText } from '../utils/outrightLabel';
 import '../mybets.css';
@@ -622,17 +623,24 @@ const legSportCtx = (leg) => {
     return { sportKey: snap.sportKey || '', sport: snap.sport || snap.sportTitle || '' };
 };
 
-// Stable abbreviation for the team whose logo we're resolving. Logo lookup
-// keys on league + abbr (the identity) rather than the city-only display
-// name, so a name like "Seattle" can't collide with a college team via the
-// name search. Mirrors the board's TeamAvatar ctx (sportKey + abbr).
-const legTeamAbbr = (leg, teamName) => {
-    const snap = leg?.matchSnapshot;
+// Abbreviation + full name for a team from the leg's matchSnapshot. The logo
+// cache keys on sport + abbr (the identity) rather than the city-only display
+// name, so same-city teams ("Los Angeles" = Dodgers/Angels/Rams…) can't share
+// a crest. Mirrors the board's TeamAvatar ctx. Both feed
+// the logo identity: the abbr keys the cache (via teamLogoKey), the full name
+// lets fetchTeamBadgeUrl resolve straight from the curated map ("Los Angeles
+// Dodgers" → LAD) without a name-search that would otherwise return an
+// arbitrary same-city team.
+const legTeamMeta = (snap, teamName) => {
     const name = String(teamName || '').trim();
-    if (!snap || !name) return '';
-    if (String(snap.homeTeam || '').trim() === name) return String(snap.homeTeamShort || '').trim();
-    if (String(snap.awayTeam || '').trim() === name) return String(snap.awayTeamShort || '').trim();
-    return '';
+    if (!snap || !name) return { abbr: '', full: '' };
+    if (String(snap.homeTeam || '').trim() === name) {
+        return { abbr: String(snap.homeTeamShort || '').trim(), full: String(snap.homeTeamFull || '').trim() };
+    }
+    if (String(snap.awayTeam || '').trim() === name) {
+        return { abbr: String(snap.awayTeamShort || '').trim(), full: String(snap.awayTeamFull || '').trim() };
+    }
+    return { abbr: '', full: '' };
 };
 
 // The player's OWN team for a player-prop leg, or null when we can't tell.
@@ -674,9 +682,18 @@ const NEUTRAL_PROP_LOGO_DATA_URI = `data:image/svg+xml;charset=UTF-8,${encodeURI
 // a guessed home crest, which is often the wrong team). Returns [{ name, abbr,
 // neutral? }] (always 1 entry, or 0 when nothing resolves).
 const legLogoTeams = (leg) => {
+    const snap = leg?.matchSnapshot || {};
+    const sportKey = String(snap.sportKey || '').trim();
+    // Attach the unique cache key so the warmer + renderer both look up by
+    // sport+abbr identity, never the shared city name.
+    const withKey = (t) => ({ ...t, key: teamLogoKey(sportKey, t.abbr, t.name, t.full) });
+
     if (isPlayerPropMarket(leg?.marketType)) {
         const own = propPlayerTeam(leg);
-        if (own) return [own];
+        if (own) {
+            const meta = legTeamMeta(snap, own.name);
+            return [withKey({ ...own, full: meta.full })];
+        }
         // Side unknown (backend playerTeamSide null — legacy legs or an
         // unresolved /players lookup). Show a NEUTRAL player icon rather than
         // guessing the home team, which would render a confidently-wrong crest.
@@ -685,16 +702,15 @@ const legLogoTeams = (leg) => {
     // Base market drives crest routing — a period total ('totals_1st_5_innings')
     // is still a game total and shows both matchup crests.
     const market = splitPeriodMarketKey(leg?.marketType).base;
-    const snap = leg?.matchSnapshot || {};
     // A GAME total is the combined score of BOTH teams — show the two matchup
     // crests, never a single team's (which mis-reads as a team total). Mirrors
     // the board's both-teams treatment of a game total. Falls to the fallback
     // initials crest per team if a logo isn't warmed.
     if (market === 'totals') {
         return [
-            { name: String(snap.awayTeam || '').trim(), abbr: String(snap.awayTeamShort || '').trim() },
-            { name: String(snap.homeTeam || '').trim(), abbr: String(snap.homeTeamShort || '').trim() },
-        ].filter((t) => t.name);
+            { name: String(snap.awayTeam || '').trim(), abbr: String(snap.awayTeamShort || '').trim(), full: String(snap.awayTeamFull || '').trim() },
+            { name: String(snap.homeTeam || '').trim(), abbr: String(snap.homeTeamShort || '').trim(), full: String(snap.homeTeamFull || '').trim() },
+        ].filter((t) => t.name).map(withKey);
     }
     // A TEAM total IS one team, but the selection is only "Over"/"Under", so the
     // crest comes from the stored teamSide, not the selection text. (Don't
@@ -705,10 +721,14 @@ const legLogoTeams = (leg) => {
             : side === 'home' ? String(snap.homeTeam || '').trim() : '';
         const abbr = side === 'away' ? String(snap.awayTeamShort || '').trim()
             : side === 'home' ? String(snap.homeTeamShort || '').trim() : '';
-        return name ? [{ name, abbr }] : [];
+        const full = side === 'away' ? String(snap.awayTeamFull || '').trim()
+            : side === 'home' ? String(snap.homeTeamFull || '').trim() : '';
+        return name ? [withKey({ name, abbr, full })] : [];
     }
     const team = legTeamForLogo(leg);
-    return team ? [{ name: team, abbr: legTeamAbbr(leg, team) }] : [];
+    if (!team) return [];
+    const meta = legTeamMeta(snap, team);
+    return [withKey({ name: team, abbr: meta.abbr, full: meta.full })];
 };
 
 // Logo(s) shown next to a leg's description. One crest for team markets; the
@@ -717,10 +737,10 @@ const legLogoTeams = (leg) => {
 const MyBetsLegLogo = ({ leg, teamLogos }) => {
     const teams = legLogoTeams(leg);
     if (teams.length === 0) return null;
-    const imgs = teams.map(({ name, neutral }, i) => (
+    const imgs = teams.map(({ name, key, neutral }, i) => (
         <img
-            key={`${neutral ? 'neutral' : name}-${i}`}
-            src={neutral ? NEUTRAL_PROP_LOGO_DATA_URI : (teamLogos[name] || createFallbackTeamLogoDataUri(name))}
+            key={`${neutral ? 'neutral' : (key || name)}-${i}`}
+            src={neutral ? NEUTRAL_PROP_LOGO_DATA_URI : (teamLogos[key] || createFallbackTeamLogoDataUri(name))}
             alt=""
             className="my-bets-table-logo"
             width="20"
@@ -1649,18 +1669,22 @@ const MyBetsView = ({ onResumeOpenParlay = null, maxBet = null }) => {
     const [teamLogos, setTeamLogos] = useState({});
     useEffect(() => {
         let mounted = true;
-        // Collect { name, ctx } pairs so logo resolution gets sport context.
-        const teamMap = new Map(); // name → ctx
+        // Warm each team once, keyed by its unique logo identity (sport+abbr),
+        // NOT the shared city name — otherwise the first "Los Angeles" leg's
+        // crest would be reused for every LA team across sports.
+        const teamMap = new Map(); // logoKey → { name, ctx }
         bets.forEach((bet) => {
             const selections = Array.isArray(bet?.selections) ? bet.selections : [];
             // Warm every team a leg will render — the picked/home team for team
             // markets, BOTH matchup teams for player props — across straight and
             // multi-leg tickets alike (legLogoTeams handles the per-market split).
             selections.forEach((leg) => {
-                legLogoTeams(leg).forEach(({ name, abbr }) => {
-                    if (name && !teamLogos[name] && !teamMap.has(name)) {
-                        teamMap.set(name, { ...(legSportCtx(leg) || {}), abbr });
-                    }
+                legLogoTeams(leg).forEach(({ name, abbr, full, key }) => {
+                    if (!key || !name || key === 'neutral') return;
+                    if (teamLogos[key] || teamMap.has(key)) return;
+                    // fullName lets fetchTeamBadgeUrl resolve straight from the
+                    // curated map (no same-city name-search guess).
+                    teamMap.set(key, { name, ctx: { ...(legSportCtx(leg) || {}), abbr, fullName: full || '' } });
                 });
             });
         });
@@ -1668,10 +1692,10 @@ const MyBetsView = ({ onResumeOpenParlay = null, maxBet = null }) => {
         (async () => {
             const updates = {};
             await Promise.all(
-                Array.from(teamMap.entries()).map(async ([team, ctx]) => {
+                Array.from(teamMap.entries()).map(async ([key, { name, ctx }]) => {
                     try {
-                        const url = await fetchTeamBadgeUrl(team, ctx);
-                        if (url) updates[team] = url;
+                        const url = await fetchTeamBadgeUrl(name, ctx);
+                        if (url) updates[key] = url;
                     } catch {
                         // fallback stays as-is
                     }
