@@ -1340,27 +1340,25 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, onWarmLegs = null, mode = 
                 const winTheme = (status === 'pending' || status === 'pending_approval') ? 'pending' : amount.theme;
 
                 if (isRoundRobinGroup(bet)) {
-                    // Round Robin parent row. Children are fetched eagerly
-                    // (effect above) from /api/bets/group/:id/children and
-                    // rendered inline by default — each child parlay wins or
-                    // loses on its own. The parent is now a NON-INTERACTIVE
-                    // grouping label: it just anchors the child rows and shows
-                    // the (pending-remainder) aggregate. There's nothing left
-                    // to expand/collapse — children render inline — so the row
-                    // no longer toggles a details panel.
+                    // Round Robin group. Children are fetched eagerly (effect
+                    // above) from /api/bets/group/:id/children and rendered
+                    // inline — each child parlay wins or loses on its own.
+                    // The "Round Robin — N parlays" group header row was
+                    // removed (PO 2026-07-19): the children now render as if
+                    // they were standalone parlays, each with its own
+                    // "Parlay N · M-leg" heading and Risk/To-Win. The group
+                    // bet stays in `bets` so the eager child-load effect and
+                    // the Pending "Total" footer (which foots the group's
+                    // aggregate risk/payout once) still work. The "N of M
+                    // parlays" pending-remainder data lives on the backend
+                    // serialization + child docs, untouched by dropping the
+                    // header render.
                     const groupId = String(bet?.groupId || bet?.id || '');
                     const cacheEntry = roundRobinChildren[groupId];
                     const childrenState = cacheEntry?.state || 'idle';
                     const children = cacheEntry?.children || [];
                     return (
                         <React.Fragment key={betId}>
-                            <div className="my-bets-table-row parent">
-                                <span className="my-bets-table-col-desc">
-                                    {multiLegLabel(bet)}
-                                </span>
-                                {!isGraded && <span className="my-bets-table-col-risk"><RiskAmount bet={bet} /></span>}
-                                <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
-                            </div>
                             {(childrenState === 'loading' || childrenState === 'idle') && (
                                 <div className="my-bets-table-row leg" style={{ justifyContent: 'center', padding: '14px 16px' }}>
                                     <span className="my-bets-table-col-desc" style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#6b7280' }}>
