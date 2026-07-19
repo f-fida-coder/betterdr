@@ -773,7 +773,7 @@ const MyBetsLegLogo = ({ leg, teamLogos }) => {
 // Right-side amount + sign + colour theme for the collapsed row.
 //   won  → +profit, green
 //   lost → -risk, red
-//   void → "Refund $X", muted
+//   void → "$0", muted (push/void is net-zero; stake refund shown in Risk col)
 //   pending → potential win, neutral (no sign)
 // Returns { text, theme } so the renderer can apply a single class
 // without re-deriving the status logic at the call site.
@@ -877,7 +877,12 @@ const ticketAmount = (bet, maxBet) => {
         }
         return { text: moneyWholeSettledSigned(cashRisk, '-'), theme: 'lost' };
     }
-    if (status === 'void') return { text: `Refund ${moneyWholeSettled(cashRisk)}`, theme: 'void' };
+    // Push / void is net-zero to the player (stake refunded, balance unchanged),
+    // so the P/L column reads just "$0" — no "Refund $X" wording (PO 2026-07-19).
+    // The stake that came back is already shown in the Risk column; the PUSH/VOID
+    // badge in the description column names the outcome. Covers straight legs, RR
+    // children, and RR group headers alike (all route through ticketAmount).
+    if (status === 'void') return { text: '$0', theme: 'void' };
     return { text: moneyWhole(profit), theme: 'pending' };
 };
 

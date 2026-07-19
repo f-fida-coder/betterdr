@@ -3307,6 +3307,15 @@ final class BetsController
                 if ($status !== '' && $status !== 'all' && $groupStatus !== $status) {
                     continue;
                 }
+                // A SETTLED group displays its ACTUAL returned total (totalPayout)
+                // as potentialPayout — the same convention a settled parlay
+                // follows (its payout is rewritten at grade; a full loss → 0).
+                // Sending totalPotentialPayout (the would-have-won) here made a
+                // lost group misread as a partial refund by the frontend's
+                // partial-loss logic: a $100 stake that returned $0 rendered
+                // "-$0 / returned $839" instead of "-$100". A PENDING group still
+                // shows totalPotentialPayout as its To-Win preview.
+                $groupSettled = in_array(strtolower($groupStatus), ['won', 'lost', 'void', 'push', 'partial', 'canceled'], true);
                 // Children are NOT embedded here — the frontend fetches them
                 // lazily via GET /api/bets/group/:id/children. parlayCount lets
                 // the collapsed label ("Round Robin — N Parlays") render without
@@ -3321,7 +3330,7 @@ final class BetsController
                     'settledAt' => $group['settledAt'] ?? null,
                     'amount' => (float) ($group['totalRisk'] ?? 0),
                     'riskAmount' => (float) ($group['totalRisk'] ?? 0),
-                    'potentialPayout' => (float) ($group['totalPotentialPayout'] ?? 0),
+                    'potentialPayout' => (float) ($groupSettled ? ($group['totalPayout'] ?? 0) : ($group['totalPotentialPayout'] ?? 0)),
                     'payout' => (float) ($group['totalPayout'] ?? 0),
                     'sizes' => is_array($group['sizes'] ?? null) ? array_values($group['sizes']) : [],
                     'selectionCount' => (int) ($group['selectionCount'] ?? 0),

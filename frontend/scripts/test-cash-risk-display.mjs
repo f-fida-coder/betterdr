@@ -32,19 +32,30 @@ const cashRiskOfBet = (bet) => {
     };
 };
 
-// Pure-JS mirror of the lost / void / pending arms of ticketAmount
-// that now use cashRisk. Returns the displayed text only.
-const ticketAmountText = (bet) => {
+// Faithful pure-JS mirror of ticketAmount (won / lost incl. partial-return /
+// void / pending). Returns { text, returned? } like the component.
+const ticketAmount = (bet) => {
     const status = String(bet?.status || '').toLowerCase();
     const risk = Number(bet?.riskAmount || bet?.amount || 0);
     const potential = Number(bet?.potentialPayout || 0);
     const profit = Math.max(0, potential - risk);
-    const { cashRisk } = cashRiskOfBet(bet);
-    if (status === 'won') return `+${profit.toFixed(2)}`;
-    if (status === 'lost') return `-${cashRisk.toFixed(2)}`;
-    if (status === 'void') return `Refund ${cashRisk.toFixed(2)}`;
-    return profit.toFixed(2);
+    const { cashRisk, fpUsed } = cashRiskOfBet(bet);
+    if (status === 'won') return { text: `+${profit.toFixed(2)}` };
+    if (status === 'lost') {
+        // Partial-refund loss (genuine Asian-handicap half-loss): potentialPayout
+        // is the stake that came back → show net loss + a "returned" annotation.
+        const returned = potential;
+        if (returned > 0 && fpUsed <= 0) {
+            const netLoss = Math.max(0, cashRisk - returned);
+            return { text: `-${netLoss.toFixed(2)}`, returned };
+        }
+        return { text: `-${cashRisk.toFixed(2)}` };
+    }
+    // Push / void → net-zero P/L, just "$0" (PO 2026-07-19; was "Refund $X").
+    if (status === 'void') return { text: '$0' };
+    return { text: profit.toFixed(2) };
 };
+const ticketAmountText = (bet) => ticketAmount(bet).text;
 
 console.log('Reported scenario — $1000 Tigers ticket with $700 freeplay');
 {
@@ -92,13 +103,39 @@ console.log('Graded labels — lost / void / won use cashRisk where applicable')
     const lost = { riskAmount: 1000, freeplayAmountUsed: 700, status: 'lost', potentialPayout: 1980 };
     expect('LOST freeplay ticket shows -$300, not -$1000', '-300.00', ticketAmountText(lost));
     const void_ = { riskAmount: 1000, freeplayAmountUsed: 700, status: 'void', potentialPayout: 1980 };
-    expect('VOID freeplay ticket shows Refund 300.00', 'Refund 300.00', ticketAmountText(void_));
+    expect('VOID/PUSH ticket shows $0 (no Refund wording)', '$0', ticketAmountText(void_));
     const won = { riskAmount: 1000, freeplayAmountUsed: 700, status: 'won', potentialPayout: 1980 };
     // WON profit is still profit regardless of how the stake was
     // funded — $980 win at -102 odds is $980 either way.
     expect('WON ticket profit unchanged by FP split', '+980.00', ticketAmountText(won));
-    const lostPlain = { riskAmount: 1000, freeplayAmountUsed: 0, status: 'lost', potentialPayout: 1980 };
-    expect('LOST plain cash ticket still shows -$1000 (no regression)', '-1000.00', ticketAmountText(lostPlain));
+    // Realistic full-loss ticket: settlement zeroes potentialPayout, so no
+    // partial-return branch → shows -risk.
+    const lostPlain = { riskAmount: 1000, freeplayAmountUsed: 0, status: 'lost', potentialPayout: 0 };
+    expect('LOST plain cash ticket shows -$1000 (no regression)', '-1000.00', ticketAmountText(lostPlain));
+}
+
+console.log('Settled RR group + push display (PO 2026-07-19)');
+{
+    // THE $839 BUG: a lost RR group used to send totalPotentialPayout (839) as
+    // potentialPayout, so the partial-return branch fired: netLoss = max(0,
+    // 100 − 839) = 0 → "-0.00 / returned 839". The backend fix sends totalPayout
+    // (0) for a settled group, so the group now reads a clean -$100.
+    const buggyShape = { riskAmount: 100, freeplayAmountUsed: 0, status: 'lost', potentialPayout: 839 };
+    expect('OLD buggy shape (totalPotentialPayout leaked) → -0.00', '-0.00', ticketAmountText(buggyShape));
+    expect('OLD buggy shape annotates a phantom return', 839, ticketAmount(buggyShape).returned);
+    const fixedGroup = { riskAmount: 100, freeplayAmountUsed: 0, status: 'lost', potentialPayout: 0 };
+    expect('FIXED: settled lost group (totalPayout 0) → -100.00', '-100.00', ticketAmountText(fixedGroup));
+    expect('FIXED: no phantom "returned" annotation', undefined, ticketAmount(fixedGroup).returned);
+
+    // Genuine push/void on a straight leg → "$0", no refund text (any stake).
+    const push = { riskAmount: 1200, freeplayAmountUsed: 0, status: 'void', potentialPayout: 1200 };
+    expect('PUSH straight leg → $0 (was "Refund $1,200")', '$0', ticketAmountText(push));
+
+    // Genuine partial-LOSS (Asian half-loss) is a DIFFERENT case and is
+    // preserved: stake $200, half came back ($100) → net -$100 + returned $100.
+    const halfLoss = { riskAmount: 200, freeplayAmountUsed: 0, status: 'lost', potentialPayout: 100 };
+    expect('partial-loss net shown', '-100.00', ticketAmountText(halfLoss));
+    expect('partial-loss keeps "returned" annotation', 100, ticketAmount(halfLoss).returned);
 }
 
 console.log('Round Robin child — each child carries its own freeplayAmountUsed');
