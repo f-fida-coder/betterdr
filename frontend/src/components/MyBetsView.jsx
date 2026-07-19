@@ -1869,8 +1869,14 @@ const MyBetsView = ({ onResumeOpenParlay = null, maxBet = null }) => {
     // but without push here the per-day detail expansion was empty for
     // pushes — the row total wouldn't reconcile against the visible
     // entries, leaving the player wondering where their bet went.
+    // 'partial' is a Round Robin GROUP status (some children won, some lost —
+    // all settled, nothing pending). It's not pending, so it belongs in history;
+    // without it here a fully-settled mixed RR group fell into neither
+    // gradedBets nor pendingBets and vanished from both tabs once its last child
+    // graded. The group header is removed, so it renders as its child parlay
+    // rows (each with its own W/L badge + P/L) — no group-level treatment needed.
     const gradedBets = useMemo(() => {
-        const settled = bets.filter((bet) => ['won', 'lost', 'void', 'push'].includes(normalizeStatus(bet?.status)));
+        const settled = bets.filter((bet) => ['won', 'lost', 'void', 'push', 'partial'].includes(normalizeStatus(bet?.status)));
         return settled.slice().sort((a, b) => {
             const ta = new Date(settledTimestamp(a)).getTime() || 0;
             const tb = new Date(settledTimestamp(b)).getTime() || 0;

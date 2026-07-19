@@ -101,6 +101,9 @@ jobs:
       - name: Min-bet floor snap (WIN back-solve below min → auto-raise, cap-vs-min)
         run: node frontend/scripts/test-min-bet-floor.mjs
 
+      - name: RR partial-group visibility (settled-but-mixed → history, not pending)
+        run: node frontend/scripts/test-rr-partial-visibility.mjs
+
       - name: Build
         working-directory: frontend
         run: npm run build

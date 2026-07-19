@@ -3307,15 +3307,28 @@ final class BetsController
                 if ($status !== '' && $status !== 'all' && $groupStatus !== $status) {
                     continue;
                 }
-                // A SETTLED group displays its ACTUAL returned total (totalPayout)
-                // as potentialPayout — the same convention a settled parlay
-                // follows (its payout is rewritten at grade; a full loss → 0).
-                // Sending totalPotentialPayout (the would-have-won) here made a
-                // lost group misread as a partial refund by the frontend's
-                // partial-loss logic: a $100 stake that returned $0 rendered
-                // "-$0 / returned $839" instead of "-$100". A PENDING group still
-                // shows totalPotentialPayout as its To-Win preview.
+                // A SETTLED group displays its ACTUAL returned total as
+                // potentialPayout — the same convention a settled parlay follows
+                // (payout rewritten at grade; a full loss → 0). Sending
+                // totalPotentialPayout (the would-have-won) made a lost group
+                // misread as a partial refund ("-$0 / returned $839" for a $100
+                // stake that returned $0). The group doc's own totalPayout field
+                // is NOT maintained (stuck at 0 for won/lost/partial alike), so
+                // derive the real return from the CHILDREN, which each carry
+                // their settled payout: won → its payout, void/push → stake
+                // refund, lost → 0. A PENDING group still shows
+                // totalPotentialPayout as its To-Win preview.
                 $groupSettled = in_array(strtolower($groupStatus), ['won', 'lost', 'void', 'push', 'partial', 'canceled'], true);
+                $groupActualReturn = 0.0;
+                foreach ($children as $ch) {
+                    $cs = strtolower((string) ($ch['status'] ?? ''));
+                    if ($cs === 'won') {
+                        $groupActualReturn += (float) ($ch['potentialPayout'] ?? 0);
+                    } elseif ($cs === 'void' || $cs === 'push') {
+                        $groupActualReturn += (float) ($ch['riskAmount'] ?? $ch['amount'] ?? 0);
+                    }
+                    // lost → contributes 0
+                }
                 // Children are NOT embedded here — the frontend fetches them
                 // lazily via GET /api/bets/group/:id/children. parlayCount lets
                 // the collapsed label ("Round Robin — N Parlays") render without
@@ -3330,8 +3343,8 @@ final class BetsController
                     'settledAt' => $group['settledAt'] ?? null,
                     'amount' => (float) ($group['totalRisk'] ?? 0),
                     'riskAmount' => (float) ($group['totalRisk'] ?? 0),
-                    'potentialPayout' => (float) ($groupSettled ? ($group['totalPayout'] ?? 0) : ($group['totalPotentialPayout'] ?? 0)),
-                    'payout' => (float) ($group['totalPayout'] ?? 0),
+                    'potentialPayout' => (float) ($groupSettled ? $groupActualReturn : ($group['totalPotentialPayout'] ?? 0)),
+                    'payout' => (float) ($groupSettled ? $groupActualReturn : ($group['totalPayout'] ?? 0)),
                     'sizes' => is_array($group['sizes'] ?? null) ? array_values($group['sizes']) : [],
                     'selectionCount' => (int) ($group['selectionCount'] ?? 0),
                     'parlayCount' => $originalParlayCount,

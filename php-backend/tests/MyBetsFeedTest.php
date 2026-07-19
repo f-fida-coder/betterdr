@@ -334,7 +334,7 @@ TestRunner::run('Explicit status filter path unchanged (no union, no double rows
 // Fully-settled and all-pending groups stay as one whole group row.
 
 /** @return MyBetsMockSqlRepository */
-function rrGroupSeed(string $c0Status, string $c1Status, string $c2Status, string $groupStatus, float $totalPayout = 0): MyBetsMockSqlRepository
+function rrGroupSeed(string $c0Status, string $c1Status, string $c2Status, string $groupStatus): MyBetsMockSqlRepository
 {
     $userId = 'rr_user';
     $groupId = 'rr_grp';
@@ -361,7 +361,10 @@ function rrGroupSeed(string $c0Status, string $c1Status, string $c2Status, strin
         'round_robin_groups' => [[
             'id' => $groupId, 'userId' => $userId, 'status' => $groupStatus,
             'parlayCount' => 3, 'selectionCount' => 3, 'sizes' => [2],
-            'totalRisk' => 300, 'totalPotentialPayout' => 728, 'totalPayout' => $totalPayout,
+            // totalPayout is intentionally 0 — the group doc's field is NOT
+            // maintained in prod; the serializer derives the real return from
+            // the children instead (see the "children-sum" assertions below).
+            'totalRisk' => 300, 'totalPotentialPayout' => 728, 'totalPayout' => 0,
             'stakePerParlay' => 100, 'createdAt' => '2026-07-17T16:40:32+00:00',
         ]],
         'casino_bets' => [], 'bet_selections' => [], 'matches' => [],
@@ -419,24 +422,43 @@ TestRunner::run('RR all-pending group: unchanged — one group row with the full
 });
 
 // The "$839" fix (PO 2026-07-19): a SETTLED group's row must carry its ACTUAL
-// returned total (totalPayout), not totalPotentialPayout (the would-have-won).
-// Sending the latter made a lost group misread by the frontend's partial-loss
-// logic as "-$0 / returned $X" instead of the true net loss.
-TestRunner::run('RR settled LOST group: potentialPayout = totalPayout (0), NOT totalPotentialPayout (728)', function (): void {
-    $db = rrGroupSeed('lost', 'lost', 'lost', 'lost'); // totalPayout defaults to 0
+// returned total, derived from the CHILDREN (won → its payout, void/push → stake
+// refund, lost → 0). The group doc's own totalPayout is unmaintained (always 0)
+// and totalPotentialPayout is the would-have-won — sending either misreads the
+// P/L. Child payouts in the seed are 206 / 250 / 272.
+TestRunner::run('RR settled LOST group: potentialPayout = 0 from children (not the 728 would-have-won)', function (): void {
+    $db = rrGroupSeed('lost', 'lost', 'lost', 'lost');
     $rows = myBetsCompute(myBetsController($db), 'rr_user', '', 50);
     $g = array_values(array_filter($rows, static fn(array $r): bool => ($r['type'] ?? '') === 'round_robin'))[0];
     TestRunner::assertEquals('lost', (string) $g['status'], 'group row is lost');
-    TestRunner::assertEquals(0.0, (float) $g['potentialPayout'], 'settled group shows totalPayout (0), not the 728 would-have-won');
-    TestRunner::assertEquals(300.0, (float) $g['riskAmount'], 'full aggregate risk (net -300 downstream, no phantom return)');
+    TestRunner::assertEquals(0.0, (float) $g['potentialPayout'], 'all children lost → return 0 (renders -$300, no phantom $839)');
+    TestRunner::assertEquals(300.0, (float) $g['riskAmount'], 'full aggregate risk');
 });
 
-TestRunner::run('RR settled group with a real partial return: potentialPayout = totalPayout', function (): void {
-    // e.g. a void/push inside the group returned $150 of the $300 staked.
-    $db = rrGroupSeed('lost', 'lost', 'void', 'lost', 150);
+TestRunner::run('RR settled WON group: potentialPayout = sum of children payouts (206+250+272=728)', function (): void {
+    // Guards the regression the totalPayout-based fix would have caused: a won
+    // group must show its real return, not the unmaintained totalPayout (0).
+    $db = rrGroupSeed('won', 'won', 'won', 'won');
     $rows = myBetsCompute(myBetsController($db), 'rr_user', '', 50);
     $g = array_values(array_filter($rows, static fn(array $r): bool => ($r['type'] ?? '') === 'round_robin'))[0];
-    TestRunner::assertEquals(150.0, (float) $g['potentialPayout'], 'settled group surfaces the ACTUAL returned total');
+    TestRunner::assertEquals(728.0, (float) $g['potentialPayout'], 'won group return = sum of child payouts (profit +428 downstream)');
+});
+
+TestRunner::run('RR settled PARTIAL group (some won, some lost): potentialPayout = winning children only', function (): void {
+    // idx0 won (206), idx1 lost (0), idx2 won (272) → 478.
+    $db = rrGroupSeed('won', 'lost', 'won', 'partial');
+    $rows = myBetsCompute(myBetsController($db), 'rr_user', '', 50);
+    $g = array_values(array_filter($rows, static fn(array $r): bool => ($r['type'] ?? '') === 'round_robin'))[0];
+    TestRunner::assertEquals('partial', (string) $g['status'], 'group row is partial (mixed, all settled)');
+    TestRunner::assertEquals(478.0, (float) $g['potentialPayout'], 'partial return = winning children only (206 + 272)');
+});
+
+TestRunner::run('RR settled group with a void child: void refunds its stake into the return', function (): void {
+    // idx0 lost (0), idx1 lost (0), idx2 void (refund 100) → 100.
+    $db = rrGroupSeed('lost', 'lost', 'void', 'partial');
+    $rows = myBetsCompute(myBetsController($db), 'rr_user', '', 50);
+    $g = array_values(array_filter($rows, static fn(array $r): bool => ($r['type'] ?? '') === 'round_robin'))[0];
+    TestRunner::assertEquals(100.0, (float) $g['potentialPayout'], 'void child contributes its stake refund (100)');
 });
 
 TestRunner::run('RR all-pending group: potentialPayout = totalPotentialPayout (To-Win preview preserved)', function (): void {
