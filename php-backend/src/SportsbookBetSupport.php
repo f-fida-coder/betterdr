@@ -584,6 +584,50 @@ final class SportsbookBetSupport
     }
 
     /**
+     * The LARGEST same-game cluster in a ticket: the event (matchId) shared by
+     * the most legs. Correlation risk lives WITHIN a single game, so the SGP leg
+     * cap bounds the biggest cluster — independent cross-game legs (and separate
+     * clusters on other games) never add to it. That's why a ticket's largest
+     * cluster ≤ sgpMaxLegs is the right gate: capping the largest also caps every
+     * other (smaller) cluster, and each game's correlation stays independently
+     * bounded (a 2-leg cluster on game A + a 3-leg cluster on game B → largest 3,
+     * NOT a combined 5).
+     *
+     * Returns ['size'=>int, 'matchId'=>string, 'labels'=>list<string>,
+     * 'matchup'=>string]. size 0/1 ⇒ no cluster (no two legs share an event).
+     *
+     * @param array<int,array<string,mixed>> $legs
+     * @return array{size:int, matchId:string, labels:list<string>, matchup:string}
+     */
+    public static function largestSameGameCluster(array $legs): array
+    {
+        $byMatch = [];
+        foreach ($legs as $leg) {
+            $mid = (string) ($leg['matchId'] ?? '');
+            if ($mid === '') {
+                continue;
+            }
+            $byMatch[$mid][] = $leg;
+        }
+        $best = ['size' => 0, 'matchId' => '', 'labels' => [], 'matchup' => ''];
+        foreach ($byMatch as $mid => $group) {
+            if (count($group) <= $best['size']) {
+                continue;
+            }
+            $snap = is_array($group[0]['matchSnapshot'] ?? null) ? $group[0]['matchSnapshot'] : [];
+            $away = trim((string) ($snap['awayTeam'] ?? ''));
+            $home = trim((string) ($snap['homeTeam'] ?? ''));
+            $best = [
+                'size' => count($group),
+                'matchId' => (string) $mid,
+                'labels' => array_map(static fn (array $l): string => self::sgpLegLabel($l), $group),
+                'matchup' => ($away !== '' && $home !== '') ? ($away . ' @ ' . $home) : '',
+            ];
+        }
+        return $best;
+    }
+
+    /**
      * Normalized market key for SGP rule matching: strips the `alternate_`
      * prefix (so `alternate_totals` ≡ `totals`) but KEEPS any period suffix, so
      * a full-game total and a `totals_1st_5_innings` stay distinct and never

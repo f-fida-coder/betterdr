@@ -764,12 +764,38 @@ final class BetsController
             $isSameGame = in_array($type, ['parlay', 'round_robin'], true)
                 && !empty($sgpCfg['enabled'])
                 && SportsbookBetSupport::isSameGameTicket($validatedSelections);
-            if ($isSameGame && count($validatedSelections) > (int) $sgpCfg['maxLegs']) {
-                throw new ApiException(
-                    'Same-game parlays allow at most ' . (int) $sgpCfg['maxLegs'] . ' legs.',
-                    400,
-                    ['code' => 'SGP_TOO_MANY_LEGS', 'maxLegs' => (int) $sgpCfg['maxLegs'], 'actual' => count($validatedSelections)]
-                );
+            if ($isSameGame) {
+                // SGP leg cap applies to the LARGEST SAME-GAME CLUSTER, not the
+                // whole ticket (PO 2026-07-19). Correlation risk lives within one
+                // game; independent cross-game legs must NOT count toward the
+                // cap. So an 8-leg parlay with a 2-leg same-game pair + 6 unrelated
+                // games is fine (cluster 2 ≤ 6) — only a single game carrying more
+                // than sgpMaxLegs legs is rejected. The overall parlay leg cap
+                // (maxLegs=8) still applies separately, unchanged. For a round
+                // robin the group's largest cluster bounds every child's (each
+                // child ⊆ the group's picks), so the group-level check covers all.
+                $sgpMaxLegs = (int) $sgpCfg['maxLegs'];
+                $cluster = SportsbookBetSupport::largestSameGameCluster($validatedSelections);
+                if ($cluster['size'] > $sgpMaxLegs) {
+                    $where = $cluster['matchup'] !== '' ? ' (' . $cluster['matchup'] . ')' : '';
+                    throw new ApiException(
+                        'Too many picks from the same game' . $where . ': you have ' . $cluster['size']
+                            . ' legs on one game, but same-game parlays allow at most ' . $sgpMaxLegs
+                            . ' from a single game. This is a same-game limit — your other legs are fine, '
+                            . 'and it does not cap your ' . count($validatedSelections) . '-leg parlay overall. '
+                            . 'Drop ' . ($cluster['size'] - $sgpMaxLegs) . ' of these: "'
+                            . implode('", "', $cluster['labels']) . '".',
+                        400,
+                        [
+                            'code' => 'SGP_TOO_MANY_LEGS',
+                            'maxLegs' => $sgpMaxLegs,
+                            'clusterSize' => $cluster['size'],
+                            'totalLegs' => count($validatedSelections),
+                            'matchup' => $cluster['matchup'],
+                            'sameGameLegs' => $cluster['labels'],
+                        ]
+                    );
+                }
             }
 
             $requestFingerprint = SportsbookBetSupport::payloadHash([

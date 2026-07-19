@@ -748,3 +748,72 @@ TestRunner::run('evaluateTicket — no selections', function (): void {
     TestRunner::assertEquals('pending', $result['status'], 'empty rows → pending');
     TestRunner::assertEqualsFloat(200.0, $result['payout'], 'empty rows keeps potentialPayout');
 });
+
+// ── SGP leg cap: largest SAME-GAME CLUSTER, not total ticket legs ─────────────
+// (PO 2026-07-19) The 6-leg SGP cap applies to the biggest same-game cluster;
+// independent cross-game legs never count toward it, so an 8-leg parlay with a
+// small same-game pair is fine, while a single game carrying >6 legs is rejected.
+
+/** Build an SGP leg (matchId + selection + matchup snapshot for the message). */
+function sgpLeg_(string $matchId, string $sel, ?float $point = null, string $home = '', string $away = ''): array
+{
+    $l = ['matchId' => $matchId, 'selection' => $sel, 'matchSnapshot' => ['homeTeam' => $home, 'awayTeam' => $away]];
+    if ($point !== null) { $l['point'] = $point; }
+    return $l;
+}
+/** 24-hex id from a short tag. */
+function mid_(string $tag): string { return substr(md5($tag), 0, 24); }
+
+// The exact gate BetsController applies: reject iff largest cluster > sgpMaxLegs.
+$sgpReject = static fn (array $legs, int $maxLegs): bool =>
+    SportsbookBetSupport::largestSameGameCluster($legs)['size'] > $maxLegs;
+
+TestRunner::run('SGP cap — 8-leg parlay with ONE 2-leg same-game cluster is ALLOWED', function () use ($sgpReject): void {
+    $legs = [
+        sgpLeg_(mid_('a'), 'Angels ML', null, 'Angels', 'Tigers'),   // cluster on game A
+        sgpLeg_(mid_('a'), 'Over', 8.5, 'Angels', 'Tigers'),         // + same game A
+        sgpLeg_(mid_('b'), 'B ML'), sgpLeg_(mid_('c'), 'C ML'), sgpLeg_(mid_('d'), 'D ML'),
+        sgpLeg_(mid_('e'), 'E ML'), sgpLeg_(mid_('f'), 'F ML'), sgpLeg_(mid_('g'), 'G ML'),
+    ];
+    $c = SportsbookBetSupport::largestSameGameCluster($legs);
+    TestRunner::assertEquals(2, $c['size'], 'largest cluster is the 2 legs on game A');
+    TestRunner::assertEquals('Tigers @ Angels', $c['matchup'], 'matchup named for the message');
+    TestRunner::assertEquals(['Angels ML', 'Over 8.5'], $c['labels'], 'cluster legs labeled');
+    TestRunner::assertFalse($sgpReject($legs, 6), '8-leg / 2-leg cluster passes the 6-leg SGP cap');
+});
+
+TestRunner::run('SGP cap — a 7-leg SAME-GAME cluster is REJECTED (> 6)', function () use ($sgpReject): void {
+    $legs = [];
+    for ($i = 0; $i < 7; $i++) { $legs[] = sgpLeg_(mid_('a'), "leg$i", null, 'Angels', 'Tigers'); }
+    $c = SportsbookBetSupport::largestSameGameCluster($legs);
+    TestRunner::assertEquals(7, $c['size'], '7 legs all on one game');
+    TestRunner::assertTrue($sgpReject($legs, 6), '7-leg same-game cluster exceeds the cap → reject');
+});
+
+TestRunner::run('SGP cap — TWO separate clusters (2-leg + 3-leg) → largest 3, ALLOWED', function () use ($sgpReject): void {
+    // Correlation is per-game: separate clusters are independent, so the cap
+    // bounds each one (largest), NOT the combined same-game leg count (5).
+    $legs = [
+        sgpLeg_(mid_('a'), 'A1'), sgpLeg_(mid_('a'), 'A2'),                       // 2-leg cluster A
+        sgpLeg_(mid_('b'), 'B1'), sgpLeg_(mid_('b'), 'B2'), sgpLeg_(mid_('b'), 'B3'), // 3-leg cluster B
+    ];
+    TestRunner::assertEquals(3, SportsbookBetSupport::largestSameGameCluster($legs)['size'], 'largest cluster is 3, not combined 5');
+    TestRunner::assertFalse($sgpReject($legs, 6), '2+3 separate clusters both ≤ 6 → allowed');
+    // And a 7-leg cluster elsewhere still trips it even alongside small ones.
+    $big = $legs;
+    for ($i = 0; $i < 7; $i++) { $big[] = sgpLeg_(mid_('c'), "C$i"); }
+    TestRunner::assertTrue($sgpReject($big, 6), 'a 7-leg cluster on game C is still rejected');
+});
+
+TestRunner::run('SGP cap — a purely CROSS-game parlay has no cluster (size 1)', function () use ($sgpReject): void {
+    $legs = [sgpLeg_(mid_('a'), 'A'), sgpLeg_(mid_('b'), 'B'), sgpLeg_(mid_('c'), 'C')];
+    TestRunner::assertEquals(1, SportsbookBetSupport::largestSameGameCluster($legs)['size'], 'no two legs share a game');
+    TestRunner::assertFalse($sgpReject($legs, 6), 'cross-game parlay never trips the SGP cap');
+});
+
+TestRunner::run('SGP cap — exactly at the cap (6-leg cluster) is ALLOWED; 6 is inclusive', function () use ($sgpReject): void {
+    $legs = [];
+    for ($i = 0; $i < 6; $i++) { $legs[] = sgpLeg_(mid_('a'), "leg$i"); }
+    TestRunner::assertEquals(6, SportsbookBetSupport::largestSameGameCluster($legs)['size'], '6-leg cluster');
+    TestRunner::assertFalse($sgpReject($legs, 6), '6 == cap → allowed (only > cap rejects)');
+});
