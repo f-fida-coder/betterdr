@@ -3454,82 +3454,87 @@ const ModeBetPanel = ({
                                         {legLabel}
                                     </div>
                                 )}
+                                {/* Title + odds on ONE line: title (left, wraps)
+                                    and the American odds (right, pinned). Short
+                                    titles sit truly on one line (compaction win);
+                                    a long prop title wraps to extra lines while
+                                    the odds stay pinned top-right — never
+                                    truncated, so the full prop text is always
+                                    visible. Applies to every bet-type tab since
+                                    this is the shared leg renderer. */}
                                 <div style={{
-                                    fontSize: 14,
-                                    fontWeight: 800,
-                                    color: palette.textPrimary,
-                                    lineHeight: 1.2,
-                                    marginBottom: matchTimeLabel ? 2 : 5,
                                     display: 'flex',
-                                    alignItems: 'center',
-                                    flexWrap: 'wrap',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'baseline',
                                     gap: 8,
+                                    marginBottom: matchTimeLabel ? 2 : 5,
                                 }}>
-                                    <span>{isProp
-                                        ? formatPropSelectionTitle(sel.selectionFull || sel.selection, propMarketLabel)
-                                        : legLabelText}</span>
-                                    {sel.isLive && (
-                                        // LIVE BET pill — flagged at add-to-slip
-                                        // time from match.isLive, which is true
-                                        // whenever the upstream odds source reports
-                                        // status='live' or score.event_status
-                                        // contains IN_PROGRESS / LIVE. Surfaces
-                                        // here so the user sees that this leg
-                                        // priced against in-play odds, not
-                                        // pre-game — useful for trader review
-                                        // and for distinguishing the line on
-                                        // settled tickets.
-                                        <span style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: 4,
-                                            padding: '2px 8px',
-                                            borderRadius: 4,
-                                            background: '#ff5051',
-                                            color: '#fff',
-                                            fontSize: 10,
-                                            fontWeight: 800,
-                                            letterSpacing: 0.6,
-                                            textTransform: 'uppercase',
-                                            lineHeight: 1.2,
-                                        }}>
-                                            <span style={{
-                                                width: 6,
-                                                height: 6,
-                                                borderRadius: '50%',
-                                                background: '#fff',
-                                                display: 'inline-block',
-                                            }} />
-                                            Live Bet
-                                        </span>
-                                    )}
-                                </div>
-                                {matchTimeLabel && (
+                                    {/* Left group: title text + LIVE pill.
+                                        min-width:0 lets it shrink and wrap
+                                        instead of pushing the odds off-card. */}
                                     <div style={{
-                                        fontSize: 10,
-                                        color: palette.textMuted || '#6b7280',
-                                        marginBottom: 5,
                                         display: 'flex',
                                         alignItems: 'center',
-                                        gap: 4,
-                                        lineHeight: 1.1,
+                                        flexWrap: 'wrap',
+                                        gap: 8,
+                                        minWidth: 0,
+                                        flex: '1 1 auto',
+                                        fontSize: 14,
+                                        fontWeight: 800,
+                                        color: palette.textPrimary,
+                                        lineHeight: 1.2,
                                     }}>
-                                        <i className="fa-regular fa-clock" />
-                                        {matchTimeLabel}
+                                        <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{isProp
+                                            ? formatPropSelectionTitle(sel.selectionFull || sel.selection, propMarketLabel)
+                                            : legLabelText}</span>
+                                        {sel.isLive && (
+                                            // LIVE BET pill — flagged at add-to-slip
+                                            // time from match.isLive, which is true
+                                            // whenever the upstream odds source reports
+                                            // status='live' or score.event_status
+                                            // contains IN_PROGRESS / LIVE. Surfaces
+                                            // here so the user sees that this leg
+                                            // priced against in-play odds, not
+                                            // pre-game — useful for trader review
+                                            // and for distinguishing the line on
+                                            // settled tickets.
+                                            <span style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                                padding: '2px 8px',
+                                                borderRadius: 4,
+                                                background: '#ff5051',
+                                                color: '#fff',
+                                                fontSize: 10,
+                                                fontWeight: 800,
+                                                letterSpacing: 0.6,
+                                                textTransform: 'uppercase',
+                                                lineHeight: 1.2,
+                                            }}>
+                                                <span style={{
+                                                    width: 6,
+                                                    height: 6,
+                                                    borderRadius: '50%',
+                                                    background: '#fff',
+                                                    display: 'inline-block',
+                                                }} />
+                                                Live Bet
+                                            </span>
+                                        )}
                                     </div>
-                                )}
-
-                                {/* American odds (always green), right-aligned.
-                                    The full selection label now lives on the
-                                    title line above, so this row is odds-only. */}
-                                <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'flex-end',
-                                    alignItems: 'baseline',
-                                    fontSize: 13,
-                                    gap: 8,
-                                }}>
-                                    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}>
+                                    {/* Right group: odds (+ optional ODDS_CHANGED
+                                        delta chip). flex-shrink:0 + nowrap keeps
+                                        it intact and pinned; the title wraps to
+                                        make room instead. */}
+                                    <span style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'baseline',
+                                        gap: 6,
+                                        flexShrink: 0,
+                                        whiteSpace: 'nowrap',
+                                        fontSize: 13,
+                                    }}>
                                         {/* ODDS_CHANGED delta chip: old → new, set by
                                             handleOddsChanged when the server repriced
                                             this leg. Green when the new price pays
@@ -3553,6 +3558,20 @@ const ModeBetPanel = ({
                                         </span>
                                     </span>
                                 </div>
+                                {matchTimeLabel && (
+                                    <div style={{
+                                        fontSize: 10,
+                                        color: palette.textMuted || '#6b7280',
+                                        marginBottom: 5,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        lineHeight: 1.1,
+                                    }}>
+                                        <i className="fa-regular fa-clock" />
+                                        {matchTimeLabel}
+                                    </div>
+                                )}
 
                                 {/* MLB listed-pitcher Action toggles. Each box
                                     starts UNCHECKED = listed pitcher (the leg
