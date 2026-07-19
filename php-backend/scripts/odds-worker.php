@@ -347,6 +347,17 @@ while (!$shutdown) {
             } catch (Throwable $e) {
                 Logger::warning('odds-worker settlement sweep failed', ['error' => $e->getMessage()], 'sportsbook');
             }
+            // Display-only backfill: grade the per-leg W/L of ALREADY-TERMINAL
+            // parlays whose sibling legs were closed unrgraded by a decisive
+            // loss (informational badges). Zero money contact — writes only
+            // leg-level display status, never balance/ledger/ticket outcome.
+            // Piggybacks the ~60s settle cadence; own try/catch so a backfill
+            // error can never disrupt settlement.
+            try {
+                BetSettlementService::backfillTerminalLegDisplay($repo, 45, 200);
+            } catch (Throwable $e) {
+                Logger::warning('odds-worker terminal-leg display backfill failed', ['error' => $e->getMessage()], 'sportsbook');
+            }
         }
 
         // ── 3a2. Bet-approval timeout sweep ─────────────────────────

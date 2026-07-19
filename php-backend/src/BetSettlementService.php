@@ -1054,6 +1054,155 @@ final class BetSettlementService
     }
 
     /**
+     * DISPLAY-ONLY backfill of per-leg W/L on ALREADY-TERMINAL combined tickets
+     * (PO 2026-07-19). When a decisive loss settles a parlay, the sibling legs
+     * are closed (status 'closed', gradeReason 'ticket_terminal') WITHOUT being
+     * graded — so a leg whose game finishes later never shows its actual result
+     * ("show me what happened on each pick"). This pass grades those orphaned
+     * legs for display once their match is final.
+     *
+     * ⚠️ ZERO MONEY CONTACT — this method must NEVER move money or change a
+     * ticket's outcome. It writes ONLY leg-level display fields on
+     * `betselections` rows + the bet doc's `selections` array. It does NOT touch
+     * users.balance / pendingBalance / freeplayBalance, the `transactions`
+     * ledger, or bets.{status,result,payout,potentialPayout,settledAt}; it never
+     * calls evaluateTicket, the settle/payout block, or BalanceUpdateService.
+     * The ticket is already terminal and its payout is frozen — grading the
+     * remaining legs is informational only. Reuses the SAME pure grader the real
+     * settle path uses (selectionResultDetailed / settledScorePair).
+     *
+     * Fossil-loop-safe: a graded leg flips 'closed' → won/lost/void and leaves
+     * the candidate set, so it is never re-scanned; a leg whose match is not yet
+     * final stays 'closed' and is retried on a later pass.
+     *
+     * @return array{legsChecked:int, legsGraded:int, betsTouched:int, errors:int}
+     */
+    public static function backfillTerminalLegDisplay(SqlRepository $db, int $lookbackDays = 45, int $limit = 200): array
+    {
+        $summary = ['legsChecked' => 0, 'legsGraded' => 0, 'betsTouched' => 0, 'errors' => 0];
+
+        // Candidate legs: orphaned by the terminal-close, within the lookback.
+        $since = gmdate('c', time() - max(1, $lookbackDays) * 86400);
+        $rows = $db->findMany('betselections', [
+            'status'      => 'closed',
+            'gradeReason' => 'ticket_terminal',
+            'updatedAt'   => ['$gte' => $since],
+        ], ['projection' => ['betId' => 1], 'limit' => max(1, $limit)]);
+
+        // Distinct parent bets to process.
+        $betIds = [];
+        foreach ($rows as $r) {
+            $bid = is_array($r) ? (string) ($r['betId'] ?? '') : '';
+            if ($bid !== '' && preg_match('/^[a-f0-9]{24}$/i', $bid) === 1) {
+                $betIds[$bid] = true;
+            }
+        }
+
+        $matchCache = [];
+        foreach (array_keys($betIds) as $betId) {
+            try {
+                $db->beginTransaction();
+                $bet = $db->findOne('bets', ['id' => SqlRepository::id($betId)]);
+                if ($bet === null) {
+                    $db->rollback();
+                    continue;
+                }
+                // HARD GUARD: only touch tickets that are ALREADY terminal. A
+                // pending/open ticket must go through the real settle path — this
+                // display pass must never grade a leg that could move money.
+                $betStatus = strtolower((string) ($bet['status'] ?? ''));
+                if (!in_array($betStatus, ['won', 'lost', 'void', 'partial'], true)) {
+                    $db->rollback();
+                    continue;
+                }
+
+                $rowsForBet = SportsbookBetSupport::ensureSelectionRowsForBet($db, $bet);
+                $dirty = false;
+                foreach ($rowsForBet as $idx => $row) {
+                    if (!is_array($row) || (string) ($row['status'] ?? '') !== 'closed') {
+                        continue;
+                    }
+                    $matchId = (string) ($row['matchId'] ?? '');
+                    if ($matchId === '' || preg_match('/^[a-f0-9]{24}$/i', $matchId) !== 1) {
+                        continue;
+                    }
+                    $summary['legsChecked']++;
+
+                    if (!array_key_exists($matchId, $matchCache)) {
+                        $matchCache[$matchId] = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
+                    }
+                    $match = $matchCache[$matchId];
+                    if ($match === null) {
+                        continue;
+                    }
+                    $mStatus = (string) (SportsMatchStatus::annotate($match)['status'] ?? '');
+                    if (!in_array($mStatus, ['finished', 'canceled'], true)) {
+                        continue; // game not final → leave 'closed', retry later
+                    }
+
+                    // Same pure grader the real settle loop uses. playerStats is
+                    // null → a prop leg that needs a box score returns 'pending'
+                    // and is left closed (team-market legs grade fine).
+                    $detailed = SportsbookBetSupport::selectionResultDetailed($match, $row);
+                    $status = (string) ($detailed['status'] ?? 'pending');
+                    if ($status === 'pending') {
+                        continue; // ungradeable → leave closed
+                    }
+                    $fraction = (float) ($detailed['settleFraction'] ?? 1.0);
+                    [$legHome, $legAway] = SportsbookBetSupport::settledScorePair($match, $row);
+                    $gradeReason = $status === 'void'
+                        ? SportsbookBetSupport::gradeReasonForVoidLeg($match, $row)
+                        : null;
+                    $gradedAt = SqlRepository::nowUtc();
+
+                    // Leg-level display write on the betselections row.
+                    $db->updateOne('betselections', ['id' => SqlRepository::id((string) ($row['id'] ?? ''))], [
+                        'status'         => $status,
+                        'settleFraction' => $fraction,
+                        'finalHomeScore' => $legHome,
+                        'finalAwayScore' => $legAway,
+                        'gradeReason'    => $gradeReason,
+                        'settledAt'      => $gradedAt,
+                        'updatedAt'      => $gradedAt,
+                    ]);
+                    // Reflect in the in-memory row so the bet-doc rebuild sees it.
+                    $rowsForBet[$idx]['status'] = $status;
+                    $rowsForBet[$idx]['settleFraction'] = $fraction;
+                    $rowsForBet[$idx]['finalHomeScore'] = $legHome;
+                    $rowsForBet[$idx]['finalAwayScore'] = $legAway;
+                    $rowsForBet[$idx]['gradeReason'] = $gradeReason;
+                    $rowsForBet[$idx]['settledAt'] = $gradedAt;
+                    $dirty = true;
+                    $summary['legsGraded']++;
+                }
+
+                if ($dirty) {
+                    // DISPLAY source: rebuild ONLY the bet doc's selections array
+                    // from the graded rows (same helper the settle loop uses).
+                    // No other bet field is written — status/payout stay frozen.
+                    $db->updateOne('bets', ['id' => SqlRepository::id($betId)], [
+                        'selections' => SportsbookBetSupport::selectionRowsToBetSelections($bet, $rowsForBet),
+                        'updatedAt'  => SqlRepository::nowUtc(),
+                    ]);
+                    $db->commit();
+                    $summary['betsTouched']++;
+                } else {
+                    $db->rollback();
+                }
+            } catch (Throwable $e) {
+                try { $db->rollback(); } catch (Throwable $_) {}
+                $summary['errors']++;
+                Logger::warning('terminal leg display backfill failed', [
+                    'betId' => $betId,
+                    'error' => $e->getMessage(),
+                ], 'settlement');
+            }
+        }
+
+        return $summary;
+    }
+
+    /**
      * Discovery + settle pass for "zombie" parlays: a parlay (or open parlay)
      * that is already DEAD — it holds a decisively-lost leg (status 'lost',
      * settleFraction >= 1.0) — but still sits status pending/open because a

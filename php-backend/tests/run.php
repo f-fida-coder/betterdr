@@ -35,6 +35,7 @@ const ISOLATED_SUITES = [
     'MyBetsFeedTest.php',           // mocks SqlRepository to prove live-stake tickets never fall out of the my-bets feed
     'OddsApiCardMarketsTest.php',   // needs an INSTANCE-method SqlRepository double (shared-process stub is static-only)
     'SqlRepositoryMergeTest.php',   // loads the REAL SqlRepository (would fatal-redeclare against shared-process stubs)
+    'TerminalLegDisplayTest.php',   // in-memory SqlRepository double for the display-only terminal-leg backfill
 ];
 
 $testFiles = glob(__DIR__ . '/*Test.php') ?: [];
