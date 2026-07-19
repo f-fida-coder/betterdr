@@ -5,17 +5,20 @@ declare(strict_types=1);
 /**
  * The Odds API SUPPLEMENTAL odds worker — tiered, config-driven scheduler.
  *
- * Categories and cadences (minutes, env-driven):
- *   - soccer main lines: ODDS_API_POLL_SOCCER_MINUTES (10), tightened to
- *     ODDS_API_POLL_SOCCER_NEAR_KICKOFF_MINUTES (5) while any allowlisted
+ * Categories and cadences (env-driven). Each tier reads a SECONDS knob first
+ * (ODDS_API_POLL_<TIER>_SECONDS — enables SUB-MINUTE polling), falling back to
+ * the legacy ODDS_API_POLL_<TIER>_MINUTES × 60, then a 180s default. Floored at
+ * 5s. The worker TICK (ODDS_API_WORKER_TICK_SECONDS) must be ≤ the smallest
+ * interval for that cadence to actually be honored.
+ *   - soccer main lines: ODDS_API_POLL_SOCCER_SECONDS / _MINUTES, tightened to
+ *     ODDS_API_POLL_SOCCER_NEAR_KICKOFF_SECONDS / _MINUTES while any allowlisted
  *     soccer match kicks off within ODDS_API_NEAR_KICKOFF_WINDOW_HOURS (2).
- *   - outrights/futures: ODDS_API_POLL_OUTRIGHTS_MINUTES (10). Gated by
- *     ODDS_API_OUTRIGHTS_SYNC_ENABLED (default OFF until the outrights-
- *     ingestion chunk lands).
- *   - card markets: ODDS_API_POLL_CARDS_MINUTES (10), gated by
+ *   - outrights/futures: ODDS_API_POLL_OUTRIGHTS_SECONDS / _MINUTES. Gated by
+ *     ODDS_API_OUTRIGHTS_SYNC_ENABLED.
+ *   - card markets: ODDS_API_POLL_CARDS_SECONDS / _MINUTES, gated by
  *     OddsApiCardMarketsService::enabled().
  *   - low-volume fights + rugby (boxing_boxing, rugbyleague_nrl):
- *     ODDS_API_POLL_LOWVOLUME_MINUTES (10), same near-kickoff tightening.
+ *     ODDS_API_POLL_LOWVOLUME_SECONDS / _MINUTES, same near-kickoff tightening.
  *     Zero-event passes are NORMAL between fight cards / NRL rounds.
  *
  * CREDIT BUDGET GUARD (wired here):
@@ -104,14 +107,34 @@ try {
     // The canary must never block startup.
 }
 
-$tick            = max(5, (int) Env::get('ODDS_API_WORKER_TICK_SECONDS', '30'));
+$tick            = max(2, (int) Env::get('ODDS_API_WORKER_TICK_SECONDS', '30'));
 $maxRuntime      = max(300, (int) Env::get('ODDS_API_WORKER_MAX_RUNTIME_SECONDS', '21600')); // 6h then voluntary restart
-$soccerMinutes   = max(1, (int) Env::get('ODDS_API_POLL_SOCCER_MINUTES', '3'));
-$nearMinutes     = max(0, (int) Env::get('ODDS_API_POLL_SOCCER_NEAR_KICKOFF_MINUTES', '2')); // 0 = no tightening
+// Per-tier poll cadence in SECONDS. A `_SECONDS` env takes precedence — it
+// enables SUB-MINUTE polling, which the legacy `_MINUTES` knob could not
+// (it floored at 1 minute). Falls back to `_MINUTES × 60`, then the default.
+// Floored at 5s so a typo can't hammer the upstream; the budget guard
+// (pollIntervalMultiplier / outrightsOnly) still throttles when credit is low.
+$pollSeconds = static function (string $secEnv, string $minEnv, int $defaultSeconds): int {
+    $sec = (int) Env::get($secEnv, '0');
+    if ($sec > 0) {
+        return max(5, $sec);
+    }
+    $min = (int) Env::get($minEnv, '0');
+    if ($min > 0) {
+        return max(5, $min * 60);
+    }
+    return $defaultSeconds;
+};
+$soccerSeconds   = $pollSeconds('ODDS_API_POLL_SOCCER_SECONDS', 'ODDS_API_POLL_SOCCER_MINUTES', 180);
+// Near-kickoff tightening: 0 = disabled. `_SECONDS` precedence, then `_MINUTES`.
+$nearSecondsRaw  = (int) Env::get('ODDS_API_POLL_SOCCER_NEAR_KICKOFF_SECONDS', '-1');
+$nearSeconds     = $nearSecondsRaw >= 0
+    ? $nearSecondsRaw
+    : max(0, (int) Env::get('ODDS_API_POLL_SOCCER_NEAR_KICKOFF_MINUTES', '2')) * 60;
 $nearWindowHours = max(1, (int) Env::get('ODDS_API_NEAR_KICKOFF_WINDOW_HOURS', '2'));
-$outrightMinutes = max(1, (int) Env::get('ODDS_API_POLL_OUTRIGHTS_MINUTES', '3'));
-$cardsMinutes    = max(1, (int) Env::get('ODDS_API_POLL_CARDS_MINUTES', '3'));
-$lowVolMinutes   = max(1, (int) Env::get('ODDS_API_POLL_LOWVOLUME_MINUTES', '3'));
+$outrightSeconds = $pollSeconds('ODDS_API_POLL_OUTRIGHTS_SECONDS', 'ODDS_API_POLL_OUTRIGHTS_MINUTES', 180);
+$cardsSeconds    = $pollSeconds('ODDS_API_POLL_CARDS_SECONDS', 'ODDS_API_POLL_CARDS_MINUTES', 180);
+$lowVolSeconds   = $pollSeconds('ODDS_API_POLL_LOWVOLUME_SECONDS', 'ODDS_API_POLL_LOWVOLUME_MINUTES', 180);
 
 $shutdown = false;
 if (function_exists('pcntl_signal')) {
@@ -124,17 +147,18 @@ $pid       = getmypid();
 $startedAt = time();
 $enabled   = OddsApiSyncService::enabled();
 
-fwrite(STDOUT, "[oddsapi-worker] pid={$pid} enabled=" . ($enabled ? 'yes' : 'NO (idle)') . " soccer={$soccerMinutes}m outrights={$outrightMinutes}m tick={$tick}s\n");
+fwrite(STDOUT, "[oddsapi-worker] pid={$pid} enabled=" . ($enabled ? 'yes' : 'NO (idle)') . " soccer={$soccerSeconds}s cards={$cardsSeconds}s lowvol={$lowVolSeconds}s outrights={$outrightSeconds}s tick={$tick}s\n");
 Logger::info('oddsapi-worker started', [
     'pid'             => $pid,
     'enabled'         => $enabled,
-    'soccerMinutes'   => $soccerMinutes,
-    'nearMinutes'     => $nearMinutes,
-    'outrightMinutes' => $outrightMinutes,
+    'soccerSeconds'   => $soccerSeconds,
+    'nearSeconds'     => $nearSeconds,
+    'outrightSeconds' => $outrightSeconds,
     'outrightsGate'   => OddsApiSyncService::outrightsEnabled(),
-    'cardsMinutes'    => $cardsMinutes,
+    'cardsSeconds'    => $cardsSeconds,
     'cardsGate'       => OddsApiCardMarketsService::enabled(),
-    'lowVolMinutes'   => $lowVolMinutes,
+    'lowVolSeconds'   => $lowVolSeconds,
+    'tickSeconds'     => $tick,
 ], 'oddsapi');
 Logger::flush();
 
@@ -237,11 +261,11 @@ while (!$shutdown) {
         } catch (Throwable $e) {
             Logger::warning('oddsapi soccer pass failed', ['error' => $e->getMessage()], 'oddsapi');
         }
-        $intervalMinutes = $soccerMinutes;
-        if ($nearMinutes > 0) {
+        $intervalSeconds = $soccerSeconds;
+        if ($nearSeconds > 0) {
             try {
                 if (oddsapiHasKickoffWithinWindow($repo, $nearWindowHours, OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_SOCCER))) {
-                    $intervalMinutes = min($intervalMinutes, $nearMinutes);
+                    $intervalSeconds = min($intervalSeconds, $nearSeconds);
                 }
             } catch (Throwable $e) {
                 // DB hiccup → keep the normal cadence, never crash the loop.
@@ -249,7 +273,7 @@ while (!$shutdown) {
         }
         // BUDGET GUARD: interval × multiplier — below the SLOWDOWN threshold
         // every soccer poll frequency literally halves.
-        $soccerDueAt = $loopStart + ($intervalMinutes * 60 * $mult);
+        $soccerDueAt = $loopStart + ($intervalSeconds * $mult);
     }
 
     // ── Low-volume tier: fights + rugby (skipped in outrights-only mode).
@@ -269,22 +293,22 @@ while (!$shutdown) {
         } catch (Throwable $e) {
             Logger::warning('oddsapi lowvolume pass failed', ['error' => $e->getMessage()], 'oddsapi');
         }
-        $intervalMinutes = $lowVolMinutes;
-        if ($nearMinutes > 0) {
+        $intervalSeconds = $lowVolSeconds;
+        if ($nearSeconds > 0) {
             try {
                 $lowVolKeys = array_merge(
                     OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_FIGHTS),
                     OddsApiAllowlist::keysFor(OddsApiAllowlist::CATEGORY_RUGBY)
                 );
                 if (oddsapiHasKickoffWithinWindow($repo, $nearWindowHours, $lowVolKeys)) {
-                    $intervalMinutes = min($intervalMinutes, $nearMinutes);
+                    $intervalSeconds = min($intervalSeconds, $nearSeconds);
                 }
             } catch (Throwable $e) {
                 // DB hiccup → keep the normal cadence, never crash the loop.
             }
         }
         // BUDGET GUARD: same multiplier on the low-volume cadence.
-        $lowVolDueAt = $loopStart + ($intervalMinutes * 60 * $mult);
+        $lowVolDueAt = $loopStart + ($intervalSeconds * $mult);
     }
 
     // ── Outrights tier (keeps polling even in outrights-only mode) ───
@@ -303,7 +327,7 @@ while (!$shutdown) {
             Logger::warning('oddsapi outrights pass failed', ['error' => $e->getMessage()], 'oddsapi');
         }
         // BUDGET GUARD: same multiplier on the outrights cadence.
-        $outrightsDueAt = $loopStart + ($outrightMinutes * 60 * $mult);
+        $outrightsDueAt = $loopStart + ($outrightSeconds * $mult);
     }
 
     // ── Cards tier (skipped in outrights-only mode — it's the costliest
@@ -326,7 +350,7 @@ while (!$shutdown) {
             Logger::warning('oddsapi cards pass failed', ['error' => $e->getMessage()], 'oddsapi');
         }
         // BUDGET GUARD: same multiplier on the cards cadence.
-        $cardsDueAt = $loopStart + ($cardsMinutes * 60 * $mult);
+        $cardsDueAt = $loopStart + ($cardsSeconds * $mult);
     }
 
     Logger::flush();
