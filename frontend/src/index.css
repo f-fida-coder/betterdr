@@ -1668,3 +1668,13 @@ body::after {
   opacity: 0.7;
   font-weight: 500;
 }
+
+/* Betslip APPLY TO ALL stake input (ModeBetPanel): the input sits in a
+   narrow flex:1 slot between the BET/RISK/WIN toggle and CLEAR, so the
+   placeholder is rendered a touch smaller than the typed value (which stays
+   14px) to keep the "Amount" hint from truncating on narrow mobile widths. */
+.mode-bet-amount-input::placeholder {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 1;
+}

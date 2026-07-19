@@ -2877,7 +2877,16 @@ const ModeBetPanel = ({
                                     min="0"
                                     step="1"
                                     inputMode="numeric"
-                                    placeholder="Bet Amount"
+                                    // "Amount" (not "Bet Amount") + a smaller
+                                    // placeholder font (mode-bet-amount-input
+                                    // ::placeholder in index.css) so the hint fits
+                                    // the narrow flex:1 input between the
+                                    // BET/RISK/WIN toggle and CLEAR on mobile, where
+                                    // "Bet Amount" truncated to "Bet Amo…". Typed
+                                    // numbers stay at the full 14px below. The "$"
+                                    // prefix + "APPLY TO ALL" title keep it clear.
+                                    className="mode-bet-amount-input"
+                                    placeholder="Amount"
                                     value={wager}
                                     onChange={(e) => applyTypedWager(String(e.target.value).replace(/\D/g, ''))}
                                     onFocus={(e) => { e.currentTarget.parentElement.style.borderColor = palette.accent; }}
