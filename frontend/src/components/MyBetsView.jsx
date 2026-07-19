@@ -37,6 +37,19 @@ const moneyExactSigned = (value, sign) => {
     const formatted = safe.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     return `${sign}$${formatted}`;
 };
+// Whole-dollar RISK-column DISPLAY: round half-up with thousands separators
+// ($740.74 → "$741"). Round (not floor) so the shown risk never understates
+// what was actually staked, and to match the "$741" the player expects.
+// DISPLAY ONLY (PO 2026-07-19): the stored riskAmount, the placement charge,
+// pendingBalance, settlement, and the ledger all keep the exact fractional
+// stake — only the rendered Risk string rounds. Replaces the prior moneyExact
+// so the Risk column reads whole dollars like the To-Win column. Negatives
+// clamp to 0. Never feed this value back into money math.
+const moneyWholeRisk = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '$0';
+    return '$' + formatMoneyWholeRounded(Math.max(0, n));
+};
 // PENDING / PROJECTED To-Win formatter: whole dollars with cents FLOORED
 // ($144.21 → $144, $54.00 → $54 — PO 2026-07-09; a projection must never
 // overstate the payout, so truncate, don't round-half-up). DISPLAY ONLY:
@@ -317,17 +330,17 @@ const legDescriptionBase = (leg, oddsFormat) => {
     if (market === 'totals') {
         // Game total (not a team total — that market type is `team_totals` and
         // falls through to the default branch). The selection is just
-        // "Over"/"Under". A game total belongs to BOTH teams, so label it
-        // "Over 8.5 (Phillies @ Royals)" — the old home-mascot prefix
-        // ("Royals Over 8.5") read as a team total for one side.
+        // "Over"/"Under". The two matchup crests rendered next to the row
+        // already convey which game this is, so the one-liner drops the
+        // "(Away @ Home)" parenthetical (matches the betslip/receipt
+        // convention "Over 8.5"). A game total can't be mistaken for a team
+        // total — team totals always carry the team name + literal "Team
+        // Total" text — and the expanded detail panel still shows the full
+        // matchup row.
         const isUnder = selection.toLowerCase().startsWith('u');
         const line = point === null ? '' : formatLineValue(Math.abs(point));
-        const snap = leg?.matchSnapshot || {};
-        const away = mascotName(snap.awayTeamFull, snap.awayTeam);
-        const home = mascotName(snap.homeTeamFull, snap.homeTeam);
-        const game = away && home ? `(${away} @ ${home})` : '';
         const ou = isUnder ? 'Under' : 'Over';
-        return [ou, line, legPeriod, game, odds].filter(Boolean).join(' ');
+        return [ou, line, legPeriod, odds].filter(Boolean).join(' ');
     }
     // Team total: the selection embeds the team, not a side prefix
     // ("Tampa Bay Over"), so the moneyline fallback below would drop the
@@ -371,10 +384,12 @@ const legDescriptionBase = (leg, oddsFormat) => {
             || String(leg?.selectionFull || '').trim() || selection || 'Pick';
         return [text, odds].filter(Boolean).join(' ');
     }
-    // Moneyline / fallback → mascot-only team + odds ("Tigers +105");
-    // period moneylines carry the chip label ("Rays F5 -140").
+    // Moneyline / fallback → mascot team + "ML" + odds ("Tigers ML +105");
+    // period moneylines carry the chip label ("Rays F5 ML -140"). The "ML"
+    // matches the betslip/receipt convention (formatLegLabel / ticketSummary)
+    // so a no-line pick never renders as a bare team name.
     const team = mascotName(leg?.selectionFull, selection) || 'Pick';
-    return [team, legPeriod, odds].filter(Boolean).join(' ');
+    return [team, legPeriod, 'ML', odds].filter(Boolean).join(' ');
 };
 
 // Parent-row label for multi-leg tickets, e.g. "Parlay - 3 Teams".
@@ -902,7 +917,9 @@ const winCellContent = (amount) => {
 // rendered) so 99% of rows look identical to before.
 const RiskAmount = ({ bet }) => {
     const { cashRisk, fpUsed } = cashRiskOfBet(bet);
-    if (fpUsed <= 0) return moneyExact(cashRisk);
+    // Whole-dollar display (round). The exact fractional stake is preserved in
+    // the title tooltip so the precise charge is still one hover away.
+    if (fpUsed <= 0) return moneyWholeRisk(cashRisk);
     return (
         <span style={{
             display: 'inline-flex',
@@ -910,15 +927,15 @@ const RiskAmount = ({ bet }) => {
             alignItems: 'flex-end',
             lineHeight: 1.1,
             fontVariantNumeric: 'tabular-nums',
-        }}>
-            <span>{moneyExact(cashRisk)}</span>
+        }} title={`Risk ${moneyExact(cashRisk)}`}>
+            <span>{moneyWholeRisk(cashRisk)}</span>
             <span style={{
                 fontSize: '0.7em',
                 color: '#16a34a',
                 fontWeight: 800,
                 letterSpacing: 0.2,
             }} title={`Freeplay applied: ${moneyExact(fpUsed)}`}>
-                {moneyExact(fpUsed)} FP
+                {moneyWholeRisk(fpUsed)} FP
             </span>
         </span>
     );
@@ -1635,7 +1652,14 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, onWarmLegs = null, mode = 
                 let totalWin = 0;
                 bets.forEach((b) => {
                     const { cashRisk } = cashRiskOfBet(b);
-                    totalCashRisk += cashRisk;
+                    // Foot the Risk column against what the rows DISPLAY: each
+                    // row shows its cash risk rounded (moneyWholeRisk), so the
+                    // Total sums those rounded values and always equals the
+                    // visible column. Summing the exact fractional risks then
+                    // rounding the grand total can disagree with the column by
+                    // up to a dollar. Display-only — the exact stored riskAmount
+                    // is untouched.
+                    totalCashRisk += Math.round(Math.max(0, cashRisk));
                     // Foot the To-Win column against what the rows DISPLAY:
                     // payoutValue is the same helper the per-row cell reads
                     // (including the open-parlay placeholder preview), and each
@@ -1648,7 +1672,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, onWarmLegs = null, mode = 
                 return (
                     <div className="my-bets-table-totals">
                         <span className="my-bets-table-col-desc">Total</span>
-                        <span className="my-bets-table-col-risk">{moneyExact(totalCashRisk)}</span>
+                        <span className="my-bets-table-col-risk">{moneyWholeRisk(totalCashRisk)}</span>
                         <span className="my-bets-table-col-win">{moneyWhole(totalWin)}</span>
                     </div>
                 );
