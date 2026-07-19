@@ -98,6 +98,9 @@ jobs:
       - name: Bet defaults — split Straight/Parlay stake mode (fallback + bucket + don't-stomp)
         run: node frontend/scripts/test-bet-default-mode.mjs
 
+      - name: Min-bet floor snap (WIN back-solve below min → auto-raise, cap-vs-min)
+        run: node frontend/scripts/test-min-bet-floor.mjs
+
       - name: Build
         working-directory: frontend
         run: npm run build

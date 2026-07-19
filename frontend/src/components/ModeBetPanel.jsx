@@ -4,7 +4,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal, roundCombinedToAmericanDecimal } from '../utils/odds';
 import { computeMidQuickStakes } from '../utils/money';
-import { maxStakeForWinCap, maxStakeNote, cannotFitCapNote, winTargetCappedNote, stakeAutoCappedNote } from '../utils/maxWinCap';
+import { maxStakeForWinCap, maxStakeNote, cannotFitCapNote, winTargetCappedNote, stakeAutoCappedNote, stakeAutoRaisedNote, floorStakeToMin, minFloorApplied } from '../utils/maxWinCap';
 import { formatSiteDateTime } from '../utils/timezone';
 import { isMlbSportKey, formatPitcherLabel } from '../utils/pitchers';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
@@ -468,6 +468,10 @@ const ModeBetPanel = ({
     // the hardcoded extremes when the player has no min/max configured.
     const playerMinBet = Number(user?.minBet);
     const playerMaxBet = Number(user?.maxBet);
+    // Min-bet floor snap (PO 2026-07-19): a WIN-mode back-solve whose stake
+    // lands below the account minimum auto-snaps UP to the minimum (mirror of
+    // the max-win cap's down-snap). hasPlayerMin gates that snap.
+    const hasPlayerMin = Number.isFinite(playerMinBet) && playerMinBet > 0;
     const minBetChip = Number.isFinite(playerMinBet) && playerMinBet > 0 ? playerMinBet : QUICK_STAKES[0];
     const maxBetChip = Number.isFinite(playerMaxBet) && playerMaxBet > 0 ? playerMaxBet : QUICK_STAKES[3];
     const [mid1Chip, mid2Chip, mid3Chip] = computeMidQuickStakes(minBetChip, maxBetChip);
@@ -922,6 +926,26 @@ const ModeBetPanel = ({
             const win = d > 1 ? Math.round(ms * (d - 1) * 100) / 100 : pair.win;
             return { ...pair, risk: ms, win };
         };
+        // Mirror-image of clampToLegCap for the min-bet FLOOR (PO 2026-07-19):
+        // a WIN back-solved leg (source 'win' — the Win interpretation drove the
+        // risk, incl. bet-mode minus juice) whose stake fell below the min bet
+        // snaps UP to the min, with To-Win recomputed at that stake and a
+        // `floored` marker so winForSelection drops the stale win pin. Bounded by
+        // the leg cap so the cap ceiling still wins when it's below the min
+        // (cap-vs-min precedence). Deliberately-typed Risk (source 'risk') is
+        // never floored — the hard min error still fires for it.
+        const floorLegToMin = (pair) => {
+            if (normalizedMode !== 'straight' || pair?.source !== 'win' || !hasPlayerMin) return pair;
+            if (!(pair.risk > 0) || pair.risk >= playerMinBet) return pair;
+            const cap = Number(user?.maxWinCap);
+            const legCapMax = (Number.isFinite(cap) && cap > 0) ? maxStakeForWinCap(cap, Number(sel?.odds || 0)) : Infinity;
+            const target = floorStakeToMin(pair.risk, playerMinBet, legCapMax);
+            if (!(target > pair.risk)) return pair; // cap prevents reaching the min → leave as-is
+            const d = Number(sel?.odds);
+            const win = d > 1 ? Math.round(target * (d - 1) * 100) / 100 : pair.win;
+            return { ...pair, risk: target, win, floored: true };
+        };
+        const finalizeLeg = (pair) => floorLegToMin(clampToLegCap(pair));
         const override = sel?.wagerOverride;
         if (override && (override.source === 'risk' || override.source === 'win')) {
             const raw = override.source === 'risk' ? override.riskRaw : override.winRaw;
@@ -943,10 +967,10 @@ const ModeBetPanel = ({
             }
             if (override.source === 'risk') {
                 const rawWin = american < 0 ? safe * 100 / (-american) : safe * american / 100;
-                return clampToLegCap({ risk: safe, win: Math.round(rawWin * 100) / 100, source: 'risk' });
+                return finalizeLeg({ risk: safe, win: Math.round(rawWin * 100) / 100, source: 'risk' });
             }
             const rawRisk = american < 0 ? safe * (-american) / 100 : safe * 100 / american;
-            return clampToLegCap({ risk: Math.round(rawRisk * 100) / 100, win: safe, source: 'win' });
+            return finalizeLeg({ risk: Math.round(rawRisk * 100) / 100, win: safe, source: 'win' });
         }
         const computed = resolveStake(stakeMode, wager, sel?.odds);
         // Surface which interpretation drove the math so winForSelection
@@ -957,8 +981,8 @@ const ModeBetPanel = ({
         const computedSource = stakeMode === 'bet'
             ? resolveBetSmartMode(sel?.odds)
             : stakeMode;
-        return clampToLegCap({ ...computed, source: computedSource });
-    }, [stakeMode, wager, normalizedMode, user?.maxWinCap]);
+        return finalizeLeg({ ...computed, source: computedSource });
+    }, [stakeMode, wager, normalizedMode, user?.maxWinCap, hasPlayerMin, playerMinBet]);
 
     // Per-leg Risk amount that's actually staked on a straight leg.
     // For combined modes this returns 0 because there's only ONE bet
@@ -979,7 +1003,11 @@ const ModeBetPanel = ({
     // $999 / $1001 on a typed $1000 win).
     const winForSelection = React.useCallback((sel) => {
         if (normalizedMode !== 'straight') return 0;
-        const { win, source } = effectiveStakeForSelection(sel);
+        const { win, source, floored } = effectiveStakeForSelection(sel);
+        // Stake was snapped up to the min bet → the leg is now risk-anchored;
+        // dropping requestedWin lets the backend pay stake × odds (the
+        // recomputed, higher To-Win) instead of pinning the stale typed target.
+        if (floored) return 0;
         if (source !== 'win' && stakeMode !== 'win') return 0;
         return Number.isFinite(win) && win > 0 ? Math.round(win) : 0;
     }, [normalizedMode, effectiveStakeForSelection, stakeMode]);
@@ -1024,6 +1052,20 @@ const ModeBetPanel = ({
         return { cap, maxStake, blocked: Number.isFinite(maxStake) && maxStake < 1 };
     }, [user?.maxWinCap, normalizedMode, selections, ticketDecimalOdds]);
 
+    // Resolved stake interpretation for the COMBINED ticket. 'win' means the
+    // risk is BACK-SOLVED from a To-Win target (the parlay WIN pill, or bet-mode
+    // minus-juice); 'risk' means the typed number IS the stake. Single source
+    // shared by the min-bet floor snap, the requestedWin payload (quote AND
+    // placement), and effectiveCombinedRisk — they MUST agree or the displayed
+    // stake and the placed stake diverge.
+    const combinedSmartMode = normalizedMode === 'parlay'
+        ? (parlayWinAnchored ? 'win' : 'risk')
+        : (stakeMode === 'bet' ? resolveBetSmartMode(ticketDecimalOdds) : stakeMode);
+    // Min-bet floor to apply to a combined back-solve: the account min ONLY in
+    // WIN-mode back-solve (so a deliberately-typed sub-min Risk still errors),
+    // else 0 (floor disabled → floorStakeToMin degrades to the plain cap clamp).
+    const combinedFloorMin = combinedSmartMode === 'win' && hasPlayerMin ? playerMinBet : 0;
+
     // Combined-mode resolved Risk: the actual stake the backend sees
     // after Bet/Risk/Win mode conversion against the ticket's combined
     // decimal odds. `bet` and `risk` pass straight through; `win` flips
@@ -1058,12 +1100,12 @@ const ModeBetPanel = ({
             if (parlayWinAnchored) {
                 const { risk } = resolveStake('win', wagerAmount, ticketDecimalOdds);
                 if (!(Number.isFinite(risk) && risk > 0)) return 0;
-                // Clamp to the cap-limited stake HERE, not just at placement,
-                // so the Risk box, all limit gates, and the debited amount are
-                // the same number (no display/wire divergence at the cap edge,
-                // where the back-solved 2dp risk can exceed the whole-dollar
-                // floor placement would send).
-                return Number.isFinite(winCapState.maxStake) ? Math.min(risk, winCapState.maxStake) : risk;
+                // Floor a sub-min back-solve UP to the min bet AND clamp DOWN to
+                // the cap-limited stake HERE (not just at placement), so the Risk
+                // box, all limit gates, and the debited amount are the same
+                // number. floorStakeToMin bounds the floor by the cap, so the cap
+                // ceiling wins when it sits below the min (cap-vs-min precedence).
+                return floorStakeToMin(risk, combinedFloorMin, winCapState.maxStake);
             }
             // Same clamp for the risk-anchored parlay stake: the input snaps
             // at the write (applyTypedWager) and re-snaps on cap tightening,
@@ -1075,15 +1117,33 @@ const ModeBetPanel = ({
         const sourceWager = normalizedMode === 'reverse' ? wagerAmount / 2 : wagerAmount;
         const { risk } = resolveStake(stakeMode, sourceWager, ticketDecimalOdds);
         const safeRisk = Number.isFinite(risk) && risk > 0 ? risk : 0;
-        // Teaser / if_bet / reverse: same derive-clamp, on the SAME scale the
-        // limit gate compares against (limitFlags: effectiveCombinedRisk >
+        // Teaser / if_bet / reverse: floor a sub-min WIN back-solve UP to the
+        // min bet, then the same derive-clamp DOWN to the cap on the SAME scale
+        // the limit gate compares against (limitFlags: effectiveCombinedRisk vs
         // winCapState.maxStake) — reverse's 2× factor is already inside
-        // winCapState. Round robin stays exempt (maxStake = Infinity).
-        if (Number.isFinite(winCapState.maxStake)) {
-            return Math.min(safeRisk, winCapState.maxStake);
-        }
-        return safeRisk;
-    }, [normalizedMode, stakeMode, wagerAmount, ticketDecimalOdds, parlayWinAnchored, winCapState]);
+        // winCapState. Round robin stays exempt (maxStake = Infinity, and it
+        // forces Risk mode so combinedFloorMin is 0 → floor disabled).
+        return floorStakeToMin(safeRisk, combinedFloorMin, winCapState.maxStake);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [normalizedMode, stakeMode, wagerAmount, ticketDecimalOdds, parlayWinAnchored, winCapState, combinedSmartMode, hasPlayerMin, playerMinBet]);
+
+    // True when the combined stake was actually snapped UP to the min bet (raw
+    // win back-solve fell below min AND the cap allowed reaching it). Drives the
+    // informational banner AND the requestedWin drop: when snapped, the ticket
+    // behaves risk-anchored (payout = stake × odds), so we must NOT send the
+    // stale typed To-Win as requestedWin, or the backend would pin the wrong
+    // (too-low) payout. Recomputes the raw back-solve with the SAME resolveStake
+    // call effectiveCombinedRisk uses, so the two can never disagree.
+    const combinedMinFloorApplied = useMemo(() => {
+        if (normalizedMode === 'straight' || normalizedMode === 'round_robin') return false;
+        if (combinedSmartMode !== 'win' || !hasPlayerMin) return false;
+        const sourceWager = normalizedMode === 'reverse' ? wagerAmount / 2 : wagerAmount;
+        const { risk } = normalizedMode === 'parlay'
+            ? resolveStake('win', wagerAmount, ticketDecimalOdds)
+            : resolveStake(stakeMode, sourceWager, ticketDecimalOdds);
+        const rawRisk = Number.isFinite(risk) && risk > 0 ? risk : 0;
+        return minFloorApplied(rawRisk, playerMinBet, winCapState.maxStake);
+    }, [normalizedMode, combinedSmartMode, hasPlayerMin, wagerAmount, stakeMode, ticketDecimalOdds, playerMinBet, winCapState.maxStake]);
 
     // Per-account min/max bet limits from /auth/me payload. Backend
     // already enforces these (BetsController::placeBet) — checking
@@ -1594,6 +1654,17 @@ const ModeBetPanel = ({
         ? stakeAutoCappedNote(winCapState.maxStake, winCapState.cap)
         : '';
 
+    // Min-bet FLOOR snap note (mirror of stakeSnapNote). Straight snaps
+    // per-leg, so surface the banner when ANY leg was floored; combined modes
+    // use the ticket-level flag. Informational + emphasized, like the cap note.
+    const straightMinFloorApplied = useMemo(() => (
+        normalizedMode === 'straight'
+        && selections.some((sel) => effectiveStakeForSelection(sel).floored === true)
+    ), [normalizedMode, selections, effectiveStakeForSelection]);
+    const stakeFloorNote = hasPlayerMin && (combinedMinFloorApplied || straightMinFloorApplied)
+        ? stakeAutoRaisedNote(playerMinBet)
+        : '';
+
     // Display win = profit on full payoff. For combined modes, clamp at
     // the parlay payout cap so the user sees the same number the book
     // will actually credit.
@@ -1678,9 +1749,12 @@ const ModeBetPanel = ({
     // is present.
     const amountWarning = validationErrors.find((e) =>
         typeof e === 'string' && (e.startsWith('Min bet') || e.startsWith('Max bet'))
-    ) || stakeSnapNote || limitFlags.messages.winCap || winAnchorCapNote || limitFlags.messages.capInfo || '';
-    // The snapped-stake message gets the emphasized banner treatment.
-    const amountWarningEmphasized = amountWarning !== '' && amountWarning === stakeSnapNote;
+    ) || stakeSnapNote || stakeFloorNote || limitFlags.messages.winCap || winAnchorCapNote || limitFlags.messages.capInfo || '';
+    // The snapped-stake messages (cap DOWN, min-bet UP) get the emphasized
+    // banner treatment — the player must see they're now staking the adjusted
+    // amount, not what the back-solve produced.
+    const amountWarningEmphasized = amountWarning !== ''
+        && (amountWarning === stakeSnapNote || amountWarning === stakeFloorNote);
     const hasSelections = legCount > 0;
     const [isOpen, setIsOpen] = useState(false);
 
@@ -2017,14 +2091,13 @@ const ModeBetPanel = ({
     // send, so the server prices the identical ticket (odds are read from the
     // slip, which patchSlipToQuote reconciles to the quote before Confirm).
     const buildQuotePayload = () => {
-        // Parlays: risk-anchored unless the explicit WIN pill is active
-        // (parlayWinAnchored — the Nicky-sanctioned exception; Bet-mode never
-        // win-resolves for parlays). MUST match placement's combinedSmartMode
-        // below or the quoted ticket and the booked ticket diverge.
-        const combinedSmartMode = normalizedMode === 'parlay'
-            ? (parlayWinAnchored ? 'win' : 'risk')
-            : (stakeMode === 'bet' ? resolveBetSmartMode(ticketDecimalOdds) : stakeMode);
-        const requestedWin = combinedSmartMode === 'win' && Number.isFinite(Number(wager)) && Number(wager) > 0
+        // combinedSmartMode is the shared component-scope value (same one the
+        // placement payload uses) so the quoted and booked tickets never
+        // diverge. When the stake was floored up to the min bet the ticket is
+        // risk-anchored — drop requestedWin so the backend prices payout =
+        // stake × odds (the recomputed To-Win), not the stale typed target.
+        const requestedWin = combinedSmartMode === 'win' && !combinedMinFloorApplied
+            && Number.isFinite(Number(wager)) && Number(wager) > 0
             ? Math.round(Number(wager)) : 0;
         const cappedRisk = (winCapState.cap > 0 && Number.isFinite(winCapState.maxStake))
             ? Math.min(effectiveCombinedRisk, winCapState.maxStake) : effectiveCombinedRisk;
@@ -2454,11 +2527,13 @@ const ModeBetPanel = ({
             // parlay (parlayWinAnchored) sends the typed To-Win target as
             // requestedWin so the backend's ±$2 pin books exactly the number
             // the slip showed. Bet-mode never win-resolves for parlays.
-            // Other combined modes keep Bet/Win To-Win pinning.
-            const combinedSmartMode = normalizedMode === 'parlay'
-                ? (parlayWinAnchored ? 'win' : 'risk')
-                : (stakeMode === 'bet' ? resolveBetSmartMode(ticketDecimalOdds) : stakeMode);
-            const combinedRequestedWin = combinedSmartMode === 'win' && Number.isFinite(Number(wager)) && Number(wager) > 0
+            // Other combined modes keep Bet/Win To-Win pinning. Uses the shared
+            // combinedSmartMode so quote and placement price the identical
+            // ticket. When the stake was floored up to the min bet the ticket is
+            // risk-anchored — drop requestedWin so payout = stake × odds (the
+            // recomputed To-Win), not the stale typed target.
+            const combinedRequestedWin = combinedSmartMode === 'win' && !combinedMinFloorApplied
+                && Number.isFinite(Number(wager)) && Number(wager) > 0
                 ? Math.round(Number(wager))
                 : 0;
             // Auto-cap the combined-ticket stake to the max that wins the house

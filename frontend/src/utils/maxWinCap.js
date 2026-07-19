@@ -40,6 +40,42 @@ export const cappedToWin = (stake, decimalOdds, cap) => {
     return effectiveStake * (d - 1);
 };
 
+// ── Min-bet FLOOR snap (mirror of the max-win cap) ──────────────────────────
+// A WIN-mode back-solve can produce a stake BELOW the account minimum (a small
+// To-Win target at very high odds). Instead of hard-blocking, snap the stake UP
+// to the minimum and recompute the win. The floor is bounded by the cap ceiling
+// (`maxStake`) so the cap still wins when it sits below the min — cap-vs-min
+// precedence. The CALLER gates this to win-mode back-solve only; a deliberately
+// typed sub-min Risk must still error.
+
+// Effective stake after flooring UP to `minBet` (when the raw stake is below it)
+// and clamping DOWN to `maxStake` (the cap ceiling; pass Infinity when no cap).
+// A minBet of 0/NaN disables the floor, so this doubles as the plain cap clamp.
+export const floorStakeToMin = (risk, minBet, maxStake = Infinity) => {
+    const r = Number(risk);
+    if (!Number.isFinite(r) || r <= 0) return r;
+    const m = Number(minBet);
+    // Raise to the min ONLY when the cap allows reaching it. When the cap sits
+    // below the min (extreme longshot), don't partially raise toward the cap —
+    // the cap wins and the sub-min stake stands (matches capOverridesMin).
+    if (Number.isFinite(m) && m > 0 && r < m && (!Number.isFinite(maxStake) || maxStake >= m)) {
+        return m;
+    }
+    return Number.isFinite(maxStake) ? Math.min(r, maxStake) : r;
+};
+
+// True when the floor actually snapped the stake up: the raw back-solved stake
+// is below the min AND the cap ceiling allows reaching the min. When the cap is
+// below the min (extreme longshot), the floor can't apply — the cap wins and
+// the sub-min stake is allowed as-is (no snap, no min error).
+export const minFloorApplied = (rawRisk, minBet, maxStake = Infinity) => {
+    const r = Number(rawRisk);
+    const m = Number(minBet);
+    if (!Number.isFinite(r) || r <= 0 || !(Number.isFinite(m) && m > 0)) return false;
+    if (r >= m) return false;
+    return !Number.isFinite(maxStake) || maxStake >= m;
+};
+
 // ── Centralized copy ────────────────────────────────────────────────────────
 // $X with thousands separators, no cents (matches ticket money style).
 const dollars = (n) => `$${Math.floor(Number(n) || 0).toLocaleString('en-US')}`;
@@ -58,6 +94,13 @@ export const cannotFitCapNote = (cap) => (
 // Message when the stake was auto-reduced to the cap-limited amount.
 export const stakeAutoCappedNote = (maxStake, cap) => (
     `Stake capped to ${dollars(maxStake)} — the most that wins the ${dollars(cap)} maximum payout.`
+);
+
+// Mirror-image of stakeAutoCappedNote for the FLOOR case: a WIN-mode back-solve
+// produced a stake below the account minimum, so it was auto-raised to the
+// minimum and the To-Win recomputed at that stake. Informational, not blocking.
+export const stakeAutoRaisedNote = (minBet) => (
+    `Stake raised to the ${dollars(minBet)} minimum bet — To-Win recalculated at this stake.`
 );
 
 // Shown when a typed To-Win target sits at the ticket's win ceiling
