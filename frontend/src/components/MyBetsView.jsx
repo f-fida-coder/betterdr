@@ -1213,7 +1213,7 @@ const WEEK_OPTIONS = [
 // graded ticket renders +$X / -$X regardless of where it appears),
 // so the same row code works for both modes — only header columns
 // and the Risk column visibility change.
-const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTotals = false, onResumeOpenParlay = null, maxBet = null }) => {
+const BetTable = ({ bets, oddsFormat, teamLogos = {}, onWarmLegs = null, mode = 'pending', showTotals = false, onResumeOpenParlay = null, maxBet = null }) => {
     const [expandedBetId, setExpandedBetId] = useState(null);
     // Per-leg drill-down state. Single key (`${betId}::${legIdx}`) — only
     // one leg can be open at a time across the whole list, so opening a
@@ -1260,6 +1260,17 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
             .then(payload => {
                 const children = Array.isArray(payload?.children) ? payload.children : [];
                 setRoundRobinChildren(prev => ({ ...prev, [groupId]: { state: 'ready', children } }));
+                // Bridge child-parlay legs into the parent warmer — the RR group
+                // row ships with selections:[], so a team appearing only inside
+                // these children (e.g. a Dodgers moneyline not present on any
+                // top-level ticket) is warmed here or it never resolves a crest.
+                if (typeof onWarmLegs === 'function') {
+                    const childLegs = [];
+                    children.forEach(child => {
+                        (Array.isArray(child?.selections) ? child.selections : []).forEach(leg => childLegs.push(leg));
+                    });
+                    onWarmLegs(childLegs);
+                }
             })
             .catch(err => {
                 setRoundRobinChildren(prev => ({
@@ -1267,7 +1278,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                     [groupId]: { state: 'error', children: [], error: err?.message || 'Failed to load parlays' },
                 }));
             });
-    }, [roundRobinChildren]);
+    }, [roundRobinChildren, onWarmLegs]);
 
     // Eager-load children for every Round Robin group in the list so
     // the child parlays are visible without any tap. Re-runs when the
@@ -1667,28 +1678,41 @@ const MyBetsView = ({ onResumeOpenParlay = null, maxBet = null }) => {
     // broken image and the list doesn't block on the network. Same
     // pattern ScoreboardSidebar uses.
     const [teamLogos, setTeamLogos] = useState({});
-    useEffect(() => {
-        let mounted = true;
-        // Warm each team once, keyed by its unique logo identity (sport+abbr),
-        // NOT the shared city name — otherwise the first "Los Angeles" leg's
-        // crest would be reused for every LA team across sports.
+    // Mirror the resolved map + in-flight keys in refs so the shared warmer
+    // (a stable useCallback) can dedupe synchronously across concurrent
+    // callers without re-creating on every teamLogos change.
+    const teamLogosRef = React.useRef(teamLogos);
+    teamLogosRef.current = teamLogos;
+    const warmingKeysRef = React.useRef(new Set());
+    const mountedRef = React.useRef(true);
+    useEffect(() => () => { mountedRef.current = false; }, []);
+
+    // Warm the crest for an arbitrary list of legs into teamLogos, keyed by
+    // each team's unique logo identity (sport+abbr), NOT the shared city name
+    // — otherwise the first "Los Angeles" leg's crest would be reused for
+    // every LA team across sports. Shared by the top-level bets warmer AND the
+    // Round Robin child-leg warmer: RR child parlays are fetched separately
+    // (getRoundRobinChildren) and are never part of `bets`, so a team that
+    // appears ONLY inside RR children (and isn't coincidentally warmed by some
+    // other top-level ticket) would otherwise be stuck on the initials avatar.
+    // Idempotent — skips keys already resolved or in flight.
+    const warmLegLogos = React.useCallback((legs) => {
+        if (!Array.isArray(legs) || legs.length === 0) return;
         const teamMap = new Map(); // logoKey → { name, ctx }
-        bets.forEach((bet) => {
-            const selections = Array.isArray(bet?.selections) ? bet.selections : [];
+        legs.forEach((leg) => {
             // Warm every team a leg will render — the picked/home team for team
-            // markets, BOTH matchup teams for player props — across straight and
-            // multi-leg tickets alike (legLogoTeams handles the per-market split).
-            selections.forEach((leg) => {
-                legLogoTeams(leg).forEach(({ name, abbr, full, key }) => {
-                    if (!key || !name || key === 'neutral') return;
-                    if (teamLogos[key] || teamMap.has(key)) return;
-                    // fullName lets fetchTeamBadgeUrl resolve straight from the
-                    // curated map (no same-city name-search guess).
-                    teamMap.set(key, { name, ctx: { ...(legSportCtx(leg) || {}), abbr, fullName: full || '' } });
-                });
+            // markets, BOTH matchup teams for game totals / player props
+            // (legLogoTeams handles the per-market split).
+            legLogoTeams(leg).forEach(({ name, abbr, full, key }) => {
+                if (!key || !name || key === 'neutral') return;
+                if (teamLogosRef.current[key] || warmingKeysRef.current.has(key)) return;
+                warmingKeysRef.current.add(key);
+                // fullName lets fetchTeamBadgeUrl resolve straight from the
+                // curated map (no same-city name-search guess).
+                teamMap.set(key, { name, ctx: { ...(legSportCtx(leg) || {}), abbr, fullName: full || '' } });
             });
         });
-        if (teamMap.size === 0) return undefined;
+        if (teamMap.size === 0) return;
         (async () => {
             const updates = {};
             await Promise.all(
@@ -1698,15 +1722,29 @@ const MyBetsView = ({ onResumeOpenParlay = null, maxBet = null }) => {
                         if (url) updates[key] = url;
                     } catch {
                         // fallback stays as-is
+                    } finally {
+                        // Drop from in-flight so a failed fetch can retry on a
+                        // later warm call (a resolved one is guarded by teamLogos).
+                        warmingKeysRef.current.delete(key);
                     }
                 })
             );
-            if (mounted && Object.keys(updates).length > 0) {
+            if (mountedRef.current && Object.keys(updates).length > 0) {
                 setTeamLogos((prev) => ({ ...prev, ...updates }));
             }
         })();
-        return () => { mounted = false; };
-    }, [bets]);
+    }, []);
+
+    // Top-level warmer: every leg on every My Bets ticket. Round Robin group
+    // rows ship with selections:[] (children are lazy-loaded), so their base
+    // picks are warmed by the child-leg bridge (BetTable → onWarmLegs) instead.
+    useEffect(() => {
+        const legs = [];
+        bets.forEach((bet) => {
+            (Array.isArray(bet?.selections) ? bet.selections : []).forEach((leg) => legs.push(leg));
+        });
+        warmLegLogos(legs);
+    }, [bets, warmLegLogos]);
 
     const fetchBets = async ({ silent = false } = {}) => {
         const token = localStorage.getItem('token');
@@ -1876,6 +1914,7 @@ const MyBetsView = ({ onResumeOpenParlay = null, maxBet = null }) => {
                         gradedBets={gradedBets}
                         oddsFormat={oddsFormat}
                         teamLogos={teamLogos}
+                        onWarmLegs={warmLegLogos}
                         onNavigateToTransactions={() => setActiveTab('transactions')}
                     />
                 ) : activeTab === 'transactions' ? (
@@ -1891,6 +1930,7 @@ const MyBetsView = ({ onResumeOpenParlay = null, maxBet = null }) => {
                         bets={pendingBets}
                         oddsFormat={oddsFormat}
                         teamLogos={teamLogos}
+                        onWarmLegs={warmLegLogos}
                         mode="pending"
                         showTotals
                         onResumeOpenParlay={onResumeOpenParlay}
@@ -1902,7 +1942,7 @@ const MyBetsView = ({ onResumeOpenParlay = null, maxBet = null }) => {
     );
 };
 
-const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {}, onNavigateToTransactions }) => {
+const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {}, onWarmLegs = null, onNavigateToTransactions }) => {
     const [weekOffset, setWeekOffset] = useState(0);
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -2103,6 +2143,7 @@ const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {}, onNavigateToT
                                                 bets={dayBets}
                                                 oddsFormat={oddsFormat}
                                                 teamLogos={teamLogos}
+                                                onWarmLegs={onWarmLegs}
                                                 mode="graded"
                                             />
                                         )}
