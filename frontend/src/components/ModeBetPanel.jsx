@@ -14,6 +14,7 @@ import TeaserTypePicker from './TeaserTypePicker';
 import { useDismissableSurface } from '../hooks/useDismissableSurface';
 import { prettyPlayerMarketLabel, isPlayerPropMarket, formatPropSelectionTitle } from '../utils/propBuilderMarkets';
 import { splitPeriodMarketKey } from '../utils/periods';
+import { straightDefaultMode, parlayDefaultMode, defaultModeForBucket, reseedModeForBucket } from '../utils/betDefaults';
 import { formatLegLabel } from '../utils/legLabel';
 import { roundRobinCombinationCount, roundRobinMaxWin as computeRoundRobinMaxWin } from '../utils/roundRobin';
 
@@ -434,12 +435,13 @@ const ModeBetPanel = ({
     // mode (minus-juice → win, plus-juice → risk) and is the most
     // common preference among recreational players; anything else
     // falls through to 'risk' to preserve the historical default.
-    const rawDefaultMode = String(userBetDefaults?.mode || '').toLowerCase();
-    const defaultStakeMode = rawDefaultMode === 'win'
-        ? 'win'
-        : rawDefaultMode === 'bet'
-            ? 'bet'
-            : 'risk';
+    // Split Straight/Parlay default modes (PO 2026-07-19) — pure resolution +
+    // fallback lives in utils/betDefaults so it's unit-tested and shared with
+    // AccountPanel. Straight uses `mode`; every parlay-like tab uses the
+    // independent `parlayMode` (falling back to `mode` on pre-split accounts).
+    const defaultStakeMode = straightDefaultMode(userBetDefaults);
+    const parlayStakeMode = parlayDefaultMode(userBetDefaults);
+    const defaultStakeModeForBucket = (m) => defaultModeForBucket(userBetDefaults, m);
     // Split defaults (PO 2026-07-13): straight unit vs parlay unit. Each reads
     // its own field and falls back to the legacy single `amount` so accounts
     // saved before the split behave exactly as before. Scope (a): ONLY straight
@@ -476,7 +478,16 @@ const ModeBetPanel = ({
     // their chosen mode; per-leg Risk/Win is back-calculated from each
     // leg's odds at render-time (see resolveStake helper). Replaces the
     // old per-selection wager map — there's now exactly one input.
-    const [stakeMode, setStakeMode] = useState(defaultStakeMode);
+    // Seed the initial mode from the CURRENT tab's bucket (straight vs parlay).
+    const [stakeMode, setStakeMode] = useState(() => defaultStakeModeForBucket(normalizeBetMode(mode)));
+    // The last mode we AUTO-SEEDED (bucket default). A straight↔parlay tab
+    // switch only re-seeds the mode while it still equals this — a mode the
+    // user manually clicked is never overwritten. Nulled on manual selection.
+    const lastSeededModeRef = useRef(defaultStakeModeForBucket(normalizeBetMode(mode)));
+    // Manual mode change from a pill/box — forget the auto-seed so a later
+    // bucket switch won't stomp the user's deliberate choice (mirrors how a
+    // typed wager forgets its seed).
+    const setStakeModeUser = (m) => { lastSeededModeRef.current = null; setStakeMode(m); };
     // Round Robin: which "By X's" sizes the user has selected. Multi-
     // select; empty = no parlays will be generated (Confirm disabled).
     // Reset whenever the slip's selection count changes so a previously
@@ -508,19 +519,24 @@ const ModeBetPanel = ({
     // its closure would otherwise read a stale mode/wager/defaults).
     const seedCtxRef = useRef({});
     useEffect(() => {
-        // Only the saved `mode` field drives defaultStakeMode. Hashing
-        // the whole userBetDefaults object would re-fire the reset on
-        // unrelated profile updates (amount changes, balance refresh
-        // bundles, etc.) and silently snap a manual WIN click back to
-        // the saved default. Narrow the sig so the reset only triggers
-        // when the user actually saves a new mode preference.
+        // Only the saved mode fields drive the re-seed. Hashing the whole
+        // userBetDefaults object would re-fire the reset on unrelated profile
+        // updates (amount changes, balance refresh bundles, etc.) and silently
+        // snap a manual WIN click back to the saved default. Narrow the sig to
+        // both mode fields so the reset triggers only when the user actually
+        // saves a new Straight OR Parlay mode preference.
         const sig = JSON.stringify({
             mode: userBetDefaults?.mode ?? null,
+            parlayMode: userBetDefaults?.parlayMode ?? null,
         });
         if (sig === lastBetDefaultsSigRef.current) return;
         lastBetDefaultsSigRef.current = sig;
-        setStakeMode(defaultStakeMode);
-    }, [userBetDefaults, defaultStakeMode]);
+        // Re-seed to the CURRENT tab's bucket default (straight vs parlay).
+        const seeded = defaultStakeModeForBucket(normalizeBetMode(mode));
+        lastSeededModeRef.current = seeded;
+        setStakeMode(seeded);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userBetDefaults, defaultStakeMode, parlayStakeMode]);
     const requestStateRef = useRef({ requestId: '', signature: '' });
     // Per-leg idempotency for straight mode. Each leg places an independent
     // ticket, so it needs its OWN requestId (different legs must not collapse
@@ -608,6 +624,10 @@ const ModeBetPanel = ({
     // ambiguous state.
     useEffect(() => {
         if (normalizedMode === 'round_robin' && stakeMode !== 'risk') {
+            // System-forced (not a manual pick): keep the seed ref in step with
+            // the forced value so leaving RR for the Straight bucket still
+            // re-seeds the straight mode instead of leaking RR's forced Risk.
+            lastSeededModeRef.current = 'risk';
             setStakeMode('risk');
         }
     }, [normalizedMode, stakeMode]);
@@ -1690,21 +1710,29 @@ const ModeBetPanel = ({
             // saved default on its next first open.
             if (!slipFirstOpenedRef.current) {
                 slipFirstOpenedRef.current = true;
-                // Read the CURRENT default mode via the live snapshot, not the
-                // closure: this listener registers once ([] deps), so the bare
-                // `defaultStakeMode` here froze at first render and stomped a
-                // just-saved preference (e.g. saved WIN, slip opened showing
-                // the pre-save mode) — the exact stale-closure problem the
-                // seedCtxRef pattern already solves for the amount seed above.
-                setStakeMode(ctx.defaultStakeMode || 'risk');
+                // Read the CURRENT bucket's default mode via the live snapshot,
+                // not the closure: this listener registers once ([] deps), so a
+                // bare value would freeze at first render and stomp a just-saved
+                // preference. ctx.defaultStakeMode is already resolved for the
+                // active tab's bucket (straight → mode, parlay-like → parlayMode).
+                const seededMode = ctx.defaultStakeMode || 'risk';
+                lastSeededModeRef.current = seededMode;
+                setStakeMode(seededMode);
             }
         };
         window.addEventListener('betslip:open', handleOpen);
         return () => window.removeEventListener('betslip:open', handleOpen);
     }, []);
 
-    // Keep the open-listener's live snapshot current every render.
-    seedCtxRef.current = { normalizedMode, wager, defaultAmountForMode, defaultStakeMode };
+    // Keep the open-listener's live snapshot current every render. The mode is
+    // resolved for the ACTIVE tab's bucket so an open on the Parlay tab seeds
+    // parlayMode, and on Straight seeds mode.
+    seedCtxRef.current = {
+        normalizedMode,
+        wager,
+        defaultAmountForMode,
+        defaultStakeMode: defaultStakeModeForBucket(normalizedMode),
+    };
 
     // Re-seed the stake when the mode switches between buckets (straight ↔
     // parlay-like), but ONLY while the wager is untouched — empty, or still
@@ -1732,6 +1760,29 @@ const ModeBetPanel = ({
         // teaser↔parlay (same bucket) doesn't needlessly re-fire.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [normalizedMode === 'straight', straightDefaultAmount, parlayDefaultAmount]);
+
+    // Re-seed the STAKE MODE when the tab crosses the straight↔parlay bucket
+    // boundary (Decision B, PO 2026-07-19) — mirrors the amount re-seed above,
+    // with the same "don't stomp a manual selection" guard: only re-seed while
+    // the mode still equals what we last auto-seeded (a pill the user clicked
+    // nulled the ref). Same bucket boolean dep so within-bucket switches
+    // (parlay↔teaser↔RR↔reverse↔if_bet↔open) never re-fire. Mount run is
+    // skipped — initial seeding is the useState init + the betslip:open handler.
+    const bucketModeSeedMountedRef = useRef(false);
+    useEffect(() => {
+        if (!bucketModeSeedMountedRef.current) {
+            bucketModeSeedMountedRef.current = true;
+            return;
+        }
+        const { mode: nextMode, seeded, changed } = reseedModeForBucket({
+            stakeMode,
+            lastSeeded: lastSeededModeRef.current,
+            bucketMode: defaultStakeModeForBucket(normalizedMode),
+        });
+        lastSeededModeRef.current = seeded;
+        if (changed) setStakeMode(nextMode);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [normalizedMode === 'straight', defaultStakeMode, parlayStakeMode]);
 
     // When the user types/clears the field, forget the seed so a later mode
     // switch treats it as a deliberate amount (never overwrites it).
@@ -1900,7 +1951,9 @@ const ModeBetPanel = ({
     const clearSlip = () => {
         onSelectionsChange([]);
         onWagerChange('');
-        setStakeMode(defaultStakeMode);
+        const seededMode = defaultStakeModeForBucket(normalizedMode);
+        lastSeededModeRef.current = seededMode;
+        setStakeMode(seededMode);
         setMessage(null);
         setSubmitAttempted(false);
         setUseFreeplay(false);
@@ -2822,7 +2875,7 @@ const ModeBetPanel = ({
                                         <button
                                             key={m.id}
                                             type="button"
-                                            onClick={() => { if (!lockedOut) setStakeMode(m.id); }}
+                                            onClick={() => { if (!lockedOut) setStakeModeUser(m.id); }}
                                             disabled={lockedOut}
                                             title={lockedOut
                                                 ? (isOpenParlay
@@ -4016,7 +4069,7 @@ const ModeBetPanel = ({
                                                     // box that already IS the anchor edits the
                                                     // existing value in place, nothing wiped.
                                                     if (!box.anchored) {
-                                                        setStakeMode(box.id === 'win' ? 'win' : 'risk');
+                                                        setStakeModeUser(box.id === 'win' ? 'win' : 'risk');
                                                         onWagerChange('');
                                                     }
                                                 }}
@@ -4024,7 +4077,7 @@ const ModeBetPanel = ({
                                                     // Whole-dollar amounts only — same digit
                                                     // strip as every other stake entry point.
                                                     const cleaned = String(e.target.value).replace(/\D/g, '');
-                                                    setStakeMode(box.id === 'win' ? 'win' : 'risk');
+                                                    setStakeModeUser(box.id === 'win' ? 'win' : 'risk');
                                                     // Explicit asWin: stakeMode just flipped in
                                                     // this same event, so the closure's default
                                                     // would be stale on the first keystroke.

@@ -4,6 +4,7 @@ import { updateProfile, getStoredAuthToken } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/timezone';
 import { computeMidQuickStakes } from '../utils/money';
+import { straightDefaultMode, parlayDefaultMode } from '../utils/betDefaults';
 import { setMyBetsInitialFilter } from './myBetsState';
 
 const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
@@ -211,11 +212,12 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     const lockedMin = Number.isFinite(playerMinBet) && playerMinBet > 0 ? Math.round(playerMinBet) : DEFAULT_QUICK_STAKES[0];
     const lockedMax = Number.isFinite(playerMaxBet) && playerMaxBet > 0 ? Math.round(playerMaxBet) : DEFAULT_QUICK_STAKES[3];
 
-    const initialMode = stored?.mode === 'win'
-        ? 'win'
-        : stored?.mode === 'bet'
-            ? 'bet'
-            : 'risk';
+    // Straight default mode + independent parlay-bucket default mode
+    // (PO 2026-07-19). parlayMode falls back to the Straight mode when an
+    // account predates the split, so an existing player sees the same mode in
+    // both toggles until they change one. Shared resolver in utils/betDefaults.
+    const initialMode = straightDefaultMode(stored);
+    const initialParlayMode = parlayDefaultMode(stored);
     // Split defaults (PO 2026-07-13): straight vs parlay unit size. Each reads
     // its own field but falls back to the legacy single `amount` so an account
     // saved before the split shows its current value in BOTH fields until the
@@ -247,6 +249,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     };
 
     const [mode, setMode] = React.useState(initialMode);
+    const [parlayMode, setParlayMode] = React.useState(initialParlayMode);
     const [straightAmount, setStraightAmount] = React.useState(initialStraight);
     const [parlayAmount, setParlayAmount] = React.useState(initialParlay);
     const [midStakes, setMidStakes] = React.useState(() => pickInitialMids(stored?.quickStakes));
@@ -261,12 +264,51 @@ const BetDefaultsCard = ({ user, onSaved }) => {
         midStakes[2],
         String(lockedMax),
     ];
+    // Reusable labeled Bet/Risk/Win pill toggle — rendered once for the
+    // Straight default mode and once for the independent Parlay default mode.
+    const renderModeBlock = (label, current, setter) => (
+        <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                {label}
+            </div>
+            <div style={{ display: 'inline-flex', borderRadius: 8, overflow: 'hidden', border: `1px solid ${palette.cardBorder}` }}>
+                {STAKE_MODE_OPTIONS.map((m, i) => {
+                    const active = current === m.id;
+                    return (
+                        <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => setter(m.id)}
+                            style={{
+                                background: active ? (m.id === 'win' ? '#16a34a' : '#ff5051') : '#e8e8e8',
+                                color: active ? '#fff' : '#333',
+                                border: 'none',
+                                borderLeft: i === 0 ? 'none' : '1px solid rgba(0,0,0,0.15)',
+                                padding: '8px 18px',
+                                fontWeight: 800,
+                                fontSize: 12,
+                                letterSpacing: 0.4,
+                                cursor: 'pointer',
+                                textTransform: 'uppercase',
+                            }}
+                        >
+                            {m.label}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+
     // Reseed local form state when the user prop updates (e.g. after
     // /auth/me re-fetches and brings down a fresh `settings.betDefaults`).
     React.useEffect(() => {
         const next = user?.settings?.betDefaults;
         if (!next) return;
         if (next.mode === 'win' || next.mode === 'risk' || next.mode === 'bet') setMode(next.mode);
+        // Parlay mode falls back to the Straight mode when absent (old accounts).
+        if (next.parlayMode === 'win' || next.parlayMode === 'risk' || next.parlayMode === 'bet') setParlayMode(next.parlayMode);
+        else if (next.mode === 'win' || next.mode === 'risk' || next.mode === 'bet') setParlayMode(next.mode);
         // Reseed with the same straight/parlay fallback to legacy `amount`.
         const nextLegacy = Number(next.amount);
         const nextStraight = Number.isFinite(Number(next.straightDefault)) ? Number(next.straightDefault) : nextLegacy;
@@ -324,6 +366,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                 settings: {
                     betDefaults: {
                         mode,
+                        parlayMode,
                         // Legacy `amount` tracks the straight default (server
                         // also re-derives this) so any old reader keeps working.
                         amount: straightAmount === '' ? 0 : Math.round(parsedStraight * 100) / 100,
@@ -367,55 +410,19 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                 flexDirection: 'column',
                 gap: 14,
             }}>
-                {/* Default mode pills */}
-                <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-                        Default mode
-                    </div>
-                    <div style={{
-                        display: 'inline-flex',
-                        borderRadius: 8,
-                        overflow: 'hidden',
-                        border: `1px solid ${palette.cardBorder}`,
-                    }}>
-                        {STAKE_MODE_OPTIONS.map((m, i) => {
-                            const active = mode === m.id;
-                            return (
-                                <button
-                                    key={m.id}
-                                    type="button"
-                                    onClick={() => setMode(m.id)}
-                                    style={{
-                                        background: active
-                                            ? (m.id === 'win' ? '#16a34a' : '#ff5051')
-                                            : '#e8e8e8',
-                                        color: active ? '#fff' : '#333',
-                                        border: 'none',
-                                        borderLeft: i === 0 ? 'none' : '1px solid rgba(0,0,0,0.15)',
-                                        padding: '8px 18px',
-                                        fontWeight: 800,
-                                        fontSize: 12,
-                                        letterSpacing: 0.4,
-                                        cursor: 'pointer',
-                                        textTransform: 'uppercase',
-                                    }}
-                                >
-                                    {m.label}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-
-                {/* Default amounts — split straight vs parlay unit size
-                    (parlays are typically staked smaller). Each seeds the
-                    betslip stake for its bucket; parlay/teaser/round-robin/
-                    if-bet/reverse all seed from the parlay default. */}
+                {/* Paired {default mode + unit size} per bucket. Straight and
+                    Parlay each get an INDEPENDENT Bet/Risk/Win default mode
+                    (PO 2026-07-19), sitting directly above their unit-size
+                    field. The Parlay mode covers every non-straight tab
+                    (parlay/teaser/round-robin/if-bet/reverse/open) — same
+                    bucket split the unit-size fields already use. */}
                 {[
-                    { key: 'straight', label: 'Straight default (unit size)', value: straightAmount, set: setStraightAmount, placeholder: '50' },
-                    { key: 'parlay', label: 'Parlay default (unit size)', value: parlayAmount, set: setParlayAmount, placeholder: '50' },
+                    { key: 'straight', modeLabel: 'Straight default mode', modeVal: mode, modeSet: setMode, label: 'Straight default (unit size)', value: straightAmount, set: setStraightAmount, placeholder: '50' },
+                    { key: 'parlay', modeLabel: 'Parlay default mode', modeVal: parlayMode, modeSet: setParlayMode, label: 'Parlay default (unit size)', value: parlayAmount, set: setParlayAmount, placeholder: '50' },
                 ].map((f) => (
-                    <div key={f.key}>
+                    <React.Fragment key={f.key}>
+                        {renderModeBlock(f.modeLabel, f.modeVal, f.modeSet)}
+                        <div>
                         <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                             {f.label}
                         </div>
@@ -457,7 +464,8 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                                 }}
                             />
                         </div>
-                    </div>
+                        </div>
+                    </React.Fragment>
                 ))}
 
                 {/* Quick stake chips — all 5 auto-derived from the player's

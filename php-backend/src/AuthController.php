@@ -678,65 +678,17 @@ final class AuthController
             //   { mode: 'bet'|'risk'|'win', amount: number,
             //     quickStakes: number[5] }
             if (array_key_exists('betDefaults', $incomingSettings)) {
-                $bd = is_array($incomingSettings['betDefaults']) ? $incomingSettings['betDefaults'] : [];
-                $mode = strtolower(trim((string) ($bd['mode'] ?? 'risk')));
-                // `bet` is the "smart" stake mode (minus juice → input is
-                // Win, plus juice → input is Risk) — re-added to match
-                // every other US book. Accept all three valid modes;
-                // reject anything else so typos / future-mode attempts
-                // from a stale client don't quietly persist.
-                if ($mode !== 'risk' && $mode !== 'win' && $mode !== 'bet') {
-                    Response::json(['message' => 'betDefaults.mode must be bet, risk, or win'], 400);
+                // Validation + normalization (Straight/Parlay mode split, whole-
+                // dollar amount clamp, fixed 5-chip quick stakes) lives in the
+                // unit-tested BetDefaultsNormalizer. `bet` is the "smart" stake
+                // mode (minus juice → Win, plus juice → Risk).
+                $normalized = BetDefaultsNormalizer::normalize($incomingSettings['betDefaults']);
+                if (!$normalized['ok']) {
+                    Response::json(['message' => $normalized['error']], 400);
                     return;
                 }
-                // Split defaults (PO 2026-07-13): a straight default and a
-                // parlay default (parlays are staked smaller). New clients send
-                // straightDefault + parlayDefault; each falls back to the legacy
-                // `amount` so an old client (amount only) round-trips unchanged,
-                // and `amount` stays populated below (= straightDefault) for any
-                // legacy reader. Same whole-dollar clamp for all three.
-                $amountRaw = $bd['amount'] ?? 0;
-                $legacyAmount = is_numeric($amountRaw) ? (float) $amountRaw : 0.0;
-                $straightRaw = $bd['straightDefault'] ?? $legacyAmount;
-                $parlayRaw = $bd['parlayDefault'] ?? $legacyAmount;
-                $straightDefault = is_numeric($straightRaw) ? (float) $straightRaw : 0.0;
-                $parlayDefault = is_numeric($parlayRaw) ? (float) $parlayRaw : 0.0;
-                foreach (['betDefaults.amount' => $legacyAmount, 'betDefaults.straightDefault' => $straightDefault, 'betDefaults.parlayDefault' => $parlayDefault] as $label => $val) {
-                    if ($val < 0 || $val > 1000000) {
-                        Response::json(['message' => $label . ' must be between 0 and 1,000,000'], 400);
-                        return;
-                    }
-                }
-                // PPH whole-dollar policy: bet defaults stored as integers.
-                $straightDefault = (float) round($straightDefault);
-                $parlayDefault = (float) round($parlayDefault);
-                // Legacy `amount` tracks the straight default so any reader that
-                // still reads betDefaults.amount keeps the pre-split behavior.
-                $amount = $straightDefault;
-                $quickStakesRaw = is_array($bd['quickStakes'] ?? null) ? $bd['quickStakes'] : [10, 25, 50, 75, 100];
-                // Normalize to exactly 5 positive integers so the betslip
-                // UI can rely on a fixed-width row of 5 buttons (Min, three
-                // auto-derived mids at 25/50/75% of the range, Max). Drop
-                // anything non-numeric / non-positive and pad/truncate
-                // back to the expected shape.
-                $quickStakes = [];
-                foreach ($quickStakesRaw as $v) {
-                    if (!is_numeric($v)) continue;
-                    $n = (int) $v;
-                    if ($n > 0 && $n <= 1000000) $quickStakes[] = $n;
-                    if (count($quickStakes) >= 5) break;
-                }
-                while (count($quickStakes) < 5) {
-                    $quickStakes[] = [10, 25, 50, 75, 100][count($quickStakes)];
-                }
                 $existingSettings = is_array($user['settings'] ?? null) ? $user['settings'] : [];
-                $existingSettings['betDefaults'] = [
-                    'mode' => $mode,
-                    'amount' => $amount,                     // legacy = straightDefault
-                    'straightDefault' => $straightDefault,
-                    'parlayDefault' => $parlayDefault,
-                    'quickStakes' => array_values($quickStakes),
-                ];
+                $existingSettings['betDefaults'] = $normalized['value'];
                 $user['settings'] = $existingSettings;
                 $updates['settings'] = $existingSettings;
             }

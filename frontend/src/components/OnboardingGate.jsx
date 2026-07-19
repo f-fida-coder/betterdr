@@ -114,6 +114,11 @@ const OnboardingGate = ({ user, onDismiss }) => {
                 settings: {
                     betDefaults: {
                         mode,
+                        // Onboarding has one mode selector; seed the parlay-bucket
+                        // mode to the same choice so parlayMode is populated from
+                        // the start. The player can differentiate Straight vs
+                        // Parlay modes later in Account settings.
+                        parlayMode: mode,
                         amount: Math.round(parsedStraight * 100) / 100,
                         straightDefault: Math.round(parsedStraight * 100) / 100,
                         parlayDefault: Math.round(parsedParlay * 100) / 100,

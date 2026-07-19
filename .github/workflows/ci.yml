@@ -95,6 +95,9 @@ jobs:
       - name: My Bets logo cache identity (same-city collision guard)
         run: node tools/qa/team-logo-key.mjs
 
+      - name: Bet defaults — split Straight/Parlay stake mode (fallback + bucket + don't-stomp)
+        run: node frontend/scripts/test-bet-default-mode.mjs
+
       - name: Build
         working-directory: frontend
         run: npm run build
