@@ -131,3 +131,18 @@ TestRunner::run('permissive backend — parlayMode "bet" still accepted after UI
     TestRunner::assertTrue($res['ok'], 'parlayMode bet accepted (cached-client compatibility)');
     TestRunner::assertEquals('bet', $res['value']['parlayMode'], 'stored verbatim, no server-side coercion');
 });
+
+// Gate split-selector era (2026-07-20 phase 2): onboarding now sends an
+// EXPLICIT parlayMode from its own Risk/Win pill row — mode and parlayMode
+// can differ from first save (e.g. straight 'bet' + parlay 'win').
+TestRunner::run('onboarding split selectors — distinct mode/parlayMode round-trips', function (): void {
+    $res = BetDefaultsNormalizer::normalize([
+        'mode' => 'bet', 'parlayMode' => 'win',
+        'straightDefault' => 50, 'parlayDefault' => 50,
+        'quickStakes' => [25, 70, 115, 155, 200],
+    ]);
+    TestRunner::assertTrue($res['ok'], 'accepted');
+    TestRunner::assertEquals('bet', $res['value']['mode'], 'straight keeps bet');
+    TestRunner::assertEquals('win', $res['value']['parlayMode'], 'parlay keeps win');
+    TestRunner::assertEquals(50.0, $res['value']['parlayDefault'], 'parlay unit size stored');
+});

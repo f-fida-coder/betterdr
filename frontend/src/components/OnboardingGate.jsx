@@ -31,6 +31,10 @@ const STAKE_MODES = [
     { id: 'risk', label: 'Risk' },
     { id: 'win', label: 'Win' },
 ];
+// Parlay default mode is Risk/Win only — parity with the Account settings
+// selector (Fida 2026-07-20): 'bet' resolves per-leg juice, which doesn't map
+// onto a combined ticket, so the parlay-bucket DEFAULT can't be it.
+const PARLAY_STAKE_MODES = STAKE_MODES.filter((m) => m.id !== 'bet');
 const FALLBACK_MIN = 10;
 const FALLBACK_MAX = 100;
 
@@ -67,6 +71,17 @@ const OnboardingGate = ({ user, onDismiss }) => {
         ? String(raw)
         : (Number.isFinite(legacyAmount) && legacyAmount > 0 ? String(legacyAmount) : ''));
     const [mode, setMode] = React.useState(stored?.mode === 'win' ? 'win' : stored?.mode === 'bet' ? 'bet' : 'risk');
+    // Parlay-bucket mode: EXPLICIT selector since 2026-07-20 (was implicitly
+    // seeded from the straight mode). Seed from stored parlayMode, falling
+    // back to the straight mode (pre-split accounts); either source maps a
+    // stored 'bet' to 'risk' — the parlay selector has no Bet pill, same
+    // display rule as the Account settings card.
+    const [parlayMode, setParlayMode] = React.useState(() => {
+        const src = ['win', 'risk', 'bet'].includes(stored?.parlayMode)
+            ? stored.parlayMode
+            : (['win', 'risk', 'bet'].includes(stored?.mode) ? stored.mode : 'risk');
+        return src === 'bet' ? 'risk' : src;
+    });
     const [straightAmount, setStraightAmount] = React.useState(seedAmount(stored?.straightDefault));
     const [parlayAmount, setParlayAmount] = React.useState(seedAmount(stored?.parlayDefault));
     const [midStakes, setMidStakes] = React.useState(() => {
@@ -94,6 +109,13 @@ const OnboardingGate = ({ user, onDismiss }) => {
             showToast?.('Enter your parlay unit size', 'warning');
             return;
         }
+        // Defensive: the parlay pill row pre-selects 'risk' so this can't fire
+        // through the UI, but the save contract is Risk/Win only — never let a
+        // stray state value smuggle 'bet' (or junk) into parlayMode.
+        if (parlayMode !== 'risk' && parlayMode !== 'win') {
+            showToast?.('Choose your parlay default mode (Risk or Win)', 'warning');
+            return;
+        }
         const quickStakes = [lockedMin, ...midStakes.map(Number), lockedMax];
         if (quickStakes.some((n) => !Number.isFinite(n) || n <= 0)) {
             showToast?.('Quick stake values must be positive numbers', 'warning');
@@ -114,16 +136,11 @@ const OnboardingGate = ({ user, onDismiss }) => {
                 settings: {
                     betDefaults: {
                         mode,
-                        // Onboarding has one mode selector; seed the parlay-bucket
-                        // mode to the same choice so parlayMode is populated from
-                        // the start. The player can differentiate Straight vs
-                        // Parlay modes later in Account settings. Exception: the
-                        // parlay bucket has no 'bet' mode (its settings selector
-                        // is Risk/Win only, Fida 2026-07-20), so a BET pick here
-                        // seeds the parlay side as 'risk' instead — otherwise
-                        // onboarding would keep minting the very parlayMode:'bet'
-                        // accounts the selector removal exists to prevent.
-                        parlayMode: mode === 'bet' ? 'risk' : mode,
+                        // Explicit parlay-bucket mode from its own selector
+                        // (2026-07-20) — the old implicit seed-from-straight
+                        // (with its bet→risk exception) is gone; the player
+                        // now picks Risk/Win directly, same as Account settings.
+                        parlayMode,
                         amount: Math.round(parsedStraight * 100) / 100,
                         straightDefault: Math.round(parsedStraight * 100) / 100,
                         parlayDefault: Math.round(parsedParlay * 100) / 100,
@@ -223,41 +240,45 @@ const OnboardingGate = ({ user, onDismiss }) => {
                 <div style={{ padding: '4px 16px 16px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
                     {step === 1 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                            <div>
-                                <div style={label}>Default mode</div>
-                                <div style={{ display: 'inline-flex', borderRadius: 8, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-                                    {STAKE_MODES.map((m, i) => {
-                                        const active = mode === m.id;
-                                        return (
-                                            <button
-                                                key={m.id}
-                                                type="button"
-                                                onClick={() => setMode(m.id)}
-                                                style={{
-                                                    background: active ? (m.id === 'win' ? '#16a34a' : '#ff5051') : '#e8e8e8',
-                                                    color: active ? '#fff' : '#333',
-                                                    border: 'none',
-                                                    borderLeft: i === 0 ? 'none' : '1px solid rgba(0,0,0,0.15)',
-                                                    padding: '8px 18px',
-                                                    fontWeight: 800,
-                                                    fontSize: 12,
-                                                    letterSpacing: 0.4,
-                                                    cursor: 'pointer',
-                                                    textTransform: 'uppercase',
-                                                }}
-                                            >
-                                                {m.label}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-
+                            {/* Paired {default mode + unit size} per bucket —
+                                same layout as the Account settings card. The
+                                Parlay mode row is Risk/Win only (no Bet pill),
+                                mirroring Account settings (Fida 2026-07-20). */}
                             {[
-                                { key: 'straight', text: 'Straight default (unit size)', value: straightAmount, set: setStraightAmount },
-                                { key: 'parlay', text: 'Parlay default (unit size)', value: parlayAmount, set: setParlayAmount },
+                                { key: 'straight', modeText: 'Straight default mode', modeVal: mode, modeSet: setMode, modeOptions: STAKE_MODES, text: 'Straight default (unit size)', value: straightAmount, set: setStraightAmount },
+                                { key: 'parlay', modeText: 'Parlay default mode', modeVal: parlayMode, modeSet: setParlayMode, modeOptions: PARLAY_STAKE_MODES, text: 'Parlay default (unit size)', value: parlayAmount, set: setParlayAmount },
                             ].map((f) => (
-                                <div key={f.key}>
+                                <React.Fragment key={f.key}>
+                                <div>
+                                    <div style={label}>{f.modeText}</div>
+                                    <div style={{ display: 'inline-flex', borderRadius: 8, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                                        {f.modeOptions.map((m, i) => {
+                                            const active = f.modeVal === m.id;
+                                            return (
+                                                <button
+                                                    key={m.id}
+                                                    type="button"
+                                                    onClick={() => f.modeSet(m.id)}
+                                                    style={{
+                                                        background: active ? (m.id === 'win' ? '#16a34a' : '#ff5051') : '#e8e8e8',
+                                                        color: active ? '#fff' : '#333',
+                                                        border: 'none',
+                                                        borderLeft: i === 0 ? 'none' : '1px solid rgba(0,0,0,0.15)',
+                                                        padding: '8px 18px',
+                                                        fontWeight: 800,
+                                                        fontSize: 12,
+                                                        letterSpacing: 0.4,
+                                                        cursor: 'pointer',
+                                                        textTransform: 'uppercase',
+                                                    }}
+                                                >
+                                                    {m.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                                <div>
                                     <div style={label}>{f.text}</div>
                                     <div style={{ position: 'relative', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fbfbfd' }}>
                                         <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 700, color: '#94a3b8', pointerEvents: 'none' }}>$</span>
@@ -273,6 +294,7 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                         />
                                     </div>
                                 </div>
+                                </React.Fragment>
                             ))}
 
                             <div>
