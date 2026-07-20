@@ -209,6 +209,17 @@ final class BetsController
             }
 
             // Same pricing the book uses — the whole point: modal == receipt.
+            // That identity includes the min-win floor: the quote applies the
+            // SAME sub-floor pin override, stake bump and max-bet reject
+            // placeBet does, so the modal shows the bumped stake the book
+            // will actually debit (minWinBumped + stakeBeforeMinWinBump let
+            // the modal say so), and an unreachable floor rejects here with
+            // the same MIN_WIN_UNREACHABLE the placement would throw.
+            $minWinFloor = SportsbookBetSupport::minTicketWinFloor();
+            $requestedWinForPricing = $body['requestedWin'] ?? null;
+            if ($minWinFloor > 0 && is_numeric($requestedWinForPricing) && (float) $requestedWinForPricing < $minWinFloor) {
+                $requestedWinForPricing = null;
+            }
             $priced = SportsbookBetSupport::pricedTicket(
                 $type,
                 $betAmount,
@@ -216,11 +227,58 @@ final class BetsController
                 $modeRule,
                 (float) $sgpCfg['haircutPct'],
                 (float) $sgpCfg['propHaircutPct'],
-                $body['requestedWin'] ?? null
+                $requestedWinForPricing
             );
             $risk = $priced['totalRisk'];
             $payout = $priced['potentialPayout'];
             $quoteWin = max(0.0, $payout - $risk);
+            $quoteStakeBeforeBump = null;
+            if ($minWinFloor > 0 && $quoteWin > 0 && $quoteWin < $minWinFloor) {
+                $winRate = SportsbookBetSupport::winRatePerUnitStake(
+                    $type,
+                    $validated,
+                    $modeRule,
+                    (float) $sgpCfg['haircutPct'],
+                    (float) $sgpCfg['propHaircutPct']
+                );
+                $bumpedUnit = SportsbookBetSupport::bumpedUnitStakeForMinWin($winRate, $minWinFloor);
+                $quoteMaxBet = isset($user['maxBet']) && is_numeric($user['maxBet']) ? (float) $user['maxBet'] : 0.0;
+                $bumpedTicketRisk = SportsbookBetSupport::ticketRiskAmount($type, $bumpedUnit);
+                if ($bumpedUnit <= 0) {
+                    throw new ApiException('Unable to price this ticket at the minimum win', 400, [
+                        'code' => 'MIN_WIN_FLOOR_PRICING',
+                    ]);
+                }
+                if ($quoteMaxBet > 0 && $bumpedTicketRisk > $quoteMaxBet) {
+                    throw new ApiException(
+                        'This selection is unavailable at your betting limits — winning the $'
+                        . rtrim(rtrim(number_format($minWinFloor, 2, '.', ''), '0'), '.')
+                        . ' minimum at these odds requires risking $'
+                        . rtrim(rtrim(number_format($bumpedTicketRisk, 2, '.', ''), '0'), '.')
+                        . ', over your $'
+                        . rtrim(rtrim(number_format($quoteMaxBet, 2, '.', ''), '0'), '.')
+                        . ' max bet',
+                        400,
+                        ['code' => 'MIN_WIN_UNREACHABLE']
+                    );
+                }
+                if ($bumpedUnit > $betAmount) {
+                    $quoteStakeBeforeBump = (float) $risk;
+                    $betAmount = $bumpedUnit;
+                    $priced = SportsbookBetSupport::pricedTicket(
+                        $type,
+                        $betAmount,
+                        $validated,
+                        $modeRule,
+                        (float) $sgpCfg['haircutPct'],
+                        (float) $sgpCfg['propHaircutPct'],
+                        null
+                    );
+                    $risk = $priced['totalRisk'];
+                    $payout = $priced['potentialPayout'];
+                    $quoteWin = max(0.0, $payout - $risk);
+                }
+            }
             // House $5k max-win truncation (Nicky 2026-07-20): the modal must
             // quote the CAPPED win the book will actually pay, never the
             // odds-implied number — modal == receipt includes the cap.
@@ -240,6 +298,8 @@ final class BetsController
                 'potentialPayout' => round($payout, 2),
                 'win' => round($quoteWin, 2),
                 'winCapped' => $quoteCap['capped'],
+                'minWinBumped' => $quoteStakeBeforeBump !== null,
+                'stakeBeforeMinWinBump' => $quoteStakeBeforeBump,
                 'combinedDecimal' => $quoteCombined,
                 'combinedAmerican' => SportsbookBetSupport::decimalToAmericanInt($quoteCombined),
                 'legs' => $legs,
@@ -924,6 +984,15 @@ final class BetsController
             // what this books. SGP haircut rates flow in; sameGameHaircutFraction
             // returns 0 for cross-game tickets. The SAME rates are snapshotted
             // onto the bet doc below.
+            // Min-win floor overrides the Win-mode pin: a typed To-Win under
+            // the floor never pins the payout (the ticket prices at raw odds
+            // and the stake bump below takes over). A pin AT or above the
+            // floor still works exactly as before.
+            $minWinFloor = SportsbookBetSupport::minTicketWinFloor();
+            $requestedWinForPricing = $body['requestedWin'] ?? null;
+            if ($minWinFloor > 0 && is_numeric($requestedWinForPricing) && (float) $requestedWinForPricing < $minWinFloor) {
+                $requestedWinForPricing = null;
+            }
             $priced = SportsbookBetSupport::pricedTicket(
                 $type,
                 $betAmount,
@@ -931,7 +1000,7 @@ final class BetsController
                 $modeRule,
                 (float) $sgpCfg['haircutPct'],
                 (float) $sgpCfg['propHaircutPct'],
-                $body['requestedWin'] ?? null
+                $requestedWinForPricing
             );
             $totalRisk = $priced['totalRisk'];
             $potentialPayout = $priced['potentialPayout'];
@@ -949,6 +1018,78 @@ final class BetsController
             $winAmount = max(0.0, (float) $potentialPayout - (float) $totalRisk);
             $minBetLimit = isset($user['minBet']) && is_numeric($user['minBet']) ? (float) $user['minBet'] : 0.0;
             $maxBetLimit = isset($user['maxBet']) && is_numeric($user['maxBet']) ? (float) $user['maxBet'] : 0.0;
+
+            // ── Minimum-WIN floor (Nicky 2026-07-20): the mirror of the
+            // max-win cap. Any ticket whose win prices under $25
+            // (MIN_WIN_FLOOR) — every sub-+100 price, -110 juice included —
+            // has its stake AUTO-BUMPED UP to the smallest whole dollar that
+            // clears the floor ($25 @ -130 books as $33). Runs BEFORE the
+            // min-bet floor and max-bet checks so both verify the FINAL
+            // stake, and before the payout caps so they re-derive from the
+            // bumped values. The bumped win stays odds-implied at the booked
+            // stake, so settlement's recompute needs no snapshot (unlike the
+            // cap). The pre-bump stake is persisted (stakeBeforeMinWinBump)
+            // so the receipt can show the adjustment. If even the bump can't
+            // reach the floor inside the player's max bet, REJECT with a
+            // clear limits message — never silently book a sub-floor win.
+            $stakeBeforeMinWinBump = null;
+            if ($minWinFloor > 0 && $winAmount > 0 && $winAmount < $minWinFloor) {
+                $winRate = SportsbookBetSupport::winRatePerUnitStake(
+                    $type,
+                    $validatedSelections,
+                    $modeRule,
+                    (float) $sgpCfg['haircutPct'],
+                    (float) $sgpCfg['propHaircutPct']
+                );
+                $bumpedUnit = SportsbookBetSupport::bumpedUnitStakeForMinWin($winRate, $minWinFloor);
+                if ($bumpedUnit <= 0) {
+                    throw new ApiException('Unable to price this ticket at the minimum win', 400, [
+                        'code' => 'MIN_WIN_FLOOR_PRICING',
+                    ]);
+                }
+                $bumpedTicketRisk = SportsbookBetSupport::ticketRiskAmount($type, $bumpedUnit);
+                if ($maxBetLimit > 0 && $bumpedTicketRisk > $maxBetLimit) {
+                    throw new ApiException(
+                        'This selection is unavailable at your betting limits — winning the $'
+                        . rtrim(rtrim(number_format($minWinFloor, 2, '.', ''), '0'), '.')
+                        . ' minimum at these odds requires risking $'
+                        . rtrim(rtrim(number_format($bumpedTicketRisk, 2, '.', ''), '0'), '.')
+                        . ', over your $'
+                        . rtrim(rtrim(number_format($maxBetLimit, 2, '.', ''), '0'), '.')
+                        . ' max bet',
+                        400,
+                        ['code' => 'MIN_WIN_UNREACHABLE']
+                    );
+                }
+                if ($bumpedUnit > $betAmount) {
+                    $stakeBeforeMinWinBump = (float) $totalRisk;
+                    $betAmount = $bumpedUnit;
+                    // Re-price at the bumped stake, pin dropped (floor
+                    // overrides any requested-win pin by rule).
+                    $priced = SportsbookBetSupport::pricedTicket(
+                        $type,
+                        $betAmount,
+                        $validatedSelections,
+                        $modeRule,
+                        (float) $sgpCfg['haircutPct'],
+                        (float) $sgpCfg['propHaircutPct'],
+                        null
+                    );
+                    $totalRisk = $priced['totalRisk'];
+                    $potentialPayout = $priced['potentialPayout'];
+                    $combinedOdds = $priced['combinedOdds'];
+                    $winAmount = max(0.0, (float) $potentialPayout - (float) $totalRisk);
+                }
+                // MONEY-CRITICAL invariant: the whole point of the bump is a
+                // booked win at or above the floor. If pricing still lands
+                // under it (would take a pricer bug — the ceil math forbids
+                // it), refuse to book rather than ship a sub-floor ticket.
+                if ($winAmount + 0.01 < $minWinFloor) {
+                    throw new ApiException('Unable to price this ticket at the minimum win', 400, [
+                        'code' => 'MIN_WIN_FLOOR_PRICING',
+                    ]);
+                }
+            }
 
             // Min bet is a HARD FLOOR (Nicky 2026-07-20 — reverses the PO
             // 2026-07-09 cap-overrides-min exception). The max-win cap no
@@ -1212,6 +1353,15 @@ final class BetsController
                     // can never pay more than the player saw and accepted.
                     // Null on unclamped and legacy docs → settlement unchanged.
                     'payoutCapAmount' => $payoutCapSnapshot,
+                    // Min-win floor provenance — the TICKET risk the client
+                    // actually sent, present ONLY when the $25 win floor
+                    // bumped the stake up (null otherwise). riskAmount/amount
+                    // above are the BUMPED (booked) figures; this field lets
+                    // the receipt/audit show "you asked $25, floor booked
+                    // $33". Settlement never reads it — the booked win is
+                    // odds-implied at the booked stake, so the recompute
+                    // already agrees.
+                    'stakeBeforeMinWinBump' => $stakeBeforeMinWinBump,
                     // Approval-queue provenance — null on normal live bets. The
                     // stake is already held in pendingBalance; this ticket is NOT
                     // live and NOT gradable until approved.
@@ -1497,6 +1647,60 @@ final class BetsController
             // the win to the cap (Nicky 2026-07-20) and returns the snapshot
             // in capAmount — no create-time reject anymore.
 
+            // ── Minimum-WIN floor (Nicky/Fida 2026-07-20, OP included): the
+            // floor is enforced ONCE, HERE, against the REAL starting legs
+            // (creation requires >= 1) — never the -110 display placeholders.
+            // ONCE IS ENOUGH — DO NOT "FIX" addOpenParlayLeg TO RE-CHECK:
+            // every added leg multiplies the booked combined odds by a
+            // decimal > 1, so the ticket's win at this stake is MONOTONICALLY
+            // NON-DECREASING for its whole life; a ticket that clears the
+            // floor now clears it at every later state. (Legs cannot be
+            // removed — no such operation exists; a settlement-time VOID can
+            // grade below the floor, but the floor is a booking-time rule,
+            // exactly like min bet, and void semantics are untouched by
+            // design.) A 1-leg start bumps off that leg alone — conservative
+            // by agreement. Same machinery + ordering as placeBet: bump →
+            // approval/min-bet/max-bet all verify the FINAL stake.
+            $minWinFloor = SportsbookBetSupport::minTicketWinFloor();
+            $stakeBeforeMinWinBump = null;
+            $opWinAmount = max(0.0, (float) $potentialPayout - (float) $totalRisk);
+            if ($minWinFloor > 0 && $opWinAmount > 0 && $opWinAmount < $minWinFloor) {
+                $winRate = SportsbookBetSupport::winRatePerUnitStake('parlay', $validatedSelections, $modeRule);
+                $bumpedUnit = SportsbookBetSupport::bumpedUnitStakeForMinWin($winRate, $minWinFloor);
+                if ($bumpedUnit <= 0) {
+                    throw new ApiException('Unable to price this ticket at the minimum win', 400, [
+                        'code' => 'MIN_WIN_FLOOR_PRICING',
+                    ]);
+                }
+                if ($maxBetLimit > 0 && $bumpedUnit > $maxBetLimit) {
+                    throw new ApiException(
+                        'This selection is unavailable at your betting limits — winning the $'
+                        . rtrim(rtrim(number_format($minWinFloor, 2, '.', ''), '0'), '.')
+                        . ' minimum at these odds requires risking $'
+                        . rtrim(rtrim(number_format($bumpedUnit, 2, '.', ''), '0'), '.')
+                        . ', over your $'
+                        . rtrim(rtrim(number_format($maxBetLimit, 2, '.', ''), '0'), '.')
+                        . ' max bet',
+                        400,
+                        ['code' => 'MIN_WIN_UNREACHABLE']
+                    );
+                }
+                if ($bumpedUnit > $betAmount) {
+                    $stakeBeforeMinWinBump = (float) $totalRisk;
+                    $betAmount = $bumpedUnit;
+                    $totalRisk = SportsbookBetSupport::ticketRiskAmount($type, $betAmount);
+                    $payoutCalc = OpenParlayService::recomputePayout($betAmount, $validatedSelections, $modeRule, $maxBetLimit);
+                    $potentialPayout = $payoutCalc['potentialPayout'];
+                    $combinedOdds = $payoutCalc['combinedOdds'];
+                    $opWinAmount = max(0.0, (float) $potentialPayout - (float) $totalRisk);
+                }
+                if ($opWinAmount + 0.01 < $minWinFloor) {
+                    throw new ApiException('Unable to price this ticket at the minimum win', 400, [
+                        'code' => 'MIN_WIN_FLOOR_PRICING',
+                    ]);
+                }
+            }
+
             // Approval queue not wired for open parlays yet (Chunk 2b). Block the
             // bypass so a flagged/over-threshold player can't route around approval.
             if ($this->approvalDecisionForUser($user, (float) $totalRisk, (float) $potentialPayout)['requiresApproval']) {
@@ -1671,6 +1875,12 @@ final class BetsController
                     // Settlement re-applies it as a ceiling
                     // (applyPayoutCapSnapshot); null → settlement unchanged.
                     'payoutCapAmount' => $payoutCalc['capAmount'],
+                    // Min-win floor provenance — the risk the client sent,
+                    // present ONLY when the $25 floor bumped the stake at
+                    // create (null otherwise). Never re-derived on add-leg:
+                    // the floor is create-time only (see the monotonicity
+                    // note above the create-time check).
+                    'stakeBeforeMinWinBump' => $stakeBeforeMinWinBump,
                     'status' => 'open',
                     'isFreeplay' => false,
                     'freeplayAmountUsed' => 0.0,
@@ -1962,6 +2172,16 @@ final class BetsController
 
                 $updatedLegs = array_merge($existingLegs, [$newLegDoc]);
                 $unitStake = $this->num($bet['unitStake'] ?? ($bet['riskAmount'] ?? ($bet['amount'] ?? 0)));
+                // NOTE — min-win floor ($25, MIN_WIN_FLOOR) is DELIBERATELY
+                // not re-checked here, and must never be: the stake was
+                // already debited at create (immutable — re-bumping would
+                // mean a mid-ticket debit on an at-risk ticket), and it
+                // cannot be needed anyway — this added leg multiplies the
+                // booked combined odds by a decimal > 1, so the ticket's win
+                // at the committed stake only ever GROWS. The floor was
+                // satisfied against the real starting legs at create
+                // (placeOpenParlay), which by monotonicity covers every
+                // later state. Do not "fix" this apparent gap.
                 $payoutCalc = OpenParlayService::recomputePayout($unitStake, $updatedLegs, $modeRule, $maxBetLimit);
                 $potentialPayout = $payoutCalc['potentialPayout'];
                 $combinedOdds = $payoutCalc['combinedOdds'];
@@ -2143,47 +2363,113 @@ final class BetsController
         // ── Build per-child plans (combo + odds + payout, capped) ─────────
         $maxBetLimit = isset($user['maxBet']) && is_numeric($user['maxBet']) ? (float) $user['maxBet'] : 0.0;
         $minBetLimit = isset($user['minBet']) && is_numeric($user['minBet']) ? (float) $user['minBet'] : 0.0;
-        $childPlans = [];
-        $totalPayoutMax = 0.0;
-        foreach ($sizes as $size) {
-            $combinations = RoundRobinService::generateCombinations($validatedSelections, $size);
-            foreach ($combinations as $combo) {
-                // Single pricing source (shared with the unit tests):
-                // cross-game children keep the historical 2dp-product math
-                // byte-identical; same-game children (2026-07-17) price via
-                // the SAME calculatePotentialPayout the standalone parlay
-                // uses — product → profit haircut → American lock → round —
-                // with the 3× ceiling tightened to sgpMaxPayoutMultiplier
-                // and the clamp snapshotted for settlement. See
-                // SportsbookBetSupport::priceRoundRobinChild.
-                $priced = SportsbookBetSupport::priceRoundRobinChild($combo, $stakePerParlay, $maxBetLimit, $sgpCfg);
-                $combinedDecimal = $priced['rawDecimal'];
-                if ($combinedDecimal <= 1.0) {
-                    throw new ApiException('Round Robin child has non-positive odds', 400);
-                }
-                // Each child arrives already capped: priceRoundRobinChild
-                // truncates the win to MAX_PARLAY_PAYOUT per child (Nicky
-                // 2026-07-20 — a Round Robin still can't route large
-                // exposure through many small parlays; each child tops out
-                // individually) and carries the snapshot in payoutCapAmount.
-                $childPayout = $priced['potentialPayout'];
+        // The plan loop is a closure because the min-win floor below may bump
+        // stakePerParlay and re-run it — same body, bumped stake.
+        $buildChildPlans = function (float $childStake) use ($sizes, $validatedSelections, $maxBetLimit, $minBetLimit, $sgpCfg): array {
+            $plans = [];
+            $payoutMax = 0.0;
+            $worstChildWin = null;
+            $minWinRate = null;
+            foreach ($sizes as $size) {
+                $combinations = RoundRobinService::generateCombinations($validatedSelections, $size);
+                foreach ($combinations as $combo) {
+                    // Single pricing source (shared with the unit tests):
+                    // cross-game children keep the historical 2dp-product math
+                    // byte-identical; same-game children (2026-07-17) price via
+                    // the SAME calculatePotentialPayout the standalone parlay
+                    // uses — product → profit haircut → American lock → round —
+                    // with the 3× ceiling tightened to sgpMaxPayoutMultiplier
+                    // and the clamp snapshotted for settlement. See
+                    // SportsbookBetSupport::priceRoundRobinChild.
+                    $priced = SportsbookBetSupport::priceRoundRobinChild($combo, $childStake, $maxBetLimit, $sgpCfg);
+                    $combinedDecimal = $priced['rawDecimal'];
+                    if ($combinedDecimal <= 1.0) {
+                        throw new ApiException('Round Robin child has non-positive odds', 400);
+                    }
+                    // Each child arrives already capped: priceRoundRobinChild
+                    // truncates the win to MAX_PARLAY_PAYOUT per child (Nicky
+                    // 2026-07-20 — a Round Robin still can't route large
+                    // exposure through many small parlays; each child tops out
+                    // individually) and carries the snapshot in payoutCapAmount.
+                    $childPayout = $priced['potentialPayout'];
 
-                if ($minBetLimit > 0 && (float) $stakePerParlay < $minBetLimit) {
-                    throw new ApiException(
-                        'Min bet is $' . rtrim(rtrim(number_format($minBetLimit, 2, '.', ''), '0'), '.')
-                        . ' — each Round Robin child only risks $' . rtrim(rtrim(number_format((float) $stakePerParlay, 2, '.', ''), '0'), '.'),
-                        400,
-                        ['code' => 'BELOW_MIN_BET']
-                    );
+                    if ($minBetLimit > 0 && $childStake < $minBetLimit) {
+                        throw new ApiException(
+                            'Min bet is $' . rtrim(rtrim(number_format($minBetLimit, 2, '.', ''), '0'), '.')
+                            . ' — each Round Robin child only risks $' . rtrim(rtrim(number_format($childStake, 2, '.', ''), '0'), '.'),
+                            400,
+                            ['code' => 'BELOW_MIN_BET']
+                        );
+                    }
+                    $childWin = (float) $priced['winAmount'];
+                    $worstChildWin = $worstChildWin === null ? $childWin : min($worstChildWin, $childWin);
+                    // Exact per-dollar win rate of this child, for the min-win
+                    // back-solve: cross-game children pay stake × rawDecimal
+                    // (2dp round) so the rate IS rawDecimal − 1; same-game
+                    // children price through the shared parlay pricer
+                    // (haircut + American lock), so derive the rate the same
+                    // reference-stake way the standalone paths do.
+                    $childRate = $priced['isSameGame']
+                        ? SportsbookBetSupport::winRatePerUnitStake(
+                            'parlay',
+                            $combo,
+                            [],
+                            (float) ($sgpCfg['haircutPct'] ?? 0.0),
+                            (float) ($sgpCfg['propHaircutPct'] ?? 0.0)
+                        )
+                        : ($combinedDecimal - 1.0);
+                    $minWinRate = $minWinRate === null ? $childRate : min($minWinRate, $childRate);
+                    $payoutMax += $childPayout;
+                    $plans[] = [
+                        'selections' => $combo,
+                        'combinedDecimal' => $combinedDecimal,
+                        'potentialPayout' => $childPayout,
+                        'isSameGame' => $priced['isSameGame'],
+                        'payoutCapAmount' => $priced['payoutCapAmount'],
+                    ];
                 }
-                $totalPayoutMax += $childPayout;
-                $childPlans[] = [
-                    'selections' => $combo,
-                    'combinedDecimal' => $combinedDecimal,
-                    'potentialPayout' => $childPayout,
-                    'isSameGame' => $priced['isSameGame'],
-                    'payoutCapAmount' => $priced['payoutCapAmount'],
-                ];
+            }
+            return [$plans, $payoutMax, $worstChildWin, $minWinRate];
+        };
+        [$childPlans, $totalPayoutMax, $worstChildWin, $minChildWinRate] = $buildChildPlans((float) $stakePerParlay);
+
+        // ── Minimum-WIN floor, per child (Nicky 2026-07-20): mirrors the
+        // per-child min-bet semantics — EVERY child must be able to win at
+        // least $25, so the shared per-child stake bumps up to the smallest
+        // whole dollar that clears the floor on the WORST (lowest-rate)
+        // child. All children re-price at the bumped stake (one shared
+        // stake, same as min-bet). Unreachable inside maxBet → clear reject.
+        $minWinFloor = SportsbookBetSupport::minTicketWinFloor();
+        $stakeBeforeMinWinBump = null;
+        if ($minWinFloor > 0 && $worstChildWin !== null && $worstChildWin > 0 && $worstChildWin < $minWinFloor) {
+            $bumpedStake = SportsbookBetSupport::bumpedUnitStakeForMinWin((float) $minChildWinRate, $minWinFloor);
+            if ($bumpedStake <= 0) {
+                throw new ApiException('Unable to price this ticket at the minimum win', 400, [
+                    'code' => 'MIN_WIN_FLOOR_PRICING',
+                ]);
+            }
+            if ($maxBetLimit > 0 && $bumpedStake > $maxBetLimit) {
+                throw new ApiException(
+                    'This selection is unavailable at your betting limits — winning the $'
+                    . rtrim(rtrim(number_format($minWinFloor, 2, '.', ''), '0'), '.')
+                    . ' minimum on every Round Robin parlay at these odds requires risking $'
+                    . rtrim(rtrim(number_format($bumpedStake, 2, '.', ''), '0'), '.')
+                    . ' per parlay, over your $'
+                    . rtrim(rtrim(number_format($maxBetLimit, 2, '.', ''), '0'), '.')
+                    . ' max bet',
+                    400,
+                    ['code' => 'MIN_WIN_UNREACHABLE']
+                );
+            }
+            if ($bumpedStake > (float) $stakePerParlay) {
+                $stakeBeforeMinWinBump = (float) $stakePerParlay;
+                $stakePerParlay = $bumpedStake;
+                [$childPlans, $totalPayoutMax, $worstChildWin] = $buildChildPlans((float) $stakePerParlay);
+            }
+            if ($worstChildWin !== null && $worstChildWin + 0.01 < $minWinFloor) {
+                throw new ApiException('Unable to price this ticket at the minimum win', 400, [
+                    'code' => 'MIN_WIN_FLOOR_PRICING',
+                ]);
             }
         }
 
@@ -2309,6 +2595,9 @@ final class BetsController
                 'selectionCount' => $selectionCount,
                 'parlayCount' => $parlayCount,
                 'stakePerParlay' => $stakePerParlay,
+                // Pre-bump per-child stake when the $25 min-win floor raised
+                // it (null otherwise) — receipt/audit provenance only.
+                'stakeBeforeMinWinBump' => $stakeBeforeMinWinBump,
                 'totalRisk' => $totalRisk,
                 'totalPotentialPayout' => round($totalPayoutMax, 2),
                 'totalPayout' => 0.0,
@@ -2437,6 +2726,7 @@ final class BetsController
                 'selectionCount' => $selectionCount,
                 'parlayCount' => $parlayCount,
                 'stakePerParlay' => $stakePerParlay,
+                'stakeBeforeMinWinBump' => $stakeBeforeMinWinBump,
                 'totalRisk' => $totalRisk,
                 'totalPotentialPayout' => round($totalPayoutMax, 2),
                 'status' => 'pending',

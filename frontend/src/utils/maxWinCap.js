@@ -76,3 +76,47 @@ export const capLimitsNote = (minBet, cap) => {
 export const stakeAutoRaisedNote = (minBet) => (
     `Stake raised to the $${Math.floor(Number(minBet) || 0).toLocaleString('en-US')} minimum bet — To-Win recalculated at this stake.`
 );
+
+// ── Minimum-WIN floor ───────────────────────────────────────────────────────
+// NEW RULE (Nicky 2026-07-20): every ticket must be able to WIN at least $25
+// — "the only way you can bet $25 is if it's +100 or higher". At any
+// sub-+100 price (standard -110 juice included) the stake AUTO-BUMPS UP to
+// the smallest whole dollar whose win clears the floor ($25 @ -130 books as
+// $33). Stake moves UP, never the win down — the mirror of the max-win cap
+// above. The server enforces this authoritatively (MIN_WIN_FLOOR env,
+// default 25; quote + placement bump identically and REJECT
+// MIN_WIN_UNREACHABLE when the required stake exceeds maxBet); this mirror
+// exists so the panel shows the bumped stake BEFORE submit and the booked
+// ticket never surprises the player. Keep the constant in lockstep with the
+// server default — if MIN_WIN_FLOOR is ever changed on the server, this
+// mirror must change with it (same trap as user.maxWinCap).
+export const MIN_WIN_FLOOR = 25;
+
+// Smallest whole-dollar stake whose win clears the floor at these decimal
+// odds: ceil(floor / (decimal − 1)), with a 4dp dust round so an exact
+// boundary (32.5 @ -130) ceils to 33, not 34. Mirrors the server's
+// bumpedUnitStakeForMinWin. Returns 0 when no bump is derivable (degenerate
+// odds) — callers must treat 0 as "leave the stake alone".
+export const stakeForMinWin = (decimalOdds, floor = MIN_WIN_FLOOR) => {
+    const d = Number(decimalOdds);
+    const f = Number(floor);
+    if (!Number.isFinite(d) || d <= 1 || !Number.isFinite(f) || f <= 0) return 0;
+    return Math.ceil(Math.round((f / (d - 1)) * 10000) / 10000);
+};
+
+// True when the min-win floor actually bumps this stake — i.e. the win at
+// the raw stake is under the floor AND a bump target exists above it.
+export const minWinBumpApplied = (risk, decimalOdds, floor = MIN_WIN_FLOOR) => {
+    const r = Number(risk);
+    const d = Number(decimalOdds);
+    const f = Number(floor);
+    if (!Number.isFinite(r) || r <= 0 || !Number.isFinite(d) || d <= 1 || !Number.isFinite(f) || f <= 0) return false;
+    const target = stakeForMinWin(d, f);
+    return target > 0 && r < target && r * (d - 1) < f;
+};
+
+// Informational note for the bump — same amber, non-blocking family as
+// stakeAutoRaisedNote. One wording everywhere.
+export const minWinRaisedNote = (floor = MIN_WIN_FLOOR) => (
+    `Stake raised so this ticket wins at least $${Math.floor(Number(floor) || 0).toLocaleString('en-US')} — To-Win updated.`
+);

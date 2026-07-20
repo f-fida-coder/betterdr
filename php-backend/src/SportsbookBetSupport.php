@@ -547,6 +547,90 @@ final class SportsbookBetSupport
         return ['win' => $cap, 'capped' => true, 'cap' => $cap];
     }
 
+    // ── Minimum-win floor (all standard placement paths) ──────────────────
+    // NEW RULE (Nicky 2026-07-20): every ticket must be able to WIN at least
+    // $25 — "the only way you can bet $25 is if it's +100 or higher". When a
+    // stake's win prices under the floor (any sub-+100 price, including the
+    // standard -110 juice), the stake AUTO-BUMPS UP to the smallest whole
+    // dollar whose win clears the floor ($25 @ -130 books as $33). The stake
+    // moves UP, never the win down — the mirror of the max-win cap, which
+    // truncates the WIN and never touches the stake. If the required stake
+    // would exceed the player's max bet, the ticket is REJECTED
+    // (MIN_WIN_UNREACHABLE) — never silently booked under the floor.
+    // Configured via MIN_WIN_FLOOR (dollars, default 25; <= 0 disables);
+    // never allowed above the max-win cap (a floor the cap forbids would
+    // reject every ticket).
+    public const DEFAULT_MIN_TICKET_WIN_FLOOR = 25.0;
+
+    // Reference unit stake for deriving a ticket's EXACT per-dollar win rate.
+    // The priced win at the player's own stake is whole-dollar rounded, so
+    // win/stake at small stakes is too noisy to back-solve from (off-by-one
+    // bumps that land UNDER the floor after re-pricing). At $1,000,000 the
+    // rounding error is <= $0.50 on a >= $1M-scale payout — the ratio is
+    // exact to ~5e-7, and the 4dp round in bumpedUnitStakeForMinWin absorbs
+    // it. Pricing is pure math (no caps inside pricedTicket), so the big
+    // reference stake never touches limits.
+    public const MIN_WIN_REFERENCE_STAKE = 1000000.0;
+
+    /** The live floor in dollars, or 0.0 when disabled. */
+    public static function minTicketWinFloor(): float
+    {
+        $raw = Env::get('MIN_WIN_FLOOR', (string) self::DEFAULT_MIN_TICKET_WIN_FLOOR);
+        $floor = is_numeric($raw) ? (float) $raw : self::DEFAULT_MIN_TICKET_WIN_FLOOR;
+        if ($floor <= 0) {
+            return 0.0;
+        }
+        $cap = self::maxTicketWinCap();
+        return $cap > 0 ? min($floor, $cap) : $floor;
+    }
+
+    /**
+     * Smallest whole-dollar UNIT stake whose win clears the floor, given the
+     * ticket's per-unit-stake win rate (winPerUnitStake = win at
+     * MIN_WIN_REFERENCE_STAKE / MIN_WIN_REFERENCE_STAKE — stake-independent
+     * for every standard type: single/combined decimals, teaser multipliers
+     * and the reverse ×2 structure all scale linearly in the unit stake).
+     * ceil() guarantees stake × rate >= floor(−ε), so the whole-dollar payout
+     * round at booking can never land under the floor. The 4dp pre-round
+     * kills float dust so an exact boundary (32.5 @ -130) ceils to 33, not 34.
+     * Returns 0.0 on degenerate input (caller must treat as unpriceable).
+     */
+    public static function bumpedUnitStakeForMinWin(float $winPerUnitStake, float $floor): float
+    {
+        if ($floor <= 0 || !is_finite($winPerUnitStake) || $winPerUnitStake <= 0) {
+            return 0.0;
+        }
+        return (float) ceil(round($floor / $winPerUnitStake, 4));
+    }
+
+    /**
+     * The ticket's exact win per $1 of unit stake, via a reference-stake
+     * pricing pass through the SAME canonical pricer placement uses (pin
+     * dropped — the floor overrides any requested-win pin by rule).
+     *
+     * @param array<int, array<string, mixed>> $validatedSelections
+     * @param array<string, mixed>             $rule
+     */
+    public static function winRatePerUnitStake(
+        string $type,
+        array $validatedSelections,
+        array $rule,
+        float $sgpHaircutPct = 0.0,
+        float $sgpPropHaircutPct = 0.0
+    ): float {
+        $ref = self::pricedTicket(
+            $type,
+            self::MIN_WIN_REFERENCE_STAKE,
+            $validatedSelections,
+            $rule,
+            $sgpHaircutPct,
+            $sgpPropHaircutPct,
+            null
+        );
+        $refWin = max(0.0, (float) $ref['potentialPayout'] - (float) $ref['totalRisk']);
+        return $refWin / self::MIN_WIN_REFERENCE_STAKE;
+    }
+
     /**
      * Re-apply the placement-time payout-cap snapshot as a settlement CEILING.
      *

@@ -92,6 +92,42 @@ export const roundRobinMaxWin = (legDecimals, sizes, stakePerParlay, haircutForC
     return total;
 };
 
+// Lowest combined decimal across every child parlay the chosen sizes
+// generate (haircut-adjusted, same transform as roundRobinMaxWin). This is
+// the WORST child for the $25 min-win floor (Nicky 2026-07-20): the shared
+// per-child stake must let EVERY child win at least the floor, so the bump
+// back-solves against this decimal. Mirrors the min-rate scan in
+// BetsController::placeRoundRobin. Returns 0 when no valid child exists.
+export const roundRobinMinChildDecimal = (legDecimals, sizes, haircutForCombo = () => 0) => {
+    const n = Array.isArray(legDecimals) ? legDecimals.length : 0;
+    if (n === 0) return 0;
+    let minCombined = 0;
+    for (const size of (sizes || [])) {
+        const k = Number(size);
+        if (!Number.isFinite(k) || k < 2 || k > n) continue;
+        const visit = (start, acc) => {
+            if (acc.length === k) {
+                let combined = 1;
+                for (const idx of acc) {
+                    const d = Number(legDecimals[idx]);
+                    combined *= (Number.isFinite(d) && d > 1) ? d : 1;
+                }
+                const hc = Number(haircutForCombo(acc)) || 0;
+                if (hc > 0 && combined > 1) combined = 1 + (combined - 1) * (1 - hc);
+                if (minCombined === 0 || combined < minCombined) minCombined = combined;
+                return;
+            }
+            for (let i = start; i < n; i++) {
+                acc.push(i);
+                visit(i + 1, acc);
+                acc.pop();
+            }
+        };
+        visit(0, []);
+    }
+    return minCombined;
+};
+
 // The full RR preview triple the slip renders. One entry point so a test can
 // assert count / total risk / max win together and catch any drift between the
 // count (what the backend books) and the money the player is shown.

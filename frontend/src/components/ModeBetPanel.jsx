@@ -4,7 +4,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal, roundCombinedToAmericanDecimal } from '../utils/odds';
 import { computeMidQuickStakes } from '../utils/money';
-import { winTruncationActive, capLimitsNote, stakeAutoRaisedNote, floorStakeToMin, minFloorApplied } from '../utils/maxWinCap';
+import { winTruncationActive, capLimitsNote, stakeAutoRaisedNote, floorStakeToMin, minFloorApplied, stakeForMinWin, minWinBumpApplied, minWinRaisedNote, MIN_WIN_FLOOR } from '../utils/maxWinCap';
 import { formatSiteDateTime } from '../utils/timezone';
 import { isMlbSportKey, formatPitcherLabel } from '../utils/pitchers';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
@@ -16,7 +16,7 @@ import { prettyPlayerMarketLabel, isPlayerPropMarket, formatPropSelectionTitle }
 import { splitPeriodMarketKey } from '../utils/periods';
 import { straightDefaultMode, parlayDefaultMode, defaultModeForBucket, reseedModeForBucket } from '../utils/betDefaults';
 import { formatLegLabel } from '../utils/legLabel';
-import { roundRobinCombinationCount, roundRobinMaxWin as computeRoundRobinMaxWin } from '../utils/roundRobin';
+import { roundRobinCombinationCount, roundRobinMaxWin as computeRoundRobinMaxWin, roundRobinMinChildDecimal } from '../utils/roundRobin';
 
 // Minimal structural fallbacks — NO hardcoded multipliers.
 // Real values always come from rulesByMode (loaded from DB via /api/betting/rules).
@@ -955,7 +955,27 @@ const ModeBetPanel = ({
             if (!(Number.isFinite(cap) && cap > 0) || !(pair?.win > cap)) return pair;
             return { ...pair, win: cap };
         };
-        const finalizeLeg = (pair) => truncateLegWin(floorLegToMin(pair));
+        // Min-WIN floor bump (Nicky 2026-07-20): any leg whose win prices
+        // under $25 books at the smallest whole-dollar stake that clears it
+        // ($25 @ -130 → $33). BROAD by rule — typed Risk and back-solved Win
+        // alike, every sub-+100 price including standard -110 juice ("the
+        // only way you can bet $25 is if it's +100 or higher"). Runs AFTER
+        // the min-bet floor (a min-floored stake can still win under $25)
+        // and BEFORE the cap truncation (a ~$25 win never nears the cap).
+        // Uses the American-snapped exact decimal so the target matches the
+        // server's reference-rate back-solve (bumpedUnitStakeForMinWin) —
+        // the card shows the stake the book will debit. `minWinBumped`
+        // drops the requestedWin pin (winForSelection) and drives the note.
+        const bumpLegToMinWin = (pair) => {
+            if (normalizedMode !== 'straight' || !(pair?.risk > 0)) return pair;
+            const d = exactDecimalForLeg(sel?.odds);
+            if (!(d > 1) || !minWinBumpApplied(pair.risk, d)) return pair;
+            const target = stakeForMinWin(d);
+            if (!(target > pair.risk)) return pair;
+            const win = Math.round(target * (d - 1) * 100) / 100;
+            return { ...pair, risk: target, win, minWinBumped: true };
+        };
+        const finalizeLeg = (pair) => truncateLegWin(bumpLegToMinWin(floorLegToMin(pair)));
         const override = sel?.wagerOverride;
         if (override && (override.source === 'risk' || override.source === 'win')) {
             const raw = override.source === 'risk' ? override.riskRaw : override.winRaw;
@@ -1013,11 +1033,13 @@ const ModeBetPanel = ({
     // $999 / $1001 on a typed $1000 win).
     const winForSelection = React.useCallback((sel) => {
         if (normalizedMode !== 'straight') return 0;
-        const { win, source, floored } = effectiveStakeForSelection(sel);
-        // Stake was snapped up to the min bet → the leg is now risk-anchored;
-        // dropping requestedWin lets the backend pay stake × odds (the
-        // recomputed, higher To-Win) instead of pinning the stale typed target.
-        if (floored) return 0;
+        const { win, source, floored, minWinBumped } = effectiveStakeForSelection(sel);
+        // Stake was snapped up to the min bet, or bumped for the $25 min-win
+        // floor → the leg is now risk-anchored; dropping requestedWin lets
+        // the backend pay stake × odds (the recomputed, higher To-Win)
+        // instead of pinning the stale typed target. The backend drops a
+        // sub-floor pin on its side too — this keeps the two identical.
+        if (floored || minWinBumped) return 0;
         if (source !== 'win' && stakeMode !== 'win') return 0;
         return Number.isFinite(win) && win > 0 ? Math.round(win) : 0;
     }, [normalizedMode, effectiveStakeForSelection, stakeMode]);
@@ -1061,6 +1083,35 @@ const ModeBetPanel = ({
     // else 0 (floor disabled → floorStakeToMin degrades to the plain cap clamp).
     const combinedFloorMin = combinedSmartMode === 'win' && hasPlayerMin ? playerMinBet : 0;
 
+    // Min-WIN floor back-solve basis for the COMBINED ticket (Nicky
+    // 2026-07-20): the effective decimal the booked win actually pays at,
+    // per mode, and the whole-dollar stake that clears the $25 floor at it.
+    //   parlay  — American-locked combined (the backend locks before pricing)
+    //   teaser  — the table multiplier (already decimal-shaped)
+    //   if_bet  — first-two product (the panel's existing payout basis)
+    //   reverse — 2c − 1 in UNIT-stake space: the ticket's max win is
+    //             unit × (2c − 2), and the backend bumps the UNIT stake to
+    //             whole dollars, so the mirror must too.
+    // Round robin has its own per-child path (roundRobinMinWinBump below).
+    // Open parlay IS covered (Nicky/Fida 2026-07-20): the floor back-solves
+    // against the REAL starting legs' combined (ticketDecimalOdds for OP is
+    // the product of the picked legs — placeholders are display-only), same
+    // basis placeOpenParlay enforces at create. Create-time is the ONLY
+    // enforcement point: every later add-leg multiplies the combined by a
+    // decimal > 1, so the win at the committed stake only grows.
+    // target = 0 ⇒ no bump possible.
+    const combinedMinWinInfo = useMemo(() => {
+        const none = { decimal: 0, target: 0 };
+        if (normalizedMode === 'straight' || normalizedMode === 'round_robin') return none;
+        let d = Number(ticketDecimalOdds);
+        if (!(Number.isFinite(d) && d > 1)) return none;
+        if (normalizedMode === 'parlay') d = roundCombinedToAmericanDecimal(d);
+        if (normalizedMode === 'reverse') d = 2 * d - 1;
+        if (!(Number.isFinite(d) && d > 1)) return none;
+        const target = stakeForMinWin(d);
+        return target > 0 ? { decimal: d, target } : none;
+    }, [normalizedMode, ticketDecimalOdds]);
+
     // Combined-mode resolved Risk: the actual stake the backend sees
     // after Bet/Risk/Win mode conversion against the ticket's combined
     // decimal odds. `bet` and `risk` pass straight through; `win` flips
@@ -1091,6 +1142,15 @@ const ModeBetPanel = ({
         // gross-up bug) and open parlays still risk-anchor (odds not final).
         // Other combined modes (teaser/if_bet/reverse) keep their To-Win
         // conversion unchanged.
+        // Min-WIN floor bump, LAST in every branch (after the min-bet floor —
+        // a min-floored stake can still win under $25): sub-floor win →
+        // stake rises to combinedMinWinInfo.target. Round robin / open
+        // parlay never reach it (target 0 by construction above).
+        const bumpToMinWin = (risk) => (
+            combinedMinWinInfo.target > risk && minWinBumpApplied(risk, combinedMinWinInfo.decimal)
+                ? combinedMinWinInfo.target
+                : risk
+        );
         if (normalizedMode === 'parlay') {
             if (parlayWinAnchored) {
                 const { risk } = resolveStake('win', wagerAmount, ticketDecimalOdds);
@@ -1101,11 +1161,11 @@ const ModeBetPanel = ({
                 // DOWN-clamp is gone (Nicky 2026-07-20): the cap truncates
                 // the WIN, never the stake — a $5,000 target at +100000
                 // floors the stake to the $25 min instead of dropping to $5.
-                return floorStakeToMin(risk, combinedFloorMin);
+                return bumpToMinWin(floorStakeToMin(risk, combinedFloorMin));
             }
             // Risk-anchored parlay: the typed number IS the stake — no cap
             // clamp anymore (win-side truncation handles the ceiling).
-            return Number.isFinite(wagerAmount) && wagerAmount > 0 ? wagerAmount : 0;
+            return Number.isFinite(wagerAmount) && wagerAmount > 0 ? bumpToMinWin(wagerAmount) : 0;
         }
         const sourceWager = normalizedMode === 'reverse' ? wagerAmount / 2 : wagerAmount;
         const { risk } = resolveStake(stakeMode, sourceWager, ticketDecimalOdds);
@@ -1113,9 +1173,9 @@ const ModeBetPanel = ({
         // Teaser / if_bet / reverse: floor a sub-min WIN back-solve UP to the
         // min bet. Round robin stays exempt (it forces Risk mode so
         // combinedFloorMin is 0 → floor disabled).
-        return floorStakeToMin(safeRisk, combinedFloorMin);
+        return bumpToMinWin(floorStakeToMin(safeRisk, combinedFloorMin));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [normalizedMode, stakeMode, wagerAmount, ticketDecimalOdds, parlayWinAnchored, combinedSmartMode, hasPlayerMin, playerMinBet]);
+    }, [normalizedMode, stakeMode, wagerAmount, ticketDecimalOdds, parlayWinAnchored, combinedSmartMode, hasPlayerMin, playerMinBet, combinedMinWinInfo]);
 
     // True when the combined stake was actually snapped UP to the min bet (raw
     // win back-solve fell below min AND the cap allowed reaching it). Drives the
@@ -1134,6 +1194,34 @@ const ModeBetPanel = ({
         const rawRisk = Number.isFinite(risk) && risk > 0 ? risk : 0;
         return minFloorApplied(rawRisk, playerMinBet);
     }, [normalizedMode, combinedSmartMode, hasPlayerMin, wagerAmount, stakeMode, ticketDecimalOdds, playerMinBet]);
+
+    // True when the $25 min-win floor actually bumped the combined stake.
+    // Drives the informational note, the requestedWin drop (a bumped ticket
+    // is risk-anchored — pinning the stale sub-floor target would book the
+    // wrong payout), and the Win-display fallthrough. Recomputes the
+    // pre-bump risk with the SAME derivation effectiveCombinedRisk uses
+    // (resolveStake → min-bet floor), mirroring combinedMinFloorApplied.
+    const combinedMinWinBumpApplied = useMemo(() => {
+        if (normalizedMode === 'straight' || normalizedMode === 'round_robin') return false;
+        if (!(combinedMinWinInfo.target > 0)) return false;
+        let preBump;
+        if (normalizedMode === 'parlay') {
+            if (parlayWinAnchored) {
+                const { risk } = resolveStake('win', wagerAmount, ticketDecimalOdds);
+                preBump = Number.isFinite(risk) && risk > 0 ? floorStakeToMin(risk, combinedFloorMin) : 0;
+            } else {
+                preBump = Number.isFinite(wagerAmount) && wagerAmount > 0 ? wagerAmount : 0;
+            }
+        } else {
+            const sourceWager = normalizedMode === 'reverse' ? wagerAmount / 2 : wagerAmount;
+            const { risk } = resolveStake(stakeMode, sourceWager, ticketDecimalOdds);
+            const safeRisk = Number.isFinite(risk) && risk > 0 ? risk : 0;
+            preBump = floorStakeToMin(safeRisk, combinedFloorMin);
+        }
+        return preBump > 0
+            && combinedMinWinInfo.target > preBump
+            && minWinBumpApplied(preBump, combinedMinWinInfo.decimal);
+    }, [normalizedMode, isOpenParlay, combinedMinWinInfo, parlayWinAnchored, wagerAmount, ticketDecimalOdds, stakeMode, combinedFloorMin]);
 
     // Per-account min/max bet limits from /auth/me payload. Backend
     // already enforces these (BetsController::placeBet) — checking
@@ -1182,7 +1270,7 @@ const ModeBetPanel = ({
         // UNCONDITIONAL floor with no cap-overrides-min carve-out.
         if (normalizedMode === 'straight') {
             for (const sel of selections) {
-                const { risk, win } = effectiveStakeForSelection(sel);
+                const { risk, win, minWinBumped } = effectiveStakeForSelection(sel);
                 if (!(risk > 0) && !(win > 0)) continue;
                 const minBreach = hasMin && risk > 0 && risk < minBet;
                 const maxBreach = hasMax && risk > maxBet;
@@ -1190,7 +1278,13 @@ const ModeBetPanel = ({
                     messages.min = `Min bet $${minBet} — ${labelFor(sel)} risks only $${fmt(risk)}`;
                 }
                 if (maxBreach && !messages.max) {
-                    messages.max = `Max bet $${maxBet} — ${labelFor(sel)} risks $${fmt(risk)}`;
+                    // Min-win bump pushed the stake over the max: the generic
+                    // max-bet wording would confuse a player who typed $25 —
+                    // use the sanctioned "unavailable at your limits" copy
+                    // (mirrors the server's MIN_WIN_UNREACHABLE reject).
+                    messages.max = minWinBumped
+                        ? `This selection is unavailable at your betting limits — winning the $${MIN_WIN_FLOOR} minimum at these odds requires risking $${fmt(risk)}, over your $${maxBet} max bet`
+                        : `Max bet $${maxBet} — ${labelFor(sel)} risks $${fmt(risk)}`;
                 }
                 if (minBreach || maxBreach) violatingIds.add(sel.id);
             }
@@ -1209,14 +1303,18 @@ const ModeBetPanel = ({
                 messages.min = `Min bet $${minBet} — ticket risks only $${fmt(effectiveCombinedRisk)}`;
             }
             if (hasMax && effectiveCombinedRisk > maxBet) {
-                messages.max = `Max bet $${maxBet} — ticket risks $${fmt(effectiveCombinedRisk)}`;
+                // Same clear copy as straight when the min-win bump caused
+                // the breach (mirrors the server's MIN_WIN_UNREACHABLE).
+                messages.max = combinedMinWinBumpApplied
+                    ? `This selection is unavailable at your betting limits — winning the $${MIN_WIN_FLOOR} minimum at these odds requires risking $${fmt(effectiveCombinedRisk)}, over your $${maxBet} max bet`
+                    : `Max bet $${maxBet} — ticket risks $${fmt(effectiveCombinedRisk)}`;
             }
             if (parlayPayoutCap > 0 && winValue > parlayPayoutCap) {
                 messages.capInfo = `Max parlay payout $${fmt(parlayPayoutCap)} — winnings capped (uncapped: $${fmt(winValue)})`;
             }
         }
         return { violatingIds, messages };
-    }, [normalizedMode, selections, effectiveStakeForSelection, effectiveCombinedRisk, ticketDecimalOdds, user?.minBet, user?.maxBet]);
+    }, [normalizedMode, selections, effectiveStakeForSelection, effectiveCombinedRisk, ticketDecimalOdds, user?.minBet, user?.maxBet, combinedMinWinBumpApplied]);
 
     // ── Round Robin derived state ────────────────────────────────────
     // Available "By X's" sizes given the current selection count. Round
@@ -1256,11 +1354,64 @@ const ModeBetPanel = ({
     // mode regardless of the global Risk/Win toggle: a "win $X" target
     // is ambiguous when each child parlay has different combined odds,
     // and the standard sportsbook UX is per-parlay risk.
+    // Min-WIN floor for Round Robin (Nicky 2026-07-20), per-child like the
+    // min bet: EVERY child parlay must be able to win at least $25, so the
+    // shared per-child stake back-solves against the WORST (lowest-decimal,
+    // haircut-adjusted) child. Mirrors the min-rate scan + bump in
+    // BetsController::placeRoundRobin. target = 0 ⇒ no bump derivable.
+    const roundRobinMinWinBump = useMemo(() => {
+        const none = { target: 0, applied: false };
+        if (normalizedMode !== 'round_robin') return none;
+        const raw = Number(wagerAmount);
+        const legDecimals = selections.map((sel) => exactDecimalForLeg(sel?.odds));
+        const minDec = roundRobinMinChildDecimal(
+            legDecimals,
+            roundRobinSizes,
+            (indexes) => sgpHaircutFraction(indexes.map((idx) => selections[idx]).filter(Boolean)),
+        );
+        if (!(minDec > 1)) return none;
+        const target = stakeForMinWin(minDec);
+        return {
+            target,
+            applied: Number.isFinite(raw) && raw > 0 && target > raw && minWinBumpApplied(raw, minDec),
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [normalizedMode, wagerAmount, roundRobinSizes, legCount, selections]);
+
     const roundRobinStakePerParlay = useMemo(() => {
         if (normalizedMode !== 'round_robin') return 0;
         const n = Number(wagerAmount);
-        return Number.isFinite(n) && n > 0 ? n : 0;
-    }, [normalizedMode, wagerAmount]);
+        const base = Number.isFinite(n) && n > 0 ? n : 0;
+        // $25 min-win floor: the per-child stake rises so the worst child
+        // clears the floor (see roundRobinMinWinBump above).
+        return roundRobinMinWinBump.applied ? roundRobinMinWinBump.target : base;
+    }, [normalizedMode, wagerAmount, roundRobinMinWinBump]);
+
+    // Dynamic MIN BET quick-stake chip (Nicky 2026-07-20): the effective
+    // minimum for the CURRENT ticket is the larger of the account min bet
+    // and the $25 min-win stake — at -130 the chip reads $33, not $25, so
+    // one tap lands on a stake the book will actually accept unbumped.
+    // Straight mode uses the WORST (lowest-decimal) staked leg so the
+    // shared amount clears the floor on every leg; combined/RR reuse their
+    // ticket-level back-solve. Falls back to the plain account min with no
+    // selections. Declared here (after every decimal source) — hoisting it
+    // to the top-of-component chip consts would TDZ-crash on
+    // ticketDecimalOdds (see the utils-shared outage postmortem).
+    const effectiveMinBetChip = useMemo(() => {
+        let target = 0;
+        if (normalizedMode === 'straight') {
+            const decimals = selections
+                .map((sel) => exactDecimalForLeg(sel?.odds))
+                .filter((d) => Number.isFinite(d) && d > 1);
+            if (decimals.length > 0) target = stakeForMinWin(Math.min(...decimals));
+        } else if (normalizedMode === 'round_robin') {
+            target = roundRobinMinWinBump.target;
+        } else {
+            target = combinedMinWinInfo.target;
+        }
+        return Math.max(minBetChip, Number.isFinite(target) ? target : 0);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [normalizedMode, selections, roundRobinMinWinBump, combinedMinWinInfo, minBetChip]);
 
     const roundRobinTotalRisk = roundRobinStakePerParlay * roundRobinParlayCount;
 
@@ -1629,6 +1780,17 @@ const ModeBetPanel = ({
         ? stakeAutoRaisedNote(playerMinBet)
         : '';
 
+    // $25 min-win bump note — same amber informational family as the
+    // min-bet floor note. Straight surfaces it when ANY staked leg bumped;
+    // combined/RR use their ticket-level flags.
+    const straightMinWinBumpApplied = useMemo(() => (
+        normalizedMode === 'straight'
+        && selections.some((sel) => effectiveStakeForSelection(sel).minWinBumped === true)
+    ), [normalizedMode, selections, effectiveStakeForSelection]);
+    const minWinBumpNote = (straightMinWinBumpApplied || combinedMinWinBumpApplied || roundRobinMinWinBump.applied)
+        ? minWinRaisedNote()
+        : '';
+
     // Display win = profit on full payoff. For combined modes, clamp at
     // the parlay payout cap so the user sees the same number the book
     // will actually credit.
@@ -1677,7 +1839,12 @@ const ModeBetPanel = ({
         // stored risk instead.
         const parlayWinPin = parlayWinAnchored && summarySmartMode === 'win'
             && Math.abs(resolveStake('win', wagerAmount, ticketDecimalOdds).risk - totalRisk) < 0.005;
-        const otherModeWinPin = !isOpenParlay && normalizedMode !== 'parlay' && normalizedMode !== 'straight' && summarySmartMode === 'win';
+        // A min-win-bumped ticket is risk-anchored (the typed sub-$25 target
+        // is overridden by the floor), so the pin must fall through to the
+        // derived win at the bumped stake — otherwise the panel would show
+        // the typed $20 while the book pays $25+.
+        const otherModeWinPin = !isOpenParlay && normalizedMode !== 'parlay' && normalizedMode !== 'straight'
+            && summarySmartMode === 'win' && !combinedMinWinBumpApplied;
         if ((parlayWinPin || otherModeWinPin) && wagerAmount > 0 && legCount > 0) {
             rawWin = wagerAmount;
         } else {
@@ -1712,13 +1879,13 @@ const ModeBetPanel = ({
     // same cap. Falls back to the cap message when no Min/Max bet error
     // is present.
     const amountWarning = validationErrors.find((e) =>
-        typeof e === 'string' && (e.startsWith('Min bet') || e.startsWith('Max bet'))
-    ) || stakeFloorNote || capNote || limitFlags.messages.capInfo || '';
-    // The snapped-stake messages (cap DOWN, min-bet UP) get the emphasized
-    // banner treatment — the player must see they're now staking the adjusted
-    // amount, not what the back-solve produced.
+        typeof e === 'string' && (e.startsWith('Min bet') || e.startsWith('Max bet') || e.startsWith('This selection is unavailable'))
+    ) || minWinBumpNote || stakeFloorNote || capNote || limitFlags.messages.capInfo || '';
+    // The snapped-stake messages (cap DOWN, min-bet UP, min-win bump UP) get
+    // the emphasized banner treatment — the player must see they're now
+    // staking the adjusted amount, not what the back-solve produced.
     const amountWarningEmphasized = amountWarning !== ''
-        && (amountWarning === stakeFloorNote || amountWarning === capNote);
+        && (amountWarning === stakeFloorNote || amountWarning === capNote || amountWarning === minWinBumpNote);
     const hasSelections = legCount > 0;
     const [isOpen, setIsOpen] = useState(false);
 
@@ -2060,7 +2227,9 @@ const ModeBetPanel = ({
         // diverge. When the stake was floored up to the min bet the ticket is
         // risk-anchored — drop requestedWin so the backend prices payout =
         // stake × odds (the recomputed To-Win), not the stale typed target.
-        const requestedWin = combinedSmartMode === 'win' && !combinedMinFloorApplied
+        // A min-win-bumped ticket is risk-anchored too — the typed sub-$25
+        // target is overridden by the floor (server drops the pin as well).
+        const requestedWin = combinedSmartMode === 'win' && !combinedMinFloorApplied && !combinedMinWinBumpApplied
             && Number.isFinite(Number(wager)) && Number(wager) > 0
             ? Math.round(Number(wager)) : 0;
         // Risk goes on the wire exactly as entered (Nicky 2026-07-20 — the
@@ -2512,7 +2681,10 @@ const ModeBetPanel = ({
             // ticket. When the stake was floored up to the min bet the ticket is
             // risk-anchored — drop requestedWin so payout = stake × odds (the
             // recomputed To-Win), not the stale typed target.
-            const combinedRequestedWin = combinedSmartMode === 'win' && !combinedMinFloorApplied
+            // A min-win-bumped ticket is risk-anchored too — the typed
+            // sub-$25 target is overridden by the floor (server-side the
+            // sub-floor pin is dropped identically).
+            const combinedRequestedWin = combinedSmartMode === 'win' && !combinedMinFloorApplied && !combinedMinWinBumpApplied
                 && Number.isFinite(Number(wager)) && Number(wager) > 0
                 ? Math.round(Number(wager))
                 : 0;
@@ -3072,7 +3244,13 @@ const ModeBetPanel = ({
                             shorthand — and the inline amount warning above
                             spells out the win-anchored rule when it bites. */}
                         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                            {customQuickStakes.map((v, i) => {
+                            {customQuickStakes.map((rawChip, i) => {
+                                // First chip is the EFFECTIVE minimum for this
+                                // ticket: the $25 min-win stake can exceed the
+                                // account min on sub-+100 prices ($33 @ -130),
+                                // and tapping a chip the book would bump anyway
+                                // is a broken promise.
+                                const v = i === 0 ? effectiveMinBetChip : rawChip;
                                 const active = Number(wager) === Number(v);
                                 const limitLabel = i === 0 ? 'Min Bet' : i === customQuickStakes.length - 1 ? 'Max Bet' : '';
                                 return (
