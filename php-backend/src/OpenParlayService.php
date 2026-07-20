@@ -171,6 +171,20 @@ final class OpenParlayService
                 $capAmount = (float) $cap;
             }
         }
+        // House $5k max-win TRUNCATION (Nicky 2026-07-20 — replaces the old
+        // assertWinWithinCap REJECT at create/add-leg): the win tops out at
+        // the absolute cap, composed via min() with the 3×maxBet clamp
+        // above. Derived HERE — the single OP pricing source — so create,
+        // add-leg, and the settlement snapshot refresh all agree.
+        $houseCap = SportsbookBetSupport::truncateWinToCap((float) $winAmount);
+        if ($houseCap['capped']) {
+            $winAmount = (float) $houseCap['win'];
+            $payout = $risk + $winAmount;
+            $capped = true;
+            $capAmount = $capAmount !== null
+                ? (float) min($capAmount, $houseCap['cap'])
+                : (float) $houseCap['cap'];
+        }
         return [
             'potentialPayout' => (float) $payout,
             'combinedOdds' => SportsbookBetSupport::combinedOdds($risk, $payout),

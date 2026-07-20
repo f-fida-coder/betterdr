@@ -27,8 +27,9 @@ declare(strict_types=1);
  *                     guard).
  *   - T7-4 legacy:    null / 0 / negative / garbage snapshot values and lost
  *                     tickets → no-op; riskAmount falls back to `amount`.
- *   - T7-5 $5k guard: MAX_PARLAY_PAYOUT still REJECTS at placement exactly as
- *                     today (win == cap passes, win > cap throws).
+ *   - T7-5 $5k guard: MAX_PARLAY_PAYOUT TRUNCATES at placement (Nicky
+ *                     2026-07-20 reversal — win == cap passes untouched,
+ *                     win > cap truncates to the cap, never throws).
  *   - T7-6 OP create: recomputePayout caps at create → capAmount returned →
  *                     snapshot persisted → settlement pays the capped amount.
  *   - T7-7 OP refresh: a recompute that is no longer capped returns
@@ -38,6 +39,12 @@ declare(strict_types=1);
  *                     unreachable through the real add-leg flow.)
  *   - T7-8 OP add-leg: unclamped ticket pushed OVER the cap by a new leg →
  *                     capAmount written → settlement capped.
+ *   - T7-9 reversal:  $25 @ +100000 (Jon Rahm shape) — placement truncates
+ *                     win to $5,000, snapshots the cap, and the FULL settle
+ *                     path pays $5,025 cent-exact (uncapped recompute would
+ *                     be $25,025); freeplay profit-only credit = $5,000.
+ *   - T7-10 legacy:   pre-reversal $5-stake booking (no snapshot) settles
+ *                     at its booked $5,005 — history never re-priced.
  *
  * The manual-grader half of T7 lives in ManualBetGradingTest.php ("clamped
  * ticket surfaces" suite): the manual surface pays STORED values and its
@@ -216,17 +223,19 @@ TestRunner::run('T7-4 payout cap — legacy docs, garbage values, lost tickets, 
 
 // ── T7-5: $5,000 MAX_PARLAY_PAYOUT placement guard unchanged ─────────────────
 
-TestRunner::run('T7-5 payout cap — house $5k win guard still rejects at placement', function (): void {
-    // Win exactly at the cap passes (no exception).
-    SportsbookBetSupport::assertWinWithinCap(5000.0, 11.2925, 'parlay');
-    TestRunner::assertTrue(true, 'win == $5,000 cap passes');
+TestRunner::run('T7-5 payout cap — house $5k guard TRUNCATES at placement (Nicky 2026-07-20)', function (): void {
+    // RULE REVERSAL: the old assertWinWithinCap REJECT is retired — the cap
+    // now truncates the WIN and never rejects or shrinks the stake.
+    // Win exactly at the cap passes through untruncated.
+    $atCap = SportsbookBetSupport::truncateWinToCap(5000.0);
+    TestRunner::assertTrue(!$atCap['capped'], 'win == $5,000 cap passes untruncated');
+    TestRunner::assertEqualsFloat(5000.0, $atCap['win'], 'at-cap win unchanged');
 
-    // One dollar over still rejects with the stake suggestion off UNCLAMPED odds.
-    TestRunner::assertThrows(
-        static fn () => SportsbookBetSupport::assertWinWithinCap(5001.0, 11.2925, 'parlay'),
-        ApiException::class,
-        'win > $5,000 cap still throws MAX_WIN_EXCEEDED at placement'
-    );
+    // One dollar over truncates to the cap — no exception, stake untouched.
+    $over = SportsbookBetSupport::truncateWinToCap(5001.0);
+    TestRunner::assertTrue($over['capped'], 'win > cap flags capped (caller MUST snapshot payoutCapAmount)');
+    TestRunner::assertEqualsFloat(5000.0, $over['win'], 'win truncated to exactly the cap');
+    TestRunner::assertEqualsFloat(5000.0, $over['cap'], 'cap dollars echoed for the snapshot');
 });
 
 // ── Open Parlay fixtures ──────────────────────────────────────────────────────
@@ -321,4 +330,64 @@ TestRunner::run('T7-8 payout cap — OP add-leg pushes over the cap, snapshot wr
     $bet = pcsOpBet($addCalc, 500.0);
     $rows = pcsOpLegs(3);
     TestRunner::assertEqualsFloat(3500.0, pcsSweepPayout($bet, $rows), 'settlement pays the capped $3,500 after the add-leg clamp');
+});
+
+// ── T7-9: Nicky 2026-07-20 rule reversal — min-bet stake, extreme longshot ──
+// The Jon Rahm shape: $25 (the account minimum) at +100000 (decimal 1001).
+// NEW placement books stake $25 UNTOUCHED, win truncated to the $5,000 cap
+// (potentialPayout $5,025) and snapshots payoutCapAmount = $5,000. This test
+// locks the FULL settle path on that doc: the uncapped recompute would pay
+// $25,025 — the exact catastrophe if the snapshot were missing — and the
+// sweep's cap→pin ordering pays exactly the capped $5,025, cent-exact.
+TestRunner::run('T7-9 payout cap — $25 @ +100000 settles at $5,025 (capped), never $25,025', function (): void {
+    // Placement-shaped doc under the new rule (truncateWinToCap output).
+    $truncated = SportsbookBetSupport::truncateWinToCap(25.0 * 1000.0);
+    TestRunner::assertTrue($truncated['capped'], 'placement truncation binds');
+    $bet = [
+        'type' => 'parlay',
+        'riskAmount' => 25.0,
+        'amount' => 25.0,
+        'unitStake' => 25.0,
+        'potentialPayout' => 25.0 + $truncated['win'],   // 5025
+        'acceptedPayout' => 25.0 + $truncated['win'],    // mirrored at booking
+        'payoutCapAmount' => $truncated['cap'],          // 5000
+    ];
+    $rows = [
+        ['odds' => 1001.0, 'status' => 'won', 'matchId' => 'jr1', 'marketType' => 'h2h', 'selectionOrder' => 0],
+    ];
+
+    // The number the recompute path would pay WITHOUT the snapshot.
+    $evaluation = SportsbookBetSupport::evaluateTicket(array_merge($bet, ['selections' => $rows]), $rows);
+    TestRunner::assertEquals('won', (string) $evaluation['status'], 'leg won → ticket won');
+    TestRunner::assertEqualsFloat(25025.0, (float) round((float) $evaluation['payout']), 'uncapped recompute is $25,025 — the disaster the snapshot prevents');
+
+    // Full sweep ordering (round → cap ceiling → pin): cent-exact $5,025.
+    TestRunner::assertEqualsFloat(5025.0, pcsSweepPayout($bet, $rows), 'settlement pays risk + capped win = $5,025 exactly');
+
+    // Freeplay credit derivation uses the SAME capped ticketPayout:
+    // balanceCredit = ticketPayout − freeplayUsed (BetSettlementService win
+    // branch) → a pure-freeplay $25 ticket credits profit-only $5,000.
+    $ticketPayout = pcsSweepPayout($bet, $rows);
+    TestRunner::assertEqualsFloat(5000.0, $ticketPayout - 25.0, 'freeplay profit-only credit = capped $5,000');
+});
+
+// ── T7-10: legacy old-rule tickets are untouched by the reversal ────────────
+// A pre-reversal booking ($5 stake auto-capped to win exactly $5,000, NO
+// payoutCapAmount snapshot — it never needed one because the stake made the
+// win fit) must settle exactly as booked. Nothing about the new rule may
+// re-price history.
+TestRunner::run('T7-10 payout cap — pre-reversal $5 @ +100000 ticket still settles at $5,005', function (): void {
+    $bet = [
+        'type' => 'parlay',
+        'riskAmount' => 5.0,
+        'amount' => 5.0,
+        'unitStake' => 5.0,
+        'potentialPayout' => 5005.0,
+        'acceptedPayout' => 5005.0,
+        'payoutCapAmount' => null, // old-rule booking carried no snapshot
+    ];
+    $rows = [
+        ['odds' => 1001.0, 'status' => 'won', 'matchId' => 'jr2', 'marketType' => 'h2h', 'selectionOrder' => 0],
+    ];
+    TestRunner::assertEqualsFloat(5005.0, pcsSweepPayout($bet, $rows), 'legacy ticket pays its booked $5,005 (recompute 5×1001 = $5,005, pin reconciles)');
 });

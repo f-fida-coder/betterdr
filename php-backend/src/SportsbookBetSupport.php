@@ -426,19 +426,21 @@ final class SportsbookBetSupport
     // player id lands on the leg (then a precise nested-prop rule replaces it).
     public const SGP_DEFAULT_MAX_PLAYER_PROPS_PER_GAME = 1;
 
-    // ── House max-win ceiling (parlays / RR children / open parlays /
-    //    outright legs) ─────────────────────────────────────────────────────
-    // PO ruling 2026-07-07: the operator's exposure on any single parlay-
-    // family ticket or futures leg is capped at $5,000 of WIN (profit —
-    // both PO examples equate the cap to profit: $100 at +5000 wins
-    // exactly $5,000). Configured via MAX_PARLAY_PAYOUT (dollars, default
-    // 5000; <= 0 disables). Unlike the per-player 3×maxBet clamp — which
-    // silently REDUCES the payout — this cap REJECTS with a computed
-    // "reduce your stake to $X" so the price is never silently rewritten.
-    // Runs AFTER the 3× clamp, so whatever survives that reduction must
-    // still fit under the absolute ceiling. Straight non-outright tickets
-    // and teaser/if-bet/reverse are deliberately NOT covered (PO scope:
-    // "parlay and futures"; widen the call-site conditions to change).
+    // ── House max-win ceiling (all standard placement paths) ──────────────
+    // The operator's exposure on any single ticket is capped at $5,000 of
+    // WIN (profit). Configured via MAX_PARLAY_PAYOUT (dollars, default
+    // 5000; <= 0 disables).
+    //
+    // RULE HISTORY: PO 2026-07-07 introduced the cap as a REJECT with a
+    // "reduce your stake to $X" suggestion; 2026-07-09 extended it to all
+    // ticket types and let the capped stake drop below the player's min bet
+    // (cap-overrides-min). Nicky 2026-07-20 REVERSED that: min bet is a
+    // hard floor the cap can never undercut — the cap now TRUNCATES the
+    // ticket's WIN (truncateWinToCap) and never touches the stake. A capped
+    // ticket carries the ceiling in payoutCapAmount so settlement's
+    // recompute path re-applies it (applyPayoutCapSnapshot).
+    // Runs AFTER the per-player 3×maxBet clamp, so whatever survives that
+    // reduction must still fit under the absolute ceiling.
     // Manual/admin-entered bets never pass through these placement paths,
     // so they bypass the cap by construction (PO exemption).
     public const DEFAULT_MAX_TICKET_WIN_CAP = 5000.0;
@@ -467,45 +469,45 @@ final class SportsbookBetSupport
     }
 
     /**
-     * Reject a ticket (or an RR child / OP recompute) whose WIN exceeds the
-     * house cap. $combinedDecimal must be the UNCLAMPED product of the leg
-     * odds — the stake suggestion is computed from it, and using a payout
-     * ratio already reduced by the 3×maxBet clamp would overstate the
-     * allowed stake and bounce the player twice. No-op when the cap is
-     * disabled or the win fits (win exactly == cap passes).
+     * NEW RULE (Nicky 2026-07-20 — reverses the 2026-07-09 stake-cap PO):
+     * the house absolute win ceiling TRUNCATES the ticket's WIN; the stake
+     * is NEVER shrunk or rejected by the cap. Min bet is a hard floor
+     * enforced by the caller's ordinary min-bet check — a player can always
+     * put at least the minimum on any offered selection, and when the odds
+     * are extreme the payout simply tops out at the cap ($25 @ +100000 →
+     * stake stays $25, win pays $5,000, not $25,000).
      *
-     * @param string $context placement surface, echoed in the error extra
+     * Replaces assertWinWithinCap (which REJECTED with a reduce-your-stake
+     * suggestion — that behavior and its MAX_WIN_EXCEEDED error are retired
+     * for standard placement paths).
+     *
+     * MONEY-CRITICAL CONTRACT: whenever `capped` comes back true, the caller
+     * MUST persist the cap onto the bet doc as `payoutCapAmount` (min'd with
+     * any existing 3×maxBet / SGP snapshot). Match-bet settlement RECOMPUTES
+     * payout from raw leg odds (evaluateTicket) and re-applies the ceiling
+     * ONLY via applyPayoutCapSnapshot — an unpersisted cap would settle
+     * uncapped ($25 @ +100000 paying $25,025). Outright settlement pays the
+     * stored potentialPayout, which the caller must also store capped.
+     *
+     * @return array{win: float, capped: bool, cap: float}
      */
-    public static function assertWinWithinCap(float $winAmount, float $combinedDecimal, string $context): void
+    public static function truncateWinToCap(float $winAmount): array
     {
         $cap = self::maxTicketWinCap();
         if ($cap <= 0 || $winAmount <= $cap) {
-            return;
+            return ['win' => $winAmount, 'capped' => false, 'cap' => $cap];
         }
-        $capFmt = '$' . number_format($cap, 0);
-        $allowed = self::allowedStakeForWinCap($cap, $combinedDecimal);
-        $message = $allowed >= 1.0
-            ? 'Max win is ' . $capFmt . ' — reduce your stake to $' . number_format($allowed, 0) . ' or less.'
-            : 'Max win is ' . $capFmt . ' — these odds cannot fit under the limit at any stake.';
-        if ($context === 'open_parlay_add_leg') {
-            // Stake is locked on an open ticket — there is nothing to reduce.
-            $message = 'Adding this leg pushes the potential win past ' . $capFmt . ' — it cannot be added to this ticket.';
-        }
-        throw new ApiException($message, 400, [
-            'code' => 'MAX_WIN_EXCEEDED',
-            'cap' => $cap,
-            'winAmount' => round($winAmount, 2),
-            'allowedStake' => $allowed,
-            'context' => $context,
-        ]);
+        return ['win' => $cap, 'capped' => true, 'cap' => $cap];
     }
 
     /**
      * Re-apply the placement-time payout-cap snapshot as a settlement CEILING.
      *
      * `payoutCapAmount` (win-amount dollars) is written onto the bet doc by
-     * placement ONLY when the combined-mode 3×maxBet / SGP-multiplier clamp
-     * actually reduced the ticket. evaluateTicket recomputes the payout from
+     * placement when a clamp actually reduced the ticket — the combined-mode
+     * 3×maxBet / SGP-multiplier clamp, and since 2026-07-20 the house $5k
+     * max-win truncation (truncateWinToCap) on every ticket type (the two
+     * compose via min()). evaluateTicket recomputes the payout from
      * raw leg odds and knows nothing of per-player limits, so without this
      * ceiling a clamped ticket would settle at the UNCAPPED recompute (the
      * ±$2 acceptedPayout pin is skipped — the diff far exceeds tolerance).
@@ -852,13 +854,13 @@ final class SportsbookBetSupport
      * clamped child — same-game or cross-game — snapshots the cap
      * (payoutCapAmount) so applyPayoutCapSnapshot re-applies it at settlement
      * (cross-game added 2026-07-17, closing the historical evaporating-clamp
-     * gap); both the multiplier clamp and the absolute MAX_PARLAY_PAYOUT cap
-     * (asserted by the caller off rawDecimal + winAmount) are enforced together.
+     * gap); the absolute MAX_PARLAY_PAYOUT cap TRUNCATES each child's win in
+     * here too (Nicky 2026-07-20 — no group-level reject), composing with
+     * the multiplier clamp via min() on the snapshot.
      *
-     * rawDecimal is the UNCLAMPED, un-haircut leg-odds product — required by
-     * assertWinWithinCap's stake-suggestion contract. For a same-game child the
-     * haircut makes the true win smaller than rawDecimal implies, so the
-     * suggestion is conservative (never overstates the allowed stake).
+     * rawDecimal is the UNCLAMPED, un-haircut leg-odds product — still
+     * returned for callers that need the child's raw price (display,
+     * validation of positive odds).
      *
      * @param array<int,array<string,mixed>> $combo validated selections of this child
      * @param array{enabled?:bool,haircutPct?:float,propHaircutPct?:float,maxLegs?:int,maxPayoutMultiplier?:float} $sgpCfg
@@ -904,6 +906,21 @@ final class SportsbookBetSupport
                 // byte-identical to legacy rows.
                 $payoutCapAmount = (float) $cap;
             }
+        }
+
+        // House $5k max-win TRUNCATION per RR child (Nicky 2026-07-20 —
+        // replaces the group-level assertWinWithinCap REJECT on the worst
+        // child): each child's win tops out at the absolute cap, composed
+        // via min() with the 3×/SGP clamp above. Derived HERE — the single
+        // child pricing source — so placement's child docs and settlement's
+        // per-child snapshot ceiling can never diverge.
+        $houseCap = self::truncateWinToCap((float) $childWin);
+        if ($houseCap['capped']) {
+            $childWin = (float) $houseCap['win'];
+            $childPayout = $stakePerParlay + $childWin;
+            $payoutCapAmount = $payoutCapAmount !== null
+                ? (float) min($payoutCapAmount, $houseCap['cap'])
+                : (float) $houseCap['cap'];
         }
 
         return [

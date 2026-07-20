@@ -4,7 +4,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal, roundCombinedToAmericanDecimal } from '../utils/odds';
 import { computeMidQuickStakes } from '../utils/money';
-import { maxStakeForWinCap, maxStakeNote, cannotFitCapNote, winTargetCappedNote, stakeAutoCappedNote, stakeAutoRaisedNote, subMinCapAllowedNote, floorStakeToMin, minFloorApplied } from '../utils/maxWinCap';
+import { winTruncationActive, capLimitsNote, stakeAutoRaisedNote, floorStakeToMin, minFloorApplied } from '../utils/maxWinCap';
 import { formatSiteDateTime } from '../utils/timezone';
 import { isMlbSportKey, formatPitcherLabel } from '../utils/pitchers';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
@@ -909,43 +909,35 @@ const ModeBetPanel = ({
      * first render the moment React tried to memoize the dependents.
      */
     const effectiveStakeForSelection = React.useCallback((sel) => {
-        // Straight-leg display clamp (PO 2026-07-13): the card must show the
-        // stake placement will actually debit. Placement has always capped
-        // each leg at its own cap-limited stake (capStakeForSelection); the
-        // card previously showed the raw shared wager instead — e.g. Apply
-        // To All $1000 over a leg whose cap-limited max is $109 displayed
-        // Risk $1000 while debiting $109. Clamp the derived pair the same
-        // way (win recomputed from the clamped risk on the leg's own odds).
-        const clampToLegCap = (pair) => {
-            if (normalizedMode !== 'straight') return pair;
-            const cap = Number(user?.maxWinCap);
-            if (!(Number.isFinite(cap) && cap > 0)) return pair;
-            const ms = maxStakeForWinCap(cap, Number(sel?.odds || 0));
-            if (!Number.isFinite(ms) || ms < 1 || !(pair?.risk > ms)) return pair;
-            const d = Number(sel?.odds);
-            const win = d > 1 ? Math.round(ms * (d - 1) * 100) / 100 : pair.win;
-            return { ...pair, risk: ms, win };
-        };
-        // Mirror-image of clampToLegCap for the min-bet FLOOR (PO 2026-07-19):
-        // a WIN back-solved leg (source 'win' — the Win interpretation drove the
-        // risk, incl. bet-mode minus juice) whose stake fell below the min bet
-        // snaps UP to the min, with To-Win recomputed at that stake and a
-        // `floored` marker so winForSelection drops the stale win pin. Bounded by
-        // the leg cap so the cap ceiling still wins when it's below the min
-        // (cap-vs-min precedence). Deliberately-typed Risk (source 'risk') is
-        // never floored — the hard min error still fires for it.
+        // Min-bet FLOOR (PO 2026-07-19, made UNCONDITIONAL by the Nicky
+        // 2026-07-20 cap reversal): a WIN back-solved leg (source 'win' —
+        // the Win interpretation drove the risk, incl. bet-mode minus juice)
+        // whose stake fell below the min bet snaps UP to the min, with
+        // To-Win recomputed at that stake and a `floored` marker so
+        // winForSelection drops the stale win pin. The old cap ceiling that
+        // could hold the stake below the min is GONE — min bet always wins.
+        // Deliberately-typed Risk (source 'risk') is never floored — the
+        // hard min error still fires for it.
         const floorLegToMin = (pair) => {
             if (normalizedMode !== 'straight' || pair?.source !== 'win' || !hasPlayerMin) return pair;
             if (!(pair.risk > 0) || pair.risk >= playerMinBet) return pair;
-            const cap = Number(user?.maxWinCap);
-            const legCapMax = (Number.isFinite(cap) && cap > 0) ? maxStakeForWinCap(cap, Number(sel?.odds || 0)) : Infinity;
-            const target = floorStakeToMin(pair.risk, playerMinBet, legCapMax);
-            if (!(target > pair.risk)) return pair; // cap prevents reaching the min → leave as-is
+            const target = floorStakeToMin(pair.risk, playerMinBet);
+            if (!(target > pair.risk)) return pair;
             const d = Number(sel?.odds);
             const win = d > 1 ? Math.round(target * (d - 1) * 100) / 100 : pair.win;
             return { ...pair, risk: target, win, floored: true };
         };
-        const finalizeLeg = (pair) => floorLegToMin(clampToLegCap(pair));
+        // House max-win TRUNCATION (Nicky 2026-07-20 — replaces the old
+        // per-leg stake clamp): the card's To-Win tops out at the cap; the
+        // Risk is shown and debited exactly as entered. Mirrors the server's
+        // truncateWinToCap so the card matches the booked receipt.
+        const truncateLegWin = (pair) => {
+            if (normalizedMode !== 'straight') return pair;
+            const cap = Number(user?.maxWinCap);
+            if (!(Number.isFinite(cap) && cap > 0) || !(pair?.win > cap)) return pair;
+            return { ...pair, win: cap };
+        };
+        const finalizeLeg = (pair) => truncateLegWin(floorLegToMin(pair));
         const override = sel?.wagerOverride;
         if (override && (override.source === 'risk' || override.source === 'win')) {
             const raw = override.source === 'risk' ? override.riskRaw : override.winRaw;
@@ -1027,30 +1019,15 @@ const ModeBetPanel = ({
     // is left to its own per-child server cap (its stake maps to N combos).
     // Declared BEFORE effectiveCombinedRisk, which clamps win-anchored parlay
     // stakes with it (hooks are consts — referencing it earlier is a TDZ crash).
+    // House max-win cap (user.maxWinCap = MAX_PARLAY_PAYOUT). NEW RULE
+    // (Nicky 2026-07-20): the cap TRUNCATES the displayed/booked WIN and
+    // never touches the stake — so there is no per-mode "maxStake" or
+    // "blocked" state anymore. Just the cap dollars (0 = disabled), used by
+    // the win-display truncation and the win-target write clamp.
     const winCapState = useMemo(() => {
         const cap = Number(user?.maxWinCap);
-        if (!Number.isFinite(cap) || cap <= 0 || normalizedMode === 'round_robin') {
-            return { cap: cap > 0 ? cap : 0, maxStake: Infinity, blocked: false };
-        }
-        if (normalizedMode === 'straight') {
-            // Tightest per-selection cap binds the shared stake field. Each
-            // selection is its own bet; the server caps each individually.
-            let maxStake = Infinity;
-            let blocked = false;
-            for (const sel of selections) {
-                const ms = maxStakeForWinCap(cap, Number(sel?.odds || 0));
-                if (ms < 1) blocked = true;
-                if (ms < maxStake) maxStake = ms;
-            }
-            return { cap, maxStake, blocked };
-        }
-        const d = Number(ticketDecimalOdds || 0);
-        if (!(d > 1)) return { cap, maxStake: Infinity, blocked: false };
-        const riskFactor = normalizedMode === 'reverse' ? 2 : 1; // totalRisk = wager × riskFactor
-        const maxRisk = maxStakeForWinCap(cap, d);               // max total risk under the cap
-        const maxStake = Number.isFinite(maxRisk) ? Math.floor(maxRisk / riskFactor) : Infinity;
-        return { cap, maxStake, blocked: Number.isFinite(maxStake) && maxStake < 1 };
-    }, [user?.maxWinCap, normalizedMode, selections, ticketDecimalOdds]);
+        return { cap: Number.isFinite(cap) && cap > 0 ? cap : 0 };
+    }, [user?.maxWinCap]);
 
     // Resolved stake interpretation for the COMBINED ticket. 'win' means the
     // risk is BACK-SOLVED from a To-Win target (the parlay WIN pill, or bet-mode
@@ -1100,32 +1077,27 @@ const ModeBetPanel = ({
             if (parlayWinAnchored) {
                 const { risk } = resolveStake('win', wagerAmount, ticketDecimalOdds);
                 if (!(Number.isFinite(risk) && risk > 0)) return 0;
-                // Floor a sub-min back-solve UP to the min bet AND clamp DOWN to
-                // the cap-limited stake HERE (not just at placement), so the Risk
-                // box, all limit gates, and the debited amount are the same
-                // number. floorStakeToMin bounds the floor by the cap, so the cap
-                // ceiling wins when it sits below the min (cap-vs-min precedence).
-                return floorStakeToMin(risk, combinedFloorMin, winCapState.maxStake);
+                // Floor a sub-min back-solve UP to the min bet HERE (not just
+                // at placement) so the Risk box, all limit gates, and the
+                // debited amount are the same number. The old cap-limited
+                // DOWN-clamp is gone (Nicky 2026-07-20): the cap truncates
+                // the WIN, never the stake — a $5,000 target at +100000
+                // floors the stake to the $25 min instead of dropping to $5.
+                return floorStakeToMin(risk, combinedFloorMin);
             }
-            // Same clamp for the risk-anchored parlay stake: the input snaps
-            // at the write (applyTypedWager) and re-snaps on cap tightening,
-            // but derive-clamping here too keeps the Risk box, limit gates
-            // and wire identical during the render between those events.
-            const risk = Number.isFinite(wagerAmount) && wagerAmount > 0 ? wagerAmount : 0;
-            return Number.isFinite(winCapState.maxStake) ? Math.min(risk, winCapState.maxStake) : risk;
+            // Risk-anchored parlay: the typed number IS the stake — no cap
+            // clamp anymore (win-side truncation handles the ceiling).
+            return Number.isFinite(wagerAmount) && wagerAmount > 0 ? wagerAmount : 0;
         }
         const sourceWager = normalizedMode === 'reverse' ? wagerAmount / 2 : wagerAmount;
         const { risk } = resolveStake(stakeMode, sourceWager, ticketDecimalOdds);
         const safeRisk = Number.isFinite(risk) && risk > 0 ? risk : 0;
         // Teaser / if_bet / reverse: floor a sub-min WIN back-solve UP to the
-        // min bet, then the same derive-clamp DOWN to the cap on the SAME scale
-        // the limit gate compares against (limitFlags: effectiveCombinedRisk vs
-        // winCapState.maxStake) — reverse's 2× factor is already inside
-        // winCapState. Round robin stays exempt (maxStake = Infinity, and it
-        // forces Risk mode so combinedFloorMin is 0 → floor disabled).
-        return floorStakeToMin(safeRisk, combinedFloorMin, winCapState.maxStake);
+        // min bet. Round robin stays exempt (it forces Risk mode so
+        // combinedFloorMin is 0 → floor disabled).
+        return floorStakeToMin(safeRisk, combinedFloorMin);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [normalizedMode, stakeMode, wagerAmount, ticketDecimalOdds, parlayWinAnchored, winCapState, combinedSmartMode, hasPlayerMin, playerMinBet]);
+    }, [normalizedMode, stakeMode, wagerAmount, ticketDecimalOdds, parlayWinAnchored, combinedSmartMode, hasPlayerMin, playerMinBet]);
 
     // True when the combined stake was actually snapped UP to the min bet (raw
     // win back-solve fell below min AND the cap allowed reaching it). Drives the
@@ -1142,8 +1114,8 @@ const ModeBetPanel = ({
             ? resolveStake('win', wagerAmount, ticketDecimalOdds)
             : resolveStake(stakeMode, sourceWager, ticketDecimalOdds);
         const rawRisk = Number.isFinite(risk) && risk > 0 ? risk : 0;
-        return minFloorApplied(rawRisk, playerMinBet, winCapState.maxStake);
-    }, [normalizedMode, combinedSmartMode, hasPlayerMin, wagerAmount, stakeMode, ticketDecimalOdds, playerMinBet, winCapState.maxStake]);
+        return minFloorApplied(rawRisk, playerMinBet);
+    }, [normalizedMode, combinedSmartMode, hasPlayerMin, wagerAmount, stakeMode, ticketDecimalOdds, playerMinBet]);
 
     // Per-account min/max bet limits from /auth/me payload. Backend
     // already enforces these (BetsController::placeBet) — checking
@@ -1168,21 +1140,9 @@ const ModeBetPanel = ({
     //     "Max bet $2000 — 'Pirates vs Giants' risks $2500".
     //   - violatingIds: Set of selection IDs whose Risk trips a
     //     limit, used to flag the offending card with a red border.
-    // Clamp any wager to the cap-limited stake (auto-cap). Identity when the
-    // cap doesn't bind. Used at placement so the server receives a compliant
-    // stake; `capStakeForSelection` caps a single straight leg by its own odds.
-    const capStakeForSelection = React.useCallback((sel, amount) => {
-        const cap = Number(user?.maxWinCap);
-        if (!Number.isFinite(cap) || cap <= 0) return amount;
-        const ms = maxStakeForWinCap(cap, Number(sel?.odds || 0));
-        return Number.isFinite(ms) ? Math.min(amount, ms) : amount;
-    }, [user?.maxWinCap]);
-
     const limitFlags = useMemo(() => {
         const violatingIds = new Set();
-        const messages = { min: null, max: null, capInfo: null, winCap: null };
-        const winCap = Number(user?.maxWinCap) > 0 ? Number(user.maxWinCap) : 0;
-        const capMaxStakeFor = (odds) => (winCap > 0 ? maxStakeForWinCap(winCap, Number(odds || 0)) : Infinity);
+        const messages = { min: null, max: null, capInfo: null };
         const minBet = Number(user?.minBet);
         const maxBet = Number(user?.maxBet);
         const hasMin = Number.isFinite(minBet) && minBet > 0;
@@ -1198,45 +1158,21 @@ const ModeBetPanel = ({
         // Both min and max are risk-anchored on straight tickets: the
         // stake side has to land inside [minBet, maxBet]. The win side
         // is bounded only by the underlying odds × stake; an underdog
-        // payout is allowed to exceed maxBet.
+        // payout is allowed to exceed maxBet. The house max-win cap no
+        // longer limits stakes or blocks selections (Nicky 2026-07-20)
+        // — the win simply truncates at the cap, so min bet is an
+        // UNCONDITIONAL floor with no cap-overrides-min carve-out.
         if (normalizedMode === 'straight') {
             for (const sel of selections) {
                 const { risk, win } = effectiveStakeForSelection(sel);
                 if (!(risk > 0) && !(win > 0)) continue;
-                const selCapMax = capMaxStakeFor(sel?.odds); // Infinity when cap off / not binding
-                // Selection can't fit under the cap at any stake (extreme
-                // longshot) → hard block with a clear message.
-                if (selCapMax < 1) {
-                    if (!messages.winCap) messages.winCap = cannotFitCapNote(winCap);
-                    violatingIds.add(sel.id);
-                    continue;
-                }
-                // Cap-overrides-min (PO 2026-07-09): when the cap forces the max
-                // stake below the player's min bet, a sub-min stake is ALLOWED —
-                // don't flag it as a min breach. Only genuine under-min (where the
-                // cap isn't the binding reason) still breaches.
-                const capOverridesMin = Number.isFinite(selCapMax) && selCapMax < minBet && risk <= selCapMax;
-                const minBreach = hasMin && risk > 0 && risk < minBet && !capOverridesMin;
+                const minBreach = hasMin && risk > 0 && risk < minBet;
                 const maxBreach = hasMax && risk > maxBet;
                 if (minBreach && !messages.min) {
                     messages.min = `Min bet $${minBet} — ${labelFor(sel)} risks only $${fmt(risk)}`;
                 }
                 if (maxBreach && !messages.max) {
                     messages.max = `Max bet $${maxBet} — ${labelFor(sel)} risks $${fmt(risk)}`;
-                }
-                // At/over the cap-limited stake → the snapped-stake note. After
-                // the per-leg display clamp the derived risk can EQUAL but never
-                // exceed the leg cap, so >= is the honest trigger (same derived
-                // "typed over == sitting at" trick as the win-anchor note).
-                if (Number.isFinite(selCapMax) && risk >= selCapMax && !messages.winCap) {
-                    // minBet rides along when the cap ceiling undercuts it, so
-                    // the sub-min stake is explained (cap-overrides-min).
-                    messages.winCap = stakeAutoCappedNote(selCapMax, winCap, hasMin && selCapMax < minBet ? minBet : 0);
-                } else if (capOverridesMin && risk > 0 && !messages.winCap) {
-                    // Sub-ceiling cap-overrides-min (straight parity with the
-                    // combined-mode subMinCapNote): typed below both the leg's
-                    // cap ceiling and the account minimum — legal, explain why.
-                    messages.winCap = subMinCapAllowedNote(selCapMax, winCap, minBet);
                 }
                 if (minBreach || maxBreach) violatingIds.add(sel.id);
             }
@@ -1251,16 +1187,7 @@ const ModeBetPanel = ({
             // they're just capped, and we surface an informational
             // "winnings capped" note instead of a hard block.
             const parlayPayoutCap = hasMax ? maxBet * 3 : 0;
-            // Max-win cap on the combined ticket. Reverse stakes 2× the wager,
-            // so its cap-limited wager is half the cap-limited total risk.
-            const riskFactor = normalizedMode === 'reverse' ? 2 : 1;
-            const capMaxRisk = winCap > 0 ? maxStakeForWinCap(winCap, Number(ticketDecimalOdds || 0)) : Infinity;
-            const capMaxStake = Number.isFinite(capMaxRisk) ? Math.floor(capMaxRisk / riskFactor) : Infinity;
-            const capOverridesMin = Number.isFinite(capMaxStake) && capMaxStake < minBet && effectiveCombinedRisk <= capMaxStake;
-            if (winCap > 0 && capMaxStake < 1) {
-                messages.winCap = cannotFitCapNote(winCap);
-            }
-            if (hasMin && effectiveCombinedRisk < minBet && !capOverridesMin) {
+            if (hasMin && effectiveCombinedRisk < minBet) {
                 messages.min = `Min bet $${minBet} — ticket risks only $${fmt(effectiveCombinedRisk)}`;
             }
             if (hasMax && effectiveCombinedRisk > maxBet) {
@@ -1269,14 +1196,9 @@ const ModeBetPanel = ({
             if (parlayPayoutCap > 0 && winValue > parlayPayoutCap) {
                 messages.capInfo = `Max parlay payout $${fmt(parlayPayoutCap)} — winnings capped (uncapped: $${fmt(winValue)})`;
             }
-            // Max-win note takes precedence over the 3×maxBet capInfo when it
-            // binds tighter — it's the reason the stake is limited.
-            if (Number.isFinite(capMaxStake) && capMaxStake >= 1 && effectiveCombinedRisk > capMaxStake && !messages.winCap) {
-                messages.winCap = maxStakeNote(capMaxStake, winCap);
-            }
         }
         return { violatingIds, messages };
-    }, [normalizedMode, selections, effectiveStakeForSelection, effectiveCombinedRisk, ticketDecimalOdds, user?.minBet, user?.maxBet, user?.maxWinCap]);
+    }, [normalizedMode, selections, effectiveStakeForSelection, effectiveCombinedRisk, ticketDecimalOdds, user?.minBet, user?.maxBet]);
 
     // ── Round Robin derived state ────────────────────────────────────
     // Available "By X's" sizes given the current selection count. Round
@@ -1475,7 +1397,8 @@ const ModeBetPanel = ({
         // Max-win cap BLOCK (a selection can't fit under the cap at any stake).
         // The over-cap note is non-blocking — it auto-caps at placement — so
         // only the hard block enters validationErrors and gates the button.
-        if (winCapState.blocked && limitFlags.messages.winCap) errors.push(limitFlags.messages.winCap);
+        // (The old winCapState.blocked hard-block is gone — Nicky 2026-07-20:
+        // no selection is ever blocked by the max-win cap; the win truncates.)
         return errors;
     }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, limitFlags, winCapState, roundRobinSizes, roundRobinStakePerParlay, roundRobinParlayCount, roundRobinMaxParlays, activeTeaserPointOptions, slipTeaserGroups, selectedTeaserType, teaserTypeRequired, teaserTypeReady, isOpenParlay, openParlayTargetLegs]);
 
@@ -1641,95 +1564,40 @@ const ModeBetPanel = ({
     // same event, so the closure's parlayWinAnchored is stale-false on the
     // first keystroke and the clamp would be skipped for e.g. a pasted
     // over-cap value.
-    // Display-truth stake snap (PO 2026-07-13). Placement has ALWAYS clamped
-    // the wire amount to the cap-limited stake, so an over-cap input placed a
-    // smaller bet than the field showed. Snap the field itself DOWN at the
-    // write — same pattern as the win-anchor clamp below, one write path for
-    // input + quick chips + summary boxes. Scope: closed parlay / teaser /
-    // if_bet / reverse (winCapState.maxStake already halves for reverse).
-    // Round robin (server caps per child, rejects not clamps) and open parlay
-    // (odds not final) keep their own contracts; straight legs snap per-card.
-    const capSnapInScope = ['parlay', 'teaser', 'if_bet', 'reverse'].includes(normalizedMode) && !isOpenParlay;
-
+    // NOTE (Nicky 2026-07-20): the old risk-side "stake snap" (typed Risk
+    // clamped DOWN to the cap-limited stake, plus its re-snap effect) is
+    // GONE — the cap truncates the WIN only, so any typed Risk within
+    // min/max bet stands. The WIN-target clamp below survives: a typed
+    // To-Win target above the cap is stored AT the cap, because no ticket
+    // can pay more than the cap by definition.
     const applyTypedWager = React.useCallback((raw, asWin = parlayWinAnchored) => {
         if (asWin && effectiveWinCap > 0 && Number(raw) > effectiveWinCap) {
             onWagerChange(String(Math.floor(effectiveWinCap)));
             return;
         }
-        if (!asWin && capSnapInScope
-            && Number.isFinite(winCapState.maxStake) && winCapState.maxStake >= 1
-            && Number(raw) > winCapState.maxStake) {
-            onWagerChange(String(winCapState.maxStake));
-            return;
-        }
         onWagerChange(raw);
-    }, [parlayWinAnchored, effectiveWinCap, onWagerChange, capSnapInScope, winCapState.maxStake]);
+    }, [parlayWinAnchored, effectiveWinCap, onWagerChange]);
 
-    // Cap tightening: adding a leg (or an odds move) can drop the cap-limited
-    // max below the stake already sitting in the field. Re-snap so the field
-    // never lingers over the amount placement would actually debit.
-    useEffect(() => {
-        if (!capSnapInScope || parlayWinAnchored) return;
-        const ms = winCapState.maxStake;
-        if (Number.isFinite(ms) && ms >= 1 && Number(wager) > ms) {
-            onWagerChange(String(ms));
+    // The ONLY cap message the UI shows (Nicky 2026-07-20): a static limits
+    // line, surfaced when the win truncation is actually binding on this
+    // ticket — never a capped-stake figure, never a derived calculation.
+    // Straight mode: binding when any staked leg's raw win exceeds the cap.
+    // Combined modes: binding when the ticket's raw win exceeds the cap.
+    const capTruncationActive = useMemo(() => {
+        if (!(winCapState.cap > 0)) return false;
+        if (normalizedMode === 'straight') {
+            return selections.some((sel) => {
+                const { risk } = effectiveStakeForSelection(sel);
+                return winTruncationActive(risk, Number(sel?.odds || 0), winCapState.cap);
+            });
         }
-    }, [capSnapInScope, parlayWinAnchored, winCapState.maxStake, wager, onWagerChange]);
-
-    // Informational (non-blocking) note when the win-anchored target sits at
-    // the cap — after the write-clamp above, "typed over the cap" and "typed
-    // exactly the cap" are the same stored state, and the message is honest
-    // for both. Derived, not stored, so it can never go stale.
-    // The note carries the ACTUAL bookable win at the whole-dollar cap-limited
-    // stake (maxStake × (dec−1)), not the round cap — a $5,000 target at
-    // +9703 books $51 → $4,949, and saying "capped at $5,000" overstated the
-    // payout. Falls back to the cap when no finite maxStake binds.
-    const winAnchorBookableWin = Number.isFinite(winCapState.maxStake)
-        && winCapState.maxStake >= 1 && ticketDecimalOdds > 1
-        ? winCapState.maxStake * (ticketDecimalOdds - 1)
-        : effectiveWinCap;
-    const winAnchorCapNote = parlayWinAnchored && effectiveWinCap > 0 && wagerAmount >= effectiveWinCap
-        ? winTargetCappedNote(
-            winAnchorBookableWin,
-            effectiveWinCap,
-            hasPlayerMin ? playerMinBet : 0,
-            Number.isFinite(winCapState.maxStake) ? winCapState.maxStake : 0,
-        )
-        : '';
-
-    // Stake-was-snapped note (derived, same never-stale trick as the
-    // win-anchor note above: after the write-snap, "typed over the cap" and
-    // "sitting exactly at the cap" are the same stored state, and the copy is
-    // honest for both). Rendered as the PROMINENT banner variant — the player
-    // must see they are now staking the capped amount, not what they typed.
-    const stakeSnapNote = capSnapInScope && !parlayWinAnchored
-        && winCapState.cap > 0
-        && Number.isFinite(winCapState.maxStake) && winCapState.maxStake >= 1
-        && wagerAmount > 0 && wagerAmount >= winCapState.maxStake
-        // minBet rides along so the cap-overrides-min case ($14 ceiling under
-        // a $25 min) also explains why the sub-minimum stake is legal.
-        ? stakeAutoCappedNote(winCapState.maxStake, winCapState.cap, hasPlayerMin ? playerMinBet : 0)
-        : '';
-
-    // Cap-overrides-min, sub-ceiling case (Fida 2026-07-20): the ticket's
-    // stake sits BELOW the cap ceiling but the ceiling itself is below the
-    // account minimum — e.g. $5 typed when the cap allows at most $14 under a
-    // $25 min. No snap fired, so stakeSnapNote stays silent, yet the player
-    // is placing a sub-minimum bet with zero explanation. Keyed on
-    // effectiveCombinedRisk (the derived, clamped stake in the Risk box, same
-    // scale limitFlags compares — reverse's 2× is inside winCapState) so it
-    // covers BOTH anchors: a typed sub-ceiling Risk, and a WIN-mode target
-    // below the cap whose back-solve lands sub-min (the floor snap correctly
-    // defers to the cap there, leaving a sub-min stake nothing else labels).
-    // Mutually exclusive with stakeSnapNote / the at-cap winAnchorCapNote by
-    // construction (risk < maxStake vs >= maxStake).
-    const subMinCapNote = capSnapInScope
-        && hasPlayerMin
-        && winCapState.cap > 0
-        && Number.isFinite(winCapState.maxStake) && winCapState.maxStake >= 1
-        && winCapState.maxStake < playerMinBet
-        && effectiveCombinedRisk > 0 && effectiveCombinedRisk < winCapState.maxStake
-        ? subMinCapAllowedNote(winCapState.maxStake, winCapState.cap, playerMinBet)
+        if (normalizedMode === 'round_robin' || isOpenParlay) return false; // own contracts
+        // Combined modes: raw win from the ticket's own payout math (teaser
+        // table multipliers / reverse 2× aren't a plain risk×(dec−1)).
+        return Math.max(0, potentialPayout - totalRisk) > winCapState.cap;
+    }, [winCapState.cap, normalizedMode, selections, effectiveStakeForSelection, potentialPayout, totalRisk, isOpenParlay]);
+    const capNote = capTruncationActive
+        ? capLimitsNote(hasPlayerMin ? playerMinBet : 0, winCapState.cap)
         : '';
 
     // Min-bet FLOOR snap note (mirror of stakeSnapNote). Straight snaps
@@ -1827,12 +1695,12 @@ const ModeBetPanel = ({
     // is present.
     const amountWarning = validationErrors.find((e) =>
         typeof e === 'string' && (e.startsWith('Min bet') || e.startsWith('Max bet'))
-    ) || stakeSnapNote || stakeFloorNote || subMinCapNote || limitFlags.messages.winCap || winAnchorCapNote || limitFlags.messages.capInfo || '';
+    ) || stakeFloorNote || capNote || limitFlags.messages.capInfo || '';
     // The snapped-stake messages (cap DOWN, min-bet UP) get the emphasized
     // banner treatment — the player must see they're now staking the adjusted
     // amount, not what the back-solve produced.
     const amountWarningEmphasized = amountWarning !== ''
-        && (amountWarning === stakeSnapNote || amountWarning === stakeFloorNote || amountWarning === subMinCapNote);
+        && (amountWarning === stakeFloorNote || amountWarning === capNote);
     const hasSelections = legCount > 0;
     const [isOpen, setIsOpen] = useState(false);
 
@@ -2177,8 +2045,9 @@ const ModeBetPanel = ({
         const requestedWin = combinedSmartMode === 'win' && !combinedMinFloorApplied
             && Number.isFinite(Number(wager)) && Number(wager) > 0
             ? Math.round(Number(wager)) : 0;
-        const cappedRisk = (winCapState.cap > 0 && Number.isFinite(winCapState.maxStake))
-            ? Math.min(effectiveCombinedRisk, winCapState.maxStake) : effectiveCombinedRisk;
+        // Risk goes on the wire exactly as entered (Nicky 2026-07-20 — the
+        // cap truncates the win server-side, never the stake).
+        const cappedRisk = effectiveCombinedRisk;
         const cappedReqWin = winCapState.cap > 0 ? Math.min(requestedWin, winCapState.cap) : requestedWin;
         return {
             type: normalizedMode,
@@ -2470,7 +2339,9 @@ const ModeBetPanel = ({
                     // here means the player is charged the compliant stake and
                     // the receipt matches the note they saw.
                     .map((sel) => {
-                        const amount = capStakeForSelection(sel, wagerForSelection(sel));
+                        // Stake goes on the wire exactly as entered (Nicky
+                        // 2026-07-20 — the cap truncates the win server-side).
+                        const amount = wagerForSelection(sel);
                         return { sel, amount, requestedWin: Math.min(winForSelection(sel), Number(user?.maxWinCap) > 0 ? Number(user.maxWinCap) : Infinity) };
                     })
                     .filter(({ amount }) => amount > 0);
@@ -2627,18 +2498,16 @@ const ModeBetPanel = ({
                 && Number.isFinite(Number(wager)) && Number(wager) > 0
                 ? Math.round(Number(wager))
                 : 0;
-            // Auto-cap the combined-ticket stake to the max that wins the house
-            // cap (Round Robin caps per-child server-side, so leave its stake).
-            // Server re-enforces regardless.
-            const cappedCombinedRisk = (winCapState.cap > 0 && Number.isFinite(winCapState.maxStake))
-                ? Math.min(effectiveCombinedRisk, winCapState.maxStake)
-                : effectiveCombinedRisk;
+            // Stake goes on the wire exactly as entered (Nicky 2026-07-20 —
+            // the cap truncates the WIN server-side, never the stake). The
+            // typed To-Win target still tops out at the cap: no ticket can
+            // pay more than the cap by definition.
             const cappedCombinedRequestedWin = winCapState.cap > 0
                 ? Math.min(combinedRequestedWin, winCapState.cap)
                 : combinedRequestedWin;
             const payload = {
                 type: normalizedMode,
-                amount: normalizedMode === 'round_robin' ? roundRobinStakePerParlay : cappedCombinedRisk,
+                amount: normalizedMode === 'round_robin' ? roundRobinStakePerParlay : effectiveCombinedRisk,
                 // Reviewed-quote lock: the player confirmed a server-quoted price,
                 // so the book must honor it exactly (or better) — 'exact' policy
                 // server-side. The slip odds were reconciled to the quote by
@@ -2728,16 +2597,14 @@ const ModeBetPanel = ({
             if (handleOddsChanged(error)) {
                 return;
             }
-            // Max-win cap rejection (authoritative server guard). The betslip
-            // auto-caps the stake, so this normally only fires if the odds moved
-            // between entry and submit or on an exotic multi-selection edge the
-            // live UI didn't pre-cap. Surface the server's own message (it names
-            // the exact allowed stake), falling back to a generic cap line.
+            // MAX_WIN_EXCEEDED can only come from a PRE-reversal backend
+            // (Nicky 2026-07-20: the server truncates the win now and never
+            // emits this code) — i.e. a mismatched-deploy window. Show ONLY
+            // the static limits line; never surface the old server message
+            // or its capped-stake suggestion (the old rule's numbers must
+            // not appear anywhere).
             if (String(error?.code || '') === 'MAX_WIN_EXCEEDED') {
-                const capText = error.message
-                    || (Number(error?.allowedStake) >= 1
-                        ? `Max payout reached — reduce your stake to $${Math.floor(Number(error.allowedStake)).toLocaleString('en-US')} or less.`
-                        : 'This selection exceeds the maximum payout limit.');
+                const capText = capLimitsNote(hasPlayerMin ? playerMinBet : 0, winCapState.cap);
                 setMessage({ type: 'error', text: capText });
                 showToast(capText, 'error');
                 return;
@@ -4035,20 +3902,14 @@ const ModeBetPanel = ({
                                                             // that isn't a digit so users can't enter
                                                             // cents.
                                                             let cleaned = String(e.target.value).replace(/\D/g, '');
-                                                            // Per-leg stake snap (PO 2026-07-13): a typed
-                                                            // Risk over this leg's cap-limited stake — or a
-                                                            // typed Win over the cap itself — snaps down at
-                                                            // the write, same as the shared input. Placement
-                                                            // already clamps the wire; this keeps the card
-                                                            // showing the amount actually debited/paid.
+                                                            // Win-target clamp only (Nicky 2026-07-20): a
+                                                            // typed To-Win above the house cap stores AT
+                                                            // the cap (no ticket can pay more). The old
+                                                            // Risk-side per-leg stake snap is GONE — the
+                                                            // cap truncates the win, never the stake.
                                                             const legCap = Number(user?.maxWinCap);
-                                                            if (legCap > 0 && cleaned !== '') {
-                                                                if (field.id === 'risk') {
-                                                                    const ms = maxStakeForWinCap(legCap, Number(sel?.odds || 0));
-                                                                    if (Number.isFinite(ms) && ms >= 1 && Number(cleaned) > ms) cleaned = String(ms);
-                                                                } else if (Number(cleaned) > legCap) {
-                                                                    cleaned = String(Math.floor(legCap));
-                                                                }
+                                                            if (legCap > 0 && cleaned !== '' && field.id !== 'risk' && Number(cleaned) > legCap) {
+                                                                cleaned = String(Math.floor(legCap));
                                                             }
                                                             updateSelection(sel.id, {
                                                                 wagerOverride: field.id === 'risk'
