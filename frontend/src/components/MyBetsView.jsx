@@ -925,6 +925,20 @@ const RiskAmount = ({ bet }) => {
     // Whole-dollar display (round). The exact fractional stake is preserved in
     // the title tooltip so the precise charge is still one hover away.
     if (fpUsed <= 0) return moneyWholeRisk(cashRisk);
+    // Pure-freeplay ticket ($0 real money on the line): the "$0" headline is
+    // noise, so the FP line IS the risk figure — full-size, still green.
+    if (cashRisk <= 0) {
+        return (
+            <span style={{
+                color: '#16a34a',
+                fontWeight: 800,
+                letterSpacing: 0.2,
+                fontVariantNumeric: 'tabular-nums',
+            }} title={`Freeplay applied: ${moneyExact(fpUsed)}`}>
+                {moneyWholeRisk(fpUsed)} FP
+            </span>
+        );
+    }
     return (
         <span style={{
             display: 'inline-flex',
