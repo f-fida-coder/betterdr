@@ -580,6 +580,15 @@ body.casino-game-open .top-header {
     display: none !important;
 }
 
+/* The floating support chat bubble (ChatWidget, fixed bottom-right z-1000)
+   lands exactly on the SPIN button of the in-game bet controls. Hide it for
+   the whole time a game overlay is open; it comes back on Exit when the
+   body class is removed. !important beats the component's inline styles'
+   visibility via display (inline styles set position/z-index, not display). */
+body.casino-game-open .chat-widget-container {
+    display: none !important;
+}
+
 /* ── Fullscreen game iframe overlay ──────────────────────── */
 .game-iframe-overlay {
     position: fixed;

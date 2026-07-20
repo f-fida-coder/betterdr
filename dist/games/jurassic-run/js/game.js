@@ -19,6 +19,23 @@ switch (resolution) {
 		loadResolution = 'middle';
 }
 
+// Sound/music toggles persist across sessions; default is ON.
+const SETTINGS_STORE_PREFIX = 'jurassic_run_';
+const readStoredToggle = (key) => {
+	try {
+		return window.localStorage.getItem(SETTINGS_STORE_PREFIX + key) === '0' ? 0 : 1;
+	}
+	catch (e) {
+		return 1;
+	}
+}
+const writeStoredToggle = (key, value) => {
+	try {
+		window.localStorage.setItem(SETTINGS_STORE_PREFIX + key, value > 0 ? '1' : '0');
+	}
+	catch (e) {}
+}
+
 document.addEventListener('DOMContentLoaded', () => {
 	const config = {
 		type: Phaser.WEBGL,
@@ -79,9 +96,10 @@ class Preloader extends Phaser.Scene {
 		app.settings = {
 			bet: 0,
 			betid: 0,
-			audio: 1,
-			music: 1,
+			audio: readStoredToggle('audio'),
+			music: readStoredToggle('music'),
 			autoplay: 0,
+			autoplaycount: 0,
 			paytable: 0,
 			isplay: false,
 			wlrounds: 0,
@@ -284,6 +302,8 @@ const initButtons = () => {
     app.buttons.audio.show = (type) => {
     	app.buttons.audio.setTexture('buttons', `button_sfx_${type}.webp`);
     }
+    app.buttons.audio.show(app.settings.audio > 0 ? 'active' : 'regular');
+    applyToggleLook(app.buttons.audio, app.settings.audio > 0);
 
     // Music Button
 	app.buttons.music = app.add.sprite(
@@ -319,6 +339,8 @@ const initButtons = () => {
     app.buttons.music.show = (type) => {
     	app.buttons.music.setTexture('buttons', `button_audio_${type}.webp`);
     }
+    app.buttons.music.show(app.settings.music > 0 ? 'active' : 'regular');
+    applyToggleLook(app.buttons.music, app.settings.music > 0);
 
     // Autoplay Button
 	app.buttons.autoplay = app.add.sprite(
@@ -459,11 +481,15 @@ const initButtons = () => {
 	}).setOrigin(0);
     app.buttons.play.on('pointerup', () => {
     	PlayAudio('click');
+    	if (app.settings.autoplay === 1) {
+    		stopAutoplay();
+    		return;
+    	}
     	if (false === app.settings.isplay) {
     		PressPlay();
     		app.buttons.play.show('active');
     	}
-    });	
+    });
     app.buttons.play.on('pointerover', () => {
     	if (false === app.settings.isplay) {
 	    	app.buttons.play.show('regularhover');
@@ -482,7 +508,23 @@ const initButtons = () => {
     });
     app.buttons.play.show = (type) => {
     	app.buttons.play.setTexture('buttons', `button_play_${type}.webp`);
-    } 
+    }
+
+    // Autoplay indicator: AUTO badge above the Play button + STOP overlay on it.
+    // Neither is interactive, so taps fall through to the Play sprite.
+    const playCx = app.buttons.play.x + app.buttons.play.displayWidth / 2;
+    app.fields.autobadge = app.add.text(
+    	playCx,
+    	app.buttons.play.y - scaleResolution(6),
+    	'AUTO',
+    	{fontFamily: 'Upcfb', fontStyle: '', fontSize: scaleResolution(20), color: '#ffffff', backgroundColor: '#dc2626', padding: {x: scaleResolution(8), y: scaleResolution(2)}}
+    ).setOrigin(0.5, 1).setVisible(false);
+    app.fields.autostop = app.add.text(
+    	playCx,
+    	app.buttons.play.y + app.buttons.play.displayHeight / 2,
+    	'STOP',
+    	{fontFamily: 'Upcfb', fontStyle: '', fontSize: scaleResolution(26), color: '#ffffff', stroke: '#7f1d1d', strokeThickness: scaleResolution(4)}
+    ).setOrigin(0.5).setVisible(false);
 }
 
 const initLabels = () => {
@@ -841,9 +883,21 @@ const createReel = (x, y) => {
 	return reel;
 }
 
+// Dim + gray a toggle button when OFF so the state reads at a glance
+const applyToggleLook = (sprite, on) => {
+	if (on) {
+		sprite.clearTint();
+		sprite.setAlpha(1);
+	}
+	else {
+		sprite.setTint(0x666666);
+		sprite.setAlpha(0.45);
+	}
+}
+
 const SwitchAudio = () => {
 	switch (app.settings.audio) {
-	    case 0:			
+	    case 0:
 			app.settings.audio = 1;
 			app.buttons.audio.show('active');
 	        break;
@@ -852,6 +906,8 @@ const SwitchAudio = () => {
 			app.buttons.audio.show('regular');
 	        break;
 	}
+	applyToggleLook(app.buttons.audio, app.settings.audio > 0);
+	writeStoredToggle('audio', app.settings.audio);
 }
 
 const SwitchMusic = () => {
@@ -865,6 +921,8 @@ const SwitchMusic = () => {
 			app.buttons.music.show('regular');
 	        break;
 	}
+	applyToggleLook(app.buttons.music, app.settings.music > 0);
+	writeStoredToggle('music', app.settings.music);
 	CheckMusic(app.settings.audiotrack);
 }
 
@@ -899,10 +957,30 @@ const CheckMusic = (newtrack) => {
 	}
 }
 
+const updateAutoplayUI = () => {
+	const on = app.settings.autoplay === 1;
+	if (app.fields.autobadge) {
+		app.fields.autobadge.setVisible(on);
+	}
+	if (app.fields.autostop) {
+		app.fields.autostop.setVisible(on);
+	}
+	if (on) {
+		app.buttons.play.setTint(0xdc2626);
+		app.buttons.autoplay.setTint(0xff5555);
+	}
+	else {
+		app.buttons.play.clearTint();
+		app.buttons.autoplay.clearTint();
+	}
+}
+
 const SwitchAutoplay = () => {
 	switch (app.settings.autoplay) {
 		case 0:
 			app.settings.autoplay = 1;
+			app.settings.autoplaycount = 0;
+			app.fields.autobadge.text = 'AUTO';
 			app.buttons.autoplay.show('active');
 			break;
 		case 1:
@@ -910,6 +988,7 @@ const SwitchAutoplay = () => {
 			app.buttons.autoplay.show('regular');
 			break;
 	}
+	updateAutoplayUI();
 }
 
 // Exposed globally so site_bridge.js can stop autoplay on bonus/limit
@@ -917,12 +996,17 @@ const stopAutoplay = () => {
 	if (app.settings.autoplay === 1) {
 		app.settings.autoplay = 0;
 		app.buttons.autoplay.show('regular');
+		updateAutoplayUI();
 	}
 }
 window.stopAutoplay = stopAutoplay;
 
 const PressPlay = () => {
 	app.settings.isplay = true;
+	if (app.settings.autoplay === 1) {
+		app.settings.autoplaycount += 1;
+		app.fields.autobadge.text = 'AUTO · SPIN ' + app.settings.autoplaycount;
+	}
 	app.fields.message.text = app.language.server_request;
 	if (app.repeattimer) {
 		app.repeattimer.remove(false);
@@ -941,10 +1025,7 @@ const PressPlay = () => {
         	app.fields.message.text = json.error;
         	app.settings.isplay = false;
         	app.buttons.play.show('regular');
-        	if (app.settings.autoplay === 1) {
-        		app.settings.autoplay = 0;
-        		app.buttons.autoplay.show('regular');
-        	}
+        	stopAutoplay();
         }
     }, 'json');
 }

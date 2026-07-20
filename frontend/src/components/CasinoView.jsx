@@ -48,7 +48,7 @@ const LOCAL_GAME_META = {
     'jurassic-run': {
         id: 'local-jurassic-run',
         provider: 'In-House',
-        url: '/games/jurassic-run/index.html?v=20260324a',
+        url: '/games/jurassic-run/index.html?v=20260720a',
         poster: '/games/jurassic-run/assets/images/background_middle.webp',
         themeColor: '#166534',
         minBet: 1,
