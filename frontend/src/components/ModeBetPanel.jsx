@@ -4,7 +4,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal, roundCombinedToAmericanDecimal } from '../utils/odds';
 import { computeMidQuickStakes } from '../utils/money';
-import { maxStakeForWinCap, maxStakeNote, cannotFitCapNote, winTargetCappedNote, stakeAutoCappedNote, stakeAutoRaisedNote, floorStakeToMin, minFloorApplied } from '../utils/maxWinCap';
+import { maxStakeForWinCap, maxStakeNote, cannotFitCapNote, winTargetCappedNote, stakeAutoCappedNote, stakeAutoRaisedNote, subMinCapAllowedNote, floorStakeToMin, minFloorApplied } from '../utils/maxWinCap';
 import { formatSiteDateTime } from '../utils/timezone';
 import { isMlbSportKey, formatPitcherLabel } from '../utils/pitchers';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
@@ -1229,7 +1229,14 @@ const ModeBetPanel = ({
                 // exceed the leg cap, so >= is the honest trigger (same derived
                 // "typed over == sitting at" trick as the win-anchor note).
                 if (Number.isFinite(selCapMax) && risk >= selCapMax && !messages.winCap) {
-                    messages.winCap = stakeAutoCappedNote(selCapMax, winCap);
+                    // minBet rides along when the cap ceiling undercuts it, so
+                    // the sub-min stake is explained (cap-overrides-min).
+                    messages.winCap = stakeAutoCappedNote(selCapMax, winCap, hasMin && selCapMax < minBet ? minBet : 0);
+                } else if (capOverridesMin && risk > 0 && !messages.winCap) {
+                    // Sub-ceiling cap-overrides-min (straight parity with the
+                    // combined-mode subMinCapNote): typed below both the leg's
+                    // cap ceiling and the account minimum — legal, explain why.
+                    messages.winCap = subMinCapAllowedNote(selCapMax, winCap, minBet);
                 }
                 if (minBreach || maxBreach) violatingIds.add(sel.id);
             }
@@ -1673,8 +1680,21 @@ const ModeBetPanel = ({
     // the cap — after the write-clamp above, "typed over the cap" and "typed
     // exactly the cap" are the same stored state, and the message is honest
     // for both. Derived, not stored, so it can never go stale.
+    // The note carries the ACTUAL bookable win at the whole-dollar cap-limited
+    // stake (maxStake × (dec−1)), not the round cap — a $5,000 target at
+    // +9703 books $51 → $4,949, and saying "capped at $5,000" overstated the
+    // payout. Falls back to the cap when no finite maxStake binds.
+    const winAnchorBookableWin = Number.isFinite(winCapState.maxStake)
+        && winCapState.maxStake >= 1 && ticketDecimalOdds > 1
+        ? winCapState.maxStake * (ticketDecimalOdds - 1)
+        : effectiveWinCap;
     const winAnchorCapNote = parlayWinAnchored && effectiveWinCap > 0 && wagerAmount >= effectiveWinCap
-        ? winTargetCappedNote(effectiveWinCap)
+        ? winTargetCappedNote(
+            winAnchorBookableWin,
+            effectiveWinCap,
+            hasPlayerMin ? playerMinBet : 0,
+            Number.isFinite(winCapState.maxStake) ? winCapState.maxStake : 0,
+        )
         : '';
 
     // Stake-was-snapped note (derived, same never-stale trick as the
@@ -1686,7 +1706,30 @@ const ModeBetPanel = ({
         && winCapState.cap > 0
         && Number.isFinite(winCapState.maxStake) && winCapState.maxStake >= 1
         && wagerAmount > 0 && wagerAmount >= winCapState.maxStake
-        ? stakeAutoCappedNote(winCapState.maxStake, winCapState.cap)
+        // minBet rides along so the cap-overrides-min case ($14 ceiling under
+        // a $25 min) also explains why the sub-minimum stake is legal.
+        ? stakeAutoCappedNote(winCapState.maxStake, winCapState.cap, hasPlayerMin ? playerMinBet : 0)
+        : '';
+
+    // Cap-overrides-min, sub-ceiling case (Fida 2026-07-20): the ticket's
+    // stake sits BELOW the cap ceiling but the ceiling itself is below the
+    // account minimum — e.g. $5 typed when the cap allows at most $14 under a
+    // $25 min. No snap fired, so stakeSnapNote stays silent, yet the player
+    // is placing a sub-minimum bet with zero explanation. Keyed on
+    // effectiveCombinedRisk (the derived, clamped stake in the Risk box, same
+    // scale limitFlags compares — reverse's 2× is inside winCapState) so it
+    // covers BOTH anchors: a typed sub-ceiling Risk, and a WIN-mode target
+    // below the cap whose back-solve lands sub-min (the floor snap correctly
+    // defers to the cap there, leaving a sub-min stake nothing else labels).
+    // Mutually exclusive with stakeSnapNote / the at-cap winAnchorCapNote by
+    // construction (risk < maxStake vs >= maxStake).
+    const subMinCapNote = capSnapInScope
+        && hasPlayerMin
+        && winCapState.cap > 0
+        && Number.isFinite(winCapState.maxStake) && winCapState.maxStake >= 1
+        && winCapState.maxStake < playerMinBet
+        && effectiveCombinedRisk > 0 && effectiveCombinedRisk < winCapState.maxStake
+        ? subMinCapAllowedNote(winCapState.maxStake, winCapState.cap, playerMinBet)
         : '';
 
     // Min-bet FLOOR snap note (mirror of stakeSnapNote). Straight snaps
@@ -1784,12 +1827,12 @@ const ModeBetPanel = ({
     // is present.
     const amountWarning = validationErrors.find((e) =>
         typeof e === 'string' && (e.startsWith('Min bet') || e.startsWith('Max bet'))
-    ) || stakeSnapNote || stakeFloorNote || limitFlags.messages.winCap || winAnchorCapNote || limitFlags.messages.capInfo || '';
+    ) || stakeSnapNote || stakeFloorNote || subMinCapNote || limitFlags.messages.winCap || winAnchorCapNote || limitFlags.messages.capInfo || '';
     // The snapped-stake messages (cap DOWN, min-bet UP) get the emphasized
     // banner treatment — the player must see they're now staking the adjusted
     // amount, not what the back-solve produced.
     const amountWarningEmphasized = amountWarning !== ''
-        && (amountWarning === stakeSnapNote || amountWarning === stakeFloorNote);
+        && (amountWarning === stakeSnapNote || amountWarning === stakeFloorNote || amountWarning === subMinCapNote);
     const hasSelections = legCount > 0;
     const [isOpen, setIsOpen] = useState(false);
 
