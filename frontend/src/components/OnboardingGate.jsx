@@ -117,8 +117,13 @@ const OnboardingGate = ({ user, onDismiss }) => {
                         // Onboarding has one mode selector; seed the parlay-bucket
                         // mode to the same choice so parlayMode is populated from
                         // the start. The player can differentiate Straight vs
-                        // Parlay modes later in Account settings.
-                        parlayMode: mode,
+                        // Parlay modes later in Account settings. Exception: the
+                        // parlay bucket has no 'bet' mode (its settings selector
+                        // is Risk/Win only, Fida 2026-07-20), so a BET pick here
+                        // seeds the parlay side as 'risk' instead — otherwise
+                        // onboarding would keep minting the very parlayMode:'bet'
+                        // accounts the selector removal exists to prevent.
+                        parlayMode: mode === 'bet' ? 'risk' : mode,
                         amount: Math.round(parsedStraight * 100) / 100,
                         straightDefault: Math.round(parsedStraight * 100) / 100,
                         parlayDefault: Math.round(parsedParlay * 100) / 100,

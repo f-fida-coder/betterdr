@@ -119,3 +119,15 @@ TestRunner::run('onboarding — mode==parlayMode payload accepted', function ():
     TestRunner::assertEquals('win', $res['value']['mode'], 'straight win');
     TestRunner::assertEquals('win', $res['value']['parlayMode'], 'parlay win');
 });
+
+// UI-restriction era (2026-07-20): the Account-settings Parlay selector no
+// longer OFFERS 'bet', but the backend stays PERMISSIVE by explicit decision —
+// cached client bundles and older OnboardingGate builds still send
+// parlayMode:'bet', and rejecting it would hard-fail their Save Defaults /
+// first-login gate. Do NOT tighten VALID_MODES for parlayMode without a
+// client-sunset plan. This test pins that contract.
+TestRunner::run('permissive backend — parlayMode "bet" still accepted after UI removal', function (): void {
+    $res = BetDefaultsNormalizer::normalize(['mode' => 'risk', 'parlayMode' => 'bet']);
+    TestRunner::assertTrue($res['ok'], 'parlayMode bet accepted (cached-client compatibility)');
+    TestRunner::assertEquals('bet', $res['value']['parlayMode'], 'stored verbatim, no server-side coercion');
+});

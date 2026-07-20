@@ -18,6 +18,17 @@ const STAKE_MODE_OPTIONS = [
     { id: 'risk', label: 'Risk' },
     { id: 'win', label: 'Win' },
 ];
+// Parlay default mode offers Risk/Win only (Fida 2026-07-20): "bet" resolves
+// per-leg juice, which doesn't map cleanly onto a combined ticket, so the
+// parlay-bucket DEFAULT can't be it. Scope: this settings selector only — the
+// betslip's own mode toggle and the Straight selector keep all three, and the
+// backend stays permissive (cached clients / OnboardingGate may still send
+// 'bet'; the betslip honors a stored 'bet' until the player saves here).
+const PARLAY_STAKE_MODE_OPTIONS = STAKE_MODE_OPTIONS.filter((m) => m.id !== 'bet');
+// Display mapping for the Parlay selector: a stored 'bet' renders as RISK
+// selected (two-pill row must always show an active pill) and only persists
+// as 'risk' when the player explicitly saves. No migration of stored values.
+const parlayDisplayMode = (m) => (m === 'bet' ? 'risk' : m);
 
 const LANGUAGES = [
     'English',
@@ -217,7 +228,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     // account predates the split, so an existing player sees the same mode in
     // both toggles until they change one. Shared resolver in utils/betDefaults.
     const initialMode = straightDefaultMode(stored);
-    const initialParlayMode = parlayDefaultMode(stored);
+    const initialParlayMode = parlayDisplayMode(parlayDefaultMode(stored));
     // Split defaults (PO 2026-07-13): straight vs parlay unit size. Each reads
     // its own field but falls back to the legacy single `amount` so an account
     // saved before the split shows its current value in BOTH fields until the
@@ -266,13 +277,13 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     ];
     // Reusable labeled Bet/Risk/Win pill toggle — rendered once for the
     // Straight default mode and once for the independent Parlay default mode.
-    const renderModeBlock = (label, current, setter) => (
+    const renderModeBlock = (label, current, setter, options = STAKE_MODE_OPTIONS) => (
         <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                 {label}
             </div>
             <div style={{ display: 'inline-flex', borderRadius: 8, overflow: 'hidden', border: `1px solid ${palette.cardBorder}` }}>
-                {STAKE_MODE_OPTIONS.map((m, i) => {
+                {options.map((m, i) => {
                     const active = current === m.id;
                     return (
                         <button
@@ -306,9 +317,12 @@ const BetDefaultsCard = ({ user, onSaved }) => {
         const next = user?.settings?.betDefaults;
         if (!next) return;
         if (next.mode === 'win' || next.mode === 'risk' || next.mode === 'bet') setMode(next.mode);
-        // Parlay mode falls back to the Straight mode when absent (old accounts).
-        if (next.parlayMode === 'win' || next.parlayMode === 'risk' || next.parlayMode === 'bet') setParlayMode(next.parlayMode);
-        else if (next.mode === 'win' || next.mode === 'risk' || next.mode === 'bet') setParlayMode(next.mode);
+        // Parlay mode falls back to the Straight mode when absent (old
+        // accounts). Either source maps 'bet' → 'risk' for DISPLAY (the
+        // Parlay selector has no Bet pill); the stored value is untouched
+        // until the player explicitly saves.
+        if (next.parlayMode === 'win' || next.parlayMode === 'risk' || next.parlayMode === 'bet') setParlayMode(parlayDisplayMode(next.parlayMode));
+        else if (next.mode === 'win' || next.mode === 'risk' || next.mode === 'bet') setParlayMode(parlayDisplayMode(next.mode));
         // Reseed with the same straight/parlay fallback to legacy `amount`.
         const nextLegacy = Number(next.amount);
         const nextStraight = Number.isFinite(Number(next.straightDefault)) ? Number(next.straightDefault) : nextLegacy;
@@ -418,10 +432,11 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                     bucket split the unit-size fields already use. */}
                 {[
                     { key: 'straight', modeLabel: 'Straight default mode', modeVal: mode, modeSet: setMode, label: 'Straight default (unit size)', value: straightAmount, set: setStraightAmount, placeholder: '50' },
-                    { key: 'parlay', modeLabel: 'Parlay default mode', modeVal: parlayMode, modeSet: setParlayMode, label: 'Parlay default (unit size)', value: parlayAmount, set: setParlayAmount, placeholder: '50' },
+                    // Parlay selector is Risk/Win only — see PARLAY_STAKE_MODE_OPTIONS.
+                    { key: 'parlay', modeLabel: 'Parlay default mode', modeVal: parlayMode, modeSet: setParlayMode, modeOptions: PARLAY_STAKE_MODE_OPTIONS, label: 'Parlay default (unit size)', value: parlayAmount, set: setParlayAmount, placeholder: '50' },
                 ].map((f) => (
                     <React.Fragment key={f.key}>
-                        {renderModeBlock(f.modeLabel, f.modeVal, f.modeSet)}
+                        {renderModeBlock(f.modeLabel, f.modeVal, f.modeSet, f.modeOptions)}
                         <div>
                         <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                             {f.label}
