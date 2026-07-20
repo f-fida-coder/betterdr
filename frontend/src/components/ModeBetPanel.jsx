@@ -1499,6 +1499,41 @@ const ModeBetPanel = ({
         })),
     }), [normalizedMode, selections, teaserPointValue, effectiveCombinedRisk, wagerForSelection]);
 
+    // Slip MEMBERSHIP signature — mode + which legs are on the ticket, nothing
+    // else. Deliberately excludes odds/points/stakes (unlike ticketSignature)
+    // so an ODDS_CHANGED auto-patch — which rewrites leg odds and then posts
+    // its own "review and tap PLACE" banner — does NOT trip the stale-banner
+    // sweep below and wipe that banner in the same breath.
+    const slipMembershipSignature = useMemo(() => JSON.stringify([
+        normalizedMode,
+        selections
+            .map((sel) => String(sel?.id ?? `${sel?.matchId}::${sel?.marketType}::${sel?.selection}`))
+            .sort(),
+    ]), [normalizedMode, selections]);
+
+    // Stale-rejection sweep (2026-07-20). A server rejection (e.g. the SGP
+    // leg-cap 400) lands in `message` and used to persist until clearSlip or
+    // the next placement outcome — so after the user REMOVED the offending
+    // leg, the red banner sat next to a now-valid slip claiming it was still
+    // invalid. Clear error banners whenever the slip's membership changes:
+    // the message described a ticket that no longer exists. Success/info
+    // messages are left alone (they describe a completed action, not the
+    // current slip). The suppress ref covers the one programmatic membership
+    // change that posts its OWN fresh error in the same batch — the straight
+    // partial-failure path drops the placed legs and then reports "N of M
+    // placed" — which must survive the very membership change it caused.
+    const bannerMembershipRef = useRef(slipMembershipSignature);
+    const suppressBannerClearRef = useRef(false);
+    useEffect(() => {
+        if (slipMembershipSignature === bannerMembershipRef.current) return;
+        bannerMembershipRef.current = slipMembershipSignature;
+        if (suppressBannerClearRef.current) {
+            suppressBannerClearRef.current = false;
+            return;
+        }
+        setMessage((prev) => (prev && prev.type === 'error' ? null : prev));
+    }, [slipMembershipSignature]);
+
     const potentialPayout = useMemo(() => {
         if (legCount === 0) return 0;
 
@@ -2176,6 +2211,15 @@ const ModeBetPanel = ({
         if (placing || submissionLockRef.current) {
             return;
         }
+        // Fresh attempt: retire any banner from a PRIOR attempt so the outcome
+        // of this one is reported on a clean slate. Covers the stale-error
+        // case the membership sweep can't see — same legs, but the player
+        // changed something else (stake, freeplay) and is retrying. Also
+        // disarm a leftover sweep-suppress flag: it is only meant for the
+        // single batch that armed it (straight partial-failure), never for
+        // a new attempt.
+        setMessage(null);
+        suppressBannerClearRef.current = false;
         const token = localStorage.getItem('token');
         if (!token) {
             setSubmitAttempted(true);
@@ -2492,6 +2536,10 @@ const ModeBetPanel = ({
                     // the auto-update reads the stale `selections` array.
                     if (placed.length > 0) {
                         const placedIds = new Set(placed.map((s) => s.id));
+                        // This membership change must NOT sweep the partial-
+                        // failure banner set just below (see the stale-
+                        // rejection sweep effect).
+                        suppressBannerClearRef.current = true;
                         onSelectionsChange(selections.filter((s) => !placedIds.has(s.id)));
                     }
                     if (!handleOddsChanged(firstErr)) {
