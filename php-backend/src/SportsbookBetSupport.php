@@ -469,6 +469,53 @@ final class SportsbookBetSupport
     }
 
     /**
+     * Freeplay-on-parlay rule (Nicky 2026-07-20, mirrors the old platform):
+     * a player may fund a parlay/round-robin with freeplay ONLY when their
+     * admin-set settings.allowFreeplayParlay is true (absent = OFF — same
+     * absent-is-off semantics as settings.requiresBetApproval, so shipping
+     * needed no migration), and even then the ticket must have at most 3
+     * legs with at least one plus-money leg (decimal >= 2.0, i.e. +100 or
+     * longer — even money counts). Round robin is checked at GROUP level
+     * (the group's legs are what the player picked; children are subsets).
+     * Applies whenever useFreeplay=true, regardless of the FP/real split.
+     * The betslip mirrors this UX-side; this is the authoritative guard.
+     *
+     * @param array<string,mixed> $user
+     * @param array<int,array<string,mixed>> $validatedSelections
+     */
+    public static function assertFreeplayParlayAllowed(array $user, array $validatedSelections): void
+    {
+        $settings = is_array($user['settings'] ?? null) ? $user['settings'] : [];
+        if (empty($settings['allowFreeplayParlay'])) {
+            throw new ApiException(
+                'Freeplay is not available on parlays for this account.',
+                400,
+                ['code' => 'FREEPLAY_PARLAY_NOT_ALLOWED']
+            );
+        }
+        $legCount = count($validatedSelections);
+        $hasPlusMoney = false;
+        foreach ($validatedSelections as $sel) {
+            if ((float) ($sel['odds'] ?? 0) >= 2.0) {
+                $hasPlusMoney = true;
+                break;
+            }
+        }
+        if ($legCount > 3 || !$hasPlusMoney) {
+            throw new ApiException(
+                'Freeplay parlays are limited to 3 legs with at least one plus-money leg.',
+                400,
+                [
+                    'code' => 'FREEPLAY_PARLAY_RULE',
+                    'maxLegs' => 3,
+                    'legs' => $legCount,
+                    'hasPlusMoney' => $hasPlusMoney,
+                ]
+            );
+        }
+    }
+
+    /**
      * NEW RULE (Nicky 2026-07-20 — reverses the 2026-07-09 stake-cap PO):
      * the house absolute win ceiling TRUNCATES the ticket's WIN; the stake
      * is NEVER shrunk or rejected by the cap. Min bet is a hard floor

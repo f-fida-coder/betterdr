@@ -1032,6 +1032,11 @@ final class AuthController
             // the amount that wins exactly the cap. DISPLAY/UX only — the
             // server re-enforces it authoritatively at placement.
             'maxWinCap' => SportsbookBetSupport::maxTicketWinCap(),
+            // Per-player freeplay-on-parlay toggle (admin-set,
+            // settings.allowFreeplayParlay, absent = OFF). Surfaced so the
+            // betslip can hide/gate the Use Freeplay checkbox on parlay/RR;
+            // the server re-enforces authoritatively at placement.
+            'allowFreeplayParlay' => !empty(($user['settings'] ?? [])['allowFreeplayParlay']),
             'unlimitedBalance' => (bool) ($user['unlimitedBalance'] ?? false),
             'isSuperAdmin' => (bool) ($user['isSuperAdmin'] ?? false),
             'totalWinnings' => (float) round($this->num($user['totalWinnings'] ?? 0)),
@@ -1098,6 +1103,11 @@ final class AuthController
             // the amount that wins exactly the cap. DISPLAY/UX only — the
             // server re-enforces it authoritatively at placement.
             'maxWinCap' => SportsbookBetSupport::maxTicketWinCap(),
+            // Per-player freeplay-on-parlay toggle (admin-set,
+            // settings.allowFreeplayParlay, absent = OFF). Surfaced so the
+            // betslip can hide/gate the Use Freeplay checkbox on parlay/RR;
+            // the server re-enforces authoritatively at placement.
+            'allowFreeplayParlay' => !empty(($user['settings'] ?? [])['allowFreeplayParlay']),
             'unlimitedBalance' => (bool) ($user['unlimitedBalance'] ?? false),
             'isSuperAdmin' => (bool) ($user['isSuperAdmin'] ?? false),
             'totalWinnings' => (float) round($this->num($user['totalWinnings'] ?? 0)),

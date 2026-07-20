@@ -880,6 +880,20 @@ final class BetsController
             }
             $requestDocOwned = true;
 
+            // ── Freeplay-on-parlay gate (Nicky 2026-07-20, old-platform
+            // rule) ─ per-player settings.allowFreeplayParlay (absent = OFF,
+            // admin-set, same semantics as settings.requiresBetApproval).
+            // Scope: parlay + round_robin (RR included so the restriction
+            // can't be routed around via RR children — checked here BEFORE
+            // the RR dispatch so one gate covers both). Applies whenever
+            // useFreeplay=true regardless of the FP/real funding split.
+            // Teaser / if_bet / reverse / straight are deliberately outside
+            // the rule. When allowed: max 3 legs AND ≥1 plus-money leg
+            // (oddsAmerican >= +100 ⇔ decimal >= 2.0 — even money counts).
+            if ($useFreeplay && in_array($type, ['parlay', 'round_robin'], true)) {
+                SportsbookBetSupport::assertFreeplayParlayAllowed($user, $validatedSelections);
+            }
+
             // Round Robin diverges hard from single-ticket placement —
             // it fans out into N child parlay rows + 1 group row inside
             // its own transaction. Everything BEFORE this point (auth,

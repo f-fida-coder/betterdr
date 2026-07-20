@@ -1336,7 +1336,9 @@ function CustomerAdminView({ onViewChange }) {
       casino: customer.settings?.casino ?? true,
       racebook: customer.settings?.racebook ?? true,
       requiresBetApproval: customer.settings?.requiresBetApproval ?? false,
-      betApprovalThreshold: customer.settings?.betApprovalThreshold != null ? String(customer.settings.betApprovalThreshold) : ''
+      betApprovalThreshold: customer.settings?.betApprovalThreshold != null ? String(customer.settings.betApprovalThreshold) : '',
+      // Freeplay-on-parlay toggle (Nicky 2026-07-20): absent = OFF.
+      allowFreeplayParlay: customer.settings?.allowFreeplayParlay ?? false
     };
   };
 
@@ -1387,6 +1389,9 @@ function CustomerAdminView({ onViewChange }) {
       settings.requiresBetApproval = !!draft.requiresBetApproval;
       const t = Number(draft.betApprovalThreshold);
       settings.betApprovalThreshold = Number.isFinite(t) && t > 0 ? t : null;
+      // Freeplay-on-parlay (admin-only, same guard as requiresBetApproval:
+      // the agent save path never includes settings booleans).
+      settings.allowFreeplayParlay = !!draft.allowFreeplayParlay;
     }
     const payload = {
       firstName: draft.firstName.trim(),
@@ -2230,6 +2235,8 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                       <div className="detail-line"><span>Horses</span><span>{isInlineEdit ? <label className="switch-mini"><input type="checkbox" checked={!!detailDraft.racebook} onChange={() => updateRowDetailDraft(customer, 'racebook', !detailDraft.racebook)} /><span className="slider-mini"></span></label> : (customer.settings?.racebook ?? true ? 'On' : 'Off')}</span></div>
                                       <div className="detail-line"><span>Require Approval</span><span>{isInlineEdit && currentRole === 'admin' ? <label className="switch-mini"><input type="checkbox" checked={!!detailDraft.requiresBetApproval} onChange={() => updateRowDetailDraft(customer, 'requiresBetApproval', !detailDraft.requiresBetApproval)} /><span className="slider-mini"></span></label> : ((customer.settings?.requiresBetApproval ? 'On' : 'Off') + (currentRole !== 'admin' ? ' (admin-only)' : ''))}</span></div>
                                       <div className="detail-line"><span>Approval Threshold ($)</span><span>{isInlineEdit && currentRole === 'admin' ? <input type="number" min="0" value={detailDraft.betApprovalThreshold} onChange={(e) => updateRowDetailDraft(customer, 'betApprovalThreshold', e.target.value)} /> : (Number(customer.settings?.betApprovalThreshold) > 0 ? `$${Number(customer.settings.betApprovalThreshold).toLocaleString('en-US')}` : '—')}</span></div>
+                                      {/* Freeplay on parlays (Nicky 2026-07-20): OFF = FP blocked on parlay/RR; ON = max 3 legs, ≥1 plus-money leg. Admin-only, like Require Approval. */}
+                                      <div className="detail-line"><span>Freeplay on Parlays</span><span>{isInlineEdit && currentRole === 'admin' ? <label className="switch-mini"><input type="checkbox" checked={!!detailDraft.allowFreeplayParlay} onChange={() => updateRowDetailDraft(customer, 'allowFreeplayParlay', !detailDraft.allowFreeplayParlay)} /><span className="slider-mini"></span></label> : ((customer.settings?.allowFreeplayParlay ? 'On' : 'Off') + (currentRole !== 'admin' ? ' (admin-only)' : ''))}</span></div>
                                     </div>
                                   </div>
                                 </td>

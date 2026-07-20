@@ -612,15 +612,33 @@ const ModeBetPanel = ({
         });
     }, [isOpenParlay, legCount]);
 
+    // ── Freeplay-on-parlay gate (Nicky 2026-07-20, old-platform rule) ──
+    // Per-player admin-set toggle (user.allowFreeplayParlay ← settings.
+    // allowFreeplayParlay, absent = OFF). Scope: parlay + round robin (RR
+    // included so the rule can't be routed around via RR children).
+    //   - Toggle OFF  → the Use Freeplay checkbox is HIDDEN entirely on
+    //     parlay/RR (fpParlayHidden).
+    //   - Toggle ON   → checkbox disables while the slip breaks the rule:
+    //     max 3 legs AND at least one plus-money leg (decimal >= 2.0, i.e.
+    //     +100 or longer — even money counts) (fpParlayRuleBlocked).
+    // Straight / teaser / if_bet / reverse are outside the rule. The server
+    // enforces the same authoritatively (FREEPLAY_PARLAY_NOT_ALLOWED /
+    // FREEPLAY_PARLAY_RULE) — this is UX mirroring only.
+    const fpParlayScope = ['parlay', 'round_robin'].includes(normalizedMode) && !isOpenParlay;
+    const fpParlayHidden = fpParlayScope && !user?.allowFreeplayParlay;
+    const fpParlayRuleBlocked = fpParlayScope && !!user?.allowFreeplayParlay
+        && (legCount > 3 || !selections.some((s) => Number(s?.odds) >= 2));
+
     // If the user had Freeplay toggled on and then added a second leg
     // (flipping the slip into multi-bet straight mode), the gate above
     // would otherwise leave the checkbox stuck visually-checked. Force
-    // it off so the betslip state matches the disabled control.
+    // it off so the betslip state matches the disabled/hidden control.
+    // Same for the parlay-scope freeplay gates.
     useEffect(() => {
-        if (freeplayMultiBetBlocked && useFreeplay) {
+        if ((freeplayMultiBetBlocked || fpParlayHidden || fpParlayRuleBlocked) && useFreeplay) {
             setUseFreeplay(false);
         }
-    }, [freeplayMultiBetBlocked, useFreeplay]);
+    }, [freeplayMultiBetBlocked, fpParlayHidden, fpParlayRuleBlocked, useFreeplay]);
 
     // Round Robin: stake input is per-parlay risk, and a "Win $X" target
     // is undefined when each child parlay has different combined odds.
@@ -3096,41 +3114,49 @@ const ModeBetPanel = ({
                         </div>
 
                         {/* Row 3: Use Freeplay (only when there's a freeplay balance).
-                            Hidden for open parlay — backend rejects freeplay on it. */}
-                        {hasFreeplay && !isOpenParlay && (
+                            Hidden for open parlay — backend rejects freeplay on it.
+                            Hidden entirely on parlay/RR when the player's
+                            allowFreeplayParlay toggle is off (fpParlayHidden);
+                            disabled while the slip breaks the FP-parlay rule
+                            (fpParlayRuleBlocked: ≤3 legs, ≥1 plus-money leg). */}
+                        {hasFreeplay && !isOpenParlay && !fpParlayHidden && (() => {
+                            const fpDisabled = freeplayMultiBetBlocked || fpParlayRuleBlocked;
+                            return (
                             <label style={{
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: 8,
                                 marginTop: 10,
                                 padding: '6px 10px',
-                                background: freeplayMultiBetBlocked ? '#f1f5f9'
+                                background: fpDisabled ? '#f1f5f9'
                                     : useFreeplay ? palette.successSoft
                                     : '#f8fafc',
                                 borderRadius: 8,
                                 fontSize: 11,
-                                cursor: freeplayMultiBetBlocked ? 'not-allowed' : 'pointer',
-                                opacity: freeplayMultiBetBlocked ? 0.6 : 1,
+                                cursor: fpDisabled ? 'not-allowed' : 'pointer',
+                                opacity: fpDisabled ? 0.6 : 1,
                                 userSelect: 'none',
                                 border: `1px solid ${useFreeplay ? palette.success : palette.cardBorder}`,
                             }}
                             title={freeplayMultiBetBlocked
                                 ? 'Freeplay can only be used on a single ticket — switch to Parlay/Teaser or remove the extra selections.'
-                                : ''}>
+                                : fpParlayRuleBlocked
+                                    ? 'Freeplay parlays are limited to 3 legs with at least one plus-money leg.'
+                                    : ''}>
                                 <input
                                     type="checkbox"
                                     checked={useFreeplay}
-                                    disabled={freeplayMultiBetBlocked}
+                                    disabled={fpDisabled}
                                     onChange={(e) => setUseFreeplay(e.target.checked)}
                                     style={{
                                         width: 13,
                                         height: 13,
-                                        cursor: freeplayMultiBetBlocked ? 'not-allowed' : 'pointer',
+                                        cursor: fpDisabled ? 'not-allowed' : 'pointer',
                                         accentColor: palette.success,
                                     }}
                                 />
                                 <span style={{
-                                    color: freeplayMultiBetBlocked ? palette.textMuted
+                                    color: fpDisabled ? palette.textMuted
                                         : useFreeplay ? palette.success
                                         : palette.textPrimary,
                                     fontWeight: 700,
@@ -3152,9 +3178,21 @@ const ModeBetPanel = ({
                                             Single ticket only — combine into a parlay or remove legs.
                                         </span>
                                     )}
+                                    {!freeplayMultiBetBlocked && fpParlayRuleBlocked && (
+                                        <span style={{
+                                            display: 'block',
+                                            marginTop: 2,
+                                            fontSize: 10,
+                                            fontWeight: 600,
+                                            color: palette.textMuted,
+                                        }}>
+                                            Freeplay parlays: max 3 legs, at least one plus-money leg.
+                                        </span>
+                                    )}
                                 </span>
                             </label>
-                        )}
+                            );
+                        })()}
 
                         {normalizedMode === 'round_robin' && (() => {
                             const hasExposure = roundRobinTotalRisk > 0;
