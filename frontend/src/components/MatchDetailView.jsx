@@ -686,6 +686,7 @@ const MatchDetailView = ({ match, onClose, betMode = 'straight', embedded = fals
                                     {formatPitcherLabel(awayPitcher) || 'TBD'}
                                 </span>
                                 <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    <i className="fa-solid fa-baseball" style={{ opacity: 0.45, marginRight: 6 }} />
                                     {formatPitcherLabel(homePitcher) || 'TBD'}
                                 </span>
                             </div>
