@@ -1,6 +1,11 @@
 import { API_URL } from '../api.js';
 
-const ESPN_LOGO = (league, abbr) => `https://a.espncdn.com/i/teamlogos/${league}/500/${abbr}.png`;
+// ESPN's combiner resizes server-side: the raw /500/ asset is ~65KB per
+// logo while the 80px render is ~3-5KB — a board full of crests went from
+// ~4MB of images to ~300KB. 80px stays crisp at the ~24-28px render size
+// on 3x retina screens. Falls back to nothing gracefully if ESPN ever
+// drops the combiner (same origin, same underlying asset path).
+const ESPN_LOGO = (league, abbr) => `https://a.espncdn.com/combiner/i?img=/i/teamlogos/${league}/500/${abbr}.png&h=80&w=80`;
 
 // Path-style API base uses `?path=` so queries append with `&`; normal
 // hosts use `/path?query`. Same logic as api.js#buildApiUrl, inlined
