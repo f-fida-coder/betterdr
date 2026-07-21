@@ -417,12 +417,19 @@ final class SportsbookHealth
         self::invalidateSnapshotCache();
 
         // Only real settlement activity earns an audit row. The sweep calls
-        // this for every finished match even when it has zero pending bets
-        // (settleMatch early-returns with total=0), which used to append an
-        // info row per match per pass — ~6k noise rows/day that grew
-        // sportsbookauditlogs to 650MB. Staleness monitoring is unaffected:
-        // the health doc above records every run.
-        if (((int) ($result['total'] ?? 0)) > 0) {
+        // this for every finished match on every pass — including matches
+        // whose pending bets CAN'T settle yet (prop legs waiting on stats,
+        // open-parlay legs waiting on other games), which re-log with
+        // total>0 but zero grades forever: single stuck matches accumulated
+        // 36k audit rows each and grew sportsbookauditlogs to 650MB. Gate
+        // on actual grading activity, not on how many bets were examined.
+        // Staleness monitoring is unaffected: the health doc above records
+        // every run.
+        $settlementActivity = ((int) ($result['won'] ?? 0))
+            + ((int) ($result['lost'] ?? 0))
+            + ((int) ($result['voided'] ?? 0))
+            + ((int) ($result['errors'] ?? 0));
+        if ($settlementActivity > 0) {
             self::appendAudit($db, 'settlement_success', [
                 'matchId' => $matchId,
                 'settledBy' => $settledBy,
