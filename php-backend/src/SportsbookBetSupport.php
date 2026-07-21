@@ -1365,6 +1365,38 @@ final class SportsbookBetSupport
     }
 
     /**
+     * Slim a match doc down to the fields a stored bet-leg matchSnapshot
+     * actually needs. The snapshot used to be the ENTIRE match doc — up to
+     * 233KB per leg (playerProps ~182KB + odds ~29KB + extendedMarkets
+     * ~21KB), stored twice per leg (bets.selections[] AND betselections),
+     * which made 125 bets weigh 53MB and would grow ~200MB/day at real
+     * volume.
+     *
+     * Drop-list, verified against every reader (2026-07-21):
+     *   - odds / extendedMarkets / playerProps are read by NO live code
+     *     path on a STORED snapshot. Settlement grades against the live
+     *     match doc (BetSettlementService fetches it fresh); the leg row
+     *     itself carries the booked line (odds/point/side/teamSide).
+     *     The only code that read snapshot.odds.markets was
+     *     BetsController::getLegResult — dead code, zero callers.
+     *   - Everything else stays, notably: homePitcher/awayPitcher +
+     *     sportKey/startTime (listedPitcherVoid — a VOID money path),
+     *     homeTeamId/awayTeamId (PlayerPropTeam), status/score/startTime
+     *     (My Bets live badge), team name variants + sport/eventName
+     *     (display labels, outrightLabel).
+     * Keep this a BLACKLIST: unknown small fields flow through, so a new
+     * display field on the match doc never silently vanishes from slips.
+     *
+     * @param array<string, mixed> $match
+     * @return array<string, mixed>
+     */
+    public static function slimMatchSnapshot(array $match): array
+    {
+        unset($match['odds'], $match['extendedMarkets'], $match['playerProps']);
+        return $match;
+    }
+
+    /**
      * Append ONE new leg row to an existing ticket at $index (the current
      * leg count, 0-based). upsertSelectionRowsForBet inserts the WHOLE set
      * by array index and would duplicate the legs already stored, so the

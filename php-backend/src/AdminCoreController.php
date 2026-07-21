@@ -11402,9 +11402,9 @@ final class AdminCoreController
                         'odds' => $betOdds,
                         'marketType' => $marketType,
                         'status' => 'pending',
-                        'matchSnapshot' => $match,
+                        'matchSnapshot' => SportsbookBetSupport::slimMatchSnapshot($match),
                     ]],
-                    'matchSnapshot' => $match,
+                    'matchSnapshot' => SportsbookBetSupport::slimMatchSnapshot($match),
                     'createdAt' => $now,
                     'updatedAt' => $now,
                 ];

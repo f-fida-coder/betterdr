@@ -4522,7 +4522,10 @@ final class BetsController
             'originalPoint' => $originalPoint,
             'boughtPoints' => $appliedBoughtPoints,
             'pointAdjustment' => round($signedPointDelta, 2),
-            'matchSnapshot' => $match,
+            // Slimmed: the full doc's odds/extendedMarkets/playerProps blobs
+            // (~230KB on prop-heavy games) never get read off a stored slip —
+            // see SportsbookBetSupport::slimMatchSnapshot for the audit.
+            'matchSnapshot' => SportsbookBetSupport::slimMatchSnapshot(is_array($match) ? $match : []),
         ];
     }
 
