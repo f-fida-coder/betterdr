@@ -353,18 +353,12 @@ $indexes = [
         ['idx_tx_user_created',    ['j_user_id', 'created_at']],
     ],
     'matches' => [
-        ['idx_matches_j_external_id',  ['j_external_id']],
-        ['idx_matches_j_status',       ['j_status']],
-        ['idx_matches_j_sport',        ['j_sport']],
-        ['idx_matches_j_start_time',   ['j_start_time_dt']],
-        ['idx_matches_j_last_updated', ['j_last_updated_dt']],
-        ['idx_matches_j_status_start', ['j_status', 'j_start_time_dt']],
+        // The j_-prefixed twins of ensureTable's matches indexes were exact
+        // duplicates — dropped 2026-07-21, do not re-add. ensureTable owns
+        // external_id/status/sport/start_time/status_start/updated.
         ['idx_matches_sport_status',   ['j_sport', 'j_status']],
-        ['idx_matches_start_time',     ['j_start_time_dt']],
         ['idx_matches_home_team',      ['j_home_team']],
         ['idx_matches_away_team',      ['j_away_team']],
-        // Performance: updatedAt watermark
-        ['idx_matches_updated',        ['j_last_updated_dt']],
     ],
     'casino_bets' => [
         ['idx_cb_user_id',       ['j_user_id']],

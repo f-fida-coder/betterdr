@@ -63,11 +63,16 @@ $requiredIndexes = [
         'idx_agents_createdby_role',
         'idx_agents_status',
     ],
+    // matches indexes are owned by SqlRepository::ensureTable (self-healing,
+    // non-j_-prefixed names). The j_-prefixed twins were exact duplicates —
+    // dropped 2026-07-21; verify the canonical set instead.
     'matches' => [
-        'idx_matches_j_status_start',
-        'idx_matches_j_external_id',
-        'idx_matches_j_last_updated',
-        'idx_matches_j_sport',
+        'idx_matches_status_start',
+        'idx_matches_external_id',
+        'idx_matches_updated',
+        'idx_matches_sport',
+        'idx_matches_status',
+        'idx_matches_start_time',
     ],
 ];
 

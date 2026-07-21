@@ -82,12 +82,10 @@ function main(): void
             ['j_last_updated_dt', "DATETIME GENERATED ALWAYS AS (STR_TO_DATE(REPLACE(SUBSTRING(NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(doc, '$.lastUpdated')), ''), 'null'), 1, 19), 'T', ' '), '%Y-%m-%d %H:%i:%s')) STORED"],
             ['j_score_home', "DECIMAL(10,2) GENERATED ALWAYS AS (CAST(COALESCE(NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(doc, '$.score.score_home')), ''), 'null'), '0') AS DECIMAL(10,2))) STORED"],
             ['j_score_away', "DECIMAL(10,2) GENERATED ALWAYS AS (CAST(COALESCE(NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(doc, '$.score.score_away')), ''), 'null'), '0') AS DECIMAL(10,2))) STORED"],
-            ['idx_matches_j_external_id', ['j_external_id']],
-            ['idx_matches_j_status', ['j_status']],
-            ['idx_matches_j_sport', ['j_sport']],
-            ['idx_matches_j_start_time', ['j_start_time_dt']],
-            ['idx_matches_j_last_updated', ['j_last_updated_dt']],
-            ['idx_matches_j_status_start', ['j_status', 'j_start_time_dt']],
+            // Index creation intentionally removed: SqlRepository::ensureTable
+            // owns the matches indexes under non-j_-prefixed names. The
+            // j_-prefixed twins this script used to add were exact duplicates
+            // — dropped 2026-07-21, do not re-add.
         ],
         'messages' => [
             ['j_from_user_id', "VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(doc, '$.fromUserId'))) STORED"],
