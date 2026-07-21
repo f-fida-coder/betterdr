@@ -29,19 +29,40 @@ final class Response
             header('Cache-Control: no-cache, no-store, must-revalidate');
         }
         
-        // Add ETag for cacheable responses
-        if ($status >= 200 && $status < 300 && $cacheControl !== '') {
-            $etag = '"' . hash('crc32b', json_encode($payload, JSON_UNESCAPED_SLASHES)) . '"';
+        // Encode ONCE — this body feeds both the ETag hash and the echo below.
+        // (It used to be encoded twice, which doubled CPU on the ~500KB board
+        // payloads for nothing.)
+        $body = json_encode($payload, JSON_UNESCAPED_SLASHES);
+
+        // Conditional-GET support for revalidatable responses. Skipped when
+        // the caller sends no-store — the browser never stores those bodies,
+        // so it can never send If-None-Match back and the hash would be
+        // wasted work.
+        if ($status >= 200 && $status < 300 && $cacheControl !== '' && !str_contains($cacheControl, 'no-store')) {
+            $etag = '"' . hash('crc32b', (string) $body) . '"';
             header('ETag: ' . $etag);
-            
-            // If client sends If-None-Match, check if ETag matches
-            if (isset($_SERVER['HTTP_IF_NONE_MATCH']) && $_SERVER['HTTP_IF_NONE_MATCH'] === $etag) {
-                http_response_code(304);
-                return;
+
+            // nginx's gzip filter downgrades our strong ETag to a weak one
+            // (W/"...") on the wire, and that weak form is what the browser
+            // echoes back — a strict === here would never match and 304s
+            // would silently never fire. Compare with the W/ prefix (and any
+            // comma-separated list) stripped.
+            $inm = (string) ($_SERVER['HTTP_IF_NONE_MATCH'] ?? '');
+            if ($inm !== '') {
+                foreach (explode(',', $inm) as $candidate) {
+                    $candidate = trim($candidate);
+                    if (str_starts_with($candidate, 'W/')) {
+                        $candidate = substr($candidate, 2);
+                    }
+                    if ($candidate === $etag) {
+                        http_response_code(304);
+                        return;
+                    }
+                }
             }
         }
-        
-        echo json_encode($payload, JSON_UNESCAPED_SLASHES);
+
+        echo $body;
         // Error logging is handled by Logger via the shutdown function in
         // index.php. The duplicate file_put_contents here was a blocking
         // write on every 4xx/5xx and is no longer needed.

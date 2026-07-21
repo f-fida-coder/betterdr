@@ -17,7 +17,13 @@ final class MatchesController
     // prices. Caching at 30 s cuts the sidebar query from 20k * 1/30 = ~667
     // DB reads/sec to ~1 DB read per 30 s, with no risk of stale odds.
     private const DEFAULT_SHARED_SPORTS_CACHE_TTL_SECONDS = 30;
-    private const NO_STORE_HEADER = 'no-store, no-cache, must-revalidate, max-age=0, private';
+    // no-cache (NOT no-store): the browser may keep the last body + ETag but
+    // MUST revalidate on every use — players always see current data, and an
+    // unchanged board revalidation costs a ~0-byte 304 instead of re-shipping
+    // the full JSON every poll. no-store used to sit in this header and
+    // silently disabled the whole ETag/304 path (nothing stored → nothing to
+    // revalidate). private keeps shared caches/CDNs out of it.
+    private const REVALIDATE_HEADER = 'no-cache, must-revalidate, max-age=0, private';
 
     private SqlRepository $db;
     private string $jwtSecret;
@@ -113,7 +119,7 @@ final class MatchesController
             // so ODDS_API_MASTER_ENABLED=false empties the board outright.
             // Before the cache read, so a flip takes effect immediately.
             if (!OddsApiEventMapper::masterEnabled()) {
-                Response::json([], 200, self::NO_STORE_HEADER);
+                Response::json([], 200, self::REVALIDATE_HEADER);
                 return;
             }
             $sportKey = (string) ($_GET['sportKey'] ?? '');
@@ -176,7 +182,7 @@ final class MatchesController
             Response::json($light, 200, 'public, max-age=30, stale-while-revalidate=60');
         } catch (Throwable $e) {
             Logger::exception($e, 'listOutrights failed');
-            Response::json([], 200, self::NO_STORE_HEADER);
+            Response::json([], 200, self::REVALIDATE_HEADER);
         }
     }
 
@@ -192,7 +198,7 @@ final class MatchesController
             // Provider master switch off → no outright sports advertised, so
             // the futures sidebar sections hide (same fail path as no rows).
             if (!OddsApiEventMapper::masterEnabled()) {
-                Response::json([], 200, self::NO_STORE_HEADER);
+                Response::json([], 200, self::REVALIDATE_HEADER);
                 return;
             }
             $cacheTtl = $this->envInt('SPORTSBOOK_OUTRIGHTS_SPORTS_CACHE_TTL_SECONDS', 60);
@@ -225,7 +231,7 @@ final class MatchesController
             Response::json($out, 200, 'public, max-age=60, stale-while-revalidate=120');
         } catch (Throwable $e) {
             Logger::exception($e, 'listOutrightSports failed');
-            Response::json([], 200, self::NO_STORE_HEADER);
+            Response::json([], 200, self::REVALIDATE_HEADER);
         }
     }
 
@@ -309,7 +315,7 @@ final class MatchesController
             }
 
             // Always send no-store: live betting platform, no intermediary caching.
-            Response::json($payload, 200, self::NO_STORE_HEADER);
+            Response::json($payload, 200, self::REVALIDATE_HEADER);
             $this->runDeferredSync();
         } catch (Throwable $e) {
             Logger::exception($e, 'getMatches failed; ' . (is_array($staleForFallback) ? 'served stale fallback' : 'no stale fallback available'));
@@ -323,7 +329,7 @@ final class MatchesController
                 }
                 header('X-Matches-Fallback: stale-cache');
                 header('X-Cache: STALE');
-                Response::json($stalePayload, 200, self::NO_STORE_HEADER);
+                Response::json($stalePayload, 200, self::REVALIDATE_HEADER);
                 return;
             }
             Response::json(['message' => 'Server Error fetching matches'], 500);
@@ -983,7 +989,7 @@ final class MatchesController
         try {
             $match = $this->db->findOne('matches', ['id' => SqlRepository::id($id)]);
             if ($match === null) {
-                Response::json(['matchId' => $id, 'cached' => false, 'extendedMarkets' => [], 'playerProps' => []], 200, self::NO_STORE_HEADER);
+                Response::json(['matchId' => $id, 'cached' => false, 'extendedMarkets' => [], 'playerProps' => []], 200, self::REVALIDATE_HEADER);
                 return;
             }
             $extended = is_array($match['extendedMarkets'] ?? null) ? $match['extendedMarkets'] : [];
@@ -1107,7 +1113,7 @@ final class MatchesController
                 'extendedMarkets' => $extended,
                 'playerProps' => $props,
             ];
-            Response::json($payload, 200, self::NO_STORE_HEADER);
+            Response::json($payload, 200, self::REVALIDATE_HEADER);
         } catch (Throwable $e) {
             Logger::exception($e, 'getMatchProps failed', ['matchId' => $id]);
             Response::json(['message' => 'Server Error fetching props'], 500);
@@ -1197,7 +1203,7 @@ final class MatchesController
                 'selection' => $selection,
                 'point' => $point,
                 'alternateLines' => $ladder,
-            ], 200, self::NO_STORE_HEADER);
+            ], 200, self::REVALIDATE_HEADER);
         } catch (Throwable $e) {
             Logger::exception($e, 'getMatchBuyPoints failed', ['matchId' => $id]);
             Response::json(['message' => 'Server Error fetching buy points'], 500);
@@ -1856,10 +1862,10 @@ final class MatchesController
                 header('X-Matches-Sports-Shared-Cache: stale-fallback');
                 header('X-Cache: STALE');
                 // Stale fallback — age is unknown, don't let clients cache it.
-                Response::json($stale, 200, self::NO_STORE_HEADER);
+                Response::json($stale, 200, self::REVALIDATE_HEADER);
                 return;
             }
-            Response::json([], 200, self::NO_STORE_HEADER);
+            Response::json([], 200, self::REVALIDATE_HEADER);
         }
     }
 
