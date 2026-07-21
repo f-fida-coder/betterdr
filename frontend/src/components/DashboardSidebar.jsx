@@ -519,12 +519,15 @@ const DashboardSidebar = ({
                 // If it is empty (common on local envs before a fresh sync),
                 // fall back to the broader default feed so team search still
                 // has names to match against.
-                const data = await getMatches('live-upcoming', { limit: 1500, payload: 'core' });
+                // 'light' — this index only feeds team-NAME search; it never
+                // reads odds. 'core' shipped ~12KB of odds per row here (a
+                // multi-MB pull on a busy board) for nothing.
+                const data = await getMatches('live-upcoming', { limit: 1500, payload: 'light' });
                 const normalized = Array.isArray(data) ? data : [];
                 if (normalized.length > 0) {
                     setMatchesForSearch(normalized);
                 } else {
-                    const fallback = await getMatches('', { limit: 1500, payload: 'core' });
+                    const fallback = await getMatches('', { limit: 1500, payload: 'light' });
                     setMatchesForSearch(Array.isArray(fallback) ? fallback : []);
                 }
                 setSearchIndexFetchedAt(Date.now());

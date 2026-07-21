@@ -378,6 +378,10 @@ final class MatchesController
         $variants = [
             ['', '', 'core'],
             ['', '', 'full'],
+            // Scoreboard sidebar + the team-search index fallback poll the
+            // default board as 'light' (no odds) — warm it or every scoreboard
+            // refresh eats a full compute after each odds-write invalidation.
+            ['', '', 'light'],
             ['live-upcoming', '', 'core'],
             ['live-upcoming', '', 'light'],
             ['live', '', 'core'],

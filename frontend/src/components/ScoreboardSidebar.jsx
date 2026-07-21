@@ -48,7 +48,10 @@ const ScoreboardSidebar = ({ onClose }) => {
 
         const fetchFromApis = async () => {
             const token = localStorage.getItem('token');
-            const publicReq = withTimeout(getMatches('', { payload: 'core', trigger: 'scoreboard' }), 5000, 'Loading matches');
+            // 'light' — the scoreboard renders teams/scores/status only, never
+            // odds. Also keeps the localStorage snapshot below tiny instead of
+            // caching a multi-MB odds payload per refresh.
+            const publicReq = withTimeout(getMatches('', { payload: 'light', trigger: 'scoreboard' }), 5000, 'Loading matches');
             const adminReq = token ? withTimeout(getAdminMatches(token), 5000, 'Loading admin matches') : Promise.resolve([]);
             const [publicRes, adminRes] = await Promise.allSettled([publicReq, adminReq]);
             const publicData = publicRes.status === 'fulfilled' && Array.isArray(publicRes.value) ? publicRes.value : [];
