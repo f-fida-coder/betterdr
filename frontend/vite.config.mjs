@@ -16,6 +16,40 @@ const deferLazyRouteCss = {
   },
 };
 
+// Returning-player fast path: the HTML modulePreload filter below deliberately
+// keeps every lazy -views chunk OUT of the initial preload list because an
+// anonymous landing-page visitor never needs them. But a LOGGED-IN player
+// (localStorage token present) always ends up in UserDashboardShell — and hit
+// a fully sequential chain: entry parse → React boot → auth bootstrap network
+// round-trip → THEN the dashboard chunk starts downloading. This plugin
+// injects a tiny inline <script> that, when a token exists, kicks off
+// modulepreload for the dashboard chunk (+ its CSS) at HTML-parse time, so it
+// downloads in parallel with the entry JS and the auth bootstrap. Anonymous
+// visitors take the `return` on the first line and fetch nothing extra.
+const preloadDashboardForPlayers = {
+  name: 'preload-dashboard-for-players',
+  transformIndexHtml: {
+    order: 'post',
+    handler(html, ctx) {
+      if (!ctx.bundle) return html;
+      const hrefs = [];
+      for (const chunk of Object.values(ctx.bundle)) {
+        if (chunk.type !== 'chunk' || !/dashboard-views/.test(chunk.fileName)) continue;
+        hrefs.push('/' + chunk.fileName);
+        for (const css of chunk.viteMetadata?.importedCss ?? []) hrefs.push('/' + css);
+      }
+      if (hrefs.length === 0) return html;
+      const script =
+        `(function(){try{if(!localStorage.getItem('token'))return;` +
+        `[${hrefs.map((h) => JSON.stringify(h)).join(',')}].forEach(function(h){` +
+        `var l=document.createElement('link');` +
+        `if(h.slice(-4)==='.css'){l.rel='preload';l.as='style';}else{l.rel='modulepreload';}` +
+        `l.crossOrigin='';l.href=h;document.head.appendChild(l);});}catch(e){}})();`;
+      return { html, tags: [{ tag: 'script', children: script, injectTo: 'head' }] };
+    },
+  },
+};
+
 // Pre-compress JS/CSS at build time. Server-side Brotli on Hostinger compresses
 // dynamically at ~level 5; building at level 11 saves an extra ~10-15% on
 // every cold cache miss. The .htaccess rules below pick up these files via
@@ -55,7 +89,7 @@ const bundleStats = visualizer({
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), deferLazyRouteCss, brotliPrecompress, gzipPrecompress, bundleStats],
+  plugins: [react(), deferLazyRouteCss, preloadDashboardForPlayers, brotliPrecompress, gzipPrecompress, bundleStats],
   server: {
     port: 5173,
     strictPort: true,
