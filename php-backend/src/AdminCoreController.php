@@ -20,15 +20,6 @@ final class AdminCoreController
     /** Cache TTL for system stats endpoint (in seconds). */
     private const SYSTEM_STATS_CACHE_TTL_SECONDS = 60;
 
-    /** Retention for info-level audit logs (30 days). */
-    private const AUDIT_RETENTION_INFO_DAYS = 30;
-
-    /** Retention for error/warning audit logs (90 days). */
-    private const AUDIT_RETENTION_ERROR_DAYS = 90;
-
-    /** Retention for IP logs (30 days). */
-    private const IPLOG_RETENTION_DAYS = 30;
-
     /** All dashboard period boundaries use Pacific Time. */
     private const DASHBOARD_TIMEZONE = 'America/Los_Angeles';
 
@@ -71,10 +62,6 @@ final class AdminCoreController
 
     public function handle(string $method, string $path): bool
     {
-        if (random_int(1, 100) === 1) {
-            $this->maybeCleanupStaleData();
-        }
-
         if ($method === 'GET' && $path === '/api/admin/users') {
             $this->getUsers();
             return true;
@@ -1531,73 +1518,6 @@ final class AdminCoreController
                     @unlink($path);
                 }
             }
-        }
-    }
-
-    /**
-     * Probabilistic cleanup of stale audit and IP logs.
-     * Called on ~1% of admin API requests to keep table sizes bounded.
-     */
-    private function maybeCleanupStaleData(): void
-    {
-        try {
-            $infoThreshold = SqlRepository::utcFromMillis((time() - self::AUDIT_RETENTION_INFO_DAYS * 86400) * 1000);
-            $errorThreshold = SqlRepository::utcFromMillis((time() - self::AUDIT_RETENTION_ERROR_DAYS * 86400) * 1000);
-            $ipThreshold = SqlRepository::utcFromMillis((time() - self::IPLOG_RETENTION_DAYS * 86400) * 1000);
-
-            // Delete info-level audit logs older than 30 days
-            $this->db->deleteMany('sportsbookauditlogs', [
-                'severity' => 'info',
-                'createdAt' => ['$lte' => $infoThreshold],
-            ], 500);
-
-            // Delete error/warning audit logs older than 90 days (never delete critical)
-            $this->db->deleteMany('sportsbookauditlogs', [
-                'severity' => 'error',
-                'createdAt' => ['$lte' => $errorThreshold],
-            ], 500);
-
-            $this->db->deleteMany('sportsbookauditlogs', [
-                'severity' => 'warning',
-                'createdAt' => ['$lte' => $errorThreshold],
-            ], 500);
-
-            // Delete active IP logs older than 30 days (preserves whitelisted/blocked)
-            $this->db->deleteMany('iplogs', [
-                'status' => 'active',
-                'createdAt' => ['$lte' => $ipThreshold],
-            ], 500);
-
-            // Purge admin_audit_log info entries older than 90 days
-            $adminAuditThreshold = SqlRepository::utcFromMillis((time() - 90 * 86400) * 1000);
-            $this->db->deleteMany('admin_audit_log', [
-                'createdAt' => ['$lte' => $adminAuditThreshold],
-            ], 500);
-
-            // Purge legacy rate_limits table rows older than 10 minutes (no longer written by RateLimiter,
-            // but may have old rows from before the file-backed upgrade).
-            $rateLimitThreshold = SqlRepository::utcFromMillis((time() - 600) * 1000);
-            try {
-                $this->db->deleteMany('rate_limits', [
-                    'windowStart' => ['$lte' => $rateLimitThreshold],
-                ], 2000);
-            } catch (Throwable) {
-                // Table may not exist on fresh installs — ignore
-            }
-
-            // Purge stale file-backed rate-limit counters older than 2× the longest window (10 min)
-            $rlDir = __DIR__ . '/../cache/rate-limits';
-            if (is_dir($rlDir)) {
-                $cutoff = time() - 600;
-                foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($rlDir, \FilesystemIterator::SKIP_DOTS)) as $file) {
-                    if ($file->isFile() && $file->getMTime() < $cutoff) {
-                        @unlink($file->getPathname());
-                    }
-                }
-            }
-        } catch (Throwable $e) {
-            // Cleanup is best-effort; never fail a real request
-            error_log('[CLEANUP] Stale data cleanup error: ' . $e->getMessage());
         }
     }
 

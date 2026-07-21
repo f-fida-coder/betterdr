@@ -416,11 +416,19 @@ final class SportsbookHealth
         ]);
         self::invalidateSnapshotCache();
 
-        self::appendAudit($db, 'settlement_success', [
-            'matchId' => $matchId,
-            'settledBy' => $settledBy,
-            'result' => $result,
-        ]);
+        // Only real settlement activity earns an audit row. The sweep calls
+        // this for every finished match even when it has zero pending bets
+        // (settleMatch early-returns with total=0), which used to append an
+        // info row per match per pass — ~6k noise rows/day that grew
+        // sportsbookauditlogs to 650MB. Staleness monitoring is unaffected:
+        // the health doc above records every run.
+        if (((int) ($result['total'] ?? 0)) > 0) {
+            self::appendAudit($db, 'settlement_success', [
+                'matchId' => $matchId,
+                'settledBy' => $settledBy,
+                'result' => $result,
+            ]);
+        }
     }
 
     public static function recordSettlementFailure(SqlRepository $db, string $matchId, string $settledBy, Throwable $error): void
