@@ -88,22 +88,16 @@ const PaymentPreferenceRanking = ({ values, order, onChange }) => {
                         <div
                             key={key}
                             ref={(el) => { rowRefs.current[key] = el; }}
-                            onPointerDown={handlePointerDown(key)}
-                            onPointerMove={handlePointerMove(key)}
-                            onPointerUp={endDrag}
-                            onPointerCancel={endDrag}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: 10,
                                 minHeight: 44,
-                                padding: '0 12px',
+                                padding: '0 0 0 12px',
                                 border: `1px solid ${isDragging ? '#94a3b8' : '#e2e8f0'}`,
                                 borderRadius: 8,
                                 background: isDragging ? '#f1f5f9' : '#fbfbfd',
                                 boxShadow: isDragging ? '0 4px 10px rgba(15,23,42,0.12)' : 'none',
-                                touchAction: 'none',
-                                cursor: isDragging ? 'grabbing' : 'grab',
                                 userSelect: 'none',
                                 WebkitUserSelect: 'none',
                             }}
@@ -129,11 +123,30 @@ const PaymentPreferenceRanking = ({ values, order, onChange }) => {
                                     {String(values?.[key] ?? '')}
                                 </span>
                             </span>
-                            <i className="fa-solid fa-grip-lines" style={{ color: '#94a3b8', fontSize: 13, flexShrink: 0 }} />
+                            <span
+                                onPointerDown={handlePointerDown(key)}
+                                onPointerMove={handlePointerMove(key)}
+                                onPointerUp={endDrag}
+                                onPointerCancel={endDrag}
+                                aria-label={`Drag to reorder ${PAYMENT_APP_LABELS[key] || key}`}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    alignSelf: 'stretch',
+                                    minWidth: 44,
+                                    touchAction: 'none',
+                                    cursor: isDragging ? 'grabbing' : 'grab',
+                                    color: '#94a3b8',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <i className="fa-solid fa-grip-lines" style={{ fontSize: 14 }} />
+                            </span>
                         </div>
                     );
                 })}
-                {unranked.map((key) => (
+                {unranked.map((key, uIdx) => (
                     <div
                         key={key}
                         style={{
@@ -161,7 +174,7 @@ const PaymentPreferenceRanking = ({ values, order, onChange }) => {
                             justifyContent: 'center',
                             flexShrink: 0,
                         }}>
-                            –
+                            {display.length + uIdx + 1}
                         </span>
                         <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {PAYMENT_APP_LABELS[key] || key}
