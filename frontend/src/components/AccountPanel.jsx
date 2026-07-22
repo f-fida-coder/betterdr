@@ -6,7 +6,7 @@ import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/time
 import { computeMidQuickStakes } from '../utils/money';
 import { straightDefaultMode, parlayDefaultMode } from '../utils/betDefaults';
 import { setMyBetsInitialFilter } from './myBetsState';
-import { normalizePreferenceOrder, sanitizeHandle } from '../utils/paymentApps';
+import { normalizePreferenceOrder, sanitizeHandle, isFilledHandle } from '../utils/paymentApps';
 import PaymentPreferenceRanking from './PaymentPreferenceRanking';
 
 const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
@@ -650,7 +650,9 @@ const PaymentAppsCard = ({ user }) => {
         }
     }, [user?.apps]);
 
-    const complete = PAYMENT_APP_FIELDS.every((f) => (values[f.key] || '').trim() !== '');
+    const answered = PAYMENT_APP_FIELDS.every((f) => (values[f.key] || '').trim() !== '');
+    // ≥1 real handle required (Nicky 2026-07-22) — all-N/A can't be saved.
+    const complete = answered && PAYMENT_APP_FIELDS.some((f) => isFilledHandle(values[f.key]));
     const updatedAt = typeof user?.apps?.updatedAt === 'string' ? user.apps.updatedAt : null;
 
     const handleSave = async () => {
@@ -704,7 +706,8 @@ const PaymentAppsCard = ({ user }) => {
                     app you have or tap <strong>N/A</strong> if you do not. Multiple apps
                     are required. The less apps the harder and slower it will be to pay
                     out. Please make sure to type info accurately — if misspelled and sent
-                    to the wrong person, we are not liable.
+                    to the wrong person, we are not liable. List in order which apps you
+                    prefer to be paid on.
                 </div>
                 {PAYMENT_APP_FIELDS.map((f) => {
                     const value = values[f.key] || '';
@@ -776,7 +779,8 @@ const PaymentAppsCard = ({ user }) => {
                     <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textAlign: 'center' }}>
                         {(() => {
                             const left = PAYMENT_APP_FIELDS.filter((f) => (values[f.key] || '').trim() === '').length;
-                            return `${left} app${left === 1 ? '' : 's'} still need${left === 1 ? 's' : ''} a handle or N/A — Save unlocks when every app has an answer`;
+                            if (left > 0) return `${left} app${left === 1 ? '' : 's'} still need${left === 1 ? 's' : ''} a handle or N/A — Save unlocks when every app has an answer`;
+                            return 'At least one app needs a real handle — N/A on everything leaves your agent no way to pay you.';
                         })()}
                     </div>
                 )}

@@ -1,7 +1,7 @@
 import React from 'react';
 import { updateProfile, acknowledgeRules, getContentRules, getStoredAuthToken } from '../api';
 import { hasReachedScrollBottom } from '../utils/scroll';
-import { normalizePreferenceOrder, sanitizeHandle } from '../utils/paymentApps';
+import { normalizePreferenceOrder, sanitizeHandle, isFilledHandle } from '../utils/paymentApps';
 import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/timezone';
 import PaymentPreferenceRanking from './PaymentPreferenceRanking';
 import { useToast } from '../contexts/ToastContext';
@@ -305,7 +305,12 @@ const OnboardingGate = ({ user, onDismiss }) => {
     const [payAppsOrder, setPayAppsOrder] = React.useState(() => (
         Array.isArray(user?.apps?.preferenceOrder) ? user.apps.preferenceOrder : []
     ));
-    const payAppsComplete = PAYMENT_APP_FIELDS.every((f) => (payApps[f.key] || '').trim() !== '');
+    const payAppsAnswered = PAYMENT_APP_FIELDS.every((f) => (payApps[f.key] || '').trim() !== '');
+    // At least ONE real handle required (Nicky 2026-07-22): an all-N/A set
+    // leaves the agent no way to pay — Save stays locked until one field
+    // carries an actual handle.
+    const payAppsHasHandle = PAYMENT_APP_FIELDS.some((f) => isFilledHandle(payApps[f.key]));
+    const payAppsComplete = payAppsAnswered && payAppsHasHandle;
 
     const savePaymentApps = async () => {
         if (!payAppsComplete || savingApps) return;
@@ -664,7 +669,8 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                 each app you have or tap <strong>N/A</strong> if you do not.
                                 Multiple apps are required. The less apps the harder and slower it
                                 will be to pay out. Please make sure to type info accurately — if
-                                misspelled and sent to the wrong person, we are not liable.
+                                misspelled and sent to the wrong person, we are not liable. List
+                                in order which apps you prefer to be paid on.
                             </div>
                             {PAYMENT_APP_FIELDS.map((f) => {
                                 const value = payApps[f.key] || '';
@@ -734,7 +740,8 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                 <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textAlign: 'center' }}>
                                     {(() => {
                                         const left = PAYMENT_APP_FIELDS.filter((f) => (payApps[f.key] || '').trim() === '').length;
-                                        return `${left} app${left === 1 ? '' : 's'} still need${left === 1 ? 's' : ''} a handle or N/A`;
+                                        if (left > 0) return `${left} app${left === 1 ? '' : 's'} still need${left === 1 ? 's' : ''} a handle or N/A`;
+                                        return 'At least one app needs a real handle — N/A on everything leaves your agent no way to pay you.';
                                     })()}
                                 </div>
                             )}

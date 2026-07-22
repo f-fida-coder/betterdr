@@ -789,6 +789,26 @@ final class AuthController
                 if ($incomingApps !== [] || $incomingOrder !== null) {
                     $existingApps = is_array($user['apps'] ?? null) ? $user['apps'] : [];
                     $mergedApps = array_merge($existingApps, $incomingApps);
+                    // At least ONE real handle required (Nicky 2026-07-22):
+                    // once every app is answered, an all-N/A set is rejected
+                    // — it satisfies "answered" but leaves the agent no way
+                    // to pay. Only fires when all six carry answers, so
+                    // partial merges (e.g. agent-side edits) still work.
+                    $allAnswered = true;
+                    $anyFilled = false;
+                    foreach (OnboardingPolicy::PAYMENT_APPS_KEYS as $appKey) {
+                        $v = $mergedApps[$appKey] ?? null;
+                        if (!is_string($v) || trim($v) === '') {
+                            $allAnswered = false;
+                        }
+                        if (OnboardingPolicy::paymentHandleFilled($v)) {
+                            $anyFilled = true;
+                        }
+                    }
+                    if ($allAnswered && !$anyFilled) {
+                        Response::json(['message' => 'At least one payout app needs a real handle — you cannot mark every app N/A.'], 400);
+                        return;
+                    }
                     $baseOrder = $incomingOrder
                         ?? (is_array($existingApps['preferenceOrder'] ?? null) ? $existingApps['preferenceOrder'] : []);
                     $mergedApps['preferenceOrder'] = OnboardingPolicy::normalizePaymentPreferenceOrder($baseOrder, $mergedApps);
