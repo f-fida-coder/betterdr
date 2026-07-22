@@ -18,13 +18,15 @@ declare(strict_types=1);
  *     name `rulesAck` so acceptances recorded before the two-set split stay
  *     valid without migration.
  *
- * VERSION BUMP SEMANTICS (product decision 2026-07-22): bumping a set's
- * version must NOT interrupt an in-progress session (no mid-bet-slip 403).
- * A stale-version stamp therefore only re-gates once the `rulesReAckPending`
- * latch is set — AuthController stamps that latch at the player's next
- * LOGIN (the session boundary) and clears it when every set is current
- * again. A player who NEVER accepted a set is always gated, latch or not —
- * that's first-time onboarding, not a re-acceptance.
+ * SESSION-BOUNDARY SEMANTICS (Nicky-confirmed 2026-07-22): rules
+ * enforcement must NEVER interrupt an in-progress session (no mid-bet-slip
+ * 403) — at initial launch AND on every future version bump, uniformly.
+ * A set gates ONLY once the `rulesReAckPending` latch is set, regardless
+ * of whether the player never accepted (launch) or accepted an older
+ * version (bump). The latch is stamped at every session boundary:
+ * registration seeds it (new signups are gated from session one) and
+ * AuthController stamps it at LOGIN whenever any set isn't current.
+ * acknowledgeRules clears it when every set is current again.
  *
  * Applies to role 'user' only (admins/agents/viewOnly accounts are exempt).
  * Both AuthController (/auth/me `onboarding` block) and BetsController (the
@@ -59,7 +61,13 @@ final class OnboardingPolicy
         self::SET_PLATFORM => 'rulesAck',
     ];
 
-    /** The next-login latch AuthController stamps when any set went stale. */
+    /**
+     * The rules-gate latch — THE only trigger for rules enforcement.
+     * Seeded at registration (new signups) and stamped at login whenever
+     * any set isn't current (never-accepted at launch, or stale after a
+     * version bump — same mechanism, Nicky 2026-07-22). Cleared by
+     * acknowledgeRules once every set is current.
+     */
     public const REACK_FLAG = 'rulesReAckPending';
 
     /**
@@ -72,12 +80,21 @@ final class OnboardingPolicy
     public const PAYMENT_APPS_KEYS = ['venmo', 'cashapp', 'applePay', 'zelle', 'paypal', 'btc'];
 
     /**
-     * Registration-time flag: ONLY accounts created after this feature
-     * shipped carry it, so the step can never gate the pre-existing player
-     * base (they get a dismissible banner instead, frontend-only). No date
-     * cutoff to guess — the flag travels with the doc.
+     * Registration-time flag: accounts created after the payment-apps step
+     * shipped carry it and are gated from their first session.
      */
     public const PAYMENT_APPS_FLAG = 'paymentAppsRequired';
+
+    /**
+     * Next-login latch for EXISTING players (Nicky decision 2026-07-22:
+     * payment apps mandatory for everyone). Same session-boundary pattern
+     * as REACK_FLAG: AuthController stamps this at login when the player's
+     * apps are incomplete, so the rollout never 403s a bet mid-session —
+     * the gate (modal + placement block together) engages at the player's
+     * NEXT login. Inert once apps are complete (completeness short-circuits
+     * before the latch is read), so it never needs clearing.
+     */
+    public const PAYMENT_APPS_LATCH = 'paymentAppsGatePending';
 
     /**
      * @return array{required:bool,needsDefaults:bool,needsRulesAck:bool,needsHouseRulesAck:bool,needsPlatformRulesAck:bool,needsPaymentApps:bool,paymentAppsComplete:bool,rulesVersion:int,rulesVersions:array<string,int>,rulesAcknowledgedAt:?string,houseRulesAcceptedAt:?string,platformRulesAcceptedAt:?string}
@@ -89,10 +106,13 @@ final class OnboardingPolicy
         $needsHouse = !$exempt && self::setNeedsAcceptance($user, self::SET_HOUSE);
         $needsPlatform = !$exempt && self::setNeedsAcceptance($user, self::SET_PLATFORM);
         $appsComplete = self::paymentAppsComplete($user);
-        // Blocking ONLY for accounts registered with the flag (new signups);
-        // existing players see a dismissible banner driven by
-        // paymentAppsComplete, never a gate.
-        $needsPaymentApps = !$exempt && self::paymentAppsRequired($user) && !$appsComplete;
+        // Mandatory for EVERYONE (Nicky 2026-07-22): new signups gate off
+        // the registration flag from session one; existing players gate off
+        // the login-stamped latch — so the rollout engages at each player's
+        // next login, never mid-session/mid-bet-slip. The transitional
+        // banner (incomplete && !gated) self-retires as latches stamp.
+        $needsPaymentApps = !$exempt && !$appsComplete
+            && (self::paymentAppsRequired($user) || self::paymentAppsLatched($user));
 
         return [
             'required' => $needsDefaults || $needsHouse || $needsPlatform || $needsPaymentApps,
@@ -147,16 +167,16 @@ final class OnboardingPolicy
     }
 
     /**
-     * Does this set gate the player right now?
-     *  - never accepted           → yes, always (first-time onboarding)
-     *  - accepted, stale version  → only once the next-login latch is set
-     *  - accepted, current        → no
+     * Does this set gate the player right now? Uniform rule (Nicky
+     * 2026-07-22 — launch and version bumps behave identically):
+     *  - accepted at current version → no
+     *  - otherwise (never accepted OR stale) → only once the
+     *    session-boundary latch is set. Registration seeds the latch, so a
+     *    brand-new signup is gated from its first session; an existing
+     *    player is gated from their next login — never mid-session.
      */
     public static function setNeedsAcceptance(array $user, string $set): bool
     {
-        if (!self::everAccepted($user, $set)) {
-            return true;
-        }
         if (self::acceptanceCurrent($user, $set)) {
             return false;
         }
@@ -242,6 +262,16 @@ final class OnboardingPolicy
     public static function paymentAppsRequired(array $user): bool
     {
         return ($user[self::PAYMENT_APPS_FLAG] ?? false) === true;
+    }
+
+    /**
+     * The next-login latch for existing players. Strict === true: absent or
+     * malformed fails OPEN (not gated) — the latch only ever means "this
+     * player has logged in since payment apps became mandatory."
+     */
+    public static function paymentAppsLatched(array $user): bool
+    {
+        return ($user[self::PAYMENT_APPS_LATCH] ?? false) === true;
     }
 
     /**

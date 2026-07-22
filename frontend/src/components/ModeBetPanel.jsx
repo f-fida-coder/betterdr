@@ -3,7 +3,7 @@ import { placeBet, quoteBet, createOpenParlay, normalizeBetMode, createRequestId
 import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal, roundCombinedToAmericanDecimal } from '../utils/odds';
-import { computeMidQuickStakes } from '../utils/money';
+import { resolveQuickStakes } from '../utils/money';
 import { winTruncationActive, capLimitsNote, stakeAutoRaisedNote, floorStakeToMin, minFloorApplied, stakeForMinWin, minWinBumpApplied, minWinRaisedNote, MIN_WIN_FLOOR } from '../utils/maxWinCap';
 import { formatSiteDateTime } from '../utils/timezone';
 import { isMlbSportKey, formatPitcherLabel } from '../utils/pitchers';
@@ -461,11 +461,13 @@ const ModeBetPanel = ({
     // straight default; every parlay-like mode (parlay/teaser/round_robin/
     // if_bet/reverse) uses the parlay default.
     const defaultAmountForMode = (m) => (m === 'straight' ? straightDefaultAmount : parlayDefaultAmount);
-    // Quick stakes are fully auto-derived from the player's admin-set Min /
-    // Max bet so agents don't have to configure quick-stake values per
-    // player. Outer chips pin to Min / Max (limits one tap away); middle
-    // two are round numbers evenly distributed between them. Falls back to
-    // the hardcoded extremes when the player has no min/max configured.
+    // Quick stakes: the player's SAVED customization (Account card /
+    // onboarding gate → settings.betDefaults.quickStakes) takes precedence;
+    // players who never customized get mids auto-derived from the agent-set
+    // Min/Max. Outer chips always pin to the LIVE Min/Max, and saved mids
+    // orphaned by an agent limit change (e.g. a $150 chip after max dropped
+    // to $100) reject the whole row back to the derived spread —
+    // resolveQuickStakes (unit-tested, utils/money) owns that validation.
     const playerMinBet = Number(user?.minBet);
     const playerMaxBet = Number(user?.maxBet);
     // Min-bet floor snap (PO 2026-07-19): a WIN-mode back-solve whose stake
@@ -474,8 +476,7 @@ const ModeBetPanel = ({
     const hasPlayerMin = Number.isFinite(playerMinBet) && playerMinBet > 0;
     const minBetChip = Number.isFinite(playerMinBet) && playerMinBet > 0 ? playerMinBet : QUICK_STAKES[0];
     const maxBetChip = Number.isFinite(playerMaxBet) && playerMaxBet > 0 ? playerMaxBet : QUICK_STAKES[3];
-    const [mid1Chip, mid2Chip, mid3Chip] = computeMidQuickStakes(minBetChip, maxBetChip);
-    const customQuickStakes = [minBetChip, mid1Chip, mid2Chip, mid3Chip, maxBetChip];
+    const customQuickStakes = resolveQuickStakes(userBetDefaults?.quickStakes, minBetChip, maxBetChip);
 
     // Single shared Bet/Risk/Win mode for the whole slip. The `wager`
     // value (driven by onWagerChange) is the user-typed Bet Amount in

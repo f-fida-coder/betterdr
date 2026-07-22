@@ -224,6 +224,11 @@ final class AuthController
                 // the step can never block them — they get the dismissible
                 // banner instead.
                 OnboardingPolicy::PAYMENT_APPS_FLAG => true,
+                // Rules gating is latch-only (session-boundary enforcement,
+                // Nicky 2026-07-22). Registration IS this account's first
+                // session boundary — seed the latch so the gate's rules
+                // steps apply from session one; cleared on acceptance.
+                OnboardingPolicy::REACK_FLAG => true,
                 'apps' => new stdClass(),
                 'createdAt' => $now,
                 'updatedAt' => $now,
@@ -323,6 +328,10 @@ final class AuthController
             // Session boundary: an accepted-but-stale rules stamp becomes an
             // enforced re-acceptance gate starting at this login.
             $this->stampRulesReAckIfStale($user);
+            // Session boundary: payment apps became mandatory for everyone
+            // (Nicky 2026-07-22) — latch existing players at login so the
+            // gate engages here, never mid-session.
+            $this->stampPaymentAppsGateIfIncomplete($user);
             Logger::info('User login success', ['userId' => (string) ($user['id'] ?? ''), 'username' => (string) ($user['username'] ?? '')]);
             Response::json($this->buildAuthPayload($user));
         } catch (Throwable $e) {
@@ -926,13 +935,50 @@ final class AuthController
     }
 
     /**
-     * Login is the session boundary where a rules-version bump becomes
-     * enforceable (product decision 2026-07-22: a bump must never 403 an
-     * in-progress session mid-bet-slip). If the player carries an
-     * accepted-but-stale stamp for any set, latch rulesReAckPending — from
-     * this login until they re-accept, the onboarding gate (modal AND
-     * placement 403) is back on. Players who never accepted are gated by
-     * OnboardingPolicy regardless of the latch, so nothing to stamp here.
+     * Login is the session boundary where "payment apps mandatory for
+     * everyone" (Nicky 2026-07-22) becomes enforceable for EXISTING
+     * players: stamp the paymentAppsGatePending latch when their six payout
+     * handles are incomplete. From this login until they fill all six
+     * (handle or explicit N/A), the onboarding gate — modal AND placement
+     * 403 — is on, exactly like the new-signup flag path. New signups
+     * (registration flag) skip the latch: they're gated regardless.
+     * The latch is never cleared — it goes inert the moment apps are
+     * complete, and simply re-arms enforcement if they're ever emptied.
+     */
+    private function stampPaymentAppsGateIfIncomplete(array &$user): void
+    {
+        try {
+            if (!OnboardingPolicy::isPlayer($user)) {
+                return;
+            }
+            if (OnboardingPolicy::paymentAppsLatched($user)
+                || OnboardingPolicy::paymentAppsRequired($user)
+                || OnboardingPolicy::paymentAppsComplete($user)) {
+                return;
+            }
+            $this->db->updateOne('users', ['id' => SqlRepository::id((string) $user['id'])], [
+                OnboardingPolicy::PAYMENT_APPS_LATCH => true,
+                'updatedAt' => SqlRepository::nowUtc(),
+            ]);
+            $user[OnboardingPolicy::PAYMENT_APPS_LATCH] = true;
+            Logger::info('Payment-apps gate latched at login', [
+                'userId' => (string) $user['id'],
+            ], 'auth');
+        } catch (Throwable $e) {
+            // Never block a login over the latch — apps are still incomplete
+            // and the next login retries.
+            Logger::error('Payment-apps latch failed', ['error' => $e->getMessage()], 'auth');
+        }
+    }
+
+    /**
+     * Login is the session boundary where rules enforcement engages (Nicky
+     * 2026-07-22: uniform for the initial launch AND every future version
+     * bump — never a mid-bet-slip 403). If ANY set isn't accepted at its
+     * current version — never accepted (launch) or stale stamp (bump), same
+     * mechanism — latch rulesReAckPending: from this login until they
+     * accept, the onboarding gate (modal AND placement 403) is on.
+     * Registration seeds the same latch for brand-new signups.
      */
     private function stampRulesReAckIfStale(array &$user): void
     {
@@ -940,7 +986,7 @@ final class AuthController
             if (!OnboardingPolicy::isPlayer($user)) {
                 return;
             }
-            if (OnboardingPolicy::reAckPending($user) || !OnboardingPolicy::anySetStale($user)) {
+            if (OnboardingPolicy::reAckPending($user) || OnboardingPolicy::allSetsCurrent($user)) {
                 return;
             }
             $this->db->updateOne('users', ['id' => SqlRepository::id((string) $user['id'])], [

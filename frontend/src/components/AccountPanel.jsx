@@ -686,9 +686,14 @@ const PaymentAppsCard = ({ user }) => {
                 flexDirection: 'column',
                 gap: 12,
             }}>
-                <div style={{ fontSize: 11, color: palette.textMuted, lineHeight: 1.4 }}>
-                    How your agent pays you. Enter a handle for each app, or tap N/A for
-                    any you don&apos;t use.
+                {/* Copy approved by Nicky 2026-07-22 — keep in lockstep with
+                    the onboarding gate's Payment Apps step. */}
+                <div style={{ fontSize: 11, color: palette.textMuted, lineHeight: 1.5 }}>
+                    These apps are how your agent will pay you. Enter your handle for each
+                    app you have or tap <strong>N/A</strong> if you do not. Multiple apps
+                    are required. The less apps the harder and slower it will be to pay
+                    out. Please make sure to type info accurately — if misspelled and sent
+                    to the wrong person, we are not liable.
                 </div>
                 {PAYMENT_APP_FIELDS.map((f) => {
                     const value = values[f.key] || '';

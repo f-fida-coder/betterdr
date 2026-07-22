@@ -16,12 +16,12 @@ declare(strict_types=1);
  *    completion flag to flip — only real doc fields change the state);
  *  - ALL THREE parts are required — defaults + House Rules + Platform
  *    Rules; any one missing keeps required=true and placement blocked;
- *  - a player who NEVER accepted a set is always gated (first-time
- *    onboarding), latch or no latch;
- *  - a version bump does NOT gate mid-session: an accepted-but-STALE stamp
- *    only re-gates once the rulesReAckPending latch is set (AuthController
- *    stamps it at next login) — and the latch flips the modal AND the
- *    placement 403 together, so UI gate and money gate never disagree.
+ *  - rules gating is LATCH-ONLY and uniform (Nicky 2026-07-22): a set
+ *    that isn't accepted at its current version — never accepted (launch)
+ *    or stale (bump) — gates ONLY once rulesReAckPending is set.
+ *    Registration seeds the latch; AuthController stamps it at login; it
+ *    never fires mid-session/mid-bet-slip. The latch flips the modal AND
+ *    the placement 403 together, so UI gate and money gate never disagree.
  */
 
 require_once __DIR__ . '/../src/OnboardingPolicy.php';
@@ -60,8 +60,13 @@ $withHouseAck = static fn (?int $version = null): array => [
 $complete = static fn (): array => $withDefaults() + $withPlatformAck() + $withHouseAck();
 
 // ── Gate shows for new AND existing incomplete accounts ─────────────────────────
-TestRunner::run('state — fresh registration (no defaults, no acceptances) is fully gated', function () use ($player): void {
-    $s = OnboardingPolicy::state($player());
+// Registration seeds the rules latch (REACK_FLAG) — a "fresh registration"
+// doc always carries it, which is what makes the rules steps apply from
+// session one under latch-only gating.
+$freshSignup = static fn (): array => $player([OnboardingPolicy::REACK_FLAG => true]);
+
+TestRunner::run('state — fresh registration (latch seeded, no defaults, no acceptances) is fully gated', function () use ($freshSignup): void {
+    $s = OnboardingPolicy::state($freshSignup());
     TestRunner::assertTrue($s['required'], 'required for a fresh account');
     TestRunner::assertTrue($s['needsDefaults'], 'needs defaults');
     TestRunner::assertTrue($s['needsHouseRulesAck'], 'needs house rules');
@@ -69,7 +74,7 @@ TestRunner::run('state — fresh registration (no defaults, no acceptances) is f
     TestRunner::assertTrue($s['needsRulesAck'], 'legacy aggregate mirrors the per-set flags');
     TestRunner::assertEquals(null, $s['rulesAcknowledgedAt'], 'no platform timestamp yet');
     TestRunner::assertEquals(null, $s['houseRulesAcceptedAt'], 'no house timestamp yet');
-    TestRunner::assertTrue(OnboardingPolicy::placementBlocked($player()), 'placement blocked');
+    TestRunner::assertTrue(OnboardingPolicy::placementBlocked($freshSignup()), 'placement blocked');
 });
 
 TestRunner::run('state — EXISTING account with settings but no betDefaults is gated like a new one', function () use ($player): void {
@@ -80,22 +85,28 @@ TestRunner::run('state — EXISTING account with settings but no betDefaults is 
 });
 
 // ── All three parts required — any missing keeps the gate up ────────────────────
-TestRunner::run('state — pre-split complete account (defaults + platform ack) still owes House Rules', function () use ($player, $withDefaults, $withPlatformAck): void {
-    // Every player onboarded before the two-set split looks like this: their
-    // platform stamp stays VALID (no re-acceptance of the old content), but
-    // the new House Rules set gates them — next placement 403s, gate shows
-    // exactly one step.
+TestRunner::run('LAUNCH — pre-split complete account mid-session (no latch) is NOT gated: no mid-bet-slip 403', function () use ($player, $withDefaults, $withPlatformAck): void {
+    // Nicky 2026-07-22: the House Rules LAUNCH must not interrupt active
+    // sessions. Every pre-split player looks like this until their next
+    // login: platform accepted, house never accepted, NO latch → open.
     $u = $player($withDefaults() + $withPlatformAck());
+    $s = OnboardingPolicy::state($u);
+    TestRunner::assertTrue(!$s['needsHouseRulesAck'], 'house not gated mid-session');
+    TestRunner::assertTrue(!$s['required'] && !OnboardingPolicy::placementBlocked($u), 'placement open mid-session');
+});
+
+TestRunner::run('LAUNCH — same account after next login (latch stamped) owes exactly House Rules', function () use ($player, $withDefaults, $withPlatformAck): void {
+    $u = $player($withDefaults() + $withPlatformAck() + [OnboardingPolicy::REACK_FLAG => true]);
     $s = OnboardingPolicy::state($u);
     TestRunner::assertTrue(!$s['needsDefaults'], 'defaults step complete');
     TestRunner::assertTrue(!$s['needsPlatformRulesAck'], 'platform acceptance carried over');
     TestRunner::assertTrue($s['needsHouseRulesAck'], 'house rules step open');
-    TestRunner::assertTrue($s['required'], 'still required overall');
-    TestRunner::assertTrue(OnboardingPolicy::placementBlocked($u), 'placement still blocked');
+    TestRunner::assertTrue($s['required'], 'required after the login boundary');
+    TestRunner::assertTrue(OnboardingPolicy::placementBlocked($u), 'placement blocked with the modal, never apart');
 });
 
-TestRunner::run('state — house ack alone leaves defaults + platform open', function () use ($player, $withHouseAck): void {
-    $u = $player($withHouseAck());
+TestRunner::run('state — house ack alone (latched) leaves defaults + platform open', function () use ($player, $withHouseAck): void {
+    $u = $player($withHouseAck() + [OnboardingPolicy::REACK_FLAG => true]);
     $s = OnboardingPolicy::state($u);
     TestRunner::assertTrue($s['needsDefaults'], 'defaults step still open');
     TestRunner::assertTrue(!$s['needsHouseRulesAck'], 'house step complete');
@@ -161,11 +172,20 @@ TestRunner::run('latch — stray latch with all sets current gates nothing (self
     TestRunner::assertTrue(OnboardingPolicy::allSetsCurrent($u), 'allSetsCurrent true → AuthController may clear the latch');
 });
 
-TestRunner::run('never-accepted is gated regardless of latch state (first-time onboarding)', function () use ($player, $withDefaults, $withPlatformAck): void {
-    $u = $player($withDefaults() + $withPlatformAck());
-    $u[OnboardingPolicy::REACK_FLAG] = false;
-    TestRunner::assertTrue(OnboardingPolicy::state($u)['needsHouseRulesAck'], 'no house stamp → gated with latch false');
-    TestRunner::assertTrue(OnboardingPolicy::placementBlocked($u), 'placement blocked');
+TestRunner::run('UNIFORMITY — never-accepted (launch) and stale (bump) gate identically: latch-only', function () use ($player, $complete, $withDefaults, $withPlatformAck): void {
+    // Case A: never accepted house (launch scenario).
+    $launch = $player($withDefaults() + $withPlatformAck());
+    // Case B: accepted house at an older version (bump scenario).
+    $bump = $player($complete());
+    $bump['houseRulesAck']['version'] = 0;
+    foreach ([['launch', $launch], ['bump', $bump]] as [$label, $u]) {
+        $u[OnboardingPolicy::REACK_FLAG] = false;
+        TestRunner::assertTrue(!OnboardingPolicy::state($u)['needsHouseRulesAck'], "$label: latch off → not gated");
+        TestRunner::assertTrue(!OnboardingPolicy::placementBlocked($u), "$label: latch off → placement open");
+        $u[OnboardingPolicy::REACK_FLAG] = true;
+        TestRunner::assertTrue(OnboardingPolicy::state($u)['needsHouseRulesAck'], "$label: latch on → gated");
+        TestRunner::assertTrue(OnboardingPolicy::placementBlocked($u), "$label: latch on → placement blocked");
+    }
 });
 
 // ── Defaults semantics ──────────────────────────────────────────────────────────
@@ -233,21 +253,40 @@ TestRunner::run('payment apps — one blank field keeps a flagged account gated'
     TestRunner::assertTrue(OnboardingPolicy::state($u2)['needsPaymentApps'], 'missing btc key → still gated');
 });
 
-TestRunner::run('payment apps — EXISTING players (no flag) are NEVER gated, only surfaced for the banner', function () use ($player, $complete): void {
-    // The whole pre-existing player base looks like this after deploy:
-    // no flag, no apps. Placement must stay open; paymentAppsComplete=false
-    // is what drives the dismissible banner.
+TestRunner::run('payment apps — EXISTING player mid-session (no latch yet) is NOT gated; rollout waits for login', function () use ($player, $complete): void {
+    // The whole pre-existing player base looks like this the moment the
+    // mandatory-for-everyone deploy lands, BEFORE their next login: no
+    // flag, no latch, no apps. Placement must stay open — the rollout must
+    // never 403 a bet mid-session. paymentAppsComplete=false drives the
+    // transitional banner until the latch stamps.
     $u = $player($complete());
     $s = OnboardingPolicy::state($u);
-    TestRunner::assertTrue(!$s['needsPaymentApps'], 'no flag → never a gate step');
+    TestRunner::assertTrue(!$s['needsPaymentApps'], 'no flag + no latch → not gated mid-session');
     TestRunner::assertTrue(!$s['paymentAppsComplete'], 'incomplete surfaced for the banner');
     TestRunner::assertTrue(!$s['required'] && !OnboardingPolicy::placementBlocked($u), 'placement open');
-    // Malformed flag values fail OPEN — blocking an existing player is the
-    // failure mode this flag exists to prevent.
+    // Malformed flag/latch values fail OPEN — mid-session blocking is the
+    // failure mode these strict checks exist to prevent.
     foreach (['true', 1, 'yes', null] as $junk) {
-        $m = $player($complete() + [OnboardingPolicy::PAYMENT_APPS_FLAG => $junk]);
-        TestRunner::assertTrue(!OnboardingPolicy::state($m)['needsPaymentApps'], 'non-boolean flag fails open');
+        $m = $player($complete() + [OnboardingPolicy::PAYMENT_APPS_FLAG => $junk, OnboardingPolicy::PAYMENT_APPS_LATCH => $junk]);
+        TestRunner::assertTrue(!OnboardingPolicy::state($m)['needsPaymentApps'], 'non-boolean flag/latch fails open');
     }
+});
+
+TestRunner::run('payment apps — login latch gates EXISTING players: modal + placement together (Nicky mandatory-for-all)', function () use ($player, $complete, $fullApps): void {
+    // After their next login AuthController stamps the latch → same gate,
+    // same predicate, same enforcement as the new-signup flag path.
+    $u = $player($complete() + [OnboardingPolicy::PAYMENT_APPS_LATCH => true]);
+    $s = OnboardingPolicy::state($u);
+    TestRunner::assertTrue($s['needsPaymentApps'], 'latched + incomplete → gated');
+    TestRunner::assertTrue($s['required'] && OnboardingPolicy::placementBlocked($u), 'placement blocked with the modal, never apart');
+    // PARTIAL fill is still incomplete — all six need a value, not just some.
+    $partial = $player($complete() + $fullApps(['paypal' => '', 'btc' => '']) + [OnboardingPolicy::PAYMENT_APPS_LATCH => true]);
+    TestRunner::assertTrue(OnboardingPolicy::state($partial)['needsPaymentApps'], '4-of-6 filled → still gated');
+    // Completing all six releases the gate; the stale latch is inert.
+    $done = $player($complete() + $fullApps() + [OnboardingPolicy::PAYMENT_APPS_LATCH => true]);
+    $s2 = OnboardingPolicy::state($done);
+    TestRunner::assertTrue(!$s2['needsPaymentApps'] && $s2['paymentAppsComplete'], 'complete → gate down, latch inert');
+    TestRunner::assertTrue(!OnboardingPolicy::placementBlocked($done), 'placement open');
 });
 
 TestRunner::run('paymentAppsComplete — other/updatedAt never affect completeness', function () use ($player, $fullApps): void {

@@ -104,3 +104,29 @@ export const computeMidQuickStakes = (min, max) => {
   if (m1 >= m2) m1 = Math.max(lo + roundTo, m2 - roundTo);
   return [m1, m2, m3];
 };
+
+// Resolve the betslip's 5-chip quick-stake row from the player's SAVED
+// customization (settings.betDefaults.quickStakes, written by the Account
+// card + onboarding gate) and the LIVE agent-set Min/Max. Rules:
+//   - outer chips ALWAYS pin to the live Min/Max — an agent moving a
+//     player's limits wins over any stale saved outers;
+//   - saved mids apply only when the whole row is still coherent: three
+//     finite positive values, strictly ascending, strictly INSIDE the live
+//     (min, max) — the same validation the save path enforces;
+//   - anything else (no save, junk, or mids orphaned by an agent limit
+//     change, e.g. a $150 chip after max dropped to $100) falls back to the
+//     derived computeMidQuickStakes spread. All-or-nothing on purpose: a
+//     half-custom row would render out of order.
+export const resolveQuickStakes = (saved, lockedMin, lockedMax) => {
+  const lo = Number(lockedMin);
+  const hi = Number(lockedMax);
+  const fallback = () => [lo, ...computeMidQuickStakes(lo, hi), hi];
+  if (!Array.isArray(saved) || saved.length !== 5) return fallback();
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return fallback();
+  const mids = [saved[1], saved[2], saved[3]].map(Number);
+  const valid = mids.every((n) => Number.isFinite(n) && n > 0)
+    && mids[0] > lo && mids[2] < hi
+    && mids[0] < mids[1] && mids[1] < mids[2];
+  if (!valid) return fallback();
+  return [lo, mids[0], mids[1], mids[2], hi];
+};

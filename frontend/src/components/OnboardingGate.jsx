@@ -1,5 +1,6 @@
 import React from 'react';
 import { updateProfile, acknowledgeRules, getContentRules, getStoredAuthToken } from '../api';
+import { hasReachedScrollBottom } from '../utils/scroll';
 import { useToast } from '../contexts/ToastContext';
 
 /**
@@ -233,9 +234,17 @@ const OnboardingGate = ({ user, onDismiss }) => {
     // Checkbox state is PER SET — accepting House Rules must not pre-tick
     // the Platform Rules box; each document gets its own deliberate tap.
     const [acceptedSets, setAcceptedSets] = React.useState({});
+    // Scroll-to-bottom enforcement (Nicky 2026-07-22): PER SET — the
+    // checkbox + Accept stay locked until the full text has been scrolled
+    // to the bottom. Short content that fits without a scrollbar unlocks
+    // immediately (see the measure effect below).
+    const [scrolledSets, setScrolledSets] = React.useState({});
+    const rulesBoxRef = React.useRef(null);
     const [acking, setAcking] = React.useState(false);
 
     const onRulesStep = currentStep === 'house' || currentStep === 'platform';
+
+    const markScrolled = (setKey) => setScrolledSets((prev) => (prev[setKey] ? prev : { ...prev, [setKey]: true }));
 
     React.useEffect(() => {
         if (!onRulesStep || rules !== null) return;
@@ -246,6 +255,20 @@ const OnboardingGate = ({ user, onDismiss }) => {
             .catch(() => { if (alive) { setRules([]); setRulesError(true); } });
         return () => { alive = false; };
     }, [onRulesStep, rules]);
+
+    // On entering a rules step (or when the text lands): start reading from
+    // the top, and if the whole set fits without a scrollbar, count it as
+    // read — otherwise Accept could never unlock on short content.
+    React.useEffect(() => {
+        if (!onRulesStep || rules === null) return;
+        const el = rulesBoxRef.current;
+        if (!el) return;
+        el.scrollTop = 0;
+        const setKey = RULES_STEPS[currentStep]?.setKey;
+        if (setKey && hasReachedScrollBottom(0, el.clientHeight, el.scrollHeight)) {
+            markScrolled(setKey);
+        }
+    }, [onRulesStep, currentStep, rules]);
 
     /* ── Payment Apps step state ────────────────────────────────────────── */
     // Seeded from user.apps (agents may have pre-filled some handles); each
@@ -282,7 +305,9 @@ const OnboardingGate = ({ user, onDismiss }) => {
 
     const confirmRules = async (stepKey) => {
         const setKey = RULES_STEPS[stepKey]?.setKey;
-        if (!setKey || !acceptedSets[setKey] || acking) return;
+        // Scroll + checkbox both required — mirrors the button's disabled
+        // condition so a programmatic click can't skip the read requirement.
+        if (!setKey || !acceptedSets[setKey] || !scrolledSets[setKey] || acking) return;
         const token = getStoredAuthToken();
         if (!token) return;
         setAcking(true);
@@ -318,6 +343,7 @@ const OnboardingGate = ({ user, onDismiss }) => {
     // never let a player "accept" a document they were never shown.
     const rulesUnavailable = rulesError || (rules !== null && rulesSections.length === 0);
     const rulesAccepted = rulesStep ? !!acceptedSets[rulesStep.setKey] : false;
+    const rulesScrolled = rulesStep ? !!scrolledSets[rulesStep.setKey] : false;
 
     return (
         <div style={{
@@ -497,15 +523,23 @@ const OnboardingGate = ({ user, onDismiss }) => {
 
                     {rulesStep && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                            <div style={{
-                                border: '1px solid #e2e8f0',
-                                borderRadius: 10,
-                                background: '#f8fafc',
-                                maxHeight: '42vh',
-                                overflowY: 'auto',
-                                WebkitOverflowScrolling: 'touch',
-                                padding: '10px 12px',
-                            }}>
+                            <div
+                                ref={rulesBoxRef}
+                                onScroll={(e) => {
+                                    const el = e.currentTarget;
+                                    if (hasReachedScrollBottom(el.scrollTop, el.clientHeight, el.scrollHeight)) {
+                                        markScrolled(rulesStep.setKey);
+                                    }
+                                }}
+                                style={{
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: 10,
+                                    background: '#f8fafc',
+                                    maxHeight: '42vh',
+                                    overflowY: 'auto',
+                                    WebkitOverflowScrolling: 'touch',
+                                    padding: '10px 12px',
+                                }}>
                                 {rules === null && (
                                     <div style={{ fontSize: 12, color: '#64748b', padding: 8 }}>Loading rules…</div>
                                 )}
@@ -530,10 +564,18 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                 ))}
                             </div>
 
-                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', fontSize: 13, color: '#0f172a', fontWeight: 600, lineHeight: 1.4 }}>
+                            {rules !== null && !rulesUnavailable && !rulesScrolled && (
+                                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textAlign: 'center' }}>
+                                    <i className="fa-solid fa-arrow-down" style={{ marginRight: 6 }} />
+                                    Scroll to the bottom of the rules to unlock Accept
+                                </div>
+                            )}
+
+                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: rulesScrolled ? 'pointer' : 'not-allowed', fontSize: 13, color: '#0f172a', fontWeight: 600, lineHeight: 1.4, opacity: rulesScrolled ? 1 : 0.5 }}>
                                 <input
                                     type="checkbox"
                                     checked={rulesAccepted}
+                                    disabled={!rulesScrolled}
                                     onChange={(e) => {
                                         const checked = e.target.checked;
                                         setAcceptedSets((prev) => ({ ...prev, [rulesStep.setKey]: checked }));
@@ -546,9 +588,9 @@ const OnboardingGate = ({ user, onDismiss }) => {
                             <button
                                 type="button"
                                 onClick={() => confirmRules(currentStep)}
-                                disabled={!rulesAccepted || acking || rules === null || rulesUnavailable}
+                                disabled={!rulesAccepted || !rulesScrolled || acking || rules === null || rulesUnavailable}
                                 style={{
-                                    background: (!rulesAccepted || rules === null || rulesUnavailable) ? '#cbd5e1' : '#16a34a',
+                                    background: (!rulesAccepted || !rulesScrolled || rules === null || rulesUnavailable) ? '#cbd5e1' : '#16a34a',
                                     color: '#fff',
                                     border: 'none',
                                     borderRadius: 8,
@@ -556,7 +598,7 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                     fontWeight: 800,
                                     fontSize: 13,
                                     letterSpacing: 0.4,
-                                    cursor: (!rulesAccepted || acking || rules === null || rulesUnavailable) ? 'not-allowed' : 'pointer',
+                                    cursor: (!rulesAccepted || !rulesScrolled || acking || rules === null || rulesUnavailable) ? 'not-allowed' : 'pointer',
                                     opacity: acking ? 0.7 : 1,
                                     textTransform: 'uppercase',
                                 }}
@@ -568,10 +610,14 @@ const OnboardingGate = ({ user, onDismiss }) => {
 
                     {currentStep === 'payapps' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            {/* Copy approved by Nicky 2026-07-22 — keep in
+                                lockstep with AccountPanel's PaymentAppsCard. */}
                             <div style={{ fontSize: 12, color: '#334155', lineHeight: 1.5 }}>
-                                Enter your handle for each payout app — this is how your agent pays
-                                you. Tap <strong>N/A</strong> for any app you don&apos;t use. Every
-                                field needs an answer.
+                                These apps are how your agent will pay you. Enter your handle for
+                                each app you have or tap <strong>N/A</strong> if you do not.
+                                Multiple apps are required. The less apps the harder and slower it
+                                will be to pay out. Please make sure to type info accurately — if
+                                misspelled and sent to the wrong person, we are not liable.
                             </div>
                             {PAYMENT_APP_FIELDS.map((f) => {
                                 const value = payApps[f.key] || '';
