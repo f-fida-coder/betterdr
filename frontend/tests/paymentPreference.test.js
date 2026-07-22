@@ -19,6 +19,7 @@ const {
     filledAppKeys,
     normalizePreferenceOrder,
     movePreferenceKey,
+    sanitizeHandle,
 } = await import(utilPath);
 
 let passed = 0;
@@ -101,6 +102,15 @@ test('movePreferenceKey — reorders, clamps, no-ops cleanly', () => {
     assert.deepEqual(movePreferenceKey(['a', 'b', 'c'], 'x', 1), ['a', 'b', 'c']);
     const same = ['a', 'b', 'c'];
     assert.equal(movePreferenceKey(same, 'b', 1), same, 'no move returns the same reference');
+});
+
+test('sanitizeHandle — whitespace can never survive in a handle', () => {
+    assert.equal(sanitizeHandle('Nicky g'), 'Nickyg');
+    assert.equal(sanitizeHandle('  $Nicky  g  '), '$Nickyg');
+    assert.equal(sanitizeHandle('310 721 2084'), '3107212084');
+    assert.equal(sanitizeHandle('a@b.c'), 'a@b.c');
+    assert.equal(sanitizeHandle('N/A'), 'N/A');
+    assert.equal(sanitizeHandle(undefined), '');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

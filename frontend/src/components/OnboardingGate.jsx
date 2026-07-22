@@ -1,7 +1,7 @@
 import React from 'react';
 import { updateProfile, acknowledgeRules, getContentRules, getStoredAuthToken } from '../api';
 import { hasReachedScrollBottom } from '../utils/scroll';
-import { normalizePreferenceOrder } from '../utils/paymentApps';
+import { normalizePreferenceOrder, sanitizeHandle } from '../utils/paymentApps';
 import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/timezone';
 import PaymentPreferenceRanking from './PaymentPreferenceRanking';
 import { useToast } from '../contexts/ToastContext';
@@ -685,7 +685,7 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                                     placeholder={f.placeholder}
                                                     readOnly={isNA}
                                                     onChange={(e) => {
-                                                        const next = e.target.value;
+                                                        const next = sanitizeHandle(e.target.value);
                                                         setPayApps((prev) => ({ ...prev, [f.key]: next }));
                                                     }}
                                                     style={{

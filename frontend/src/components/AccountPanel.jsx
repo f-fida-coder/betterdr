@@ -6,7 +6,7 @@ import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/time
 import { computeMidQuickStakes } from '../utils/money';
 import { straightDefaultMode, parlayDefaultMode } from '../utils/betDefaults';
 import { setMyBetsInitialFilter } from './myBetsState';
-import { normalizePreferenceOrder } from '../utils/paymentApps';
+import { normalizePreferenceOrder, sanitizeHandle } from '../utils/paymentApps';
 import PaymentPreferenceRanking from './PaymentPreferenceRanking';
 
 const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
@@ -727,7 +727,7 @@ const PaymentAppsCard = ({ user }) => {
                                         placeholder={f.placeholder}
                                         readOnly={isNA}
                                         onChange={(e) => {
-                                            const next = e.target.value;
+                                            const next = sanitizeHandle(e.target.value);
                                             setValues((prev) => ({ ...prev, [f.key]: next }));
                                         }}
                                         style={{

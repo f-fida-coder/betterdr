@@ -15,6 +15,11 @@ export const PAYMENT_APP_LABELS = {
     btc: 'BTC Address',
 };
 
+// Payment handles never contain whitespace — no cashtag, @username, email,
+// phone, or wallet address has one (Nicky 2026-07-22). Strip as typed so a
+// space can't even appear in the field, let alone get saved.
+export const sanitizeHandle = (value) => String(value ?? '').replace(/\s+/g, '');
+
 // A "filled" handle is a real value — non-blank and not the explicit N/A
 // opt-out (case-insensitive so a hand-typed "n/a" doesn't rank either).
 export const isFilledHandle = (value) => {
