@@ -1,6 +1,8 @@
 import React from 'react';
 import {
+    PAYMENT_APP_ORDER,
     PAYMENT_APP_LABELS,
+    isFilledHandle,
     normalizePreferenceOrder,
     movePreferenceKey,
 } from '../utils/paymentApps';
@@ -31,19 +33,17 @@ const PaymentPreferenceRanking = ({ values, order, onChange }) => {
     const [draggingKey, setDraggingKey] = React.useState(null);
     const rowRefs = React.useRef({});
 
-    if (display.length === 0) {
-        return null;
-    }
+    // Nicky 2026-07-22: the list shows EVERY app — real handles are the
+    // draggable, numbered rows on top; N/A (or still-blank) apps sit in a
+    // grayed section at the bottom automatically. Only the ranked keys are
+    // ever saved to preferenceOrder; the bottom section is presentation.
+    const unranked = PAYMENT_APP_ORDER.filter((k) => !isFilledHandle(values?.[k]));
+    const anyAnswered = PAYMENT_APP_ORDER.some((k) => String(values?.[k] ?? '').trim() !== '');
 
-    // Exactly one real handle: nothing to order yet, but say so — a silent
-    // absence made testers think the ranking feature was missing entirely.
-    if (display.length === 1) {
-        return (
-            <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.4, textAlign: 'center' }}>
-                <i className="fa-solid fa-arrow-up-arrow-down" style={{ marginRight: 6 }} />
-                Add one more app to choose the order you&apos;d like to be paid in.
-            </div>
-        );
+    // Fresh untouched form: six empty fields already sit directly above —
+    // mirroring them as six "Not set" rows would just be noise.
+    if (!anyAnswered) {
+        return null;
     }
 
     const handlePointerDown = (key) => (e) => {
@@ -78,8 +78,8 @@ const PaymentPreferenceRanking = ({ values, order, onChange }) => {
                 Payout preference
             </div>
             <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.4, marginBottom: 8 }}>
-                Drag to order the apps you entered — #1 is where you&apos;d like to be
-                paid first.
+                Drag to order — #1 is where you&apos;d like to be paid first. N/A apps
+                drop to the bottom automatically.
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {display.map((key, idx) => {
@@ -133,6 +133,44 @@ const PaymentPreferenceRanking = ({ values, order, onChange }) => {
                         </div>
                     );
                 })}
+                {unranked.map((key) => (
+                    <div
+                        key={key}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            minHeight: 44,
+                            padding: '0 12px',
+                            border: '1px dashed #e2e8f0',
+                            borderRadius: 8,
+                            background: '#f8fafc',
+                            opacity: 0.55,
+                        }}
+                    >
+                        <span style={{
+                            width: 20,
+                            height: 20,
+                            borderRadius: '50%',
+                            background: '#e2e8f0',
+                            color: '#64748b',
+                            fontSize: 11,
+                            fontWeight: 800,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                        }}>
+                            –
+                        </span>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {PAYMENT_APP_LABELS[key] || key}
+                            <span style={{ fontWeight: 600, color: '#94a3b8', marginLeft: 8, fontSize: 12 }}>
+                                {String(values?.[key] ?? '').trim() === '' ? 'Not set' : 'N/A'}
+                            </span>
+                        </span>
+                    </div>
+                ))}
             </div>
         </div>
     );
