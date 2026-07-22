@@ -672,7 +672,7 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                 each app you have or tap <strong>N/A</strong> if you do not.
                                 Multiple apps are required. The less apps the harder and slower it
                                 will be to pay out. Please make sure to type info accurately — if
-                                misspelled and sent to the wrong person, we are not liable. Drag
+                                misspelled and sent to wrong person, we are not liable. Drag
                                 apps in order on which you prefer to be paid on.
                             </div>
                             <PaymentAppsEditor
