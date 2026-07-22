@@ -1,7 +1,7 @@
 import React from 'react';
 import { updateProfile, acknowledgeRules, getContentRules, getStoredAuthToken } from '../api';
 import { hasReachedScrollBottom } from '../utils/scroll';
-import { normalizePreferenceOrder, isFilledHandle } from '../utils/paymentApps';
+import { normalizePreferenceOrder, isFilledHandle, formatHandleForKey } from '../utils/paymentApps';
 import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/timezone';
 import PaymentAppsEditor from './PaymentAppsEditor';
 import { useToast } from '../contexts/ToastContext';
@@ -294,7 +294,10 @@ const OnboardingGate = ({ user, onDismiss }) => {
         const existing = (user?.apps && typeof user.apps === 'object') ? user.apps : {};
         const seeded = {};
         PAYMENT_APP_FIELDS.forEach((f) => {
-            seeded[f.key] = typeof existing[f.key] === 'string' ? existing[f.key] : '';
+            // Seed through the formatter so values saved before the
+            // formatting rules shipped render canonically (@/$ prefixes,
+            // dashed phones) without waiting for a re-save.
+            seeded[f.key] = typeof existing[f.key] === 'string' ? formatHandleForKey(f.key, existing[f.key]) : '';
         });
         return seeded;
     });

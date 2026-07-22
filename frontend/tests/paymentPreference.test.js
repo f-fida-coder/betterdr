@@ -20,6 +20,10 @@ const {
     normalizePreferenceOrder,
     movePreferenceKey,
     sanitizeHandle,
+    formatVenmoHandle,
+    formatCashtag,
+    formatPhoneOrEmail,
+    formatHandleForKey,
 } = await import(utilPath);
 
 let passed = 0;
@@ -111,6 +115,47 @@ test('sanitizeHandle — whitespace can never survive in a handle', () => {
     assert.equal(sanitizeHandle('a@b.c'), 'a@b.c');
     assert.equal(sanitizeHandle('N/A'), 'N/A');
     assert.equal(sanitizeHandle(undefined), '');
+});
+
+test('formatVenmoHandle — auto-@, charset, dedupe, cap', () => {
+    assert.equal(formatVenmoHandle('Nickyg'), '@Nickyg');
+    assert.equal(formatVenmoHandle('@@Nickyg'), '@Nickyg');
+    assert.equal(formatVenmoHandle('@Nicky g!'), '@Nickyg');
+    assert.equal(formatVenmoHandle('nicky-g_1'), '@nicky-g_1');
+    assert.equal(formatVenmoHandle('@'), '');
+    assert.equal(formatVenmoHandle('N/A'), 'N/A');
+    assert.equal(formatVenmoHandle('a'.repeat(40)), '@' + 'a'.repeat(30));
+});
+
+test('formatCashtag — auto-$, alphanumeric only, dedupe, cap', () => {
+    assert.equal(formatCashtag('Nickyg'), '$Nickyg');
+    assert.equal(formatCashtag('$$Nicky g'), '$Nickyg');
+    assert.equal(formatCashtag('$nicky-g'), '$nickyg');
+    assert.equal(formatCashtag('$'), '');
+    assert.equal(formatCashtag('N/A'), 'N/A');
+    assert.equal(formatCashtag('b'.repeat(30)), '$' + 'b'.repeat(20));
+});
+
+test('formatPhoneOrEmail — digits auto-dash 3-3-4, letters = email untouched', () => {
+    assert.equal(formatPhoneOrEmail('3107212084'), '310-721-2084');
+    assert.equal(formatPhoneOrEmail('310721'), '310-721');
+    assert.equal(formatPhoneOrEmail('310'), '310');
+    assert.equal(formatPhoneOrEmail('13107212084'), '310-721-2084', '11-digit leading 1 dropped');
+    assert.equal(formatPhoneOrEmail('310-721-2084'), '310-721-2084', 'already formatted is stable');
+    assert.equal(formatPhoneOrEmail('31072120845555'), '310-721-2084', 'extra digits capped');
+    assert.equal(formatPhoneOrEmail('nick@icloud.com'), 'nick@icloud.com');
+    assert.equal(formatPhoneOrEmail('nick 21'), 'nick21', 'letters → email mode, spaces still stripped');
+    assert.equal(formatPhoneOrEmail('N/A'), 'N/A');
+    assert.equal(formatPhoneOrEmail(''), '');
+});
+
+test('formatHandleForKey — dispatch per app; paypal/btc pass-through', () => {
+    assert.equal(formatHandleForKey('venmo', 'nick'), '@nick');
+    assert.equal(formatHandleForKey('cashapp', 'nick'), '$nick');
+    assert.equal(formatHandleForKey('zelle', '2107212084'), '210-721-2084');
+    assert.equal(formatHandleForKey('applePay', 'me@x.co'), 'me@x.co');
+    assert.equal(formatHandleForKey('paypal', '@pp user'), '@ppuser');
+    assert.equal(formatHandleForKey('btc', 'bc1 qxyz'), 'bc1qxyz');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

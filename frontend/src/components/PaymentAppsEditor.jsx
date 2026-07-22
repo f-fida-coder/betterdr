@@ -3,7 +3,7 @@ import {
     PAYMENT_APP_ORDER,
     PAYMENT_APP_LABELS,
     isFilledHandle,
-    sanitizeHandle,
+    formatHandleForKey,
     normalizePreferenceOrder,
     movePreferenceKey,
 } from '../utils/paymentApps';
@@ -36,8 +36,10 @@ import {
  */
 
 const FIELD_META = {
-    venmo: { prefix: '@', placeholder: 'username' },
-    cashapp: { prefix: '$', placeholder: 'cashtag' },
+    // @/$ live INSIDE the value now (auto-inserted by the formatters), so no
+    // decorative prefix overlay for these two.
+    venmo: { prefix: null, placeholder: '@username' },
+    cashapp: { prefix: null, placeholder: '$cashtag' },
     applePay: { prefix: null, placeholder: 'Phone or email' },
     zelle: { prefix: null, placeholder: 'Phone or email' },
     paypal: { prefix: null, placeholder: 'Email or @username' },
@@ -53,7 +55,7 @@ const PaymentAppsEditor = ({ values, order, onValuesChange, onOrderChange }) => 
     const [draggingKey, setDraggingKey] = React.useState(null);
     const rowRefs = React.useRef({});
 
-    const setValue = (key, raw) => onValuesChange({ ...values, [key]: sanitizeHandle(raw) });
+    const setValue = (key, raw) => onValuesChange({ ...values, [key]: formatHandleForKey(key, raw) });
     const toggleNA = (key) => {
         const isNA = values?.[key] === 'N/A';
         onValuesChange({ ...values, [key]: isNA ? '' : 'N/A' });

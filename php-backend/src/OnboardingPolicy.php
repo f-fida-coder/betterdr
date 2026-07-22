@@ -274,6 +274,53 @@ final class OnboardingPolicy
         return ($user[self::PAYMENT_APPS_LATCH] ?? false) === true;
     }
 
+    /**
+     * Per-app handle normalization — MIRRORS utils/paymentApps.js
+     * formatHandleForKey (keep in lockstep). Shapes, never rejects:
+     *   venmo    → '@' + [A-Za-z0-9_-]{1,30}
+     *   cashapp  → '$' + [A-Za-z0-9]{1,20}
+     *   applePay/zelle → letters/@ = email (as-is); pure digits = US phone
+     *                    formatted 3-3-4 with dashes, 11-digit leading 1
+     *                    dropped
+     *   others   → whitespace-stripped as-is
+     * 'N/A' passes through untouched everywhere.
+     */
+    public static function normalizePaymentHandle(string $key, string $value): string
+    {
+        $v = (string) preg_replace('/\s+/u', '', trim($value));
+        if ($v === '' || strtoupper($v) === 'N/A') {
+            return $v === '' ? '' : 'N/A';
+        }
+        if ($key === 'venmo') {
+            $core = (string) preg_replace('/[^A-Za-z0-9_-]/', '', (string) preg_replace('/^@+/', '', $v));
+            $core = mb_substr($core, 0, 30);
+            return $core === '' ? '' : '@' . $core;
+        }
+        if ($key === 'cashapp') {
+            $core = (string) preg_replace('/[^A-Za-z0-9]/', '', (string) preg_replace('/^\$+/', '', $v));
+            $core = mb_substr($core, 0, 20);
+            return $core === '' ? '' : '$' . $core;
+        }
+        if ($key === 'applePay' || $key === 'zelle') {
+            if (preg_match('/[A-Za-z@]/', $v) === 1) {
+                return $v; // email mode — leave as typed (whitespace already gone)
+            }
+            $d = (string) preg_replace('/\D/', '', $v);
+            if (strlen($d) === 11 && str_starts_with($d, '1')) {
+                $d = substr($d, 1);
+            }
+            $d = substr($d, 0, 10);
+            if (strlen($d) <= 3) {
+                return $d;
+            }
+            if (strlen($d) <= 6) {
+                return substr($d, 0, 3) . '-' . substr($d, 3);
+            }
+            return substr($d, 0, 3) . '-' . substr($d, 3, 3) . '-' . substr($d, 6);
+        }
+        return $v;
+    }
+
     /** A real payout handle — non-blank and not the explicit N/A opt-out. */
     public static function paymentHandleFilled(mixed $value): bool
     {

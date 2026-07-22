@@ -20,6 +20,50 @@ export const PAYMENT_APP_LABELS = {
 // space can't even appear in the field, let alone get saved.
 export const sanitizeHandle = (value) => String(value ?? '').replace(/\s+/g, '');
 
+// ── Per-app live formatters (Nicky 2026-07-22) ──────────────────────────────
+// MIRRORED server-side in OnboardingPolicy::normalizePaymentHandle — keep in
+// lockstep. Prefixes are part of the STORED value (agents copy exactly what
+// they see), typed duplicates dedupe, and none of these ever block a save —
+// they shape input, they don't reject it.
+
+// Venmo: always starts with @; letters/digits/dash/underscore, max 30.
+export const formatVenmoHandle = (raw) => {
+    let v = sanitizeHandle(raw);
+    if (v.toUpperCase() === 'N/A') return 'N/A';
+    v = v.replace(/^@+/, '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 30);
+    return v === '' ? '' : `@${v}`;
+};
+
+// Cash App: always starts with $; letters/digits only, max 20.
+export const formatCashtag = (raw) => {
+    let v = sanitizeHandle(raw);
+    if (v.toUpperCase() === 'N/A') return 'N/A';
+    v = v.replace(/^\$+/, '').replace(/[^A-Za-z0-9]/g, '').slice(0, 20);
+    return v === '' ? '' : `$${v}`;
+};
+
+// Phone-or-email (Apple Pay / Zelle): any letter or @ → email mode, left as
+// typed (whitespace-stripped). Pure digits/punctuation → US phone, grouped
+// 3-3-4 with dashes as they type; an 11-digit 1-prefix is dropped.
+export const formatPhoneOrEmail = (raw) => {
+    const v = sanitizeHandle(raw);
+    if (v === '' || /[A-Za-z@]/.test(v)) return v;
+    let d = v.replace(/\D/g, '');
+    if (d.length === 11 && d.startsWith('1')) d = d.slice(1);
+    d = d.slice(0, 10);
+    if (d.length <= 3) return d;
+    if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
+    return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+};
+
+// Dispatcher used by the editor's onChange (and seed normalization).
+export const formatHandleForKey = (key, raw) => {
+    if (key === 'venmo') return formatVenmoHandle(raw);
+    if (key === 'cashapp') return formatCashtag(raw);
+    if (key === 'applePay' || key === 'zelle') return formatPhoneOrEmail(raw);
+    return sanitizeHandle(raw);
+};
+
 // A "filled" handle is a real value — non-blank and not the explicit N/A
 // opt-out (case-insensitive so a hand-typed "n/a" doesn't rank either).
 export const isFilledHandle = (value) => {

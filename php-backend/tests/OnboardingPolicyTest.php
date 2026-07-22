@@ -310,6 +310,19 @@ TestRunner::run('normalizePaymentPreferenceOrder — sync rule matches the FE mi
     TestRunner::assertTrue(OnboardingPolicy::paymentHandleFilled('@fida'), 'real handle counts');
 });
 
+TestRunner::run('normalizePaymentHandle — server mirrors the FE formatters', function (): void {
+    TestRunner::assertEquals('@Nickyg', OnboardingPolicy::normalizePaymentHandle('venmo', 'Nickyg'), 'venmo auto-@');
+    TestRunner::assertEquals('@Nickyg', OnboardingPolicy::normalizePaymentHandle('venmo', '@@Nicky g!'), 'venmo dedupe+charset');
+    TestRunner::assertEquals('', OnboardingPolicy::normalizePaymentHandle('venmo', '@'), 'bare @ is empty');
+    TestRunner::assertEquals('$Nickyg', OnboardingPolicy::normalizePaymentHandle('cashapp', 'Nicky g'), 'cashtag auto-$');
+    TestRunner::assertEquals('310-721-2084', OnboardingPolicy::normalizePaymentHandle('zelle', '3107212084'), 'phone auto-dash');
+    TestRunner::assertEquals('310-721-2084', OnboardingPolicy::normalizePaymentHandle('applePay', '1 310 721 2084'), '11-digit leading 1 dropped');
+    TestRunner::assertEquals('nick@icloud.com', OnboardingPolicy::normalizePaymentHandle('zelle', 'nick@icloud.com'), 'email untouched');
+    TestRunner::assertEquals('310-721-2084', OnboardingPolicy::normalizePaymentHandle('zelle', '310-721-2084'), 'idempotent on formatted phone');
+    TestRunner::assertEquals('N/A', OnboardingPolicy::normalizePaymentHandle('venmo', 'n/a'), 'N/A passes through');
+    TestRunner::assertEquals('bc1qxyz', OnboardingPolicy::normalizePaymentHandle('btc', 'bc1 qxyz'), 'btc whitespace-strip only');
+});
+
 // ── Role / account-type exemptions ──────────────────────────────────────────────
 TestRunner::run('exemptions — only real player accounts are gated', function () use ($player): void {
     foreach (['admin', 'agent', 'super_agent', 'master_agent'] as $role) {

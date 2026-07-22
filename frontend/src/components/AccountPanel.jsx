@@ -6,7 +6,7 @@ import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/time
 import { computeMidQuickStakes } from '../utils/money';
 import { straightDefaultMode, parlayDefaultMode } from '../utils/betDefaults';
 import { setMyBetsInitialFilter } from './myBetsState';
-import { normalizePreferenceOrder, isFilledHandle } from '../utils/paymentApps';
+import { normalizePreferenceOrder, isFilledHandle, formatHandleForKey } from '../utils/paymentApps';
 import PaymentAppsEditor from './PaymentAppsEditor';
 
 const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
@@ -643,7 +643,9 @@ const PaymentAppsCard = ({ user }) => {
         const src = (apps && typeof apps === 'object') ? apps : {};
         const out = {};
         PAYMENT_APP_FIELDS.forEach((f) => {
-            out[f.key] = typeof src[f.key] === 'string' ? src[f.key] : '';
+            // Same seed-formatting as the gate — pre-formatter saves render
+            // canonically without a re-save.
+            out[f.key] = typeof src[f.key] === 'string' ? formatHandleForKey(f.key, src[f.key]) : '';
         });
         return out;
     };

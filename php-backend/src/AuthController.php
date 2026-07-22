@@ -758,13 +758,13 @@ final class AuthController
                         return;
                     }
                     $value = trim($value);
-                    // Payment handles never contain whitespace (no cashtag,
-                    // @username, email, phone, or wallet address has one —
-                    // Nicky 2026-07-22): strip it server-side so a cached
-                    // or tampered client can't store "Nicky g". The
-                    // free-form `other` field keeps its inner spaces.
+                    // Per-app normalization (Nicky 2026-07-22): whitespace
+                    // stripped, @/$ prefixes enforced, phones dash-formatted
+                    // — same rules the editor applies live, re-applied here
+                    // so a cached or tampered client can't store an
+                    // unformatted handle. Free-form `other` keeps spaces.
                     if ($key !== 'other') {
-                        $value = (string) preg_replace('/\s+/u', '', $value);
+                        $value = OnboardingPolicy::normalizePaymentHandle($key, $value);
                     }
                     if (mb_strlen($value) > 120) {
                         Response::json(['message' => "apps.$key must be 120 characters or fewer"], 400);
