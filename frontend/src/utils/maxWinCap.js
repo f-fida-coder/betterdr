@@ -60,13 +60,16 @@ export const minFloorApplied = (rawRisk, minBet) => {
 };
 
 // ── Centralized copy ────────────────────────────────────────────────────────
-// The ONLY cap message the UI may show (Nicky 2026-07-20): a static limits
-// line, never derived from the specific ticket's calculation. No other
-// wording, no capped-stake figures.
-export const capLimitsNote = (minBet, cap) => {
-    const m = Math.floor(Number(minBet) || 0);
+// The ONLY cap message the UI may show, surfaced ONLY while the win
+// truncation is actually binding on the ticket (Fida 2026-07-22, revising
+// the 2026-07-20 line: the old "Min bet $X, max payout $Y" prefix made a
+// legitimate cap notice read like a stake violation even when the stake
+// was fine — min-bet breaches have their own conditional message in
+// ModeBetPanel's limitFlags). Still never a capped-stake figure or a
+// derived calculation.
+export const capLimitsNote = (cap) => {
     const c = Math.floor(Number(cap) || 0);
-    return m > 0 ? `Min bet $${m}, max payout $${c}` : `Max payout $${c}`;
+    return `Max payout $${c} — winnings capped at this amount`;
 };
 
 // Mirror-image of the old cap-snap note for the FLOOR case: a WIN-mode

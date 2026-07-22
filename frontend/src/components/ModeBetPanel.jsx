@@ -1748,8 +1748,9 @@ const ModeBetPanel = ({
         onWagerChange(raw);
     }, [parlayWinAnchored, effectiveWinCap, onWagerChange]);
 
-    // The ONLY cap message the UI shows (Nicky 2026-07-20): a static limits
-    // line, surfaced when the win truncation is actually binding on this
+    // The ONLY cap message the UI shows (max-payout-only wording since
+    // 2026-07-22 — min-bet breaches surface via limitFlags.messages.min
+    // instead), surfaced when the win truncation is actually binding on this
     // ticket — never a capped-stake figure, never a derived calculation.
     // Straight mode: binding when any staked leg's raw win exceeds the cap.
     // Combined modes: binding when the ticket's raw win exceeds the cap.
@@ -1767,7 +1768,7 @@ const ModeBetPanel = ({
         return Math.max(0, potentialPayout - totalRisk) > winCapState.cap;
     }, [winCapState.cap, normalizedMode, selections, effectiveStakeForSelection, potentialPayout, totalRisk, isOpenParlay]);
     const capNote = capTruncationActive
-        ? capLimitsNote(hasPlayerMin ? playerMinBet : 0, winCapState.cap)
+        ? capLimitsNote(winCapState.cap)
         : '';
 
     // Min-bet FLOOR snap note (mirror of stakeSnapNote). Straight snaps
@@ -2795,7 +2796,7 @@ const ModeBetPanel = ({
             // or its capped-stake suggestion (the old rule's numbers must
             // not appear anywhere).
             if (String(error?.code || '') === 'MAX_WIN_EXCEEDED') {
-                const capText = capLimitsNote(hasPlayerMin ? playerMinBet : 0, winCapState.cap);
+                const capText = capLimitsNote(winCapState.cap);
                 setMessage({ type: 'error', text: capText });
                 showToast(capText, 'error');
                 return;
