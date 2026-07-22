@@ -31,8 +31,19 @@ const PaymentPreferenceRanking = ({ values, order, onChange }) => {
     const [draggingKey, setDraggingKey] = React.useState(null);
     const rowRefs = React.useRef({});
 
-    if (display.length < 2) {
+    if (display.length === 0) {
         return null;
+    }
+
+    // Exactly one real handle: nothing to order yet, but say so — a silent
+    // absence made testers think the ranking feature was missing entirely.
+    if (display.length === 1) {
+        return (
+            <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.4, textAlign: 'center' }}>
+                <i className="fa-solid fa-arrow-up-arrow-down" style={{ marginRight: 6 }} />
+                Add one more app to choose the order you&apos;d like to be paid in.
+            </div>
+        );
     }
 
     const handlePointerDown = (key) => (e) => {
