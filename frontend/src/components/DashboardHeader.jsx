@@ -68,7 +68,7 @@ const mhBetslipCircleStyle = {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
 };
 
-const DashboardHeader = ({ username, userId = null, balance, pendingBalance, availableBalance, freeplayBalance, freeplayExpiresAt = null, creditLimit = 0, creditAvailable = 0, balanceOwed = 0, nonPostedCasino = 0, minBet = null, maxBet = null, userSettings = null, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance, slipCount = 0, realtimeConnectionState = 'idle', lastRealtimeEventAt = null }) => {
+const DashboardHeader = ({ username, userId = null, balance, pendingBalance, availableBalance, freeplayBalance, freeplayExpiresAt = null, creditLimit = 0, creditAvailable = 0, balanceOwed = 0, nonPostedCasino = 0, minBet = null, maxBet = null, userSettings = null, userApps = null, userOnboarding = null, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance, slipCount = 0, realtimeConnectionState = 'idle', lastRealtimeEventAt = null }) => {
     const hasRealSportSelection = selectedSports.some((id) => !META_SPORT_FILTERS.has(id));
     // A functional nav-tab tap is BOTH a dismiss and a navigation: when a
     // surface (e.g. the player-props panel) is open, close it AND switch the
@@ -86,6 +86,23 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         dismissTopSurface();
     };
     const [showAccountPanel, setShowAccountPanel] = useState(false);
+    // Payment-apps reminder for EXISTING players (accounts that predate the
+    // payapps onboarding step and therefore are never gated on it): shown
+    // while their payout handles are incomplete, dismissible per session
+    // (sessionStorage → returns next login). New signups are excluded —
+    // needsPaymentApps=true means the onboarding gate owns collection.
+    const [payAppsBannerDismissed, setPayAppsBannerDismissed] = useState(() => {
+        try { return sessionStorage.getItem('payAppsBannerDismissed') === '1'; } catch { return false; }
+    });
+    const showPayAppsBanner = role === 'user'
+        && !!userOnboarding
+        && userOnboarding.paymentAppsComplete === false
+        && userOnboarding.needsPaymentApps !== true
+        && !payAppsBannerDismissed;
+    const dismissPayAppsBanner = () => {
+        setPayAppsBannerDismissed(true);
+        try { sessionStorage.setItem('payAppsBannerDismissed', '1'); } catch { /* private mode */ }
+    };
     // Credit-style accounts run their cash balance at $0 and bet against the
     // credit line, so the "Available" / "Available Credit" headline tile
     // should report `creditAvailable` (creditLimit - balanceOwed). Cash
@@ -113,6 +130,9 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         // hardcoded $50 / [10,25,50,100] fallbacks. Stripping settings here
         // was why Save Defaults appeared not to persist.
         settings: userSettings,
+        // Payout app handles round-trip into AccountPanel's PAYMENT APPS
+        // card the same way settings do for BET DEFAULTS.
+        apps: userApps,
     };
     const { oddsFormat, setOddsFormat, isUpdatingOddsFormat } = useOddsFormat();
     const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -338,6 +358,37 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
 
     return (
         <>
+            {showPayAppsBanner && (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    background: '#0f172a',
+                    color: '#fff',
+                    padding: '8px 12px',
+                    fontSize: 12,
+                }}>
+                    <i className="fa-solid fa-money-bill-transfer" style={{ color: '#facc15', flexShrink: 0 }} />
+                    <span style={{ flex: 1, minWidth: 0, lineHeight: 1.35 }}>
+                        Add your payout app handles (Venmo, Cash App, Zelle…) so your agent can pay you faster.
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => setShowAccountPanel(true)}
+                        style={{ background: '#facc15', color: '#0f172a', border: 'none', borderRadius: 6, padding: '7px 12px', fontWeight: 800, fontSize: 11, letterSpacing: 0.4, cursor: 'pointer', textTransform: 'uppercase', flexShrink: 0 }}
+                    >
+                        Add Now
+                    </button>
+                    <button
+                        type="button"
+                        onClick={dismissPayAppsBanner}
+                        aria-label="Dismiss payment apps reminder"
+                        style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', fontSize: 14, cursor: 'pointer', padding: '6px 8px', lineHeight: 1, flexShrink: 0 }}
+                    >
+                        <i className="fa-solid fa-xmark" />
+                    </button>
+                </div>
+            )}
             <div className="mobile-header-container mobile-only">
                 {/* 5-cell mobile header — order:
                     [Sport (3-line list icon)] [Menu (9-square grid icon)]
@@ -773,6 +824,11 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                                 <div className="usd-item" onClick={() => onViewChange && onViewChange('support')}>
                                     <div className="usd-icon"><i className="fa-solid fa-headset"></i></div>
                                     <div className="usd-text">Support</div>
+                                    <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
+                                </div>
+                                <div className="usd-item" onClick={() => onViewChange && onViewChange('rules')}>
+                                    <div className="usd-icon"><i className="fa-solid fa-scale-balanced"></i></div>
+                                    <div className="usd-text">Rules</div>
                                     <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
                                 </div>
                                 <div className="usd-item" onClick={() => onViewChange && onViewChange('my-bets')}>

@@ -9,16 +9,20 @@ final class ContentController
     private string $jwtSecret;
 
     /**
-     * House Rules v1 — player-facing copy approved 2026-07-17. Every item
-     * states behavior the platform actually ENFORCES (settlement engine,
-     * acceptance policy, teaser/parlay gates, freeplay math); when enforced
-     * behavior changes, update the matching item AND bump
-     * OnboardingPolicy::RULES_VERSION so players re-acknowledge. Seeded into
-     * the same `rules` collection the admin Rules panel manages, so copy
-     * edits after seeding are admin-UI work, not deploys. Shape matches the
-     * admin CRUD: { title, items[], status } (+ order for display).
+     * PLATFORM RULES v1 (pre-split "House Rules") — player-facing terms
+     * copy approved 2026-07-17: wagers, settlement, parlays, live betting.
+     * Every item states behavior the platform actually ENFORCES (settlement
+     * engine, acceptance policy, teaser/parlay gates, freeplay math); when
+     * enforced behavior changes, update the matching item AND bump
+     * OnboardingPolicy::RULES_VERSIONS['platform_rules'] so players
+     * re-accept at next login. Seeded into the same `rules` collection the
+     * admin Rules panel manages, so copy edits after seeding are admin-UI
+     * work, not deploys. Shape matches the admin CRUD: { title, items[],
+     * status, ruleSet } (+ order for display). Docs WITHOUT a ruleSet field
+     * (everything seeded before the 2026-07-22 two-set split) are
+     * platform_rules by definition — normalized on read, never migrated.
      */
-    private const DEFAULT_RULES = [
+    private const DEFAULT_PLATFORM_RULES = [
         [
             'title' => 'General',
             'order' => 1,
@@ -142,6 +146,68 @@ final class ContentController
         ],
     ];
 
+    /**
+     * HOUSE RULES v1 — the second acceptance set. Copy provided verbatim by
+     * management (Fida) 2026-07-22; edits after seeding are admin-panel
+     * work. When this copy changes materially, update here AND bump
+     * OnboardingPolicy::RULES_VERSIONS['house_rules'] so players re-accept
+     * at their next login.
+     */
+    private const DEFAULT_HOUSE_RULES = [
+        [
+            'title' => 'Payouts',
+            'order' => 1,
+            'status' => 'active',
+            'ruleSet' => OnboardingPolicy::SET_HOUSE,
+            'items' => [
+                'Pay-ins are due Tuesday.',
+                'Payouts are Tuesday/Wednesday by end of day.',
+                'Week runs Tuesday to Monday night.',
+                'Settle-ups are +/-$200; anything under $200 pushes to the following week.',
+                "If your account is inactive for 2 weeks, you'll be required to settle your balance even if it's under $200.",
+                'Players must wager $500 of their own money (or go through one settle-up) to collect their first payout. Freeplay and Casino wagers do not count toward this.',
+                'Max weekly payouts are $5,000 or 2–3x your credit limit, depending on account size. Any remaining balance rolls to the following week.',
+                'Players must have multiple payment apps available to make payouts easier for everyone.',
+                'If you pay late or not in full, we reserve the right to do the same when you win.',
+                'Please be quick and responsive on payday so everyone can be paid out in full and on time.',
+                'If you cannot pay, let your agent know so a payment plan can be set up.',
+            ],
+        ],
+        [
+            'title' => 'Freeplay',
+            'order' => 2,
+            'status' => 'active',
+            'ruleSet' => OnboardingPolicy::SET_HOUSE,
+            'items' => [
+                'Players receive 20% freeplay when their balance is paid in full and on time.',
+                'Freeplay is limited to straight bets only.',
+                'Freeplay stakes are not returned on a push — only on a canceled bet.',
+            ],
+        ],
+        [
+            'title' => 'Referrals',
+            'order' => 3,
+            'status' => 'active',
+            'ruleSet' => OnboardingPolicy::SET_HOUSE,
+            'items' => [
+                '$200 freeplay bonus for active, trustworthy referrals.',
+                "You are responsible for your referral's debt if they don't pay, and vice versa.",
+                'To receive your freeplay bonus, your referral must complete one settle-up of at least $200.',
+            ],
+        ],
+        [
+            'title' => 'Rules',
+            'order' => 4,
+            'status' => 'active',
+            'ruleSet' => OnboardingPolicy::SET_HOUSE,
+            'items' => [
+                'No bots, VPNs, or sharp play — no exceptions.',
+                'IT monitoring is in place to detect cheating.',
+                'Multiple people logging into the same account, multiple accounts on the same IP, or automated bet-placement systems will result in removal from the platform without payout.',
+            ],
+        ],
+    ];
+
     private const DEFAULT_TUTORIALS = [
         [
             'title' => 'Understanding Moneyline Bets',
@@ -232,11 +298,13 @@ final class ContentController
     }
 
     /**
-     * Player-facing house rules — read by the first-login onboarding gate
-     * (rules-acknowledgment step). Serves the SAME `rules` collection the
-     * admin Rules panel manages (active docs only), self-seeding the
-     * approved v1 copy when the collection is empty — the same pattern
-     * tutorials/FAQs use, so no migration script is needed on deploy.
+     * Player-facing rules, BOTH sets — read by the onboarding gate's
+     * acceptance steps and by the always-available Rules reference page.
+     * Serves the SAME `rules` collection the admin Rules panel manages
+     * (active docs only), self-seeding each set independently when absent —
+     * the same pattern tutorials/FAQs use, so no migration script is needed
+     * on deploy. Docs without a ruleSet field predate the two-set split and
+     * are normalized to platform_rules on the way out.
      */
     private function getRules(): void
     {
@@ -248,9 +316,17 @@ final class ContentController
 
             $this->ensureRulesSeeded();
             $rules = $this->db->findMany('rules', ['status' => 'active'], ['sort' => ['order' => 1, 'createdAt' => 1]]);
+            foreach ($rules as &$rule) {
+                $set = (string) ($rule['ruleSet'] ?? '');
+                if (!OnboardingPolicy::isKnownSet($set)) {
+                    $rule['ruleSet'] = OnboardingPolicy::SET_PLATFORM;
+                }
+            }
+            unset($rule);
             Response::json([
                 'rules' => $rules,
                 'version' => OnboardingPolicy::RULES_VERSION,
+                'versions' => OnboardingPolicy::RULES_VERSIONS,
             ], 200, 'private, max-age=300, stale-while-revalidate=600');
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching rules'], 500);
@@ -259,15 +335,29 @@ final class ContentController
 
     private function ensureRulesSeeded(): void
     {
-        if ($this->db->countDocuments('rules', []) > 0) {
-            return;
+        // Platform set: any doc without ruleSet counts (pre-split rows),
+        // so the guard is "collection has any non-house doc" ≈ total minus
+        // house. Seeding runs once per set, independently.
+        $total = $this->db->countDocuments('rules', []);
+        $house = $this->db->countDocuments('rules', ['ruleSet' => OnboardingPolicy::SET_HOUSE]);
+
+        if ($total - $house <= 0) {
+            foreach (self::DEFAULT_PLATFORM_RULES as $item) {
+                $this->db->insertOne('rules', array_merge($item, [
+                    'ruleSet' => OnboardingPolicy::SET_PLATFORM,
+                    'createdAt' => SqlRepository::nowUtc(),
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ]));
+            }
         }
 
-        foreach (self::DEFAULT_RULES as $item) {
-            $this->db->insertOne('rules', array_merge($item, [
-                'createdAt' => SqlRepository::nowUtc(),
-                'updatedAt' => SqlRepository::nowUtc(),
-            ]));
+        if ($house <= 0) {
+            foreach (self::DEFAULT_HOUSE_RULES as $item) {
+                $this->db->insertOne('rules', array_merge($item, [
+                    'createdAt' => SqlRepository::nowUtc(),
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ]));
+            }
         }
     }
 

@@ -149,6 +149,8 @@ function UserDashboardShell({
         minBet={user?.minBet ?? null}
         maxBet={user?.maxBet ?? null}
         userSettings={user?.settings ?? null}
+        userApps={user?.apps ?? null}
+        userOnboarding={user?.onboarding ?? null}
         role={user?.role}
         unlimitedBalance={user?.unlimitedBalance}
         onLogout={onLogout}

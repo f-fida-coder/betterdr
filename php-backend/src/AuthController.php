@@ -219,6 +219,12 @@ final class AuthController
                 'dashboardLayout' => 'tiles',
                 'settings' => ['oddsFormat' => 'american'],
                 'agentBillingStatus' => 'paid',
+                // New signups owe the Payment Apps onboarding step (gate
+                // step 4). Pre-existing accounts never carry this flag, so
+                // the step can never block them — they get the dismissible
+                // banner instead.
+                OnboardingPolicy::PAYMENT_APPS_FLAG => true,
+                'apps' => new stdClass(),
                 'createdAt' => $now,
                 'updatedAt' => $now,
             ];
@@ -314,6 +320,9 @@ final class AuthController
             }
 
             $this->trackLoginIpSafely($user);
+            // Session boundary: an accepted-but-stale rules stamp becomes an
+            // enforced re-acceptance gate starting at this login.
+            $this->stampRulesReAckIfStale($user);
             Logger::info('User login success', ['userId' => (string) ($user['id'] ?? ''), 'username' => (string) ($user['username'] ?? '')]);
             Response::json($this->buildAuthPayload($user));
         } catch (Throwable $e) {
@@ -717,6 +726,43 @@ final class AuthController
                 $user['settings'] = $existingSettings;
                 $updates['settings'] = $existingSettings;
             }
+            // Payment apps (payout handles) — player self-service write to
+            // the SAME user.apps field agents manage in CustomerDetailsView
+            // (keys must stay in lockstep with that card). Merge-style:
+            // only provided keys change; unknown keys are dropped; every
+            // value must be a short string ("N/A" is the explicit opt-out).
+            // Server stamps apps.updatedAt so agents can see freshness.
+            if (array_key_exists('apps', $body)) {
+                if (!is_array($body['apps'])) {
+                    Response::json(['message' => 'apps must be an object'], 400);
+                    return;
+                }
+                $allowedAppKeys = array_merge(OnboardingPolicy::PAYMENT_APPS_KEYS, ['other']);
+                $incomingApps = [];
+                foreach ($allowedAppKeys as $key) {
+                    if (!array_key_exists($key, $body['apps'])) {
+                        continue;
+                    }
+                    $value = $body['apps'][$key];
+                    if (!is_string($value)) {
+                        Response::json(['message' => "apps.$key must be a string"], 400);
+                        return;
+                    }
+                    $value = trim($value);
+                    if (mb_strlen($value) > 120) {
+                        Response::json(['message' => "apps.$key must be 120 characters or fewer"], 400);
+                        return;
+                    }
+                    $incomingApps[$key] = $value;
+                }
+                if ($incomingApps !== []) {
+                    $existingApps = is_array($user['apps'] ?? null) ? $user['apps'] : [];
+                    $mergedApps = array_merge($existingApps, $incomingApps);
+                    $mergedApps['updatedAt'] = SqlRepository::nowUtc();
+                    $user['apps'] = $mergedApps;
+                    $updates['apps'] = $mergedApps;
+                }
+            }
 
             if (count($updates) > 1) {
                 $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
@@ -764,18 +810,32 @@ final class AuthController
     }
 
     /**
-     * POST /api/auth/acknowledge-rules — the one-shot rules acknowledgment
-     * from the first-login onboarding gate. Deliberately NOT part of the
-     * merge-style /auth/profile update: this is a legal stamp (server
-     * clock + IP + user agent), immutable once set for the current
-     * RULES_VERSION — re-sends are idempotent no-ops, and a version bump
-     * archives the prior stamp to rulesAckHistory instead of overwriting it.
+     * POST /api/auth/acknowledge-rules — the one-shot per-set rules
+     * acceptance from the onboarding gate (body: {ruleSet: house_rules |
+     * platform_rules}; missing/blank = platform_rules so pre-split bundles
+     * keep stamping the field they always stamped). Deliberately NOT part
+     * of the merge-style /auth/profile update: this is a legal stamp
+     * (server clock + IP + user agent), immutable once set for the set's
+     * current version — re-sends are idempotent no-ops, and a version bump
+     * archives the prior stamp to <field>History instead of overwriting it.
+     * Every acceptance ALSO appends an immutable audit row to
+     * `rulesacceptances` (dispute evidence; never read by the gate).
      */
     private function acknowledgeRules(): void
     {
         try {
             $user = $this->protect();
             if ($user === null) {
+                return;
+            }
+
+            $body = Http::jsonBody();
+            $set = strtolower(trim((string) ($body['ruleSet'] ?? '')));
+            if ($set === '') {
+                $set = OnboardingPolicy::SET_PLATFORM;
+            }
+            if (!OnboardingPolicy::isKnownSet($set)) {
+                Response::json(['message' => 'Unknown rule set'], 400);
                 return;
             }
 
@@ -789,7 +849,7 @@ final class AuthController
                 return;
             }
 
-            if (OnboardingPolicy::rulesAckSatisfied($user)) {
+            if (OnboardingPolicy::acceptanceCurrent($user, $set)) {
                 // Immutable: the original stamp stands; repeat calls no-op.
                 Response::json([
                     'message' => 'Rules already acknowledged',
@@ -798,33 +858,58 @@ final class AuthController
                 return;
             }
 
+            $field = OnboardingPolicy::ACK_FIELDS[$set];
+            $version = OnboardingPolicy::RULES_VERSIONS[$set];
             $now = SqlRepository::nowUtc();
             $ack = [
                 'acknowledgedAt' => $now,
-                'version' => OnboardingPolicy::RULES_VERSION,
+                'version' => $version,
                 'ip' => IpUtils::clientIp(),
                 'userAgent' => Http::header('user-agent') !== '' ? Http::header('user-agent') : null,
             ];
-            $updates = ['rulesAck' => $ack, 'updatedAt' => $now];
+            $updates = [$field => $ack, 'updatedAt' => $now];
 
             // A stale ack from an OLDER rules version is archived, never lost —
             // the audit trail must show every version the player accepted.
-            $previousAck = is_array($user['rulesAck'] ?? null) ? $user['rulesAck'] : null;
+            $previousAck = is_array($user[$field] ?? null) ? $user[$field] : null;
             if ($previousAck !== null) {
-                $history = is_array($user['rulesAckHistory'] ?? null) ? $user['rulesAckHistory'] : [];
+                $historyField = $field . 'History';
+                $history = is_array($user[$historyField] ?? null) ? $user[$historyField] : [];
                 $history[] = $previousAck;
-                $updates['rulesAckHistory'] = $history;
+                $updates[$historyField] = $history;
+            }
+
+            // Accepting the last stale set releases the next-login latch —
+            // the placement gate reopens the moment the player is current
+            // on every set.
+            $user[$field] = $ack;
+            if (OnboardingPolicy::reAckPending($user) && OnboardingPolicy::allSetsCurrent($user)) {
+                $updates[OnboardingPolicy::REACK_FLAG] = false;
+                $user[OnboardingPolicy::REACK_FLAG] = false;
             }
 
             $this->db->updateOne('users', ['id' => SqlRepository::id((string) $user['id'])], $updates);
-            $user['rulesAck'] = $ack;
-            if (isset($updates['rulesAckHistory'])) {
-                $user['rulesAckHistory'] = $updates['rulesAckHistory'];
+            foreach ($updates as $k => $v) {
+                $user[$k] = $v;
             }
+
+            // Append-only acceptance ledger — one row per accepted (set,
+            // version) per player. Dispute evidence; the gate never reads it.
+            $this->db->insertOne('rulesacceptances', [
+                'userId' => (string) $user['id'],
+                'username' => (string) ($user['username'] ?? ''),
+                'ruleSet' => $set,
+                'rulesVersion' => $version,
+                'acceptedAt' => $now,
+                'ip' => $ack['ip'],
+                'userAgent' => $ack['userAgent'],
+                'createdAt' => $now,
+            ]);
 
             Logger::info('Rules acknowledged', [
                 'userId' => (string) $user['id'],
-                'version' => OnboardingPolicy::RULES_VERSION,
+                'ruleSet' => $set,
+                'version' => $version,
                 'ip' => $ack['ip'],
             ], 'auth');
 
@@ -837,6 +922,39 @@ final class AuthController
                 'error' => $e->getMessage(),
             ], 'auth');
             Response::json(['message' => 'Server error acknowledging rules'], 500);
+        }
+    }
+
+    /**
+     * Login is the session boundary where a rules-version bump becomes
+     * enforceable (product decision 2026-07-22: a bump must never 403 an
+     * in-progress session mid-bet-slip). If the player carries an
+     * accepted-but-stale stamp for any set, latch rulesReAckPending — from
+     * this login until they re-accept, the onboarding gate (modal AND
+     * placement 403) is back on. Players who never accepted are gated by
+     * OnboardingPolicy regardless of the latch, so nothing to stamp here.
+     */
+    private function stampRulesReAckIfStale(array &$user): void
+    {
+        try {
+            if (!OnboardingPolicy::isPlayer($user)) {
+                return;
+            }
+            if (OnboardingPolicy::reAckPending($user) || !OnboardingPolicy::anySetStale($user)) {
+                return;
+            }
+            $this->db->updateOne('users', ['id' => SqlRepository::id((string) $user['id'])], [
+                OnboardingPolicy::REACK_FLAG => true,
+                'updatedAt' => SqlRepository::nowUtc(),
+            ]);
+            $user[OnboardingPolicy::REACK_FLAG] = true;
+            Logger::info('Rules re-acceptance latched at login', [
+                'userId' => (string) $user['id'],
+            ], 'auth');
+        } catch (Throwable $e) {
+            // Never block a login over the latch — the stale stamp is still
+            // there and the next login retries.
+            Logger::error('Rules re-ack latch failed', ['error' => $e->getMessage()], 'auth');
         }
     }
 
@@ -1045,6 +1163,10 @@ final class AuthController
             'agentBillingStatus' => $user['agentBillingStatus'] ?? null,
             'dashboardLayout' => $user['dashboardLayout'] ?? null,
             'settings' => is_array($user['settings'] ?? null) ? $user['settings'] : null,
+            // Payout app handles — read by the onboarding Payment Apps step,
+            // the Account panel card, and the reminder banner. Same field
+            // agents manage; safe to expose to its own account.
+            'apps' => is_array($user['apps'] ?? null) ? $user['apps'] : null,
             // First-login onboarding state — DERIVED from the doc on every
             // read (never stored), so login, /auth/me, and the placement
             // gate can never disagree. Present in the LOGIN payload too:
@@ -1116,6 +1238,10 @@ final class AuthController
             'agentBillingStatus' => $user['agentBillingStatus'] ?? null,
             'dashboardLayout' => $user['dashboardLayout'] ?? null,
             'settings' => is_array($user['settings'] ?? null) ? $user['settings'] : null,
+            // Payout app handles — read by the onboarding Payment Apps step,
+            // the Account panel card, and the reminder banner. Same field
+            // agents manage; safe to expose to its own account.
+            'apps' => is_array($user['apps'] ?? null) ? $user['apps'] : null,
             // First-login onboarding state — DERIVED from the doc on every
             // read (never stored), so the frontend gate, /auth/me, and the
             // ONBOARDING_REQUIRED placement gate can never disagree.

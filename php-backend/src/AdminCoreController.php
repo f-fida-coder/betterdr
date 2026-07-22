@@ -3459,10 +3459,15 @@ final class AdminCoreController
                 }
             }
 
+            // Which acceptance set the section belongs to (house_rules /
+            // platform_rules); unknown or missing defaults to platform —
+            // the pre-split meaning of every rules doc.
+            $set = strtolower(trim((string) ($body['ruleSet'] ?? '')));
             $rule = [
                 'title' => $title,
                 'items' => $items,
                 'status' => (string) ($body['status'] ?? 'active'),
+                'ruleSet' => OnboardingPolicy::isKnownSet($set) ? $set : OnboardingPolicy::SET_PLATFORM,
                 'createdAt' => SqlRepository::nowUtc(),
                 'updatedAt' => SqlRepository::nowUtc(),
             ];
@@ -3505,6 +3510,12 @@ final class AdminCoreController
             }
             if (isset($body['status']) && trim((string) $body['status']) !== '') {
                 $updates['status'] = trim((string) $body['status']);
+            }
+            if (isset($body['ruleSet'])) {
+                $set = strtolower(trim((string) $body['ruleSet']));
+                if (OnboardingPolicy::isKnownSet($set)) {
+                    $updates['ruleSet'] = $set;
+                }
             }
 
             $this->db->updateOne('rules', ['id' => SqlRepository::id($id)], $updates);

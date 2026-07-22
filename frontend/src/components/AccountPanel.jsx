@@ -605,6 +605,182 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     );
 };
 
+/* ---------- payment apps card ---------- */
+
+// Payout app handles — player self-service editor for the SAME user.apps
+// field agents manage in CustomerDetailsView (venmo/cashapp/applePay/zelle/
+// paypal/btc). Keep the keys + field list in lockstep with the onboarding
+// gate's Payment Apps step (OnboardingGate PAYMENT_APP_FIELDS). All six need
+// a value to save — a handle or the N/A button — same rule as onboarding, so
+// a saved card is always complete.
+const PAYMENT_APP_FIELDS = [
+    { key: 'venmo', label: 'Venmo', prefix: '@', placeholder: 'username' },
+    { key: 'cashapp', label: 'Cash App', prefix: '$', placeholder: 'cashtag' },
+    { key: 'applePay', label: 'Apple Pay', prefix: null, placeholder: 'Phone or email' },
+    { key: 'zelle', label: 'Zelle', prefix: null, placeholder: 'Phone or email' },
+    { key: 'paypal', label: 'PayPal', prefix: null, placeholder: 'Email or @username' },
+    { key: 'btc', label: 'BTC Address', prefix: null, placeholder: 'Wallet address' },
+];
+
+const PaymentAppsCard = ({ user }) => {
+    const { showToast } = useToast();
+    const seedFrom = (apps) => {
+        const src = (apps && typeof apps === 'object') ? apps : {};
+        const out = {};
+        PAYMENT_APP_FIELDS.forEach((f) => {
+            out[f.key] = typeof src[f.key] === 'string' ? src[f.key] : '';
+        });
+        return out;
+    };
+    const [values, setValues] = React.useState(() => seedFrom(user?.apps));
+    const [saving, setSaving] = React.useState(false);
+    // Reseed when a fresh me payload lands (mirrors BetDefaultsCard).
+    React.useEffect(() => {
+        if (user?.apps && typeof user.apps === 'object') setValues(seedFrom(user.apps));
+    }, [user?.apps]);
+
+    const complete = PAYMENT_APP_FIELDS.every((f) => (values[f.key] || '').trim() !== '');
+    const updatedAt = typeof user?.apps?.updatedAt === 'string' ? user.apps.updatedAt : null;
+
+    const handleSave = async () => {
+        const token = getStoredAuthToken();
+        if (!token) {
+            showToast?.('Sign in to save payment apps', 'warning');
+            return;
+        }
+        if (!complete) {
+            showToast?.('Every app needs a handle — or tap N/A if you don\'t use it', 'warning');
+            return;
+        }
+        setSaving(true);
+        try {
+            await updateProfile({ apps: values }, token);
+            showToast?.('Payment apps saved', 'success');
+            window.dispatchEvent(new Event('user:refresh'));
+        } catch (err) {
+            showToast?.(err?.message || 'Failed to save payment apps', 'error');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <section>
+            <div style={{
+                fontSize: 11,
+                color: palette.textMuted,
+                textTransform: 'uppercase',
+                letterSpacing: 0.6,
+                fontWeight: 700,
+                marginBottom: 8,
+                paddingLeft: 2,
+            }}>
+                Payment apps
+            </div>
+            <div style={{
+                background: palette.cardBg,
+                border: `1px solid ${palette.cardBorder}`,
+                borderRadius: 12,
+                padding: 14,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+            }}>
+                <div style={{ fontSize: 11, color: palette.textMuted, lineHeight: 1.4 }}>
+                    How your agent pays you. Enter a handle for each app, or tap N/A for
+                    any you don&apos;t use.
+                </div>
+                {PAYMENT_APP_FIELDS.map((f) => {
+                    const value = values[f.key] || '';
+                    const isNA = value === 'N/A';
+                    return (
+                        <div key={f.key}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                                {f.label}
+                            </div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                                <div style={{ position: 'relative', flex: 1, border: `1px solid ${palette.cardBorder}`, borderRadius: 8, background: isNA ? '#f1f5f9' : '#fbfbfd' }}>
+                                    {f.prefix && !isNA && (
+                                        <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 700, color: palette.textFaint, pointerEvents: 'none' }}>
+                                            {f.prefix}
+                                        </span>
+                                    )}
+                                    <input
+                                        type="text"
+                                        value={value}
+                                        placeholder={f.placeholder}
+                                        readOnly={isNA}
+                                        onChange={(e) => {
+                                            const next = e.target.value;
+                                            setValues((prev) => ({ ...prev, [f.key]: next }));
+                                        }}
+                                        style={{
+                                            width: '100%',
+                                            padding: (f.prefix && !isNA) ? '10px 12px 10px 24px' : '10px 12px',
+                                            border: 'none',
+                                            outline: 'none',
+                                            fontSize: 14,
+                                            fontWeight: 600,
+                                            color: isNA ? palette.textMuted : palette.textPrimary,
+                                            background: 'transparent',
+                                            boxSizing: 'border-box',
+                                            borderRadius: 8,
+                                        }}
+                                    />
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setValues((prev) => ({ ...prev, [f.key]: isNA ? '' : 'N/A' }))}
+                                    title={isNA ? 'Undo — enter a handle instead' : `I don't use ${f.label}`}
+                                    style={{
+                                        background: isNA ? '#64748b' : '#e8e8e8',
+                                        color: isNA ? '#fff' : '#333',
+                                        border: 'none',
+                                        borderRadius: 8,
+                                        padding: '0 14px',
+                                        fontWeight: 800,
+                                        fontSize: 12,
+                                        letterSpacing: 0.4,
+                                        cursor: 'pointer',
+                                        flexShrink: 0,
+                                    }}
+                                >
+                                    N/A
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })}
+                {updatedAt && (
+                    <div style={{ fontSize: 10, color: palette.textFaint }}>
+                        Last updated {new Date(updatedAt).toLocaleDateString()}
+                    </div>
+                )}
+                <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={saving || !complete}
+                    style={{
+                        background: complete ? '#facc15' : '#cbd5e1',
+                        color: complete ? '#0f172a' : '#fff',
+                        border: 'none',
+                        borderRadius: 8,
+                        padding: '10px 14px',
+                        fontWeight: 800,
+                        fontSize: 13,
+                        letterSpacing: 0.4,
+                        cursor: (saving || !complete) ? 'not-allowed' : 'pointer',
+                        opacity: saving ? 0.7 : 1,
+                        textTransform: 'uppercase',
+                    }}
+                >
+                    {saving ? 'Saving…' : 'Save Payment Apps'}
+                </button>
+            </div>
+        </section>
+    );
+};
+
 /* ---------- main panel ---------- */
 
 const AccountPanel = ({
@@ -990,6 +1166,12 @@ const AccountPanel = ({
                         their unit size every time. Persists to
                         settings.betDefaults. */}
                     <BetDefaultsCard user={user} />
+
+                    {/* Payment apps — payout handles, self-service editor for
+                        the same user.apps field agents manage. Fills in what
+                        onboarding collected (or what an existing player adds
+                        after seeing the reminder banner). */}
+                    <PaymentAppsCard user={user} />
 
                     {/* Preferences — Language / Odds Format / Timezone.
                         Timezone is local-only (localStorage), drives the

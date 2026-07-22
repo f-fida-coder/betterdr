@@ -583,15 +583,18 @@ export const updateProfile = async (profileData, token) => {
     return data;
 };
 
-// One-shot rules acknowledgment from the first-login onboarding gate.
-// Server stamps timestamp + version + IP (immutable once set for the
-// current rules version) and returns the full me-shape payload, which we
-// prime into the auth caches so `onboarding.required` flips without
-// waiting out the 15s me-cache TTL.
-export const acknowledgeRules = async (token) => {
+// One-shot per-set rules acceptance from the onboarding gate. ruleSet is
+// 'house_rules' or 'platform_rules' (server defaults blank to platform, so
+// pre-split callers keep stamping the field they always stamped). Server
+// stamps timestamp + version + IP (immutable once set for that set's
+// current version) and returns the full me-shape payload, which we prime
+// into the auth caches so `onboarding.required` flips without waiting out
+// the 15s me-cache TTL.
+export const acknowledgeRules = async (token, ruleSet = 'platform_rules') => {
     const response = await fetch(buildApiUrl('/auth/acknowledge-rules'), {
         method: 'POST',
         headers: getHeaders(token),
+        body: JSON.stringify({ ruleSet }),
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));

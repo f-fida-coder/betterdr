@@ -1,12 +1,17 @@
 import React from 'react';
 import { updateProfile, acknowledgeRules, getContentRules, getStoredAuthToken } from '../api';
-import { computeMidQuickStakes } from '../utils/money';
 import { useToast } from '../contexts/ToastContext';
 
 /**
- * First-login onboarding gate — two required steps before a player can
- * place bets: (1) bet defaults (mode + straight/parlay unit sizes + quick
- * stakes), (2) "I understand the rules" acknowledgment.
+ * First-login onboarding gate — up to four required steps before a player
+ * can place bets: (1) bet defaults (mode + straight/parlay unit sizes +
+ * quick stakes), (2) House Rules acceptance, (3) Platform Rules acceptance,
+ * (4) Payment Apps (NEW SIGNUPS ONLY — server flags needsPaymentApps only
+ * for accounts registered with paymentAppsRequired; existing players get a
+ * dismissible banner in DashboardHeader instead, never this gate step).
+ * Each rules set is accepted SEPARATELY (own checkbox + Accept, own server
+ * stamp); the step plan is frozen at mount from server-derived per-set
+ * flags, so players only see the steps they still owe.
  *
  * Behavior contract (product decision 2026-07-17):
  *  - DISMISSIBLE (X): closing lets the player browse the board — but does
@@ -35,6 +40,13 @@ const STAKE_MODES = [
 // selector (Fida 2026-07-20): 'bet' resolves per-leg juice, which doesn't map
 // onto a combined ticket, so the parlay-bucket DEFAULT can't be it.
 const PARLAY_STAKE_MODES = STAKE_MODES.filter((m) => m.id !== 'bet');
+// Inline payout illustration per straight mode (Fida 2026-07-22) — shown under
+// the Straight mode toggle only; the parlay toggle stays bare.
+const MODE_EXAMPLES = {
+    risk: 'Ex: -150 odds, risk $100 to win $67 | +150 odds, risk $100 to win $150',
+    bet: 'Ex: -150 odds, bet $150 to win $100 | +150 odds, bet $100 to win $150',
+    win: 'Ex: -150 odds, risk $150 to win $100 | +150 odds, risk $67 to win $100',
+};
 const FALLBACK_MIN = 10;
 const FALLBACK_MAX = 100;
 
@@ -47,14 +59,65 @@ const label = {
     marginBottom: 6,
 };
 
+// Per-step chrome for the two rules-acceptance steps. house_rules is the
+// management policy set (Payouts/Freeplay/Referrals/conduct); platform_rules
+// is the wagering terms set (the pre-split content). Order matters: House
+// first, Platform second (product request 2026-07-22).
+const RULES_STEPS = {
+    house: {
+        setKey: 'house_rules',
+        title: 'House Rules',
+        checkboxLabel: 'I have read and understand the House Rules.',
+    },
+    platform: {
+        setKey: 'platform_rules',
+        title: 'Platform Rules',
+        checkboxLabel: 'I have read and understand the Platform Rules.',
+    },
+};
+
+// Payment Apps step fields (gate step 4, new signups only). Keys MUST match
+// the pre-existing user.apps schema agents manage in CustomerDetailsView —
+// venmo/cashapp/applePay/zelle/paypal/btc — so player-entered handles land in
+// the exact card agents already read at payout time. Every field must carry a
+// value ("N/A" via the button counts) before Save enables. Keep the field
+// list in lockstep with AccountPanel's PaymentAppsCard.
+const PAYMENT_APP_FIELDS = [
+    { key: 'venmo', label: 'Venmo', prefix: '@', placeholder: 'username' },
+    { key: 'cashapp', label: 'Cash App', prefix: '$', placeholder: 'cashtag' },
+    { key: 'applePay', label: 'Apple Pay', prefix: null, placeholder: 'Phone or email' },
+    { key: 'zelle', label: 'Zelle', prefix: null, placeholder: 'Phone or email' },
+    { key: 'paypal', label: 'PayPal', prefix: null, placeholder: 'Email or @username' },
+    { key: 'btc', label: 'BTC Address', prefix: null, placeholder: 'Wallet address' },
+];
+
 const OnboardingGate = ({ user, onDismiss }) => {
     const { showToast } = useToast();
     const onboarding = user?.onboarding || {};
-    // Local step advance after a successful save — don't wait a me-refresh
-    // round-trip to show step 2.
-    const [defaultsDone, setDefaultsDone] = React.useState(!onboarding.needsDefaults);
-    const step = defaultsDone ? 2 : 1;
-    const totalSteps = 2;
+    // The step plan is FROZEN at mount from the server-derived onboarding
+    // state, so "Step X of N" numbering doesn't reshuffle mid-flow: a
+    // pre-split player who already accepted Platform Rules sees only the
+    // steps they still owe. Per-set flags fall back to the legacy aggregate
+    // needsRulesAck (older server payloads) — both rules steps show.
+    const [stepPlan] = React.useState(() => {
+        const plan = [];
+        if (onboarding.needsDefaults) plan.push('defaults');
+        if (onboarding.needsHouseRulesAck ?? onboarding.needsRulesAck) plan.push('house');
+        if (onboarding.needsPlatformRulesAck ?? onboarding.needsRulesAck) plan.push('platform');
+        // payapps is server-flagged for NEW signups only (registration seeds
+        // paymentAppsRequired) — absent flag means an existing player, who
+        // must never be gated on it. No legacy fallback on purpose.
+        if (onboarding.needsPaymentApps) plan.push('payapps');
+        return plan.length ? plan : ['defaults', 'house', 'platform'];
+    });
+    // Local done flags advance the flow after each successful save — don't
+    // wait a me-refresh round-trip to show the next step.
+    const [doneSteps, setDoneSteps] = React.useState(() => ({}));
+    const markDone = (key) => setDoneSteps((prev) => ({ ...prev, [key]: true }));
+    const currentStep = stepPlan.find((key) => !doneSteps[key]) || null;
+    const stepNumber = currentStep ? stepPlan.indexOf(currentStep) + 1 : stepPlan.length;
+    const totalSteps = stepPlan.length;
+    const isLastStep = currentStep !== null && stepPlan.indexOf(currentStep) === stepPlan.length - 1;
 
     /* ── Step 1 state (mirrors BetDefaultsCard) ─────────────────────────── */
     const stored = (user?.settings?.betDefaults && typeof user.settings.betDefaults === 'object')
@@ -64,7 +127,6 @@ const OnboardingGate = ({ user, onDismiss }) => {
     const playerMaxBet = Number(user?.maxBet);
     const lockedMin = Number.isFinite(playerMinBet) && playerMinBet > 0 ? Math.round(playerMinBet) : FALLBACK_MIN;
     const lockedMax = Number.isFinite(playerMaxBet) && playerMaxBet > 0 ? Math.round(playerMaxBet) : FALLBACK_MAX;
-    const [autoMid1, autoMid2, autoMid3] = computeMidQuickStakes(lockedMin, lockedMax);
 
     const legacyAmount = Number(stored?.amount);
     const seedAmount = (raw) => (Number.isFinite(Number(raw)) && Number(raw) > 0
@@ -90,9 +152,15 @@ const OnboardingGate = ({ user, onDismiss }) => {
             const mids = [saved[1], saved[2], saved[3]].map(Number);
             if (mids.every((n) => Number.isFinite(n) && n > 0)) return mids.map(String);
         }
-        return [String(autoMid1), String(autoMid2), String(autoMid3)];
+        // First login: empty on purpose (Fida 2026-07-22) — picking their own
+        // quick stakes is part of the step, so no computed sample values.
+        return ['', '', ''];
     });
     const [saving, setSaving] = React.useState(false);
+    // Gate the CTA until every editable field is filled; the range/ordering
+    // rules stay as on-click toasts in saveDefaults.
+    const filled = (v) => v !== '' && Number(v) > 0;
+    const canSave = filled(straightAmount) && filled(parlayAmount) && midStakes.every(filled);
 
     const saveDefaults = async () => {
         const token = getStoredAuthToken();
@@ -149,7 +217,7 @@ const OnboardingGate = ({ user, onDismiss }) => {
                 },
             }, token);
             window.dispatchEvent(new Event('user:refresh'));
-            setDefaultsDone(true);
+            markDone('defaults');
         } catch (err) {
             showToast?.(err?.message || 'Failed to save bet defaults', 'error');
         } finally {
@@ -157,40 +225,100 @@ const OnboardingGate = ({ user, onDismiss }) => {
         }
     };
 
-    /* ── Step 2 state ───────────────────────────────────────────────────── */
+    /* ── Rules steps state (shared by House + Platform) ─────────────────── */
+    // One fetch serves both steps — /content/rules returns every active doc
+    // with its ruleSet tag; each step filters its own set.
     const [rules, setRules] = React.useState(null);
     const [rulesError, setRulesError] = React.useState(false);
-    const [accepted, setAccepted] = React.useState(false);
+    // Checkbox state is PER SET — accepting House Rules must not pre-tick
+    // the Platform Rules box; each document gets its own deliberate tap.
+    const [acceptedSets, setAcceptedSets] = React.useState({});
     const [acking, setAcking] = React.useState(false);
 
+    const onRulesStep = currentStep === 'house' || currentStep === 'platform';
+
     React.useEffect(() => {
-        if (step !== 2 || rules !== null) return;
+        if (!onRulesStep || rules !== null) return;
         let alive = true;
         const token = getStoredAuthToken();
         getContentRules(token)
             .then((data) => { if (alive) setRules(Array.isArray(data?.rules) ? data.rules : []); })
             .catch(() => { if (alive) { setRules([]); setRulesError(true); } });
         return () => { alive = false; };
-    }, [step, rules]);
+    }, [onRulesStep, rules]);
 
-    const confirmRules = async () => {
-        if (!accepted || acking) return;
+    /* ── Payment Apps step state ────────────────────────────────────────── */
+    // Seeded from user.apps (agents may have pre-filled some handles); each
+    // field needs an explicit value — a handle or the N/A button.
+    const [payApps, setPayApps] = React.useState(() => {
+        const existing = (user?.apps && typeof user.apps === 'object') ? user.apps : {};
+        const seeded = {};
+        PAYMENT_APP_FIELDS.forEach((f) => {
+            seeded[f.key] = typeof existing[f.key] === 'string' ? existing[f.key] : '';
+        });
+        return seeded;
+    });
+    const [savingApps, setSavingApps] = React.useState(false);
+    const payAppsComplete = PAYMENT_APP_FIELDS.every((f) => (payApps[f.key] || '').trim() !== '');
+
+    const savePaymentApps = async () => {
+        if (!payAppsComplete || savingApps) return;
+        const token = getStoredAuthToken();
+        if (!token) return;
+        setSavingApps(true);
+        try {
+            await updateProfile({ apps: payApps }, token);
+            window.dispatchEvent(new Event('user:refresh'));
+            markDone('payapps');
+            if (isLastStep) {
+                showToast?.('You are all set — good luck!', 'success');
+            }
+        } catch (err) {
+            showToast?.(err?.message || 'Failed to save payment apps', 'error');
+        } finally {
+            setSavingApps(false);
+        }
+    };
+
+    const confirmRules = async (stepKey) => {
+        const setKey = RULES_STEPS[stepKey]?.setKey;
+        if (!setKey || !acceptedSets[setKey] || acking) return;
         const token = getStoredAuthToken();
         if (!token) return;
         setAcking(true);
         try {
-            await acknowledgeRules(token);
+            await acknowledgeRules(token, setKey);
             // acknowledgeRules primes the fresh me payload; the refresh event
-            // flips user.onboarding.required in App state, which unmounts us.
+            // updates user.onboarding in App state — after the FINAL set,
+            // required flips false and App unmounts us.
             window.dispatchEvent(new Event('user:refresh'));
-            showToast?.('You are all set — good luck!', 'success');
+            markDone(stepKey);
+            if (isLastStep) {
+                showToast?.('You are all set — good luck!', 'success');
+            }
         } catch (err) {
             showToast?.(err?.message || 'Failed to acknowledge rules', 'error');
+        } finally {
             setAcking(false);
         }
     };
 
     /* ── Render ─────────────────────────────────────────────────────────── */
+    // Every step done (final ack fired, App's user:refresh unmount is a
+    // beat away) — render nothing rather than a stray empty shell.
+    if (currentStep === null) {
+        return null;
+    }
+
+    const rulesStep = onRulesStep ? RULES_STEPS[currentStep] : null;
+    const rulesSections = rulesStep
+        ? (rules || []).filter((s) => ((s.ruleSet || 'platform_rules') === rulesStep.setKey))
+        : [];
+    // Loaded but empty (set deactivated in admin): treat like a fetch error —
+    // never let a player "accept" a document they were never shown.
+    const rulesUnavailable = rulesError || (rules !== null && rulesSections.length === 0);
+    const rulesAccepted = rulesStep ? !!acceptedSets[rulesStep.setKey] : false;
+
     return (
         <div style={{
             position: 'fixed',
@@ -218,10 +346,12 @@ const OnboardingGate = ({ user, onDismiss }) => {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 10px' }}>
                     <div>
                         <div style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>
-                            {step === 1 ? 'Set Your Bet Defaults' : 'Platform Rules'}
+                            {currentStep === 'defaults' ? 'Set Your Bet Defaults'
+                                : currentStep === 'payapps' ? 'Payment Apps'
+                                : rulesStep?.title}
                         </div>
                         <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginTop: 2 }}>
-                            Step {step} of {totalSteps} — required before you can place bets
+                            Step {stepNumber} of {totalSteps} — required before you can place bets
                         </div>
                     </div>
                     {/* Dismiss = browse without betting. NOT a skip: the gate
@@ -238,7 +368,7 @@ const OnboardingGate = ({ user, onDismiss }) => {
                 </div>
 
                 <div style={{ padding: '4px 16px 16px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                    {step === 1 && (
+                    {currentStep === 'defaults' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                             {/* Paired {default mode + unit size} per bucket —
                                 same layout as the Account settings card. The
@@ -277,6 +407,11 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                             );
                                         })}
                                     </div>
+                                    {f.key === 'straight' && (
+                                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
+                                            {MODE_EXAMPLES[f.modeVal]}
+                                        </div>
+                                    )}
                                 </div>
                                 <div>
                                     <div style={label}>{f.text}</div>
@@ -287,7 +422,7 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                             min="0"
                                             step="1"
                                             inputMode="numeric"
-                                            placeholder="50"
+                                            placeholder="100"
                                             value={f.value}
                                             onChange={(e) => f.set(String(e.target.value).replace(/\D/g, ''))}
                                             style={{ width: '100%', padding: '10px 12px 10px 24px', border: 'none', outline: 'none', fontSize: 14, fontWeight: 700, color: '#0f172a', background: 'transparent', boxSizing: 'border-box', borderRadius: 8 }}
@@ -340,15 +475,27 @@ const OnboardingGate = ({ user, onDismiss }) => {
                             <button
                                 type="button"
                                 onClick={saveDefaults}
-                                disabled={saving}
-                                style={{ background: '#facc15', color: '#0f172a', border: 'none', borderRadius: 8, padding: '11px 14px', fontWeight: 800, fontSize: 13, letterSpacing: 0.4, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, textTransform: 'uppercase' }}
+                                disabled={saving || !canSave}
+                                style={{
+                                    background: canSave ? '#facc15' : '#cbd5e1',
+                                    color: canSave ? '#0f172a' : '#fff',
+                                    border: 'none',
+                                    borderRadius: 8,
+                                    padding: '11px 14px',
+                                    fontWeight: 800,
+                                    fontSize: 13,
+                                    letterSpacing: 0.4,
+                                    cursor: (saving || !canSave) ? 'not-allowed' : 'pointer',
+                                    opacity: saving ? 0.7 : 1,
+                                    textTransform: 'uppercase',
+                                }}
                             >
                                 {saving ? 'Saving…' : 'Save & Continue'}
                             </button>
                         </div>
                     )}
 
-                    {step === 2 && (
+                    {rulesStep && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                             <div style={{
                                 border: '1px solid #e2e8f0',
@@ -362,12 +509,12 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                 {rules === null && (
                                     <div style={{ fontSize: 12, color: '#64748b', padding: 8 }}>Loading rules…</div>
                                 )}
-                                {rules !== null && rulesError && (
+                                {rules !== null && rulesUnavailable && (
                                     <div style={{ fontSize: 12, color: '#64748b', padding: 8 }}>
                                         Rules are temporarily unavailable — please try again in a moment.
                                     </div>
                                 )}
-                                {(rules || []).map((section, i) => (
+                                {rulesSections.map((section, i) => (
                                     <div key={section.id || i} style={{ marginBottom: 10 }}>
                                         <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>
                                             {section.title}
@@ -386,19 +533,22 @@ const OnboardingGate = ({ user, onDismiss }) => {
                             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', fontSize: 13, color: '#0f172a', fontWeight: 600, lineHeight: 1.4 }}>
                                 <input
                                     type="checkbox"
-                                    checked={accepted}
-                                    onChange={(e) => setAccepted(e.target.checked)}
+                                    checked={rulesAccepted}
+                                    onChange={(e) => {
+                                        const checked = e.target.checked;
+                                        setAcceptedSets((prev) => ({ ...prev, [rulesStep.setKey]: checked }));
+                                    }}
                                     style={{ marginTop: 2, width: 16, height: 16, accentColor: '#16a34a' }}
                                 />
-                                I have read and understand the platform rules.
+                                {rulesStep.checkboxLabel}
                             </label>
 
                             <button
                                 type="button"
-                                onClick={confirmRules}
-                                disabled={!accepted || acking || rules === null || rulesError}
+                                onClick={() => confirmRules(currentStep)}
+                                disabled={!rulesAccepted || acking || rules === null || rulesUnavailable}
                                 style={{
-                                    background: (!accepted || rules === null || rulesError) ? '#cbd5e1' : '#16a34a',
+                                    background: (!rulesAccepted || rules === null || rulesUnavailable) ? '#cbd5e1' : '#16a34a',
                                     color: '#fff',
                                     border: 'none',
                                     borderRadius: 8,
@@ -406,12 +556,101 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                     fontWeight: 800,
                                     fontSize: 13,
                                     letterSpacing: 0.4,
-                                    cursor: (!accepted || acking || rules === null || rulesError) ? 'not-allowed' : 'pointer',
+                                    cursor: (!rulesAccepted || acking || rules === null || rulesUnavailable) ? 'not-allowed' : 'pointer',
                                     opacity: acking ? 0.7 : 1,
                                     textTransform: 'uppercase',
                                 }}
                             >
-                                {acking ? 'Confirming…' : 'I Agree — Start Betting'}
+                                {acking ? 'Confirming…' : (isLastStep ? 'I Agree — Start Betting' : 'Accept & Continue')}
+                            </button>
+                        </div>
+                    )}
+
+                    {currentStep === 'payapps' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            <div style={{ fontSize: 12, color: '#334155', lineHeight: 1.5 }}>
+                                Enter your handle for each payout app — this is how your agent pays
+                                you. Tap <strong>N/A</strong> for any app you don&apos;t use. Every
+                                field needs an answer.
+                            </div>
+                            {PAYMENT_APP_FIELDS.map((f) => {
+                                const value = payApps[f.key] || '';
+                                const isNA = value === 'N/A';
+                                return (
+                                    <div key={f.key}>
+                                        <div style={label}>{f.label}</div>
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                            <div style={{ position: 'relative', flex: 1, border: '1px solid #e2e8f0', borderRadius: 8, background: isNA ? '#f1f5f9' : '#fbfbfd' }}>
+                                                {f.prefix && !isNA && (
+                                                    <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 700, color: '#94a3b8', pointerEvents: 'none' }}>
+                                                        {f.prefix}
+                                                    </span>
+                                                )}
+                                                <input
+                                                    type="text"
+                                                    value={value}
+                                                    placeholder={f.placeholder}
+                                                    readOnly={isNA}
+                                                    onChange={(e) => {
+                                                        const next = e.target.value;
+                                                        setPayApps((prev) => ({ ...prev, [f.key]: next }));
+                                                    }}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: (f.prefix && !isNA) ? '10px 12px 10px 24px' : '10px 12px',
+                                                        border: 'none',
+                                                        outline: 'none',
+                                                        fontSize: 14,
+                                                        fontWeight: 600,
+                                                        color: isNA ? '#64748b' : '#0f172a',
+                                                        background: 'transparent',
+                                                        boxSizing: 'border-box',
+                                                        borderRadius: 8,
+                                                    }}
+                                                />
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setPayApps((prev) => ({ ...prev, [f.key]: isNA ? '' : 'N/A' }))}
+                                                title={isNA ? 'Undo — enter a handle instead' : `I don't use ${f.label}`}
+                                                style={{
+                                                    background: isNA ? '#64748b' : '#e8e8e8',
+                                                    color: isNA ? '#fff' : '#333',
+                                                    border: 'none',
+                                                    borderRadius: 8,
+                                                    padding: '0 14px',
+                                                    fontWeight: 800,
+                                                    fontSize: 12,
+                                                    letterSpacing: 0.4,
+                                                    cursor: 'pointer',
+                                                    flexShrink: 0,
+                                                }}
+                                            >
+                                                N/A
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            <button
+                                type="button"
+                                onClick={savePaymentApps}
+                                disabled={savingApps || !payAppsComplete}
+                                style={{
+                                    background: payAppsComplete ? '#facc15' : '#cbd5e1',
+                                    color: payAppsComplete ? '#0f172a' : '#fff',
+                                    border: 'none',
+                                    borderRadius: 8,
+                                    padding: '11px 14px',
+                                    fontWeight: 800,
+                                    fontSize: 13,
+                                    letterSpacing: 0.4,
+                                    cursor: (savingApps || !payAppsComplete) ? 'not-allowed' : 'pointer',
+                                    opacity: savingApps ? 0.7 : 1,
+                                    textTransform: 'uppercase',
+                                }}
+                            >
+                                {savingApps ? 'Saving…' : (isLastStep ? 'Save & Start Betting' : 'Save & Continue')}
                             </button>
                         </div>
                     )}

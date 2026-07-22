@@ -7,7 +7,7 @@ function RulesAdminView() {
   const [error, setError] = useState('');
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingRule, setEditingRule] = useState(null);
-  const [form, setForm] = useState({ title: '', items: '', status: 'active' });
+  const [form, setForm] = useState({ title: '', items: '', status: 'active', ruleSet: 'platform_rules' });
   const [actionLoadingId, setActionLoadingId] = useState(null);
 
   const loadRules = async () => {
@@ -36,13 +36,19 @@ function RulesAdminView() {
 
   const openCreateModal = () => {
     setEditingRule(null);
-    setForm({ title: '', items: '', status: 'active' });
+    setForm({ title: '', items: '', status: 'active', ruleSet: 'platform_rules' });
     setShowFormModal(true);
   };
 
   const openEditModal = (rule) => {
     setEditingRule(rule);
-    setForm({ title: rule.title, items: (rule.items || []).join('\n'), status: rule.status || 'active' });
+    setForm({
+      title: rule.title,
+      items: (rule.items || []).join('\n'),
+      status: rule.status || 'active',
+      // Docs without ruleSet predate the two-set split = platform_rules.
+      ruleSet: rule.ruleSet === 'house_rules' ? 'house_rules' : 'platform_rules',
+    });
     setShowFormModal(true);
   };
 
@@ -57,7 +63,8 @@ function RulesAdminView() {
       const payload = {
         title: form.title.trim(),
         items: form.items.split('\n').map(item => item.trim()).filter(Boolean),
-        status: form.status
+        status: form.status,
+        ruleSet: form.ruleSet
       };
       if (editingRule) {
         await updateRule(editingRule.id, payload, token);
@@ -103,7 +110,12 @@ function RulesAdminView() {
         <div className="rules-container">
           {rules.map(rule => (
             <div key={rule.id} className="rule-card">
-              <h3>{rule.title}</h3>
+              <h3>
+                {rule.title}
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', marginLeft: 8, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                  {rule.ruleSet === 'house_rules' ? 'House Rules' : 'Platform Rules'}
+                </span>
+              </h3>
               <ul>
                 {(rule.items || []).map((item, idx) => (
                   <li key={idx}>{item}</li>
@@ -145,6 +157,13 @@ function RulesAdminView() {
                   value={form.items}
                   onChange={(e) => setForm(prev => ({ ...prev, items: e.target.value }))}
                 />
+              </div>
+              <div className="filter-group">
+                <label>Rule Set</label>
+                <select value={form.ruleSet} onChange={(e) => setForm(prev => ({ ...prev, ruleSet: e.target.value }))}>
+                  <option value="platform_rules">Platform Rules (wagering terms)</option>
+                  <option value="house_rules">House Rules (payouts / freeplay / referrals / conduct)</option>
+                </select>
               </div>
               <div className="filter-group">
                 <label>Status</label>
