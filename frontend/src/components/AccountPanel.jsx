@@ -6,8 +6,8 @@ import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/time
 import { computeMidQuickStakes } from '../utils/money';
 import { straightDefaultMode, parlayDefaultMode } from '../utils/betDefaults';
 import { setMyBetsInitialFilter } from './myBetsState';
-import { normalizePreferenceOrder, sanitizeHandle, isFilledHandle } from '../utils/paymentApps';
-import PaymentPreferenceRanking from './PaymentPreferenceRanking';
+import { normalizePreferenceOrder, isFilledHandle } from '../utils/paymentApps';
+import PaymentAppsEditor from './PaymentAppsEditor';
 
 const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
 // Three stake modes available to players:
@@ -722,71 +722,11 @@ const PaymentAppsCard = ({ user }) => {
                     to the wrong person, we are not liable. Drag apps in order on which you
                     prefer to be paid on.
                 </div>
-                {PAYMENT_APP_FIELDS.map((f) => {
-                    const value = values[f.key] || '';
-                    const isNA = value === 'N/A';
-                    return (
-                        <div key={f.key}>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-                                {f.label}
-                            </div>
-                            <div style={{ display: 'flex', gap: 6 }}>
-                                <div style={{ position: 'relative', flex: 1, border: `1px solid ${palette.cardBorder}`, borderRadius: 8, background: isNA ? '#f1f5f9' : '#fbfbfd' }}>
-                                    {f.prefix && !isNA && (
-                                        <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 700, color: palette.textFaint, pointerEvents: 'none' }}>
-                                            {f.prefix}
-                                        </span>
-                                    )}
-                                    <input
-                                        type="text"
-                                        value={value}
-                                        placeholder={f.placeholder}
-                                        readOnly={isNA}
-                                        onChange={(e) => {
-                                            const next = sanitizeHandle(e.target.value);
-                                            setValues((prev) => ({ ...prev, [f.key]: next }));
-                                        }}
-                                        style={{
-                                            width: '100%',
-                                            padding: (f.prefix && !isNA) ? '10px 12px 10px 24px' : '10px 12px',
-                                            border: 'none',
-                                            outline: 'none',
-                                            fontSize: 14,
-                                            fontWeight: 600,
-                                            color: isNA ? palette.textMuted : palette.textPrimary,
-                                            background: 'transparent',
-                                            boxSizing: 'border-box',
-                                            borderRadius: 8,
-                                        }}
-                                    />
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => setValues((prev) => ({ ...prev, [f.key]: isNA ? '' : 'N/A' }))}
-                                    title={isNA ? 'Undo — enter a handle instead' : `I don't use ${f.label}`}
-                                    style={{
-                                        background: isNA ? '#64748b' : '#e8e8e8',
-                                        color: isNA ? '#fff' : '#333',
-                                        border: 'none',
-                                        borderRadius: 8,
-                                        padding: '0 14px',
-                                        fontWeight: 800,
-                                        fontSize: 12,
-                                        letterSpacing: 0.4,
-                                        cursor: 'pointer',
-                                        flexShrink: 0,
-                                    }}
-                                >
-                                    N/A
-                                </button>
-                            </div>
-                        </div>
-                    );
-                })}
-                <PaymentPreferenceRanking
+                <PaymentAppsEditor
                     values={values}
                     order={prefOrder}
-                    onChange={setPrefOrder}
+                    onValuesChange={setValues}
+                    onOrderChange={setPrefOrder}
                 />
                 {!complete && (
                     <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textAlign: 'center' }}>

@@ -1,9 +1,9 @@
 import React from 'react';
 import { updateProfile, acknowledgeRules, getContentRules, getStoredAuthToken } from '../api';
 import { hasReachedScrollBottom } from '../utils/scroll';
-import { normalizePreferenceOrder, sanitizeHandle, isFilledHandle } from '../utils/paymentApps';
+import { normalizePreferenceOrder, isFilledHandle } from '../utils/paymentApps';
 import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/timezone';
-import PaymentPreferenceRanking from './PaymentPreferenceRanking';
+import PaymentAppsEditor from './PaymentAppsEditor';
 import { useToast } from '../contexts/ToastContext';
 
 /**
@@ -672,69 +672,11 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                 misspelled and sent to the wrong person, we are not liable. Drag
                                 apps in order on which you prefer to be paid on.
                             </div>
-                            {PAYMENT_APP_FIELDS.map((f) => {
-                                const value = payApps[f.key] || '';
-                                const isNA = value === 'N/A';
-                                return (
-                                    <div key={f.key}>
-                                        <div style={label}>{f.label}</div>
-                                        <div style={{ display: 'flex', gap: 6 }}>
-                                            <div style={{ position: 'relative', flex: 1, border: '1px solid #e2e8f0', borderRadius: 8, background: isNA ? '#f1f5f9' : '#fbfbfd' }}>
-                                                {f.prefix && !isNA && (
-                                                    <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 700, color: '#94a3b8', pointerEvents: 'none' }}>
-                                                        {f.prefix}
-                                                    </span>
-                                                )}
-                                                <input
-                                                    type="text"
-                                                    value={value}
-                                                    placeholder={f.placeholder}
-                                                    readOnly={isNA}
-                                                    onChange={(e) => {
-                                                        const next = sanitizeHandle(e.target.value);
-                                                        setPayApps((prev) => ({ ...prev, [f.key]: next }));
-                                                    }}
-                                                    style={{
-                                                        width: '100%',
-                                                        padding: (f.prefix && !isNA) ? '10px 12px 10px 24px' : '10px 12px',
-                                                        border: 'none',
-                                                        outline: 'none',
-                                                        fontSize: 14,
-                                                        fontWeight: 600,
-                                                        color: isNA ? '#64748b' : '#0f172a',
-                                                        background: 'transparent',
-                                                        boxSizing: 'border-box',
-                                                        borderRadius: 8,
-                                                    }}
-                                                />
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => setPayApps((prev) => ({ ...prev, [f.key]: isNA ? '' : 'N/A' }))}
-                                                title={isNA ? 'Undo — enter a handle instead' : `I don't use ${f.label}`}
-                                                style={{
-                                                    background: isNA ? '#64748b' : '#e8e8e8',
-                                                    color: isNA ? '#fff' : '#333',
-                                                    border: 'none',
-                                                    borderRadius: 8,
-                                                    padding: '0 14px',
-                                                    fontWeight: 800,
-                                                    fontSize: 12,
-                                                    letterSpacing: 0.4,
-                                                    cursor: 'pointer',
-                                                    flexShrink: 0,
-                                                }}
-                                            >
-                                                N/A
-                                            </button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                            <PaymentPreferenceRanking
+                            <PaymentAppsEditor
                                 values={payApps}
                                 order={payAppsOrder}
-                                onChange={setPayAppsOrder}
+                                onValuesChange={setPayApps}
+                                onOrderChange={setPayAppsOrder}
                             />
                             {!payAppsComplete && (
                                 <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textAlign: 'center' }}>
