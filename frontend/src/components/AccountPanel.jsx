@@ -6,6 +6,8 @@ import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/time
 import { computeMidQuickStakes } from '../utils/money';
 import { straightDefaultMode, parlayDefaultMode } from '../utils/betDefaults';
 import { setMyBetsInitialFilter } from './myBetsState';
+import { normalizePreferenceOrder } from '../utils/paymentApps';
+import PaymentPreferenceRanking from './PaymentPreferenceRanking';
 
 const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
 // Three stake modes available to players:
@@ -633,10 +635,19 @@ const PaymentAppsCard = ({ user }) => {
         return out;
     };
     const [values, setValues] = React.useState(() => seedFrom(user?.apps));
+    // Payout preference order (drag-to-rank widget below the fields);
+    // normalized live against current field values, server re-normalizes on
+    // save.
+    const [prefOrder, setPrefOrder] = React.useState(() => (
+        Array.isArray(user?.apps?.preferenceOrder) ? user.apps.preferenceOrder : []
+    ));
     const [saving, setSaving] = React.useState(false);
     // Reseed when a fresh me payload lands (mirrors BetDefaultsCard).
     React.useEffect(() => {
-        if (user?.apps && typeof user.apps === 'object') setValues(seedFrom(user.apps));
+        if (user?.apps && typeof user.apps === 'object') {
+            setValues(seedFrom(user.apps));
+            if (Array.isArray(user.apps.preferenceOrder)) setPrefOrder(user.apps.preferenceOrder);
+        }
     }, [user?.apps]);
 
     const complete = PAYMENT_APP_FIELDS.every((f) => (values[f.key] || '').trim() !== '');
@@ -654,7 +665,7 @@ const PaymentAppsCard = ({ user }) => {
         }
         setSaving(true);
         try {
-            await updateProfile({ apps: values }, token);
+            await updateProfile({ apps: { ...values, preferenceOrder: normalizePreferenceOrder(prefOrder, values) } }, token);
             showToast?.('Payment apps saved', 'success');
             window.dispatchEvent(new Event('user:refresh'));
         } catch (err) {
@@ -756,6 +767,11 @@ const PaymentAppsCard = ({ user }) => {
                         </div>
                     );
                 })}
+                <PaymentPreferenceRanking
+                    values={values}
+                    order={prefOrder}
+                    onChange={setPrefOrder}
+                />
                 {updatedAt && (
                     <div style={{ fontSize: 10, color: palette.textFaint }}>
                         Last updated {new Date(updatedAt).toLocaleDateString()}

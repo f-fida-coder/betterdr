@@ -274,6 +274,48 @@ final class OnboardingPolicy
         return ($user[self::PAYMENT_APPS_LATCH] ?? false) === true;
     }
 
+    /** A real payout handle — non-blank and not the explicit N/A opt-out. */
+    public static function paymentHandleFilled(mixed $value): bool
+    {
+        if (!is_string($value)) {
+            return false;
+        }
+        $v = trim($value);
+        return $v !== '' && strtoupper($v) !== 'N/A';
+    }
+
+    /**
+     * Payout-preference sync rule — MIRRORS utils/paymentApps.js
+     * normalizePreferenceOrder (keep in lockstep): the saved/incoming order
+     * minus unknown, unfilled, and duplicate keys, then any newly-filled
+     * apps appended in canonical PAYMENT_APPS_KEYS order. The result always
+     * lists exactly the currently-filled apps, position 1..N with no gaps —
+     * N/A'd apps drop out, new handles join at the end, and a player who
+     * never touched the ranking widget gets the canonical default. Never
+     * blocks a save; this is a normalization, not a validation.
+     */
+    public static function normalizePaymentPreferenceOrder(array $order, array $apps): array
+    {
+        $filled = [];
+        foreach (self::PAYMENT_APPS_KEYS as $key) {
+            if (self::paymentHandleFilled($apps[$key] ?? null)) {
+                $filled[] = $key;
+            }
+        }
+        $kept = [];
+        foreach ($order as $key) {
+            if (is_string($key) && in_array($key, $filled, true) && !in_array($key, $kept, true)) {
+                $kept[] = $key;
+            }
+        }
+        foreach ($filled as $key) {
+            if (!in_array($key, $kept, true)) {
+                $kept[] = $key;
+            }
+        }
+        return $kept;
+    }
+
     /**
      * Legacy predicate (pre-split name) — true when the PLATFORM set is
      * current. Kept because the pre-split meaning was exactly this stamp.

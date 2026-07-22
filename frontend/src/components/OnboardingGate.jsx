@@ -1,6 +1,8 @@
 import React from 'react';
 import { updateProfile, acknowledgeRules, getContentRules, getStoredAuthToken } from '../api';
 import { hasReachedScrollBottom } from '../utils/scroll';
+import { normalizePreferenceOrder } from '../utils/paymentApps';
+import PaymentPreferenceRanking from './PaymentPreferenceRanking';
 import { useToast } from '../contexts/ToastContext';
 
 /**
@@ -282,6 +284,12 @@ const OnboardingGate = ({ user, onDismiss }) => {
         return seeded;
     });
     const [savingApps, setSavingApps] = React.useState(false);
+    // Payout preference order (drag-to-rank). Seeded from any saved order;
+    // rendered/normalized live against the CURRENT field values, so N/A'd
+    // apps drop out and newly-typed handles join as the player edits.
+    const [payAppsOrder, setPayAppsOrder] = React.useState(() => (
+        Array.isArray(user?.apps?.preferenceOrder) ? user.apps.preferenceOrder : []
+    ));
     const payAppsComplete = PAYMENT_APP_FIELDS.every((f) => (payApps[f.key] || '').trim() !== '');
 
     const savePaymentApps = async () => {
@@ -290,7 +298,10 @@ const OnboardingGate = ({ user, onDismiss }) => {
         if (!token) return;
         setSavingApps(true);
         try {
-            await updateProfile({ apps: payApps }, token);
+            // Order is normalized against the outgoing values (server
+            // re-normalizes authoritatively — this just avoids sending a
+            // stale array).
+            await updateProfile({ apps: { ...payApps, preferenceOrder: normalizePreferenceOrder(payAppsOrder, payApps) } }, token);
             window.dispatchEvent(new Event('user:refresh'));
             markDone('payapps');
             if (isLastStep) {
@@ -678,6 +689,11 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                     </div>
                                 );
                             })}
+                            <PaymentPreferenceRanking
+                                values={payApps}
+                                order={payAppsOrder}
+                                onChange={setPayAppsOrder}
+                            />
                             <button
                                 type="button"
                                 onClick={savePaymentApps}

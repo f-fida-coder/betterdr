@@ -764,9 +764,26 @@ final class AuthController
                     }
                     $incomingApps[$key] = $value;
                 }
-                if ($incomingApps !== []) {
+                // Payout preference order (drag-to-rank widget). Client may
+                // send it; the server ALWAYS re-derives it against the
+                // merged handles via the shared sync rule, so it can only
+                // ever list currently-filled apps 1..N — a stale/tampered
+                // array is normalized, never rejected (ranking is a
+                // preference, not a validation gate).
+                $incomingOrder = null;
+                if (array_key_exists('preferenceOrder', $body['apps'])) {
+                    if (!is_array($body['apps']['preferenceOrder'])) {
+                        Response::json(['message' => 'apps.preferenceOrder must be an array'], 400);
+                        return;
+                    }
+                    $incomingOrder = $body['apps']['preferenceOrder'];
+                }
+                if ($incomingApps !== [] || $incomingOrder !== null) {
                     $existingApps = is_array($user['apps'] ?? null) ? $user['apps'] : [];
                     $mergedApps = array_merge($existingApps, $incomingApps);
+                    $baseOrder = $incomingOrder
+                        ?? (is_array($existingApps['preferenceOrder'] ?? null) ? $existingApps['preferenceOrder'] : []);
+                    $mergedApps['preferenceOrder'] = OnboardingPolicy::normalizePaymentPreferenceOrder($baseOrder, $mergedApps);
                     $mergedApps['updatedAt'] = SqlRepository::nowUtc();
                     $user['apps'] = $mergedApps;
                     $updates['apps'] = $mergedApps;

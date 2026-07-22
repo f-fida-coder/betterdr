@@ -295,6 +295,21 @@ TestRunner::run('paymentAppsComplete — other/updatedAt never affect completene
     TestRunner::assertTrue(!OnboardingPolicy::paymentAppsComplete($player()), 'no apps object → incomplete');
 });
 
+// ── Payout preference order (drag-to-rank; mirrors utils/paymentApps.js) ────────
+TestRunner::run('normalizePaymentPreferenceOrder — sync rule matches the FE mirror', function (): void {
+    $apps = ['venmo' => '@v', 'cashapp' => 'N/A', 'applePay' => 'a@b.c', 'zelle' => 'N/A', 'paypal' => 'p', 'btc' => 'N/A'];
+    TestRunner::assertEquals(['venmo', 'applePay', 'paypal'], OnboardingPolicy::normalizePaymentPreferenceOrder([], $apps), 'untouched → canonical default');
+    TestRunner::assertEquals(['paypal', 'venmo', 'applePay'], OnboardingPolicy::normalizePaymentPreferenceOrder(['paypal', 'venmo', 'applePay'], $apps), 'saved order preserved');
+    $paypalNA = array_merge($apps, ['paypal' => 'N/A']);
+    TestRunner::assertEquals(['venmo', 'applePay'], OnboardingPolicy::normalizePaymentPreferenceOrder(['paypal', 'venmo', 'applePay'], $paypalNA), 'N/A drops out, no gaps');
+    $zelleFilled = array_merge($apps, ['zelle' => '555-1234']);
+    TestRunner::assertEquals(['paypal', 'venmo', 'applePay', 'zelle'], OnboardingPolicy::normalizePaymentPreferenceOrder(['paypal', 'venmo', 'applePay'], $zelleFilled), 'newly-filled appends');
+    TestRunner::assertEquals(['venmo', 'applePay', 'paypal'], OnboardingPolicy::normalizePaymentPreferenceOrder(['other', 'venmo', 'venmo', 7, 'junk'], $apps), 'unknown/dupe/non-string keys dropped');
+    TestRunner::assertEquals([], OnboardingPolicy::normalizePaymentPreferenceOrder(['venmo'], ['venmo' => 'N/A']), 'all N/A → empty');
+    TestRunner::assertTrue(!OnboardingPolicy::paymentHandleFilled('n/a'), 'lowercase n/a is the opt-out too');
+    TestRunner::assertTrue(OnboardingPolicy::paymentHandleFilled('@fida'), 'real handle counts');
+});
+
 // ── Role / account-type exemptions ──────────────────────────────────────────────
 TestRunner::run('exemptions — only real player accounts are gated', function () use ($player): void {
     foreach (['admin', 'agent', 'super_agent', 'master_agent'] as $role) {

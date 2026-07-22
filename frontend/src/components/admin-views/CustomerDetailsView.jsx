@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { PAYMENT_APP_LABELS, normalizePreferenceOrder } from '../../utils/paymentApps';
 import {
   getAdminHeaderSummary,
   getUserStatistics,
@@ -721,7 +722,10 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
           appsZelle: user.apps?.zelle || '',
           appsPaypal: user.apps?.paypal || '',
           appsBtc: user.apps?.btc || '',
-          appsOther: user.apps?.other || ''
+          appsOther: user.apps?.other || '',
+          // Player-set payout preference (drag-to-rank in their account) —
+          // display-only here; agents edit handles, not the ranking.
+          appsPreferenceOrder: Array.isArray(user.apps?.preferenceOrder) ? user.apps.preferenceOrder : []
         });
       } catch (err) {
         console.error('Failed to load player details:', err);
@@ -3431,6 +3435,26 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
             <input value={form.appsOther} onChange={(e) => setField('appsOther', e.target.value)} placeholder="Other handle" />
           </div>
         </div>
+        {(() => {
+          // Player's payout preference, normalized against the CURRENT form
+          // values so an agent typing/clearing a handle sees the ranking
+          // react the same way the player's own widget would.
+          const ranked = normalizePreferenceOrder(form.appsPreferenceOrder, {
+            venmo: form.appsVenmo,
+            cashapp: form.appsCashapp,
+            applePay: form.appsApplePay,
+            zelle: form.appsZelle,
+            paypal: form.appsPaypal,
+            btc: form.appsBtc,
+          });
+          if (ranked.length < 2) return null;
+          return (
+            <div style={{ marginTop: 10, fontSize: 12, color: '#475569' }}>
+              <strong style={{ color: '#0f172a' }}>Payout preference:</strong>{' '}
+              {ranked.map((k, i) => `${i + 1}. ${PAYMENT_APP_LABELS[k] || k}`).join('  →  ')}
+            </div>
+          );
+        })()}
       </div>
 
       <div className="bottom-line">
