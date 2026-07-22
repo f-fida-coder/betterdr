@@ -31,6 +31,14 @@ const PARLAY_STAKE_MODE_OPTIONS = STAKE_MODE_OPTIONS.filter((m) => m.id !== 'bet
 // selected (two-pill row must always show an active pill) and only persists
 // as 'risk' when the player explicitly saves. No migration of stored values.
 const parlayDisplayMode = (m) => (m === 'bet' ? 'risk' : m);
+// Inline payout illustration per straight mode — keep in lockstep with
+// OnboardingGate's MODE_EXAMPLES (Fida 2026-07-22: shown in Account
+// settings too; straight toggle only, parlay stays bare).
+const MODE_EXAMPLES = {
+    risk: 'Ex: -150 odds, risk $100 to win $67 | +150 odds, risk $100 to win $150',
+    bet: 'Ex: -150 odds, bet $150 to win $100 | +150 odds, bet $100 to win $150',
+    win: 'Ex: -150 odds, risk $150 to win $100 | +150 odds, risk $67 to win $100',
+};
 
 const LANGUAGES = [
     'English',
@@ -279,7 +287,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     ];
     // Reusable labeled Bet/Risk/Win pill toggle — rendered once for the
     // Straight default mode and once for the independent Parlay default mode.
-    const renderModeBlock = (label, current, setter, options = STAKE_MODE_OPTIONS) => (
+    const renderModeBlock = (label, current, setter, options = STAKE_MODE_OPTIONS, showExample = false) => (
         <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                 {label}
@@ -310,6 +318,11 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                     );
                 })}
             </div>
+            {showExample && (
+                <div style={{ fontSize: 11, color: palette.textMuted, marginTop: 6, lineHeight: 1.4 }}>
+                    {MODE_EXAMPLES[current]}
+                </div>
+            )}
         </div>
     );
 
@@ -438,7 +451,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                     { key: 'parlay', modeLabel: 'Parlay default mode', modeVal: parlayMode, modeSet: setParlayMode, modeOptions: PARLAY_STAKE_MODE_OPTIONS, label: 'Parlay default (unit size)', value: parlayAmount, set: setParlayAmount, placeholder: '50' },
                 ].map((f) => (
                     <React.Fragment key={f.key}>
-                        {renderModeBlock(f.modeLabel, f.modeVal, f.modeSet, f.modeOptions)}
+                        {renderModeBlock(f.modeLabel, f.modeVal, f.modeSet, f.modeOptions, f.key === 'straight')}
                         <div>
                         <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                             {f.label}
