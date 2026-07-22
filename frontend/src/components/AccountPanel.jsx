@@ -772,6 +772,14 @@ const PaymentAppsCard = ({ user }) => {
                     order={prefOrder}
                     onChange={setPrefOrder}
                 />
+                {!complete && (
+                    <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textAlign: 'center' }}>
+                        {(() => {
+                            const left = PAYMENT_APP_FIELDS.filter((f) => (values[f.key] || '').trim() === '').length;
+                            return `${left} app${left === 1 ? '' : 's'} still need${left === 1 ? 's' : ''} a handle or N/A — Save unlocks when every app has an answer`;
+                        })()}
+                    </div>
+                )}
                 {updatedAt && (
                     <div style={{ fontSize: 10, color: palette.textFaint }}>
                         Last updated {new Date(updatedAt).toLocaleDateString()}

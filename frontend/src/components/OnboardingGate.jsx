@@ -2,6 +2,7 @@ import React from 'react';
 import { updateProfile, acknowledgeRules, getContentRules, getStoredAuthToken } from '../api';
 import { hasReachedScrollBottom } from '../utils/scroll';
 import { normalizePreferenceOrder } from '../utils/paymentApps';
+import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/timezone';
 import PaymentPreferenceRanking from './PaymentPreferenceRanking';
 import { useToast } from '../contexts/ToastContext';
 
@@ -159,6 +160,13 @@ const OnboardingGate = ({ user, onDismiss }) => {
         // quick stakes is part of the step, so no computed sample values.
         return ['', '', ''];
     });
+    // Display timezone (Nicky/Fida 2026-07-22: pick it at signup). Seeded
+    // from the server-saved preference, else this device's site timezone
+    // (localStorage, ET default). Always has a value — never blocks the step.
+    const [timezone, setTimezone] = React.useState(() => {
+        const saved = user?.settings?.timezone;
+        return SITE_TZ_OPTIONS.some((o) => o.value === saved) ? saved : getSiteTimezone();
+    });
     const [saving, setSaving] = React.useState(false);
     // Gate the CTA until every editable field is filled; the range/ordering
     // rules stay as on-click toasts in saveDefaults.
@@ -205,6 +213,10 @@ const OnboardingGate = ({ user, onDismiss }) => {
         try {
             await updateProfile({
                 settings: {
+                    // Same profile call carries the display timezone the
+                    // player picked on this step (server validates the zone;
+                    // Account Preferences edits the same field later).
+                    timezone,
                     betDefaults: {
                         mode,
                         // Explicit parlay-bucket mode from its own selector
@@ -219,6 +231,9 @@ const OnboardingGate = ({ user, onDismiss }) => {
                     },
                 },
             }, token);
+            // Apply on this device immediately — all match/bet timestamps
+            // re-render in the chosen zone without a reload.
+            setSiteTimezone(timezone);
             window.dispatchEvent(new Event('user:refresh'));
             markDone('defaults');
         } catch (err) {
@@ -509,6 +524,27 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                 </div>
                             </div>
 
+                            <div>
+                                <div style={label}>Time zone</div>
+                                <div style={{ position: 'relative', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fbfbfd' }}>
+                                    <select
+                                        value={timezone}
+                                        onChange={(e) => setTimezone(e.target.value)}
+                                        style={{ appearance: 'none', WebkitAppearance: 'none', width: '100%', padding: '10px 32px 10px 12px', border: 'none', outline: 'none', fontSize: 14, fontWeight: 600, color: '#0f172a', background: 'transparent', borderRadius: 8 }}
+                                    >
+                                        {SITE_TZ_OPTIONS.map((opt) => (
+                                            <option key={opt.value} value={opt.value}>
+                                                {opt.label} — {opt.value.replace('America/', '').replace('Pacific/', '').replace(/_/g, ' ')}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <i className="fa-solid fa-chevron-down" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#94a3b8', pointerEvents: 'none' }} />
+                                </div>
+                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
+                                    Game times everywhere on the site will show in this time zone.
+                                </div>
+                            </div>
+
                             <button
                                 type="button"
                                 onClick={saveDefaults}
@@ -694,6 +730,14 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                 order={payAppsOrder}
                                 onChange={setPayAppsOrder}
                             />
+                            {!payAppsComplete && (
+                                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textAlign: 'center' }}>
+                                    {(() => {
+                                        const left = PAYMENT_APP_FIELDS.filter((f) => (payApps[f.key] || '').trim() === '').length;
+                                        return `${left} app${left === 1 ? '' : 's'} still need${left === 1 ? 's' : ''} a handle or N/A`;
+                                    })()}
+                                </div>
+                            )}
                             <button
                                 type="button"
                                 onClick={savePaymentApps}
