@@ -407,13 +407,14 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                         padding: 0,
                         minHeight: 64,
                         // Cell dividers are drawn by this background showing through
-                        // 1px grid gaps — NOT per-cell borders, which landed on
+                        // 1.5px grid gaps — NOT per-cell borders, which landed on
                         // fractional device pixels and dropped (e.g. the
-                        // Betslip|Balance line vanished at some widths/DPRs). Kept
-                        // only a hair darker than the #595959 cells so the lines
-                        // read as a faint hairline, not a bold black rule.
+                        // Betslip|Balance line vanished at some widths/DPRs).
+                        // Divider color is a VISIBLE light grey on the #595959
+                        // cells (Fida 2026-07-23, reference-book look) — was a
+                        // near-invisible dark-on-dark hairline (#201f1f).
                         gap: '1.5px',
-                        background: '#201f1f',
+                        background: 'rgba(255,255,255,0.8)',
                     }}
                 >
                     {(() => {

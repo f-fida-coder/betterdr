@@ -21,6 +21,12 @@
     --dash-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
     --dash-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
     --dash-font-main: var(--font-main);
+
+    /* Bet-type tab grid dividers (top / bottom / between) — one colour +
+       weight so the tabs read as bounded tiles like bettorjuice. Mirrored
+       in mobile.css's .tabs-bar rule; change both together. */
+    --tab-divider: #b0b6bd;
+    --tab-divider-w: 1.5px;
 }
 
 body.dashboard-mode {
@@ -2245,16 +2251,19 @@ body.dashboard-mode {
         display: flex;
         width: 100%;
         height: 60px;
-        border-top: 1px solid #d1d5db;
-        border-bottom: 1px solid #d1d5db;
         box-sizing: border-box;
-        /* Dividers are drawn by letting this background show through 1px
-           flex gaps between the tabs — NOT per-item border-right. With
-           `flex: 1` columns the right-borders landed on fractional device
-           pixels and the browser dropped one (e.g. the RR|I divider) at
-           certain widths/DPRs. A single gap value renders consistently. */
-        gap: 1px;
-        background-color: #d1d5db;
+        /* Boxed-tile look matching bettorjuice (Fida 2026-07-23): each tab
+           reads as a bounded cell — a line ABOVE the row (below the nav), a
+           line BELOW it, and lines BETWEEN each tab, ALL the SAME colour and
+           weight (--tab-divider / 1.5px) so they form one clean grid. The
+           between-lines are the gap technique (bar background showing through
+           1.5px flex gaps) — NOT per-item border-right, which dropped on
+           fractional device pixels (e.g. the RR|I divider vanished at some
+           widths/DPRs). Top/bottom are real borders in the matching colour. */
+        gap: var(--tab-divider-w);
+        background-color: var(--tab-divider);
+        border-top: var(--tab-divider-w) solid var(--tab-divider);
+        border-bottom: var(--tab-divider-w) solid var(--tab-divider);
     }
 
     .tab-item {

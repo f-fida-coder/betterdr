@@ -181,12 +181,20 @@
     font-weight: 700;
     text-transform: uppercase;
   }
+  /* Boxed-tile dividers (Fida 2026-07-23): keep in lockstep with the
+     .tabs-bar/.tab-item rules in dashboard.css (loaded AFTER this file, so
+     it wins ties). Top/bottom/between all use --tab-divider so each tab
+     reads as a bounded cell like bettorjuice. Between-lines are the GAP
+     technique (dashboard.css) — the old per-item `border-right` stays
+     removed (it doubled the gap line and dropped on fractional pixels). */
   .tabs-bar {
     display: flex;
     width: 100%;
     height: 60px;
-    border-top: 1px solid #d1d5db;
-    border-bottom: 1px solid #d1d5db;
+    gap: var(--tab-divider-w);
+    background-color: var(--tab-divider);
+    border-top: var(--tab-divider-w) solid var(--tab-divider);
+    border-bottom: var(--tab-divider-w) solid var(--tab-divider);
     box-sizing: border-box;
   }
   .tab-item {
@@ -196,7 +204,6 @@
     align-items: center;
     justify-content: center;
     background-color: #e8e8e8;
-    border-right: 1px solid #d1d5db;
     cursor: pointer;
     color: #000;
     position: relative;
@@ -223,8 +230,5 @@
   .tab-icon {
     font-size: 24px;
     margin-bottom: 2px;
-  }
-  .tab-item:last-child {
-    border-right: none;
   }
 }

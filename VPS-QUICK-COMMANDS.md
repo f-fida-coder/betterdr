@@ -197,9 +197,9 @@ database mein jane ke liye
 odds api ko OFF ke liye (idempotent — purani line delete kar ke EK nayi likhta hai, chaaron env files me; audit 2026-07-16)
 `cd ~/htdocs/www.bettorplays247.com/betterdr && for f in .env .env.production php-backend/.env php-backend/.env.production; do sed -i '/^ODDS_API_MASTER_ENABLED=/d' "$f"; printf 'ODDS_API_MASTER_ENABLED=false\n' >> "$f"; done && grep -c 'ODDS_API_MASTER_ENABLED=false' .env .env.production php-backend/.env php-backend/.env.production && pkill -f oddsapi-worker.php`
 aur ON ke liye
-`cd ~/htdocs/www.bettorplays247.com/betterdr && for f in .env .env.production php-backend/.env php-backend/.env.production; do sed -i '/^ODDS_API_MASTER_ENABLED=/d' "$f"; printf 'ODDS_API_MASTER_ENABLED=true\n' >> "$f"; done && grep -c 'ODDS_API_MASTER_ENABLED=true' .env .env.production php-backend/.env php-backend/.env.production && pkill -f oddsapi-worker.php`
 verify (75s baad — watchdog respawn + flag effect):
 `cd ~/htdocs/www.bettorplays247.com/betterdr && pgrep -af oddsapi-worker.php && tail -1 php-backend/logs/oddsapi-worker.stdout.log`
+
 
 > ⚠️ **env.runtime kabhi delete mat karna** (project root ki 19-byte file, `APP_ENV=production`).
 > PHP `gethostname()` ab bare `srv1713630` deta hai (hstgr detection dead) — CLI workers
