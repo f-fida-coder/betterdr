@@ -133,6 +133,8 @@ const PaymentAppsEditor = ({ values, order, onValuesChange, onOrderChange }) => 
                                 )}
                                 <input
                                     type="text"
+                                    className="payment-apps-input"
+                                    autoComplete="off"
                                     value={value}
                                     placeholder={meta.placeholder}
                                     readOnly={isNA}

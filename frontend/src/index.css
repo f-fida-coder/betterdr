@@ -1678,3 +1678,15 @@ body::after {
   font-weight: 600;
   opacity: 1;
 }
+
+/* Payment-apps editor: rows have varying backgrounds (ranked/blank/N-A/drag),
+   so the inputs are background:transparent. Chrome's :-webkit-autofill paints
+   its own yellow over that (Zelle email autofill); the long transition-delay
+   keeps the transparent background instead of a fixed inset-shadow color. */
+.payment-apps-input:-webkit-autofill,
+.payment-apps-input:-webkit-autofill:hover,
+.payment-apps-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #0f172a;
+  caret-color: #0f172a;
+  transition: background-color 99999s ease-out 0s;
+}
