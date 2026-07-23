@@ -410,11 +410,12 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                         // 1.5px grid gaps — NOT per-cell borders, which landed on
                         // fractional device pixels and dropped (e.g. the
                         // Betslip|Balance line vanished at some widths/DPRs).
-                        // Divider color is a VISIBLE light grey on the #595959
-                        // cells (Fida 2026-07-23, reference-book look) — was a
-                        // near-invisible dark-on-dark hairline (#201f1f).
+                        // A SOFT dark line on the #595959 cells (Fida 2026-07-23):
+                        // darker than the cells so it reads clearly, but lighter
+                        // than the #4a4a4a tab grid below so the nav row stays a
+                        // touch subtler. Was a bright white (rgba 255,255,255,.8).
                         gap: '1.5px',
-                        background: 'rgba(255,255,255,0.8)',
+                        background: '#3f3f3f',
                     }}
                 >
                     {(() => {

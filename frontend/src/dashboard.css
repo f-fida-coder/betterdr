@@ -23,9 +23,11 @@
     --dash-font-main: var(--font-main);
 
     /* Bet-type tab grid dividers (top / bottom / between) — one colour +
-       weight so the tabs read as bounded tiles like bettorjuice. Mirrored
-       in mobile.css's .tabs-bar rule; change both together. */
-    --tab-divider: #b0b6bd;
+       weight so the tabs read as bounded tiles like bettorjuice. FULL DARK
+       grey (Fida 2026-07-23) so the lines above and below the tab row read
+       as strong dark rules, not faint hairlines. Mirrored in mobile.css's
+       .tabs-bar rule; change both together. */
+    --tab-divider: #4a4a4a;
     --tab-divider-w: 1.5px;
 }
 
