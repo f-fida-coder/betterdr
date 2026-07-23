@@ -110,16 +110,23 @@
 
     window.addEventListener('message', handleMessage);
 
+    // Staged blackjack protocol (rebuild C1e): every request is a
+    // 'placeBet' message whose bets.action selects deal / state / a player
+    // action. For a DEAL the transport requestId doubles as the round's
+    // identity server-side; for actions the transport id is fresh per
+    // message (bridge matching + parent-side dedup) and the round travels
+    // as bets.roundRequestId, with bets.actionRequestId as the idempotency
+    // key a network retry re-sends.
     window.BetterdrBlackjackBridge = {
         createRequestId: nextRequestId,
         getBalance: function () {
             return createRequest('getBalance', {}, ['balanceUpdate'], []);
         },
-        settleRound: function (payload, requestId) {
+        send: function (bets, requestId) {
             return createRequest('placeBet', {
                 game: 'blackjack',
-                bets: payload || {},
-                requestId: requestId
+                bets: bets || {},
+                requestId: requestId || undefined
             }, ['betResult'], ['betError']);
         }
     };

@@ -23,6 +23,10 @@ const ISOLATED_SUITES = [
     'BaccaratFairnessTest.php',     // mocks CasinoController deps (mutable Env secret) to test the commit-reveal seeded shoe sans DB
     'BaccaratPayoutTest.php',       // mocks CasinoController deps to test calculateBaccaratPayout sans DB
     'AcesAndEightsTest.php',        // mocks Response/SqlRepository to test the video-poker evaluator + two-stage deal/draw money path sans DB
+    'BlackjackRoundEngineTest.php', // mocks Response/SqlRepository to test the staged blackjack round engine (C1a: deal/actions/dealer/settle) sans DB
+    'BlackjackStagedEndpointTest.php', // mocks Response/SqlRepository to test the staged blackjack endpoints (C1b: deal debit, action idempotency, settle credit) sans DB
+    'BlackjackStakeActionsTest.php', // mocks Response/SqlRepository to test the stake-changing actions (C1c: double/split/insurance incremental debits) sans DB
+    'BlackjackSettlementRewireTest.php', // mocks Response/SqlRepository to test settlement resolution (C1d: payout paths, hold reconciliation, resolve-once, abandonment sweep) sans DB
     'ThreeCardPokerTest.php',       // mocks Response/SqlRepository to test the 3-Card Poker two-stage deal/settle money path + deferred reveal sans DB
     'AmericanRouletteTest.php',     // mocks Response/SqlRepository to test the American wheel engine + multi-bet money path sans DB
     'ArabianSlotTest.php',          // mocks Response/SqlRepository to test the Arabian retune (RTP, cents, bonus stake-scale, free-spin caps) sans DB

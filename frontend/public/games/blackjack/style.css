@@ -1,7 +1,7 @@
 body {
   background: black;
   overflow: hidden;
-  font-family: impact;
+  font-family: Impact, 'Arial Narrow', 'Helvetica Neue', sans-serif;
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
@@ -39,7 +39,7 @@ body {
   border: none;
   pointer-events: none;
   opacity: 0;
-  font-family: impact;
+  font-family: Impact, 'Arial Narrow', 'Helvetica Neue', sans-serif;
   border: 0.5vh solid black;
   color: white;
   background-color: #8080805c;
@@ -754,7 +754,7 @@ body {
   top: 55%;
   color: white;
   font-size: 2vh;
-  font-family: impact;
+  font-family: Impact, 'Arial Narrow', 'Helvetica Neue', sans-serif;
   margin: 0;
   padding: 0.25vh;
   border-bottom: 0.1vh solid white;
@@ -1366,4 +1366,13 @@ input[type='range']::-webkit-slider-thumb {
   display: flex;
   justify-content: flex-start;
   align-items: flex-end;
+}
+
+/* ── Mobile pass (rebuild C6) ─────────────────────────────────────────
+   The deck picker is display-only (deck count is fixed server-side at 6)
+   and must stay inert on every input type, including touch. */
+#deckQuantity {
+  pointer-events: none;
+  opacity: 0.6;
+  filter: grayscale(1);
 }

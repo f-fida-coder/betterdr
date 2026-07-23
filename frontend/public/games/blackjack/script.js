@@ -319,7 +319,6 @@ const logRoundAction = (action, zone = null, extra = {}) => {
   if (roundActionLog.length > 256) {
     roundActionLog = roundActionLog.slice(-256);
   }
-  schedulePendingRoundSnapshot();
 };
 
 const rememberRoundHandMeta = (zone, patch = {}) => {
@@ -409,98 +408,120 @@ const setSettlementUiState = (isPending) => {
   });
 };
 
-const readPendingRoundSnapshot = () => {
-  try {
-    const raw = localStorage.getItem(PENDING_ROUND_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return null;
-    const requestId = String(parsed.requestId || '').trim();
-    const payload = parsed.payload && typeof parsed.payload === 'object' ? parsed.payload : null;
-    if (!requestId || !payload) return null;
-    return { requestId, payload };
-  } catch (_) {
-    return null;
+// ─── Server-round driver (rebuild C1e) ──────────────────────────────
+// The server deals every card and settles every round (staged API,
+// rebuild C1b-C1d). This client renders EXACTLY what the server returns:
+// cards enter the table only through per-zone queues filled from server
+// responses, and every button is an async round-trip. No local deck, no
+// browser-storage snapshots, no emergency settlement — an interrupted round
+// lives server-side and resumes via the 'state' action on next load.
+
+let serverRound = null;
+let pendingSettlement = null;
+const serverCardQueue = {};
+const HOLE_CARD = { suit: 'hole', rank: '?' };
+
+const bjCodeToCard = (code) => {
+  const parts = String(code || '').split(':');
+  return { rank: parts[0] || '?', suit: parts[1] || 's1' };
+};
+
+const bjQueuePush = (zone, card) => {
+  serverCardQueue[zone] = serverCardQueue[zone] || [];
+  serverCardQueue[zone].push(card);
+};
+
+const bjResetQueues = () => {
+  Object.keys(serverCardQueue).forEach((k) => delete serverCardQueue[k]);
+};
+
+const bjHandsByZone = (resp) => {
+  const map = {};
+  ((resp && resp.state && resp.state.hands) || []).forEach((h) => {
+    map[h.zone] = h;
+  });
+  return map;
+};
+
+const bjLoadDealQueues = (resp) => {
+  bjResetQueues();
+  const hands = bjHandsByZone(resp);
+  Object.keys(hands).forEach((zone) => {
+    (hands[zone].cards || []).forEach((c) => bjQueuePush(zone, bjCodeToCard(c)));
+  });
+  const dealer = resp.state && resp.state.dealer ? resp.state.dealer : {};
+  if (dealer.holeHidden) {
+    bjQueuePush('dealerZone', bjCodeToCard(dealer.upCard));
+    bjQueuePush('dealerZone', HOLE_CARD);
+  } else {
+    (dealer.cards || []).forEach((c) => bjQueuePush('dealerZone', bjCodeToCard(c)));
   }
 };
 
-const clearPendingRoundSnapshot = () => {
-  try {
-    localStorage.removeItem(PENDING_ROUND_STORAGE_KEY);
-  } catch (_) {}
+const bjQueueZoneDelta = (resp, zone) => {
+  const hand = bjHandsByZone(resp)[zone];
+  if (!hand) return;
+  const have =
+    betZoneInfo[zone] && betZoneInfo[zone].suitCardsScore
+      ? betZoneInfo[zone].suitCardsScore.length
+      : 0;
+  (hand.cards || []).slice(have).forEach((c) => bjQueuePush(zone, bjCodeToCard(c)));
 };
 
-const persistPendingRoundSnapshot = () => {
-  if (!currentRoundRequestId) return;
-  const wager = money(playerInfo.totalBet || 0);
-  if (wager <= 0) return;
-  const net = lastBalance !== null ? money(playerInfo.balance - lastBalance) : 0;
-  const payload = summarizeRoundForSettlement(wager, net);
-  try {
-    localStorage.setItem(
-      PENDING_ROUND_STORAGE_KEY,
-      JSON.stringify({
-        requestId: currentRoundRequestId,
-        payload,
-        updatedAt: Date.now(),
-      })
-    );
-  } catch (_) {}
-};
-
-const schedulePendingRoundSnapshot = () => {
-  if (pendingRoundPersistTimer) {
-    clearTimeout(pendingRoundPersistTimer);
-  }
-  pendingRoundPersistTimer = setTimeout(() => {
-    pendingRoundPersistTimer = null;
-    persistPendingRoundSnapshot();
-  }, 0);
-};
-
-const flushPendingRoundRecovery = async () => {
-  if (pendingRoundRecoveryInFlight || settlementInFlight) return;
-  const token = localStorage.getItem('token');
-  if (!token) return;
-  const pending = readPendingRoundSnapshot();
-  if (!pending) return;
-
-  pendingRoundRecoveryInFlight = true;
-  try {
-    const response = await fetch('/api/casino/bet', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        'Bypass-Tunnel-Remainder': 'true',
-      },
-      body: JSON.stringify({
-        game: 'blackjack',
-        requestId: pending.requestId,
-        bets: pending.payload,
-      }),
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (response.ok) {
-      const resolvedBalance =
-        data && data.newBalance !== undefined ? data.newBalance : data?.balanceAfter;
-      if (resolvedBalance !== undefined && resolvedBalance !== null) {
-        setAuthoritativeBalance(resolvedBalance);
-      }
-      clearPendingRoundSnapshot();
-      return;
+const bjQueueSplitCards = (resp, baseZone) => {
+  const mapping = {
+    betZone1: ['splitZone1', 'splitZone2'],
+    betZone2: ['splitZone3', 'splitZone4'],
+    betZone3: ['splitZone5', 'splitZone6'],
+  };
+  const hands = bjHandsByZone(resp);
+  (mapping[baseZone] || []).forEach((sz) => {
+    const hand = hands[sz];
+    if (hand && (hand.cards || []).length >= 2) {
+      bjQueuePush(sz, bjCodeToCard(hand.cards[1]));
     }
-
-    if (response.status >= 400 && response.status < 500) {
-      clearPendingRoundSnapshot();
-    }
-  } catch (_) {
-    // Keep snapshot for retry on next page load.
-  } finally {
-    pendingRoundRecoveryInFlight = false;
-  }
+  });
 };
+
+const bjDimZone = (zone) => {
+  document.querySelectorAll(`.card.cardEnd.${zone}`).forEach((card) => {
+    applyBaseTransform(card);
+    card.style.filter = 'brightness(0.5)';
+  });
+};
+
+const bjAwaitingInsurance = (resp) => {
+  const a = resp && resp.state && resp.state.awaiting;
+  return !!(
+    a &&
+    a.actions &&
+    (a.actions.indexOf('insurance') !== -1 || a.actions.indexOf('even_money') !== -1)
+  );
+};
+
+const bjApplyActionResponse = (resp) => {
+  if (!resp) return;
+  if (resp.newBalance !== undefined) setAuthoritativeBalance(resp.newBalance);
+  if (String(resp.roundStatus) === 'settled') {
+    pendingSettlement = resp;
+    if (!dealerStatus) dealerPlay();
+    return;
+  }
+  const awaiting = resp.state && resp.state.awaiting ? resp.state.awaiting : null;
+  const nextZone = awaiting ? awaiting.zone : null;
+  if (nextZone && nextZone !== activeZone) {
+    if (activeZone) bjDimZone(activeZone);
+    activeZone = nextZone;
+  }
+  if (bjAwaitingInsurance(resp)) {
+    afterInsurance = false;
+    checkButtons();
+    return;
+  }
+  afterInsurance = true;
+  if (activeZone) activeHand(activeZone);
+};
+
 
 const syncBalanceFromSite = async () => {
   if (!blackjackBridge || typeof blackjackBridge.getBalance !== 'function') {
@@ -519,132 +540,115 @@ const syncBalanceFromSite = async () => {
   }
 };
 
-const summarizeRoundForSettlement = (totalWager, netResult) => {
-  const zones = ['betZone1', 'betZone2', 'betZone3'];
-
-  const zoneBreakdown = zones.map((zoneName) => {
-    const start = roundStartBetSnapshot?.[zoneName] || {};
-    const insuranceStake = money(roundInsuranceStakes?.[zoneName] || 0);
-    return {
-      zone: zoneName,
-      main: money(start.main || 0),
-      pairs: money(start.pairs || 0),
-      plus21: money(start.plus21 || 0),
-      royal: money(start.royal || 0),
-      superSeven: money(start.superSeven || 0),
-      insurance: insuranceStake,
-    };
-  });
-
-  const handZones = new Set();
-  Object.keys(betZoneInfo).forEach((zoneName) => {
-    if (zoneName === 'dealerZone') return;
-    const zone = betZoneInfo[zoneName] || {};
-    const hasCards = Array.isArray(zone.suitCardsScore) && zone.suitCardsScore.length > 0;
-    const hasBet = money(zone.bet || 0) > 0;
-    if (hasCards || hasBet || roundHandMeta[zoneName]) {
-      handZones.add(zoneName);
-    }
-  });
-
-  const hands = Array.from(handZones).map((zoneName) => {
-    const zone = betZoneInfo[zoneName] || {};
-    const meta = roundHandMeta[zoneName] || {};
-    const cards = Array.isArray(meta.cards) && meta.cards.length
-      ? meta.cards
-      : cardsToPayload(zone.suitCardsScore || []);
-    const liveBet = money(zone.bet || 0);
-    const trackedBet = money(meta.originalBet || meta.bet || 0);
-    const handBet = liveBet > 0 ? liveBet : trackedBet;
-    const score = Number(zone.score || meta.score || 0);
-
-    return {
-      zone: zoneName,
-      baseZone: zoneName.startsWith('splitZone')
-        ? `betZone${Math.ceil(Number(zoneName.replace('splitZone', '')) / 2)}`
-        : zoneName,
-      cards: cards.slice(0, 16),
-      score,
-      bet: money(handBet),
-      isSplit: zoneName.startsWith('splitZone'),
-      surrendered: !!meta.surrendered,
-      evenMoney: !!meta.evenMoney,
-      doubled: !!meta.doubled,
-    };
-  }).filter((hand) => hand.bet > 0 && hand.cards.length > 0);
-
-  const dealerCards = cardsToPayload(betZoneInfo.dealerZone?.suitCardsScore || []).slice(0, 20);
-
-  return {
-    totalWager: money(totalWager),
-    totalReturn: money(totalWager + netResult),
-    netResult: money(netResult),
-    result: netResult > 0 ? 'Win' : netResult < 0 ? 'Lose' : 'Push',
-    betBreakdown: zoneBreakdown,
-    hands,
-    playerCards: hands.flatMap((hand) => hand.cards).slice(0, 64),
-    dealerCards,
-    actions: roundActionLog.slice(-256),
-    roundMeta: {
-      dealerScore: Number(betZoneInfo.dealerZone?.score || 0),
-      dealerBlackjack:
-        Number(betZoneInfo.dealerZone?.score || 0) === 21 &&
-        (betZoneInfo.dealerZone?.suitCards || []).length === 2,
-      dealerBust: Number(betZoneInfo.dealerZone?.score || 0) > 21,
-      splitActive: !!splitActive,
-      deckCount: Number(currentDecks || 6),
-    },
-  };
+const bjRequest = async (bets, requestId = null) => {
+  if (!blackjackBridge || typeof blackjackBridge.send !== 'function') {
+    notification('SITE BRIDGE NOT AVAILABLE');
+    return null;
+  }
+  setSettlementUiState(true);
+  try {
+    return await blackjackBridge.send(bets, requestId);
+  } catch (err) {
+    notification(err && err.message ? String(err.message) : 'SERVER ERROR');
+    await syncBalanceFromSite();
+    return null;
+  } finally {
+    setSettlementUiState(false);
+  }
 };
 
-const settleRoundWithSite = async (payload, requestId = null) => {
-  if (!blackjackBridge || typeof blackjackBridge.settleRound !== 'function') {
-    throw new Error('SITE BRIDGE NOT AVAILABLE');
+const bjDeal = async (zones) => {
+  const requestId = blackjackBridge.createRequestId('blackjack_round');
+  const resp = await bjRequest({ action: 'deal', zones: zones }, requestId);
+  if (resp) {
+    serverRound = { requestId: String(resp.requestId || requestId), lastResponse: resp };
+    if (resp.newBalance !== undefined) setAuthoritativeBalance(resp.newBalance);
   }
+  return resp;
+};
 
-  const resolvedRequestId =
-    requestId ||
-    currentRoundRequestId ||
-    blackjackBridge.createRequestId('blackjack_round');
-  return blackjackBridge.settleRound(payload, resolvedRequestId);
+const bjSendAction = async (action, zone, extra = {}) => {
+  if (!serverRound || !serverRound.requestId) {
+    notification('NO ACTIVE ROUND');
+    return null;
+  }
+  const resp = await bjRequest(
+    Object.assign(
+      {
+        action: action,
+        zone: zone,
+        actionRequestId: blackjackBridge.createRequestId('bj_act'),
+        roundRequestId: serverRound.requestId,
+      },
+      extra
+    )
+  );
+  if (resp) serverRound.lastResponse = resp;
+  return resp;
+};
+
+const bjFetchOpenRound = async () => {
+  const resp = await bjRequest({ action: 'state' });
+  return resp && resp.round ? resp.round : null;
+};
+
+const bjResumeRender = (round) => {
+  const state = round.state || {};
+  bjResetQueues();
+  (state.hands || []).forEach((h) => {
+    const zone = h.zone;
+    if (!betZoneInfo[zone]) return;
+    betZoneInfo[zone].status = true;
+    betZoneInfo[zone].bet = Number(h.bet) || 0;
+    (h.cards || []).forEach((c) => bjQueuePush(zone, bjCodeToCard(c)));
+  });
+  const dealer = state.dealer || {};
+  if (dealer.holeHidden) {
+    bjQueuePush('dealerZone', bjCodeToCard(dealer.upCard));
+    bjQueuePush('dealerZone', HOLE_CARD);
+  }
+  gameStart = true;
+  let delay = 0;
+  const zonesToRender = (state.hands || []).map((h) => h.zone).concat(['dealerZone']);
+  zonesToRender.forEach((zone) => {
+    const q = (serverCardQueue[zone] || []).slice();
+    q.forEach((_, idx) => {
+      setTimeout(() => {
+        const info = betZoneInfo[zone];
+        if (!info) return;
+        const flip = !(zone === 'dealerZone' && idx === 1);
+        dealCard(zone, info.top, info.right - idx, flip);
+      }, delay);
+      delay += 220;
+    });
+  });
+  setTimeout(() => {
+    const awaiting = state.awaiting || null;
+    activeZone = awaiting ? awaiting.zone : null;
+    afterInsurance = !bjAwaitingInsurance({ state: state });
+    if (activeZone) activeHand(activeZone);
+    checkButtons();
+  }, delay + 600);
 };
 
 const bootstrapBlackjackSession = async () => {
-  await flushPendingRoundRecovery();
   await syncBalanceFromSite();
+  const round = await bjFetchOpenRound();
+  if (!round || !round.state) return;
+  serverRound = { requestId: String(round.requestId || ''), lastResponse: null };
+  notification('ROUND RESUMED');
+  bjResumeRender(round);
 };
 
-if (deckQtyEl) {
-  deckQtyEl.min = '2';
-  deckQtyEl.max = '8';
-  const v0 = Number(deckQtyEl.value);
-  currentDecks = Number.isFinite(v0) ? Math.max(2, Math.min(8, v0)) : 6;
-  deckQtyEl.value = String(currentDecks);
-  deckQtyEl.addEventListener('input', () => {
-    const next = Math.max(2, Math.min(8, Number(deckQtyEl.value) || 6));
-    currentDecks = next;
-    document.querySelector('#deckNum').textContent = currentDecks;
-    if (!window.gameStart) {
-      deck = createDeck(currentDecks);
-    } else if (typeof notification === 'function') {
-      notification('Количество колод обновится со следующего раунда');
-    }
-  });
-}
 
-function createDeck(numDecks = 6) {
-  const suits = ['s1', 's2', 's3', 's4'];
-  const ranks = [2, 3, 4, 5, 6, 7, 8, 9, 10, 'J', 'Q', 'K', 'A'];
-  const deck = {};
-  suits.forEach((suit) => {
-    deck[suit] = [];
-    for (let i = 0; i < numDecks; i++) {
-      deck[suit].push(...ranks);
-    }
-  });
-  return deck;
+if (deckQtyEl) {
+  // Deck count is fixed SERVER-side at 6 — the picker is display-only.
+  deckQtyEl.value = '6';
+  deckQtyEl.disabled = true;
+  currentDecks = 6;
+  const deckNumEl = document.querySelector('#deckNum');
+  if (deckNumEl) deckNumEl.textContent = '6';
 }
-let deck = createDeck(currentDecks);
 
 function tick(ts) {
   if (!startTs) startTs = ts;
@@ -767,21 +771,44 @@ function dealCard(zone, targetTop, targetRight, flip = true, isDouble = false) {
   return card;
 }
 
-function deal() {
+async function deal() {
   if (settlementInFlight) return;
   if (lastBalance === null) lastBalance = playerInfo.balance;
-  currentRoundRequestId = blackjackBridge && typeof blackjackBridge.createRequestId === 'function'
-    ? blackjackBridge.createRequestId('blackjack_round')
-    : `blackjack_round_${Date.now().toString(36)}`;
-  emergencySettlementSent = false;
-  resetRoundTracking();
-  roundStartBetSnapshot = captureRoundStartBetSnapshot();
-  logRoundAction('deal');
-  persistPendingRoundSnapshot();
+  const zonesPayload = {};
+  ['betZone1', 'betZone2', 'betZone3'].forEach((zone) => {
+    const z = betZoneInfo[zone] || {};
+    const entry = {
+      main: money(z.bet || 0),
+      pairs: money(z.pairsBet || 0),
+      plus21: money(z.plus21Bet || 0),
+      royal: money(z.royalBet || 0),
+    };
+    if (entry.main > 0 || entry.pairs > 0 || entry.plus21 > 0 || entry.royal > 0) {
+      zonesPayload[zone] = entry;
+    }
+  });
+  if (!Object.keys(zonesPayload).length) {
+    notification('NO BETS PLACED');
+    return;
+  }
+  const resp = await bjDeal(zonesPayload);
+  if (!resp) return;
   resetLastWinDisplay();
   snapshotRebet();
-  document.querySelector('#deckQuantity').style.pointerEvents = 'none';
-  document.querySelector('#deckQuantity').style.filter = 'grayscale(1)';
+  bjLoadDealQueues(resp);
+  dealVisual(resp);
+  dealBtn.style.display = 'none';
+  clearAllBtn.style.display = 'none';
+  tableZones.forEach((el) => {
+    el.style.pointerEvents = 'none';
+  });
+  chips.forEach((el) => {
+    el.style.pointerEvents = 'none';
+  });
+  if (undoBtn) undoBtn.style.display = 'none';
+}
+
+function dealVisual(resp) {
   const activeZones = Object.keys(betZoneInfo).filter(
     (zone) => betZoneInfo[zone].status && zone !== 'dealerZone'
   );
@@ -802,61 +829,30 @@ function deal() {
       dealCard(zone, top, offsetRight, flip);
       if (i === order.length - 1) {
         setTimeout(() => {
-          checkBets();
-          const dealerUpRank =
-            betZoneInfo.dealerZone?.suitCardsScore?.[0]?.[1] || null;
-          const dealerNatural =
-            betZoneInfo.dealerZone.score === 21 &&
-            betZoneInfo.dealerZone.suitCards.length === 2;
-          const upIsTenValue = ['10', 'J', 'Q', 'K'].includes(dealerUpRank);
-          if (upIsTenValue && dealerNatural) {
-            (typeof BASE_ZONES !== 'undefined'
-              ? BASE_ZONES
-              : ['betZone1', 'betZone2', 'betZone3']
-            ).forEach((z) => {
-              const bz = betZoneInfo[z];
-              if (bz?.status && bz.suitCards?.length === 2 && bz.score === 21) {
-                createBetNotif(z, 'BLACKJACK');
-              }
-            });
+          gameStart = true;
+          activeZones.forEach((z) => {
+            const bz = betZoneInfo[z];
+            if (bz && bz.score === 21 && (bz.suitCards || []).length === 2) {
+              createBetNotif(z, 'BLACKJACK');
+            }
+          });
+          if (String(resp.roundStatus) === 'settled') {
+            pendingSettlement = resp;
             dealerPlay();
             return;
           }
           document.querySelectorAll('.card.cardEnd').forEach((card) => {
             card.style.filter = 'brightness(0.5)';
           });
-          activeZone = activeZones.length ? activeZones[0] : null;
-          activeHand(activeZone);
-          if (
-            betZoneInfo.betZone1?.score === 21 &&
-            betZoneInfo.betZone1?.suitCards?.length === 2
-          )
-            createBetNotif('betZone1', 'BLACKJACK');
-          if (
-            betZoneInfo.betZone2?.score === 21 &&
-            betZoneInfo.betZone2?.suitCards?.length === 2
-          )
-            createBetNotif('betZone2', 'BLACKJACK');
-          if (
-            betZoneInfo.betZone3?.score === 21 &&
-            betZoneInfo.betZone3?.suitCards?.length === 2
-          )
-            createBetNotif('betZone3', 'BLACKJACK');
-          gameStart = true;
+          const awaiting = resp.state && resp.state.awaiting ? resp.state.awaiting : null;
+          activeZone = awaiting ? awaiting.zone : activeZones[0] || null;
+          afterInsurance = !bjAwaitingInsurance(resp);
+          if (activeZone) activeHand(activeZone);
           checkButtons();
         }, 800);
       }
     }, i * 500);
   });
-  dealBtn.style.display = 'none';
-  clearAllBtn.style.display = 'none';
-  tableZones.forEach((el) => {
-    el.style.pointerEvents = 'none';
-  });
-  chips.forEach((el) => {
-    el.style.pointerEvents = 'none';
-  });
-  if (undoBtn) undoBtn.style.display = 'none';
 }
 
 function placeBet(betName, type = 'main') {
@@ -876,6 +872,10 @@ function placeBet(betName, type = 'main') {
   const index = betName === 'betZone1' ? 0 : betName === 'betZone2' ? 1 : 2;
   if (type !== 'main' && (betZoneInfo[betName].bet || 0) <= 0) {
     notification('PLACE MAIN BET FIRST');
+    return;
+  }
+  if (type === 'super7') {
+    notification('SUPER SEVENS IS NO LONGER OFFERED');
     return;
   }
   if (type === 'pair') {
@@ -1119,39 +1119,28 @@ function activeHand(zone) {
   document.querySelector('#playerMenu').style.display = 'flex';
 }
 
-function hit() {
-  if (settlementInFlight) return;
-  if (!activeZone) return;
-  logRoundAction('hit', activeZone);
-  const { top, right } = betZoneInfo[activeZone];
-  const len = document.querySelectorAll(`.card.cardEnd.${activeZone}`).length;
-  dealCard(activeZone, top, right - len, true);
+async function hit() {
+  if (settlementInFlight || !activeZone) return;
+  const zone = activeZone;
+  const resp = await bjSendAction('hit', zone);
+  if (!resp) return;
+  bjQueueZoneDelta(resp, zone);
+  const { top, right } = betZoneInfo[zone];
+  const len = document.querySelectorAll(`.card.cardEnd.${zone}`).length;
+  dealCard(zone, top, right - len, true);
   setTimeout(() => {
-    const newCard = document.querySelector(
-      `.card.cardEnd.${activeZone}:last-child`
-    );
+    const newCard = document.querySelector(`.card.cardEnd.${zone}:last-child`);
     if (newCard) {
       newCard.style.transform = `scale(1.1)`;
       newCard.style.filter = 'brightness(1)';
     }
-  }, 500);
+    const z = betZoneInfo[zone];
+    if (z && z.score > 21) createBetNotif(zone, 'BUST');
+    else if (z && z.score === 21) createBetNotif(zone, '21');
+    bjApplyActionResponse(resp);
+  }, 700);
 }
 
-function drawRandomCardFromDeck(deck) {
-  const entries = Object.entries(deck);
-  const total = entries.reduce((sum, [, cards]) => sum + cards.length, 0);
-  if (total <= 0) return null;
-  let r = Math.floor(Math.random() * total);
-  for (const [suit, cards] of entries) {
-    if (r < cards.length) {
-      const rank = cards[r];
-      cards.splice(r, 1);
-      return { suit, rank };
-    }
-    r -= cards.length;
-  }
-  return null;
-}
 
 function recomputeZoneScore(zoneName) {
   const z = betZoneInfo[zoneName];
@@ -1169,6 +1158,7 @@ function recomputeZoneScore(zoneName) {
       numeric.push(10);
     } else {
       const v = Number(r);
+      if (!Number.isFinite(v)) continue; // hole-card placeholder
       total += v;
       numeric.push(v);
     }
@@ -1182,21 +1172,31 @@ function recomputeZoneScore(zoneName) {
 }
 
 function getCardScore(zone, flip = true) {
-  const c = drawRandomCardFromDeck(deck);
-  if (!c) return;
+  // Cards come EXCLUSIVELY from the server: every deal/hit/double/split/
+  // dealer draw consumes the next queued server card. No local RNG exists.
+  const q = serverCardQueue[zone];
+  const c = q && q.length ? q.shift() : null;
+  if (!c) {
+    console.error('blackjack: no server card queued for zone', zone);
+    return;
+  }
   cardSuit = c.suit;
   cardTexture = c.rank;
   betZoneInfo[zone].suitCardsScore.push([c.suit, c.rank]);
   recomputeZoneScore(zone);
 }
 
-function split() {
-  if (settlementInFlight) return;
-  if (!activeZone || !activeZone.startsWith('betZone')) return;
-  if (playerInfo.balance < betZoneInfo[activeZone].bet) {
-    notification('NOT ENOUGH MONEY');
-    return;
-  }
+async function split() {
+  if (settlementInFlight || !activeZone || !activeZone.startsWith('betZone')) return;
+  const resp = await bjSendAction('split', activeZone);
+  if (!resp) return;
+  bjQueueSplitCards(resp, activeZone);
+  splitVisual(resp);
+  setTimeout(() => bjApplyActionResponse(resp), 2600);
+}
+
+function splitVisual(resp) {
+  if (!activeZone) return;
   document.querySelector('#playerMenu').style.display = 'none';
   splitActive = true;
   document.querySelectorAll('.cardScore').forEach((el) => {
@@ -1304,13 +1304,7 @@ function split() {
         true
       );
       setTimeout(() => {
-        activeZone = splitZone1;
-        stand();
-        setTimeout(() => {
-          activeZone = splitZone2;
-          aceSplitInProgress = false;
-          stand();
-        }, 500);
+        aceSplitInProgress = false;
       }, 800);
     }, 300);
   } else {
@@ -1351,406 +1345,155 @@ function split() {
     '$' + playerInfo.totalBet.toLocaleString('de-DE');
 }
 
-function stand() {
-  if (settlementInFlight) return;
-  if (activeZone) {
-    logRoundAction('stand', activeZone);
-  }
-  splitBtn.classList.remove('inactiveBtn');
-  doubleBtn.classList.remove('inactiveBtn');
-  surrenderBtn.classList.remove('inactiveBtn');
-  const mapping = {
-    betZone1: ['splitZone1', 'splitZone2'],
-    betZone2: ['splitZone3', 'splitZone4'],
-    betZone3: ['splitZone5', 'splitZone6'],
-  };
+async function stand() {
+  if (settlementInFlight || !activeZone) return;
+  const zone = activeZone;
+  const resp = await bjSendAction('stand', zone);
+  if (!resp) return;
   document.querySelectorAll('.cardScore').forEach((el) => {
     el.style.animation = 'none';
   });
   document.querySelectorAll('.buttonAreaBtns').forEach((el) => {
     el.style.display = 'none';
   });
-  const betZoneNames = Object.keys(betZoneInfo)
-    .filter((z) => z.startsWith('betZone'))
-    .sort((a, b) => {
-      const na = parseInt(a.replace('betZone', ''), 10);
-      const nb = parseInt(b.replace('betZone', ''), 10);
-      return na - nb;
-    });
-  function buildPlayOrder() {
-    const order = [];
-    betZoneNames.forEach((bz) => {
-      const splits = mapping[bz] || [];
-      const activeSplits = splits.filter(
-        (s) => betZoneInfo[s] && betZoneInfo[s].status
-      );
-      if (activeSplits.length) {
-        order.push(...activeSplits);
-      } else if (betZoneInfo[bz] && betZoneInfo[bz].status) {
-        order.push(bz);
-      }
-    });
-    return order;
-  }
-  if (!activeZone) {
-    const startOrder = buildPlayOrder();
-    if (startOrder.length) {
-      activeZone = startOrder[0];
-      activeHand(activeZone);
-    } else {
-      dealerPlay();
-    }
-    return;
-  }
-  const currentCards = document.querySelectorAll(`.card.cardEnd.${activeZone}`);
-  currentCards.forEach((card) => {
-    applyBaseTransform(card);
-    card.style.filter = 'brightness(0.5)';
-  });
-  const order = buildPlayOrder();
-  if (!order.length) {
-    activeZone = null;
-    dealerPlay();
-    return;
-  }
-  let idx = order.indexOf(activeZone);
-  if (idx >= 0 && idx < order.length - 1) {
-    activeZone = order[idx + 1];
-    activeHand(activeZone);
-    return;
-  }
-  let currentGroupIndex = betZoneNames.findIndex((bz) => {
-    if (bz === activeZone) return true;
-    const splits = mapping[bz] || [];
-    return splits.includes(activeZone);
-  });
-  let nextZone = null;
-  for (let gi = currentGroupIndex + 1; gi < betZoneNames.length; gi++) {
-    const bz = betZoneNames[gi];
-    const splits = mapping[bz] || [];
-    const activeSplits = splits.filter(
-      (s) => betZoneInfo[s] && betZoneInfo[s].status
-    );
-    if (activeSplits.length) {
-      nextZone = activeSplits[0];
-      break;
-    }
-    if (betZoneInfo[bz] && betZoneInfo[bz].status) {
-      nextZone = bz;
-      break;
-    }
-  }
-  if (nextZone) {
-    activeZone = nextZone;
-    activeHand(activeZone);
-  } else {
-    activeZone = null;
-    dealerPlay();
-  }
+  bjDimZone(zone);
+  bjApplyActionResponse(resp);
 }
 
 function dealerPlay() {
-  if (!insuranceActive) {
-    splitActive = false;
-    dealerStatus = true;
-    document
-      .querySelectorAll('.card.dealerZone')
-      .forEach((card) => (card.style.filter = 'brightness(1)'));
-    const hiddenCard = document.querySelector('.card.dealerZone.cardInactive');
-    if (hiddenCard) {
-      hiddenCard.classList.add('flipped');
-      hiddenCard.classList.remove('cardInactive');
+  // Terminal render: everything comes from the settled server response.
+  splitActive = false;
+  dealerStatus = true;
+  const resp = pendingSettlement;
+  if (!resp) return;
+  const dealerCards =
+    (resp.betDetails && resp.betDetails.dealer && resp.betDetails.dealer.cards) ||
+    resp.dealerCards || [];
+
+  document
+    .querySelectorAll('.card.dealerZone')
+    .forEach((card) => (card.style.filter = 'brightness(1)'));
+
+  const hiddenCard = document.querySelector('.card.dealerZone.cardInactive');
+  if (hiddenCard && dealerCards.length >= 2) {
+    const hole = bjCodeToCard(dealerCards[1]);
+    const front = hiddenCard.querySelector('.card-front');
+    if (front) {
+      front.style.backgroundImage = `url(src/images/${hole.suit}/${hole.rank}.png)`;
     }
-    if (betZoneInfo.dealerZone.cardScore)
-      betZoneInfo.dealerZone.cardScore.textContent =
-        betZoneInfo.dealerZone.score;
-    if (
-      betZoneInfo.dealerZone.score === 21 &&
-      betZoneInfo.dealerZone.suitCards.length === 2
-    )
-      createBetNotif('dealerZone', 'BLACKJACK');
-    const activeHands = Object.keys(betZoneInfo).filter(
-      (zone) => betZoneInfo[zone].status && zone !== 'dealerZone'
-    );
-    const allBust = activeHands.every((zone) => betZoneInfo[zone].score > 21);
-    if (allBust) {
-      checkMainBets();
-      return;
-    }
-    const allBjOrBust =
-      activeHands.length > 0 &&
-      activeHands.every((zone) => {
-        const z = betZoneInfo[zone];
-        const playerBlackjack =
-          zone.startsWith('betZone') &&
-          z.suitCards.length === 2 &&
-          z.score === 21;
-        return z.score > 21 || playerBlackjack;
-      });
-    if (allBjOrBust) {
-      checkMainBets();
-      return;
-    }
-    function drawDealerCard(callback) {
-      const { top, right } = betZoneInfo.dealerZone;
-      const existing = document.querySelectorAll('.card.dealerZone').length;
-      dealCard('dealerZone', top, right - existing, true);
-      setTimeout(() => {
-        if (betZoneInfo.dealerZone.cardScore)
-          betZoneInfo.dealerZone.cardScore.textContent =
-            betZoneInfo.dealerZone.score;
-        if (betZoneInfo.dealerZone.score > 21)
-          createBetNotif('dealerZone', 'BUST');
-        if (betZoneInfo.dealerZone.score < 17) drawDealerCard(callback);
-        else {
-          if (callback) callback();
-        }
-      }, 600);
-    }
-    if (betZoneInfo.dealerZone.score < 17)
-      drawDealerCard(() => checkMainBets());
-    else {
-      checkMainBets();
-    }
-  } else {
-    if (betZoneInfo.dealerZone.score == 21) {
-      const __dealerCards = document.querySelectorAll('.dealerZone');
-      if (__dealerCards[1]) __dealerCards[1].style.transform = 'none';
-      document
-        .querySelectorAll('.card.dealerZone')
-        .forEach((card) => (card.style.filter = 'brightness(1) '));
-      setTimeout(() => {
-        insuranceActive = false;
-        afterInsurance = true;
-        createBetNotif('dealerZone', 'BLACKJACK');
-        zoneInsuranceChips.forEach((_, i) => {
-          const betName = `betZone${i + 1}`;
-          const insBet = betZoneInfo[betName].insuranceBet || 0;
-          const playerZone = betZoneInfo[betName];
-          const playerBlackjack =
-            playerZone.score === 21 && playerZone.suitCards.length === 2;
-          if (insBet > 0 && !playerBlackjack) {
-            const winnings = insBet * 2;
-            const totalReturn = insBet + winnings;
-            playerInfo.balance += totalReturn;
-            betStatusInfo[0].textContent =
-              '$' + playerInfo.balance.toLocaleString('de-DE');
-            normalizeZone(i, 'insurance', totalReturn);
-            sendChips('insurance', i, 'player');
-            betZoneInfo[betName].insuranceBet = 0;
-          }
-        });
-        const __dealerCards2 = document.querySelectorAll('.dealerZone');
-        if (__dealerCards2[1])
-          __dealerCards2[1].style.transform =
-            'perspective(12vh) rotateX(10deg) scale(1)';
-        setTimeout(() => dealerPlay(), 1000);
-      }, 1000);
-    } else {
-      const __dealerCards = document.querySelectorAll('.dealerZone');
-      if (__dealerCards[1]) __dealerCards[1].style.transform = 'none';
-      document
-        .querySelectorAll('.card.dealerZone')
-        .forEach((card) => (card.style.filter = 'brightness(1) '));
-      setTimeout(() => {
-        insuranceActive = false;
-        afterInsurance = true;
-        document
-          .querySelectorAll('.card.dealerZone')
-          .forEach((card) => (card.style.filter = 'brightness(0.5)'));
-        const activeZones = Object.keys(betZoneInfo).filter(
-          (zone) => betZoneInfo[zone].status && zone !== 'dealerZone'
-        );
-        activeZone = activeZones.length ? activeZones[0] : null;
-        checkBets();
-        activeHand(activeZone);
-        zoneInsuranceChips.forEach((_, i) => {
-          if (zoneInsuranceChips[i] && zoneInsuranceChips[i].length) {
-            sendChips('insurance', i, 'dealer');
-            const betName = `betZone${i + 1}`;
-            betZoneInfo[betName].insuranceBet = 0;
-          }
-        });
-      }, 1000);
+    hiddenCard.classList.add('flipped');
+    hiddenCard.classList.remove('cardInactive');
+    if ((betZoneInfo.dealerZone.suitCardsScore || []).length >= 2) {
+      betZoneInfo.dealerZone.suitCardsScore[1] = [hole.suit, hole.rank];
+      recomputeZoneScore('dealerZone');
     }
   }
-}
+  if (betZoneInfo.dealerZone.cardScore) {
+    betZoneInfo.dealerZone.cardScore.textContent = betZoneInfo.dealerZone.score;
+    betZoneInfo.dealerZone.cardScore.style.opacity = 1;
+  }
+  if (
+    betZoneInfo.dealerZone.score === 21 &&
+    (betZoneInfo.dealerZone.suitCards || []).length === 2
+  ) {
+    createBetNotif('dealerZone', 'BLACKJACK');
+  }
 
-function checkMainBets() {
-  const dealerScore = betZoneInfo.dealerZone.score;
-  const dealerBust = dealerScore > 21;
-  const dealerBlackjack =
-    dealerScore === 21 && betZoneInfo.dealerZone.suitCards.length === 2;
-  Object.keys(betZoneInfo).forEach((zoneName) => {
-    if (zoneName === 'dealerZone') return;
-    const zoneData = betZoneInfo[zoneName];
-    if (!zoneData) return;
-    const currentCards = cardsToPayload(zoneData.suitCardsScore || []);
-    const existingMeta = roundHandMeta[zoneName] || {};
-    if (!currentCards.length && !existingMeta.cards) return;
-    rememberRoundHandMeta(zoneName, {
-      cards: currentCards.length ? currentCards : existingMeta.cards || [],
-      originalBet: money(existingMeta.originalBet || zoneData.bet || 0),
-      score: Number(zoneData.score || existingMeta.score || 0),
-      isSplit: zoneName.startsWith('splitZone'),
-    });
-  });
-  const activeHands = Object.keys(betZoneInfo).filter(
-    (zone) => betZoneInfo[zone].status && zone !== 'dealerZone'
-  );
-  activeHands.forEach((zone) => {
-    const playerScore = betZoneInfo[zone].score;
-    const bet = betZoneInfo[zone].bet;
-    const playerBlackjack =
-      playerScore === 21 &&
-      betZoneInfo[zone].suitCards.length === 2 &&
-      zone.startsWith('betZone');
-    let payout = 0;
-    let message = '';
-    let index, chipType;
-    if (zone.startsWith('betZone')) {
-      index = parseInt(zone.replace('betZone', '')) - 1;
-      chipType = 'main';
-    } else if (zone.startsWith('splitZone')) {
-      const num = parseInt(zone.replace('splitZone', ''));
-      index = Math.floor((num - 1) / 2);
-      chipType = num % 2 === 1 ? 'main' : 'split';
-    } else {
+  const known = (betZoneInfo.dealerZone.suitCardsScore || []).length;
+  const extra = dealerCards.slice(known);
+  extra.forEach((code) => bjQueuePush('dealerZone', bjCodeToCard(code)));
+
+  const drawNext = (remaining) => {
+    if (remaining <= 0) {
+      setTimeout(() => bjRenderServerResults(resp), 600);
       return;
     }
-    if (playerScore > 21) {
-      message = 'BUST';
-      setTimeout(() => {
-        sendChips(chipType, index, 'dealer');
-      }, 4000);
-    } else if (dealerBlackjack) {
-      if (playerBlackjack) {
-        payout = bet;
-        message = 'PUSH';
-        setTimeout(() => {
-          sendChips(chipType, index, 'player');
-        }, 4000);
-      } else {
-        message = 'LOSE';
-        setTimeout(() => {
-          sendChips(chipType, index, 'dealer');
-        }, 4000);
-      }
-    } else if (playerBlackjack) {
-      payout = money(bet * 2.5);
-      message = 'WIN';
-      normalizeZone(index, chipType, payout);
-      setTimeout(() => {
-        sendChips(chipType, index, 'player');
-      }, 4000);
-    } else if (dealerBust || playerScore > dealerScore) {
-      payout = bet * 2;
-      message = 'WIN';
-      normalizeZone(index, chipType, payout);
-      setTimeout(() => {
-        sendChips(chipType, index, 'player');
-      }, 4000);
-    } else if (playerScore === dealerScore) {
-      payout = bet;
-      message = 'PUSH';
-      setTimeout(() => {
-        sendChips(chipType, index, 'player');
-      }, 4000);
+    const len = document.querySelectorAll('.card.cardEnd.dealerZone').length;
+    dealCard('dealerZone', betZoneInfo.dealerZone.top, betZoneInfo.dealerZone.right - len, true);
+    setTimeout(() => drawNext(remaining - 1), 650);
+  };
+  setTimeout(() => drawNext(extra.length), 600);
+}
+
+function bjRenderServerResults(resp) {
+  const handResults = (resp.betDetails && resp.betDetails.hands) || [];
+  const BANNER = {
+    blackjack: 'BLACKJACK',
+    win: 'WIN',
+    push: 'PUSH',
+    lose: 'LOSE',
+    dealer_blackjack: 'LOSE',
+    bust: 'BUST',
+    surrender: 'SURRENDER',
+    even_money: 'EVEN MONEY',
+  };
+  handResults.forEach((hand) => {
+    const zone = hand.zone;
+    if (!betZoneInfo[zone]) return;
+    createBetNotif(zone, BANNER[hand.resultType] || String(hand.resultType || '').toUpperCase());
+    let index, chipType;
+    if (zone.startsWith('betZone')) {
+      index = parseInt(zone.replace('betZone', ''), 10) - 1;
+      chipType = 'main';
     } else {
-      message = 'LOSE';
-      setTimeout(() => {
-        sendChips(chipType, index, 'dealer');
-      }, 4000);
+      const num = parseInt(zone.replace('splitZone', ''), 10);
+      index = Math.floor((num - 1) / 2);
+      chipType = num % 2 === 1 ? 'main' : 'split';
     }
-
-    playerInfo.balance += payout;
-    createBetNotif(zone, message);
-    rememberRoundHandMeta(zone, {
-      originalBet: money(bet),
-      score: Number(playerScore || 0),
-      resultHint: message,
-      cards: cardsToPayload(betZoneInfo[zone]?.suitCardsScore || []),
-      isSplit: zone.startsWith('splitZone'),
-    });
-    betZoneInfo[zone].status = false;
-    betZoneInfo[zone].bet = 0;
-  });
-  setTimeout(async () => {
-    const roundTotalWager = money(playerInfo.totalBet || 0);
-    const roundNetResult =
-      lastBalance !== null ? money(playerInfo.balance - lastBalance) : 0;
-    const roundPayload = summarizeRoundForSettlement(
-      roundTotalWager,
-      roundNetResult
-    );
-
-    gameStart = false;
-    dealerStatus = false;
-    afterInsurance = false;
-    splitActive = false;
-    insuranceActive = false;
-    playerInfo.totalBet = 0;
-    betStatusInfo[1].textContent = '$0';
-    betStatusInfo[0].textContent =
-      '$' + playerInfo.balance.toLocaleString('de-DE');
-    if (lastBalance !== null) {
-      playerInfo.lastWin = playerInfo.balance - lastBalance;
-      const value = playerInfo.lastWin;
-      betStatusInfo[2].textContent =
-        (value < 0 ? '- ' : '') + '$' + Math.abs(value).toLocaleString('de-DE');
-      lastBalance = null;
-    }
-    hideStandardButtons();
-    document.querySelectorAll('.scoreInfo').forEach((el) => {
-      el.style.boxShadow = 'none';
-    });
-    document.querySelector('#deckQuantity').style.pointerEvents = 'none';
-    document.querySelector('#deckQuantity').style.filter = 'grayscale(1)';
-    updateUndoBtnState();
-
-    setSettlementUiState(true);
-    try {
-      const response = await settleRoundWithSite(roundPayload, currentRoundRequestId);
-      const resolvedBalance =
-        response && response.newBalance !== undefined
-          ? response.newBalance
-          : response?.balanceAfter;
-
-      if (resolvedBalance !== undefined && resolvedBalance !== null) {
-        setAuthoritativeBalance(resolvedBalance);
+    setTimeout(() => {
+      if (Number(hand.return) > 0) {
+        if (Number(hand.return) > Number(hand.bet)) {
+          normalizeZone(index, chipType, Number(hand.return));
+        }
+        sendChips(chipType, index, 'player');
       } else {
-        await syncBalanceFromSite();
+        sendChips(chipType, index, 'dealer');
       }
+    }, 2500);
+  });
 
-      const settledNet =
-        response && response.netResult !== undefined
-          ? money(response.netResult)
-          : roundNetResult;
-      playerInfo.lastWin = settledNet;
-      betStatusInfo[2].textContent =
-        (settledNet < 0 ? '- ' : '') +
-        '$' +
-        Math.abs(settledNet).toLocaleString('de-DE');
-    } catch (err) {
-      console.error('Blackjack settlement failed:', err);
-      if (typeof notification === 'function') {
-        notification(
-          err && err.message ? String(err.message) : 'ROUND SETTLEMENT FAILED'
-        );
-      }
-      await syncBalanceFromSite();
-    } finally {
-      currentRoundRequestId = null;
-      emergencySettlementSent = false;
-      clearPendingRoundSnapshot();
-      setSettlementUiState(false);
-      showPostRoundButtons();
-      document.querySelector('#deckQuantity').style.pointerEvents = 'all';
-      document.querySelector('#deckQuantity').style.filter = 'none';
-      updateUndoBtnState();
-      resetRoundTracking();
+  const sideResults = (resp.betDetails && resp.betDetails.sideBets) || [];
+  const sideWon = sideResults.filter((s) => Number(s.return) > 0);
+  if (sideWon.length) {
+    const total = sideWon.reduce((a, s) => a + Number(s.return), 0);
+    setTimeout(() => notification('SIDE BETS PAID: $' + total.toLocaleString('de-DE')), 1200);
+  }
+
+  setTimeout(() => bjFinishRound(resp), 3400);
+}
+
+function bjFinishRound(resp) {
+  gameStart = false;
+  dealerStatus = false;
+  afterInsurance = false;
+  splitActive = false;
+  insuranceActive = false;
+  pendingSettlement = null;
+  serverRound = null;
+  bjResetQueues();
+  Object.keys(betZoneInfo).forEach((zone) => {
+    if (zone !== 'dealerZone') {
+      betZoneInfo[zone].status = false;
+      betZoneInfo[zone].bet = 0;
     }
-  }, 3700);
+  });
+  playerInfo.totalBet = 0;
+  betStatusInfo[1].textContent = '$0';
+  if (resp && resp.newBalance !== undefined) {
+    setAuthoritativeBalance(resp.newBalance);
+  } else {
+    syncBalanceFromSite();
+  }
+  const net = Number((resp && resp.netResult) || 0);
+  playerInfo.lastWin = net;
+  betStatusInfo[2].textContent =
+    (net < 0 ? '- ' : '') + '$' + Math.abs(net).toLocaleString('de-DE');
+  hideStandardButtons();
+  document.querySelectorAll('.scoreInfo').forEach((el) => {
+    el.style.boxShadow = 'none';
+  });
+  updateUndoBtnState();
+  showPostRoundButtons();
 }
 
 function duplicateChips(index, type) {
@@ -1968,13 +1711,17 @@ function splitChips(activeZone) {
   }, totalWait);
 }
 
-function double() {
-  if (settlementInFlight) return;
+async function double() {
+  if (settlementInFlight || !activeZone) return;
+  const zone = activeZone;
+  const resp = await bjSendAction('double', zone);
+  if (!resp) return;
+  bjQueueZoneDelta(resp, zone);
+  doubleVisual(resp);
+}
+
+function doubleVisual(resp) {
   if (!activeZone) return;
-  if (playerInfo.balance < betZoneInfo[activeZone].bet) {
-    notification('NOT ENOUGH MONEY');
-    return;
-  }
   function resolveZone(zone) {
     const splitMap = {
       splitZone1: { array: zoneChips[0], betZone: 'betZone1', offset: +2 },
@@ -2064,7 +1811,7 @@ function double() {
       }
     }, 700);
     setTimeout(() => {
-      stand();
+      bjApplyActionResponse(resp);
     }, 900);
   }
 }
@@ -2157,239 +1904,9 @@ function createChipWithFlight(value, index, type = 'main') {
 }
 
 function checkBets() {
-  const PAYOUTS = {
-      pairs: { mixed: 5, colored: 12, perfect: 25 },
-      royal: { royalMatch: 25, suited: 5 },
-      superSeven: {
-        oneSeven: 3,
-        twoSevenUnsuited: 50,
-        twoSevenSuited: 100,
-        threeSevensUnsuited: 500,
-        threeSevensSuited: 5000,
-      },
-      plus21: {
-        flush: 5,
-        straight: 10,
-        trips: 30,
-        straightFlush: 40,
-        suitedTrips: 100,
-      },
-    },
-    toDE = (n) => n.toLocaleString('de-DE'),
-    cardStr = (c) => (c ? `${c[0]}:${c[1]}` : null),
-    allEqual = (a) => a.length > 0 && a.every((v) => v === a[0]),
-    rankToNums = (r) => {
-      if (typeof r === 'number') return [r];
-      if (r === 'A') return [1, 14];
-      if (r === 'J') return [11];
-      if (r === 'Q') return [12];
-      if (r === 'K') return [13];
-      const p = parseInt(r, 10);
-      return Number.isNaN(p) ? [] : [p];
-    },
-    isStraight = (ranks) => {
-      const cand = ranks.map(rankToNums);
-      let combos = [[]];
-      for (const opts of cand) {
-        const next = [];
-        for (const v of opts) for (const c of combos) next.push([...c, v]);
-        combos = next;
-      }
-      return combos.some((c) => {
-        c.sort((a, b) => a - b);
-        return c[0] + 1 === c[1] && c[1] + 1 === c[2];
-      });
-    },
-    UI = {
-      pairs: { selector: '.pairInfo', normalize: 'pair', send: 'pairs' },
-      plus21: { selector: '.plus21Info', normalize: 'plus', send: 'plus21' },
-      royal: { selector: '.royalInfo', normalize: 'royal', send: 'royal' },
-      superSeven: {
-        selector: '.superSevenInfo',
-        normalize: 'super7',
-        send: 'super7',
-      },
-    },
-    RESOLVERS = {
-      pairs: ({ c1, c2, stake }) => {
-        let payout = 0,
-          detail = 'NO PAIR';
-        if (c1 && c2 && c1[1] === c2[1]) {
-          if (c1[0] === c2[0]) {
-            payout = stake * PAYOUTS.pairs.perfect;
-            detail = 'PERFECT PAIR (same rank & same suit)';
-          } else {
-            const color = (s) => (s === 's1' || s === 's4' ? 'RED' : 'BLACK');
-            if (color(c1[0]) === color(c2[0])) {
-              payout = stake * PAYOUTS.pairs.colored;
-              detail = 'COLORED PAIR (same color)';
-            } else {
-              payout = stake * PAYOUTS.pairs.mixed;
-              detail = 'MIXED PAIR (different color)';
-            }
-          }
-        }
-        return { payout, detail };
-      },
-      royal: ({ c1, c2, stake }) => {
-        let payout = 0,
-          detail = 'NO ROYAL/SUITED';
-        if (c1 && c2) {
-          const ranks = [c1[1], c2[1]],
-            suited = c1[0] === c2[0],
-            hasKQ = ranks.includes('K') && ranks.includes('Q');
-          if (hasKQ && suited) {
-            payout = stake * PAYOUTS.royal.royalMatch;
-            detail = 'ROYAL MATCH (K+Q suited)';
-          } else if (suited) {
-            payout = stake * PAYOUTS.royal.suited;
-            detail = 'SUITED (two-card suited)';
-          }
-        }
-        return { payout, detail };
-      },
-      superSeven: ({ cards, dealerUp, stake }) => {
-        let payout = 0,
-          detail = 'NO SEVENS';
-        const allCards = [...(cards || []), ...(dealerUp ? [dealerUp] : [])],
-          sevenCards = allCards.filter(
-            (c) => Number(c[1]) === 7 || c[1] === '7'
-          );
-        if (sevenCards.length === 1) {
-          payout = stake * PAYOUTS.superSeven.oneSeven;
-          detail = 'ONE SEVEN';
-        } else if (sevenCards.length === 2) {
-          if (sevenCards[0][0] === sevenCards[1][0]) {
-            payout = stake * PAYOUTS.superSeven.twoSevenSuited;
-            detail = 'TWO SEVENS SUITED';
-          } else {
-            payout = stake * PAYOUTS.superSeven.twoSevenUnsuited;
-            detail = 'TWO SEVENS UNSUITED';
-          }
-        } else if (sevenCards.length >= 3) {
-          const suits = sevenCards.map((c) => c[0]);
-          if (allEqual(suits)) {
-            payout = stake * PAYOUTS.superSeven.threeSevensSuited;
-            detail = `THREE SEVENS SUITED (${sevenCards.length})`;
-          } else {
-            payout = stake * PAYOUTS.superSeven.threeSevensUnsuited;
-            detail = `THREE SEVENS UNSUITED (${sevenCards.length})`;
-          }
-        }
-        return { payout, detail };
-      },
-      plus21: ({ c1, c2, dealerUp, stake }) => {
-        let payout = 0,
-          detail = 'NO COMBO';
-        if (!(c1 && c2 && dealerUp))
-          return {
-            payout,
-            detail: 'not enough cards (need player 2 + dealer up)',
-          };
-        const trio = [c1, c2, dealerUp],
-          ranks = trio.map((c) => c[1]),
-          suits = trio.map((c) => c[0]),
-          threeKind = ranks.every((r) => r === ranks[0]),
-          flush = allEqual(suits),
-          straight = isStraight(ranks);
-        if (threeKind && flush) {
-          payout = stake * PAYOUTS.plus21.suitedTrips;
-          detail = 'SUITED TRIPS (three of a kind + same suit)';
-        } else if (threeKind) {
-          payout = stake * PAYOUTS.plus21.trips;
-          detail = 'TRIPS (three of a kind)';
-        } else if (straight && flush) {
-          payout = stake * PAYOUTS.plus21.straightFlush;
-          detail = 'STRAIGHT FLUSH (3-card suited straight)';
-        } else if (straight) {
-          payout = stake * PAYOUTS.plus21.straight;
-          detail = 'STRAIGHT (3-card)';
-        } else if (flush) {
-          payout = stake * PAYOUTS.plus21.flush;
-          detail = 'FLUSH (3-card same suit)';
-        }
-        return { payout, detail };
-      },
-    };
-
-  const dealerUp = betZoneInfo.dealerZone?.suitCardsScore?.[0] || null,
-    ZONES = ['betZone1', 'betZone2', 'betZone3'];
-
-  ZONES.forEach((zoneName, idx) => {
-    const z = betZoneInfo[zoneName];
-    if (!z) return;
-    const totalSideBets =
-      (z.pairsBet || 0) +
-      (z.plus21Bet || 0) +
-      (z.royalBet || 0) +
-      (z.superSevenBet || 0);
-    if (!z.status && !totalSideBets) return;
-
-    const c1 = z.suitCardsScore?.[0] || null,
-      c2 = z.suitCardsScore?.[1] || null;
-
-    const writeResult = (kind, stake, payout, detail) => {
-      const { selector, normalize, send } = UI[kind],
-        els = document.querySelectorAll(selector),
-        el = els && els[idx],
-        multiplier = stake > 0 ? payout / stake : 0,
-        multStr = Number.isFinite(multiplier)
-          ? Number.isInteger(multiplier)
-            ? multiplier
-            : multiplier.toFixed(2)
-          : '0';
-
-      if (el) {
-        if (payout > 0) {
-          el.style.boxShadow = '0vh 0vh 1vh 0vh green inset';
-          el.innerHTML =
-            '$' + toDE(stake) + ' × ' + multStr + '<br>+$' + toDE(payout);
-
-          playerInfo.balance += payout + stake;
-          normalizeZone(idx, normalize, stake + payout);
-        } else {
-          el.style.boxShadow = '0vh 0vh 1vh 0vh red inset';
-          el.textContent = '$' + toDE(stake);
-        }
-      } else {
-        if (payout > 0) {
-          playerInfo.balance += payout + stake;
-          normalizeZone(idx, normalize, stake + payout);
-        } else {
-          //
-        }
-      }
-
-      if (send)
-        setTimeout(() => {
-          sendChips(send, idx, payout > 0 ? 'player' : 'dealer');
-          betStatusInfo[0].textContent = '$' + toDE(playerInfo.balance);
-        }, 500);
-    };
-
-    for (const [kind, stake] of [
-      ['pairs', z.pairsBet],
-      ['royal', z.royalBet],
-      ['superSeven', z.superSevenBet],
-      ['plus21', z.plus21Bet],
-    ]) {
-      if (stake > 0) {
-        const { payout, detail } = RESOLVERS[kind]({
-          c1,
-          c2,
-          dealerUp,
-          stake,
-          cards: z.suitCardsScore || [],
-        });
-        writeResult(kind, stake, payout, detail);
-      }
-    }
-  });
-
-  ZONES.forEach((n) => {
-    const z = betZoneInfo[n];
-    if (z) z.pairsBet = z.superSevenBet = z.royalBet = z.plus21Bet = 0;
-  });
+  // Side bets settle SERVER-side with the round (C1b-C1d); their outcomes
+  // render at settlement from betDetails. The legacy deal-time client
+  // evaluation is gone.
 }
 
 function queueChipSendSound(n) {
@@ -2444,8 +1961,15 @@ function sendChips(type, index, direction) {
   chipsArray.length = 0;
 }
 
-function surrender() {
-  if (settlementInFlight) return;
+async function surrender() {
+  if (settlementInFlight || !activeZone) return;
+  const resp = await bjSendAction('surrender', activeZone);
+  if (!resp) return;
+  surrenderVisual();
+  bjApplyActionResponse(resp);
+}
+
+function surrenderVisual() {
   if (!activeZone) return;
   const bet = betZoneInfo[activeZone].bet,
     surrenderAmount = money(bet / 2);
@@ -2590,32 +2114,26 @@ function surrender() {
   betZoneInfo[activeZone].status = false;
 }
 
-function insurance() {
-  if (settlementInFlight) return;
-  if (!activeZone) return;
-  if (betZoneInfo[activeZone].bet < 2) {
+async function insurance() {
+  if (settlementInFlight || !activeZone) return;
+  const betTarget = betZoneInfo[activeZone];
+  const stake = Math.floor(money(betTarget.bet || 0) / 2);
+  if (stake < 1) {
     notification('CANT INSURANCE 1$');
     return;
   }
-  const betName = activeZone,
-    index = ['betZone1', 'betZone2', 'betZone3'].indexOf(betName);
-  if (index === -1) return;
-  const betTarget = betZoneInfo[activeZone],
-    insuranceAmount = Math.floor(betTarget.bet / 2);
-  if (insuranceAmount > playerInfo.balance) {
-    notification('NOT ENOUGH MONEY');
-    return;
-  }
+  const zone = activeZone;
+  const resp = await bjSendAction('insurance', zone, { insuranceStake: stake });
+  if (!resp) return;
+  insuranceVisual(zone, stake);
+  bjApplyActionResponse(resp);
+}
 
+function insuranceVisual(betName, insuranceAmount) {
+  const index = ['betZone1', 'betZone2', 'betZone3'].indexOf(betName);
+  if (index === -1) return;
+  const betTarget = betZoneInfo[betName];
   betTarget.insuranceBet += insuranceAmount;
-  roundInsuranceStakes[betName] = money((roundInsuranceStakes[betName] || 0) + insuranceAmount);
-  logRoundAction('insurance', activeZone, { stake: money(insuranceAmount) });
-  playerInfo.totalBet += insuranceAmount;
-  playerInfo.balance -= insuranceAmount;
-  betStatusInfo[1].textContent =
-    '$' + playerInfo.totalBet.toLocaleString('de-DE');
-  betStatusInfo[0].textContent =
-    '$' + playerInfo.balance.toLocaleString('de-DE');
 
   let total = insuranceAmount;
   const denoms = [1000, 100, 25, 10, 5, 1],
@@ -2644,7 +2162,6 @@ function insurance() {
       );
     }, i * 50);
   });
-  stand();
 }
 
 function notification(notifText) {
@@ -2739,40 +2256,15 @@ function checkButtons() {
   }
 }
 
-function evenMoney() {
-  const z = betZoneInfo[activeZone],
-    bet = z.bet;
-  logRoundAction('even_money', activeZone, { bet: money(bet) });
-  rememberRoundHandMeta(activeZone, {
-    evenMoney: true,
-    originalBet: money(bet),
-    cards: cardsToPayload(z?.suitCardsScore || []),
-    isSplit: activeZone.startsWith('splitZone'),
-  });
-  playerInfo.balance += bet * 2;
-  betStatusInfo[0].textContent =
-    '$' + playerInfo.balance.toLocaleString('de-DE');
-
-  let index, chipType;
-  if (activeZone.startsWith('betZone')) {
-    index = parseInt(activeZone.slice(7), 10) - 1;
-    chipType = 'main';
-  } else if (activeZone.startsWith('splitZone')) {
-    const num = parseInt(activeZone.slice(9), 10);
-    index = Math.floor((num - 1) / 2);
-    chipType = num % 2 ? 'main' : 'split';
-  }
-
-  normalizeZone(index, chipType, bet * 2);
-  sendChips(chipType, index, 'player');
-
-  z.status = false;
-  z.bet = 0;
-  if (z.scoreZone) z.scoreZone.textContent = '$0';
-
+async function evenMoney() {
+  if (settlementInFlight || !activeZone) return;
+  const zone = activeZone;
+  const resp = await bjSendAction('even_money', zone);
+  if (!resp) return;
   evenMoneyBtn.style.display = 'none';
   declineEvenMoneyBtn.style.display = 'none';
-  stand();
+  createBetNotif(zone, 'EVEN MONEY');
+  bjApplyActionResponse(resp);
 }
 
 function createBetNotif(zone, text) {
@@ -3137,7 +2629,7 @@ function rebet() {
 
 function resetForNewRoundUI() {
   clearTable();
-  deck = createDeck(currentDecks);
+  bjResetQueues();
   Object.keys(betZoneInfo).forEach((z) => {
     if (z === 'dealerZone') return;
     const bz = betZoneInfo[z];
@@ -3294,24 +2786,25 @@ splitBtn.addEventListener('click', split);
 doubleBtn.addEventListener('click', double);
 surrenderBtn.addEventListener('click', surrender);
 insuranceBtn.addEventListener('click', insurance);
-noInsuranceBtn.addEventListener('click', () => {
-  if (activeZone) {
-    logRoundAction('decline_insurance', activeZone);
-  }
-  stand();
+noInsuranceBtn.addEventListener('click', async () => {
+  if (settlementInFlight || !activeZone) return;
+  const resp = await bjSendAction('decline_insurance', activeZone);
+  if (!resp) return;
+  insuranceBtn.style.display = 'none';
+  noInsuranceBtn.style.display = 'none';
+  bjApplyActionResponse(resp);
 });
 evenMoneyBtn.addEventListener('click', evenMoney);
 undoBtn.addEventListener('click', undoLastBet);
 pausePlayBtn.addEventListener('click', musicPause);
-undoBtn.addEventListener('click', undoLastBet);
 
-declineEvenMoneyBtn.addEventListener('click', () => {
-  if (activeZone) {
-    logRoundAction('decline_even_money', activeZone);
-  }
+declineEvenMoneyBtn.addEventListener('click', async () => {
+  if (settlementInFlight || !activeZone) return;
+  const resp = await bjSendAction('decline_even_money', activeZone);
+  if (!resp) return;
   evenMoneyBtn.style.display = 'none';
   declineEvenMoneyBtn.style.display = 'none';
-  stand();
+  bjApplyActionResponse(resp);
 });
 chips.forEach((chip, i) => {
   chip.addEventListener('click', () => chipSelect(chipValues[i], i));
@@ -3405,42 +2898,8 @@ playBtn.addEventListener('click', async () => {
   loadingScreen.remove();
   game.style.opacity = '1';
   music.play();
-  await flushPendingRoundRecovery();
-  await syncBalanceFromSite();
+  await bootstrapBlackjackSession();
 });
-
-function triggerEmergencySettlement() {
-  if (settlementInFlight || emergencySettlementSent || !gameStart) return;
-  if (!currentRoundRequestId) return;
-  const wager = money(playerInfo.totalBet || 0);
-  if (wager <= 0) return;
-
-  const net =
-    lastBalance !== null ? money(playerInfo.balance - lastBalance) : 0;
-  const payload = summarizeRoundForSettlement(wager, net);
-  persistPendingRoundSnapshot();
-  const token = localStorage.getItem('token');
-  if (!token) return;
-
-  emergencySettlementSent = true;
-  fetch('/api/casino/bet', {
-    method: 'POST',
-    keepalive: true,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      'Bypass-Tunnel-Remainder': 'true',
-    },
-    body: JSON.stringify({
-      game: 'blackjack',
-      requestId: currentRoundRequestId,
-      bets: payload,
-    }),
-  }).catch(() => {});
-}
-
-window.addEventListener('pagehide', triggerEmergencySettlement);
-window.addEventListener('beforeunload', triggerEmergencySettlement);
 
 musicChangeBtn[0].addEventListener('click', () => musicChange('prev'));
 musicChangeBtn[1].addEventListener('click', () => musicChange('next'));

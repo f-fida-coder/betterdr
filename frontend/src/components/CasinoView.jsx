@@ -13,6 +13,18 @@ import {
 import { formatSiteDateTime } from '../utils/timezone';
 
 const LOCAL_GAME_META = {
+    blackjack: {
+        id: 'local-blackjack',
+        provider: 'In-House',
+        // Staged server-dealt protocol (rebuild C1-C3): the client renders
+        // only server cards; deal/hit/stand/double/split/insurance are all
+        // bridge round-trips. Cache-busted with the C1e client build.
+        url: '/games/blackjack/index.html?v=20260723a',
+        poster: '/games/blackjack/src/images/misc/table.png',
+        themeColor: '#14532d',
+        // Fixed-canvas landscape table — rides the rotate overlay on phones.
+        landscape: true,
+    },
     'baccarat-classic': {
         id: 'local-baccarat-classic',
         provider: 'In-House',
@@ -553,7 +565,10 @@ const CasinoView = () => {
                 // A video-poker DEAL leaves the round open (roundStatus
                 // 'dealt') — no outcome exists yet, so no result banner. The
                 // banner fires on the draw, which settles the round.
-                const isOpenRound = String(result?.roundStatus || '').toLowerCase() === 'dealt';
+                // 'dealt' = A&E/video-poker open round; 'playing' = a staged
+                // blackjack round mid-hand. Neither has an outcome yet, so no
+                // result banner fires until the settling action arrives.
+                const isOpenRound = ['dealt', 'playing'].includes(String(result?.roundStatus || '').toLowerCase());
                 const roundResult = {
                     game: requestedGame,
                     wager: Number(result?.totalWager ?? 0),

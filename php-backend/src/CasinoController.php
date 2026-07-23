@@ -373,6 +373,7 @@ final class CasinoController
     // when a game launches. Admin all=true listings stay unfiltered so the
     // catalog truth remains inspectable.
     private const OFFERED_GAME_SLUGS = [
+        self::BLACKJACK_GAME_SLUG,
         self::THREE_CARD_POKER_GAME_SLUG,
         self::ACES_AND_EIGHTS_GAME_SLUG,
         self::AMERICAN_ROULETTE_GAME_SLUG,
@@ -383,7 +384,17 @@ final class CasinoController
         self::JURASSIC_RUN_GAME_SLUG,
     ];
 
+    // Offered ONLY while the casinogames row is status=active: these games
+    // are fully wired (three-list sync done) but stay INVISIBLE to players —
+    // not even a greyed tile — until the launch-gate DB flip. Unlike the
+    // craps precedent (offered+disabled = greyed placeholder tile), a game
+    // listed here simply does not exist player-side pre-launch.
+    private const OFFERED_WHEN_ACTIVE_GAME_SLUGS = [
+        self::BLACKJACK_GAME_SLUG,
+    ];
+
     private const DEFAULT_CASINO_GAMES = [
+        ['provider' => 'internal', 'name' => 'Blackjack', 'slug' => 'blackjack', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#14532d', 'icon' => 'fa-solid fa-diamond', 'imageUrl' => '/games/blackjack/src/images/misc/table.png', 'tags' => ['table games', 'blackjack', 'in-house', 'server settled'], 'isFeatured' => true, 'status' => 'disabled', 'metadata' => ['gameType' => 'blackjack', 'rngVersion' => 'bj-staged-csprng-v1', 'deckCount' => 6, 'fairness' => ['outcomeSource' => 'server_rng', 'deckCommittedAtDeal' => true], 'features' => ['split', 'double', 'surrender', 'insurance', 'side_bets']]],
         ['provider' => 'internal', 'name' => 'Baccarat', 'slug' => 'baccarat-classic', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#9f1239', 'icon' => 'fa-solid fa-gem', 'imageUrl' => '/games/baccarat-classic/images/poster.jpg', 'tags' => ['table games', 'baccarat', 'in-house'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Craps', 'slug' => 'craps', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0a4f3a', 'icon' => 'fa-solid fa-dice-six', 'imageUrl' => '/games/craps/sprites/board_table.jpg', 'tags' => ['table games', 'craps', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Arabian Game', 'slug' => 'arabian', 'category' => 'slots', 'minBet' => 0.3, 'maxBet' => 30, 'themeColor' => '#7e22ce', 'icon' => 'fa-solid fa-scroll', 'imageUrl' => '/games/arabian/sprites/200x200.jpg', 'tags' => ['slots', 'arabian', 'in-house', 'server settled'], 'isFeatured' => true],
@@ -658,9 +669,23 @@ final class CasinoController
                 if (!$includeAll) {
                     // Players only ever see the offered catalog; legacy import
                     // rows and delisted-with-history games never leave the API.
+                    // Launch-gated games additionally require status=active —
+                    // pre-launch they are absent, not greyed out.
                     $games = array_values(array_filter(
                         $games,
-                        fn(array $game): bool => in_array(strtolower((string) ($game['slug'] ?? '')), self::OFFERED_GAME_SLUGS, true)
+                        function (array $game): bool {
+                            $slug = strtolower((string) ($game['slug'] ?? ''));
+                            if (!in_array($slug, self::OFFERED_GAME_SLUGS, true)) {
+                                return false;
+                            }
+                            if (
+                                in_array($slug, self::OFFERED_WHEN_ACTIVE_GAME_SLUGS, true)
+                                && strtolower(trim((string) ($game['status'] ?? 'active'))) !== 'active'
+                            ) {
+                                return false;
+                            }
+                            return true;
+                        }
                     ));
                 }
                 $total = count($games);
@@ -1293,7 +1318,7 @@ final class CasinoController
                 'tags' => is_array($game['tags'] ?? null) ? $game['tags'] : [str_replace('_', ' ', (string) ($game['category'] ?? 'lobby')), 'live casino'],
                 'isFeatured' => (bool) ($game['isFeatured'] ?? false),
                 'sortOrder' => $idx + 1,
-                'status' => 'active',
+                'status' => (string) ($game['status'] ?? 'active'),
                 'supportsDemo' => true,
                 'metadata' => is_array($game['metadata'] ?? null) ? $game['metadata'] : new stdClass(),
                 'createdAt' => $now,
@@ -3325,87 +3350,367 @@ final class CasinoController
 
     private function placeBlackjackBet(array $actor, array $body, string $requestId, float $startedAt): void
     {
+        $bets = is_array($body['bets'] ?? null) ? $body['bets'] : [];
+        // The staged protocol (rebuild C1b+) is selected by bets.action; the
+        // legacy client sends a whole-round payload with no action key and
+        // stays on the one-shot path, untouched until the client cutover.
+        if (array_key_exists('action', $bets)) {
+            $this->handleBlackjackStagedRequest($actor, $bets, $requestId, $startedAt);
+            return;
+        }
+        // The legacy one-shot protocol (client-dealt cards settled in a
+        // single terminal request) is RETIRED — its player-positive side-bet
+        // paytables were the audit's #2 critical finding and the staged
+        // protocol above replaced it end-to-end. Historic rounds remain
+        // replayable via the staged deal's (userId, requestId, game)
+        // idempotency lookup. Dead legacy code is removed in the tree-
+        // consolidation chunk.
+        $this->writeCasinoAuditLog('blackjack_legacy_protocol_rejected', [
+            'requestId' => $requestId,
+            'userId' => (string) ($actor['id'] ?? ''),
+        ]);
+        Response::json(['message' => 'Legacy blackjack protocol retired — use staged actions (deal/hit/stand/...)'], 400);
+    }
+    private const BLACKJACK_STAGED_STATE_KEY = 'bjState';
+    private const BLACKJACK_STAGED_RNG_VERSION = 'bj-staged-csprng-v1';
+    // Abandoned 'playing' rounds are force-resolved (decline insurance,
+    // stand every open hand — the legacy auto_stand policy) after this
+    // window. The stake was debited at deal, so abandonment never dodges a
+    // loss; the sweep only COMPLETES the round, it never re-decides it.
+    private const BLACKJACK_ROUND_ABANDON_SECONDS = 86400;
+    private const BLACKJACK_STAGED_NO_DEBIT_ACTIONS = ['hit', 'stand', 'surrender', 'decline_insurance', 'even_money', 'decline_even_money'];
+    private const BLACKJACK_STAGED_DEBIT_ACTIONS = ['double', 'split', 'insurance'];
+
+    private function handleBlackjackStagedRequest(array $actor, array $bets, string $requestId, float $startedAt): void
+    {
         $userId = (string) ($actor['id'] ?? '');
 
         try {
             $this->requireActiveCasinoGame(self::BLACKJACK_GAME_SLUG);
 
-            $clientPayload = is_array($body['bets'] ?? null) ? $body['bets'] : [];
-            $normalizedPayload = $this->normalizeBlackjackRoundPayload($clientPayload);
-            $settlement = $this->evaluateBlackjackRoundSettlement($normalizedPayload, $userId, $requestId);
+            // Expired rounds settle before any request proceeds (A&E
+            // pattern): a returning player finds their abandoned round
+            // resolved, and a fresh deal is never blocked by a fossil.
+            $this->sweepExpiredBlackjackRounds($userId);
 
-            $totalWager = $settlement['totalWager'];
-            $totalReturn = $settlement['totalReturn'];
-            $netResult = $settlement['netResult'];
-            $profit = $settlement['profit'];
-            $result = (string) $settlement['result'];
-            $resultType = (string) $settlement['resultType'];
-            $betBreakdown = is_array($settlement['betBreakdown'] ?? null) ? $settlement['betBreakdown'] : [];
-            $roundMeta = is_array($settlement['roundMeta'] ?? null) ? $settlement['roundMeta'] : [];
-            $betDetails = is_array($settlement['betDetails'] ?? null) ? $settlement['betDetails'] : [];
-            $playerCards = is_array($settlement['playerCards'] ?? null) ? $settlement['playerCards'] : [];
-            $dealerCards = is_array($settlement['dealerCards'] ?? null) ? $settlement['dealerCards'] : [];
+            $action = strtolower(trim((string) ($bets['action'] ?? '')));
+            if ($action === 'state') {
+                $this->blackjackStagedState($userId);
+                return;
+            }
+            if ($action === 'deal') {
+                $this->blackjackStagedDeal($actor, $bets, $requestId, $startedAt);
+                return;
+            }
+            if (
+                !in_array($action, self::BLACKJACK_STAGED_NO_DEBIT_ACTIONS, true)
+                && !in_array($action, self::BLACKJACK_STAGED_DEBIT_ACTIONS, true)
+            ) {
+                throw new InvalidArgumentException('Unsupported blackjack action: ' . ($action === '' ? '(empty)' : $action));
+            }
+            $this->blackjackStagedAction($actor, $bets, $action, $requestId, $startedAt);
+        } catch (InvalidArgumentException $e) {
+            $this->writeCasinoAuditLog('blackjack_staged_validation_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'action' => (string) ($bets['action'] ?? ''),
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            $this->writeCasinoAuditLog('blackjack_staged_server_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'action' => (string) ($bets['action'] ?? ''),
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => 'Server error handling blackjack round'], 500);
+        }
+    }
 
-            if ($totalWager <= 0) {
-                Response::json(['message' => 'Blackjack wager must be greater than zero'], 400);
+    private function findOpenBlackjackRound(string $userId): ?array
+    {
+        return $this->db->findOne('casino_bets', [
+            'userId' => $userId,
+            'game' => self::BLACKJACK_GAME_SLUG,
+            'roundStatus' => 'playing',
+        ]);
+    }
+
+    private function blackjackStagedState(string $userId): void
+    {
+        $round = $this->findOpenBlackjackRound($userId);
+        $state = is_array($round[self::BLACKJACK_STAGED_STATE_KEY] ?? null)
+            ? $round[self::BLACKJACK_STAGED_STATE_KEY]
+            : null;
+        if ($round === null || $state === null) {
+            Response::json(['round' => null]);
+            return;
+        }
+
+        Response::json(['round' => [
+            'roundId' => (string) ($round['roundId'] ?? $round['id'] ?? ''),
+            // The round requestId is returned so a client that lost it
+            // (refresh, new device) can resume acting on the open round.
+            'requestId' => (string) ($round['requestId'] ?? ''),
+            'roundStatus' => 'playing',
+            'state' => $this->blackjackRoundPublicState($state),
+            'totalWager' => $this->num($round['totalWager'] ?? 0),
+            'deckHash' => (string) ($round['deckHash'] ?? ''),
+            'rngVersion' => (string) ($round['rngVersion'] ?? ''),
+        ]]);
+    }
+
+    private function blackjackStagedDeal(array $actor, array $bets, string $requestId, float $startedAt): void
+    {
+        $userId = (string) ($actor['id'] ?? '');
+
+        $this->db->beginTransaction();
+        try {
+            $lockedUser = $this->loadLockedCasinoUser($userId);
+
+            $existing = $this->db->findOne('casino_bets', [
+                'userId' => $userId,
+                'requestId' => $requestId,
+                'game' => self::BLACKJACK_GAME_SLUG,
+            ]);
+            if ($existing !== null) {
+                $this->writeCasinoAuditLog('blackjack_staged_deal_idempotent', [
+                    'requestId' => $requestId,
+                    'roundId' => (string) ($existing['roundId'] ?? $existing['id'] ?? ''),
+                    'userId' => $userId,
+                ]);
+                $this->db->commit();
+                Response::json($this->blackjackStagedRoundResponse($existing, $lockedUser, true, false));
                 return;
             }
 
+            $open = $this->findOpenBlackjackRound($userId);
+            if ($open !== null) {
+                // ONE open round per user/game: a fresh deal while a round is
+                // live NEVER takes a second stake — it resumes the open round.
+                $this->db->commit();
+                Response::json($this->blackjackStagedRoundResponse($open, $lockedUser, false, true));
+                return;
+            }
+
+            $zones = is_array($bets['zones'] ?? null) ? $bets['zones'] : [];
+            $seed = bin2hex(random_bytes(32));
+            $state = $this->blackjackRoundCreate($zones, $seed, self::BLACKJACK_DEFAULT_DECK_COUNT);
+
+            $totalWager = 0.0;
+            foreach ($state['zones'] as $zoneStakes) {
+                foreach ($zoneStakes as $stake) {
+                    $totalWager = round($totalWager + (float) $stake);
+                }
+            }
+            if ($totalWager <= 0) {
+                throw new InvalidArgumentException('Blackjack wager must be greater than zero');
+            }
             [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::BLACKJACK_GAME_SLUG, 1.0, 10000.0);
             if ($totalWager < $gameMinBet) {
-                Response::json(['message' => 'Minimum blackjack wager is $' . round($gameMinBet)], 400);
-                return;
+                throw new InvalidArgumentException('Minimum blackjack wager is $' . round($gameMinBet));
             }
             if ($totalWager > $gameMaxBet) {
-                Response::json(['message' => 'Maximum blackjack wager is $' . round($gameMaxBet)], 400);
-                return;
+                throw new InvalidArgumentException('Maximum blackjack wager is $' . round($gameMaxBet));
+            }
+            $this->assertUserWagerWithinLimits($lockedUser, $totalWager);
+            $this->assertCasinoLossLimits($lockedUser, $totalWager);
+            $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
+            if ($totalWager > $balanceSnapshot['availableBalance']) {
+                throw new InvalidArgumentException('Insufficient balance. Available: $' . round($balanceSnapshot['availableBalance']));
             }
 
-            $this->db->beginTransaction();
-            try {
-                $lockedUser = $this->loadLockedCasinoUser($userId);
+            $roundId = $this->deterministicRoundId(self::BLACKJACK_GAME_SLUG, $userId, $requestId);
+            $now = SqlRepository::nowUtc();
+            $ipAddress = IpUtils::clientIp();
+            $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
+            $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
 
-                $existingRound = $this->db->findOne('casino_bets', [
-                    'userId' => $userId,
-                    'requestId' => $requestId,
-                    'game' => self::BLACKJACK_GAME_SLUG,
-                ]);
-                if ($existingRound !== null) {
-                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['id'] ?? '');
-                    $ledgerEntries = $this->findRoundLedgerEntries($roundId);
-                    $this->writeCasinoAuditLog('blackjack_round_idempotent', [
+            $debitEntry = $this->buildCasinoTransactionEntry(
+                $userId,
+                $totalWager,
+                $roundId,
+                self::BLACKJACK_SOURCE_TYPE,
+                'DEBIT',
+                'casino_bet_debit',
+                $balanceSnapshot['balanceBefore'],
+                $balanceAfterDebit,
+                'CASINO_BLACKJACK_WAGER',
+                'Blackjack wager charged',
+                $now,
+                $ipAddress,
+                $userAgent
+            );
+            $debitEntryId = $this->db->insertOne('transactions', $debitEntry);
+            $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
+                'balance' => $balanceAfterDebit,
+                'updatedAt' => $now,
+            ]);
+            $lockedUser['balance'] = $balanceAfterDebit;
+
+            $round = [
+                'id' => $roundId,
+                'roundId' => $roundId,
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'username' => (string) ($lockedUser['username'] ?? $actor['username'] ?? ''),
+                'game' => self::BLACKJACK_GAME_SLUG,
+                'roundStatus' => 'playing',
+                'bets' => [
+                    'totalWager' => $totalWager,
+                    'zones' => $this->blackjackStagedZoneBreakdown($state),
+                ],
+                'totalWager' => $totalWager,
+                // While live, the history-facing card fields carry ONLY what
+                // the player can see: their own cards and the dealer up card.
+                'playerCards' => $this->blackjackStagedVisiblePlayerCards($state),
+                'dealerCards' => [(string) ($state['dealerCards'][0]['code'] ?? '')],
+                'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                'balanceAfter' => $balanceAfterDebit,
+                'availableBalanceBefore' => $balanceSnapshot['availableBalance'],
+                'availableBalanceAfter' => $this->availableCredit($balanceAfterDebit, $balanceSnapshot['pendingBalance'], $lockedUser),
+                'pendingBalanceSnapshot' => $balanceSnapshot['pendingBalance'],
+                'ledgerEntries' => ['debit' => $debitEntryId],
+                'rngVersion' => self::BLACKJACK_STAGED_RNG_VERSION,
+                'outcomeSource' => 'server_dealt_staged',
+                'deckHash' => $this->blackjackRoundDeckHash($state),
+                self::BLACKJACK_STAGED_STATE_KEY => $state,
+                'createdAt' => $now,
+                'updatedAt' => $now,
+            ];
+
+            if (($state['phase'] ?? '') === 'complete') {
+                // All-natural deals settle inside the same transaction —
+                // debit, credit and the settled row commit together.
+                $round = $this->blackjackStagedSettleRound($round, $state, $lockedUser, $startedAt);
+            }
+            $this->db->insertOne('casino_bets', $round);
+
+            $this->writeCasinoAuditLog('blackjack_staged_round_dealt', [
+                'requestId' => $requestId,
+                'roundId' => $roundId,
+                'userId' => $userId,
+                'username' => (string) ($lockedUser['username'] ?? ''),
+                'wager' => $totalWager,
+                'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                'balanceAfter' => $balanceAfterDebit,
+                'terminalAtDeal' => ($round['roundStatus'] ?? '') === 'settled',
+            ]);
+
+            $this->db->commit();
+            Response::json($this->blackjackStagedRoundResponse($round, $lockedUser, false, false));
+        } catch (Throwable $txErr) {
+            $this->db->rollback();
+            throw $txErr;
+        }
+    }
+
+    private function blackjackStagedAction(array $actor, array $bets, string $action, string $requestId, float $startedAt): void
+    {
+        $userId = (string) ($actor['id'] ?? '');
+        $zone = isset($bets['zone']) && is_string($bets['zone']) && trim($bets['zone']) !== '' ? trim($bets['zone']) : null;
+        $actionRequestId = trim((string) ($bets['actionRequestId'] ?? ''));
+        if (preg_match(self::REQUEST_ID_PATTERN, $actionRequestId) !== 1) {
+            throw new InvalidArgumentException('actionRequestId is required and must be 8-128 characters (letters, numbers, "_" or "-")');
+        }
+
+        // The browser bridge needs a FRESH transport requestId per message
+        // (response matching + parent-side dedup), so the round's identity
+        // travels as bets.roundRequestId; bare top-level lookup stays as the
+        // fallback for the smoke suite and direct API callers.
+        $roundRequestId = trim((string) ($bets['roundRequestId'] ?? ''));
+        if ($roundRequestId === '') {
+            $roundRequestId = $requestId;
+        }
+
+        $this->db->beginTransaction();
+        try {
+            // The user-row lock serializes every mutation of this player's
+            // round — two simultaneous actions apply strictly one-by-one.
+            $lockedUser = $this->loadLockedCasinoUser($userId);
+
+            $round = $this->db->findOne('casino_bets', [
+                'userId' => $userId,
+                'requestId' => $roundRequestId,
+                'game' => self::BLACKJACK_GAME_SLUG,
+            ]);
+            if ($round === null) {
+                throw new InvalidArgumentException('No blackjack round found for this requestId');
+            }
+            $state = is_array($round[self::BLACKJACK_STAGED_STATE_KEY] ?? null)
+                ? $round[self::BLACKJACK_STAGED_STATE_KEY]
+                : null;
+            if ($state === null) {
+                throw new InvalidArgumentException('Blackjack round is not a staged round');
+            }
+
+            // Replay FIRST, before any status check: a retried final action
+            // (the stand that settled the round) must return the settled
+            // result, and a retried "hit" must never draw a second card.
+            foreach (($state['actionLog'] ?? []) as $entry) {
+                if ((string) ($entry['actionRequestId'] ?? '') === $actionRequestId) {
+                    $this->writeCasinoAuditLog('blackjack_staged_action_idempotent', [
                         'requestId' => $requestId,
-                        'roundId' => $roundId,
+                        'roundId' => (string) ($round['roundId'] ?? $round['id'] ?? ''),
                         'userId' => $userId,
-                        'username' => (string) ($lockedUser['username'] ?? ''),
-                        'idempotent' => true,
+                        'action' => $action,
+                        'actionRequestId' => $actionRequestId,
                     ]);
                     $this->db->commit();
-                    Response::json($this->formatCasinoBetResponse($existingRound, $ledgerEntries, true));
+                    Response::json($this->blackjackStagedRoundResponse($round, $lockedUser, true, false));
                     return;
                 }
+            }
 
-                $this->assertUserWagerWithinLimits($lockedUser, $totalWager);
-                $this->assertCasinoLossLimits($lockedUser, $totalWager);
+            if ((string) ($round['roundStatus'] ?? '') !== 'playing') {
+                throw new InvalidArgumentException('Blackjack round is already settled');
+            }
+
+            $insuranceStake = $action === 'insurance'
+                ? $this->parseMoneyValue($bets['insuranceStake'] ?? 0, 'bets.insuranceStake')
+                : 0.0;
+
+            $now = SqlRepository::nowUtc();
+
+            // Apply on a COPY first. The engine validates order/state and
+            // throws on anything illegal (hit after stand, out-of-zone play,
+            // non-pair split, over-half insurance, …) — and because the copy
+            // is only adopted after the funds check below, an engine rejection
+            // OR an insufficient balance leaves the round byte-identical:
+            // no card drawn, no stake taken.
+            $nextState = $state;
+            $this->blackjackRoundApplyAction($nextState, $action, $zone, $insuranceStake, $now);
+
+            // The stake delta is derived from the engine's own transition
+            // (staked-after minus staked-before): a split re-stakes exactly
+            // ONE hand, a double doubles exactly ONE hand, insurance adds its
+            // own stake. Sizing can therefore never drift from the engine.
+            $stakeDelta = round(
+                $this->blackjackStagedTotalStaked($nextState) - $this->blackjackStagedTotalStaked($state)
+            );
+            if ($stakeDelta > 0) {
                 $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
-                if ($totalWager > $balanceSnapshot['availableBalance']) {
-                    $this->db->rollback();
-                    Response::json(['message' => 'Insufficient balance. Available: $' . round($balanceSnapshot['availableBalance'])], 400);
-                    return;
+                if ($stakeDelta > $balanceSnapshot['availableBalance']) {
+                    throw new InvalidArgumentException(
+                        'Insufficient balance to ' . str_replace('_', ' ', $action) . '. Available: $' . round($balanceSnapshot['availableBalance'])
+                    );
                 }
 
-                $roundId = $this->deterministicRoundId(self::BLACKJACK_GAME_SLUG, $userId, $requestId);
-                $now = SqlRepository::nowUtc();
+                $roundId = (string) ($round['roundId'] ?? $round['id'] ?? '');
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
+                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $stakeDelta);
+                $description = match ($action) {
+                    'double' => 'Blackjack double down stake charged',
+                    'split' => 'Blackjack split stake charged',
+                    'insurance' => 'Blackjack insurance stake charged',
+                    default => 'Blackjack additional stake charged',
+                };
 
-                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
-                $balanceAfter = round($balanceAfterDebit + $totalReturn);
-                $availableBalanceAfter = $this->availableCredit($balanceAfter, $balanceSnapshot['pendingBalance'], $lockedUser);
-
-                $debitEntry = $this->buildCasinoTransactionEntry(
+                $actionDebitEntry = $this->buildCasinoTransactionEntry(
                     $userId,
-                    $totalWager,
+                    $stakeDelta,
                     $roundId,
                     self::BLACKJACK_SOURCE_TYPE,
                     'DEBIT',
@@ -3413,154 +3718,433 @@ final class CasinoController
                     $balanceSnapshot['balanceBefore'],
                     $balanceAfterDebit,
                     'CASINO_BLACKJACK_WAGER',
-                    'Blackjack wager charged',
+                    $description,
                     $now,
                     $ipAddress,
                     $userAgent
                 );
-                $debitEntryId = $this->db->insertOne('transactions', $debitEntry);
-
-                $creditEntry = $this->buildCasinoTransactionEntry(
-                    $userId,
-                    $totalReturn,
-                    $roundId,
-                    self::BLACKJACK_SOURCE_TYPE,
-                    'CREDIT',
-                    'casino_bet_credit',
-                    $balanceAfterDebit,
-                    $balanceAfter,
-                    'CASINO_BLACKJACK_PAYOUT',
-                    'Blackjack payout/refund credited',
-                    $now,
-                    $ipAddress,
-                    $userAgent
-                );
-                $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
-
+                $actionDebitId = $this->db->insertOne('transactions', $actionDebitEntry);
                 $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
-                    'balance' => $balanceAfter,
+                    'balance' => $balanceAfterDebit,
                     'updatedAt' => $now,
                 ]);
+                $lockedUser['balance'] = $balanceAfterDebit;
 
-                $serverDecisionAt = SqlRepository::nowUtc();
-                $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
-                $integrityHash = $this->buildIntegrityHash([
-                    'roundId' => $roundId,
+                $ledgerEntries = is_array($round['ledgerEntries'] ?? null) ? $round['ledgerEntries'] : [];
+                $ledgerEntries['actionDebits'] = is_array($ledgerEntries['actionDebits'] ?? null) ? $ledgerEntries['actionDebits'] : [];
+                $ledgerEntries['actionDebits'][] = $actionDebitId;
+                $round['ledgerEntries'] = $ledgerEntries;
+                $round['totalWager'] = round($this->num($round['totalWager'] ?? 0) + $stakeDelta);
+                if (is_array($round['bets'] ?? null)) {
+                    $round['bets']['totalWager'] = $round['totalWager'];
+                }
+                $round['balanceAfter'] = $balanceAfterDebit;
+                $round['availableBalanceAfter'] = $this->availableCredit(
+                    $balanceAfterDebit,
+                    $this->num($round['pendingBalanceSnapshot'] ?? 0),
+                    $lockedUser
+                );
+
+                $this->writeCasinoAuditLog('blackjack_staged_stake_added', [
                     'requestId' => $requestId,
+                    'roundId' => $roundId,
                     'userId' => $userId,
-                    'game' => self::BLACKJACK_GAME_SLUG,
-                    'result' => $result,
-                    'totalWager' => $totalWager,
-                    'totalReturn' => $totalReturn,
-                    'netResult' => $netResult,
+                    'action' => $action,
+                    'actionRequestId' => $actionRequestId,
+                    'stakeDelta' => $stakeDelta,
                     'balanceBefore' => $balanceSnapshot['balanceBefore'],
-                    'balanceAfter' => $balanceAfter,
-                    'playerCards' => $playerCards,
-                    'dealerCards' => $dealerCards,
-                    'betBreakdown' => $betBreakdown,
-                    'roundMeta' => $roundMeta,
-                    'serverDecisionAt' => $serverDecisionAt,
+                    'balanceAfter' => $balanceAfterDebit,
                 ]);
-
-                $betRecord = [
-                    'id' => $roundId,
-                    'roundId' => $roundId,
-                    'requestId' => $requestId,
-                    'userId' => $userId,
-                    'username' => (string) ($lockedUser['username'] ?? $actor['username'] ?? ''),
-                    'game' => self::BLACKJACK_GAME_SLUG,
-                    'bets' => [
-                        'totalWager' => $totalWager,
-                        'totalReturn' => $totalReturn,
-                        'zones' => $betBreakdown,
-                    ],
-                    'playerCards' => $playerCards,
-                    'dealerCards' => $dealerCards,
-                    'result' => $result,
-                    'resultType' => $resultType,
-                    'totalWager' => $totalWager,
-                    'totalReturn' => $totalReturn,
-                    'profit' => $profit,
-                    'netResult' => $netResult,
-                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
-                    'balanceAfter' => $balanceAfter,
-                    'availableBalanceBefore' => $balanceSnapshot['availableBalance'],
-                    'availableBalanceAfter' => $availableBalanceAfter,
-                    'pendingBalanceSnapshot' => $balanceSnapshot['pendingBalance'],
-                    'ledgerEntries' => ['debit' => $debitEntryId, 'credit' => $creditEntryId],
-                    'rngVersion' => self::BLACKJACK_RNG_VERSION,
-                    'outcomeSource' => 'server_simulated_actions',
-                    'blackjackRoundMeta' => $roundMeta,
-                    'betDetails' => $betDetails,
-                    'roundData' => $roundMeta,
-                    'integrityHash' => $integrityHash,
-                    'serverDecisionAt' => $serverDecisionAt,
-                    'latencyMs' => $latencyMs,
-                    'roundStatus' => 'settled',
-                    'createdAt' => $now,
-                    'updatedAt' => $now,
-                ];
-                $this->db->insertOne('casino_bets', $betRecord);
-
-                $this->db->insertOne('casino_round_audit', [
-                    'id' => $roundId,
-                    'roundId' => $roundId,
-                    'requestId' => $requestId,
-                    'userId' => $userId,
-                    'game' => self::BLACKJACK_GAME_SLUG,
-                    'rngVersion' => self::BLACKJACK_RNG_VERSION,
-                    'outcomeSource' => 'server_simulated_actions',
-                    'bets' => $betRecord['bets'],
-                    'result' => $result,
-                    'resultType' => $resultType,
-                    'playerCards' => $playerCards,
-                    'dealerCards' => $dealerCards,
-                    'blackjackRoundMeta' => $roundMeta,
-                    'betDetails' => $betDetails,
-                    'integrityHash' => $integrityHash,
-                    'createdAt' => $now,
-                    'updatedAt' => $now,
-                ]);
-
-                $this->db->commit();
-
-                $ledgerEntries = [
-                    array_merge($debitEntry, ['id' => $debitEntryId]),
-                    array_merge($creditEntry, ['id' => $creditEntryId]),
-                ];
-                $this->writeCasinoAuditLog('blackjack_round_settled', [
-                    'requestId' => $requestId,
-                    'roundId' => $roundId,
-                    'userId' => $userId,
-                    'username' => (string) ($lockedUser['username'] ?? ''),
-                    'wager' => $totalWager,
-                    'totalReturn' => $totalReturn,
-                    'netResult' => $netResult,
-                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
-                    'balanceAfter' => $balanceAfter,
-                    'outcomeSource' => 'server_simulated_actions',
-                    'resultType' => $resultType,
-                ]);
-                Response::json($this->formatCasinoBetResponse($betRecord, $ledgerEntries, false));
-            } catch (Throwable $txErr) {
-                $this->db->rollback();
-                throw $txErr;
             }
-        } catch (InvalidArgumentException $e) {
-            $this->writeCasinoAuditLog('blackjack_round_validation_error', [
-                'requestId' => $requestId,
-                'userId' => $userId,
-                'error' => $e->getMessage(),
-            ]);
-            Response::json(['message' => $e->getMessage()], 400);
-        } catch (Throwable $e) {
-            $this->writeCasinoAuditLog('blackjack_round_server_error', [
-                'requestId' => $requestId,
-                'userId' => $userId,
-                'error' => $e->getMessage(),
-            ]);
-            Response::json(['message' => 'Server error placing blackjack bet'], 500);
+
+            $state = $nextState;
+            $lastIdx = count($state['actionLog']) - 1;
+            if ($lastIdx >= 0) {
+                $state['actionLog'][$lastIdx]['actionRequestId'] = $actionRequestId;
+            }
+
+            $round[self::BLACKJACK_STAGED_STATE_KEY] = $state;
+            $round['playerCards'] = $this->blackjackStagedVisiblePlayerCards($state);
+            $round['updatedAt'] = $now;
+
+            if (($state['phase'] ?? '') === 'complete') {
+                $round = $this->blackjackStagedSettleRound($round, $state, $lockedUser, $startedAt);
+            }
+            $this->db->updateOne('casino_bets', ['id' => (string) $round['id']], $round);
+
+            $this->db->commit();
+            Response::json($this->blackjackStagedRoundResponse($round, $lockedUser, false, false));
+        } catch (Throwable $txErr) {
+            $this->db->rollback();
+            throw $txErr;
         }
+    }
+
+    /**
+     * Credit the return, stamp the settled fields onto the round array and
+     * write the audit row — inside the CALLER's transaction. The caller
+     * persists the returned round (insert for terminal-at-deal, update for
+     * a settling action).
+     */
+    private function blackjackStagedSettleRound(array $round, array $state, array $lockedUser, float $startedAt): array
+    {
+        if ((string) ($round['roundStatus'] ?? '') !== 'playing') {
+            // Resolution is one-way. Every caller re-checks under the lock,
+            // but the settle helper itself is the last line: a settled round
+            // can never be credited twice.
+            throw new RuntimeException('Blackjack round is not open for settlement');
+        }
+
+        $settlement = $this->blackjackRoundSettleFromState($state);
+
+        // HOLD RECONCILIATION INVARIANT: everything the settlement math is
+        // about to pay against must exactly equal what the round debited
+        // (deal wager + every double/split/insurance delta, tracked on the
+        // row as each debit landed). Any drift means a money bug — abort the
+        // settlement loudly rather than credit against a wrong basis.
+        $heldTotal = round($this->num($round['totalWager'] ?? 0));
+        if (round((float) $settlement['totalWager']) !== $heldTotal) {
+            $this->writeCasinoAuditLog('blackjack_settle_reconcile_mismatch', [
+                'roundId' => (string) ($round['roundId'] ?? $round['id'] ?? ''),
+                'userId' => (string) ($round['userId'] ?? ''),
+                'heldTotal' => $heldTotal,
+                'settlementWager' => (float) $settlement['totalWager'],
+            ]);
+            throw new RuntimeException('Blackjack settlement wager does not reconcile with the held stakes');
+        }
+
+        $userId = (string) ($round['userId'] ?? '');
+        $roundId = (string) ($round['roundId'] ?? $round['id'] ?? '');
+        $requestId = (string) ($round['requestId'] ?? '');
+        $now = SqlRepository::nowUtc();
+        $ipAddress = IpUtils::clientIp();
+        $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
+
+        $totalReturn = (float) $settlement['totalReturn'];
+        $balanceBeforeCredit = round($this->num($lockedUser['balance'] ?? 0));
+        $balanceAfterCredit = round($balanceBeforeCredit + $totalReturn);
+
+        $creditEntry = $this->buildCasinoTransactionEntry(
+            $userId,
+            $totalReturn,
+            $roundId,
+            self::BLACKJACK_SOURCE_TYPE,
+            'CREDIT',
+            'casino_bet_credit',
+            $balanceBeforeCredit,
+            $balanceAfterCredit,
+            'CASINO_BLACKJACK_PAYOUT',
+            'Blackjack payout/refund credited',
+            $now,
+            $ipAddress,
+            $userAgent
+        );
+        $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
+        $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
+            'balance' => $balanceAfterCredit,
+            'updatedAt' => $now,
+        ]);
+
+        $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
+        $integrityHash = $this->buildIntegrityHash([
+            'roundId' => $roundId,
+            'requestId' => $requestId,
+            'userId' => $userId,
+            'game' => self::BLACKJACK_GAME_SLUG,
+            'result' => (string) $settlement['result'],
+            'totalWager' => $settlement['totalWager'],
+            'totalReturn' => $settlement['totalReturn'],
+            'netResult' => $settlement['netResult'],
+            'balanceBefore' => $this->num($round['balanceBefore'] ?? 0),
+            'balanceAfter' => $balanceAfterCredit,
+            'playerCards' => $settlement['playerCards'],
+            'dealerCards' => $settlement['dealerCards'],
+            'betBreakdown' => $settlement['betBreakdown'],
+            'roundMeta' => $settlement['roundMeta'],
+            'serverDecisionAt' => $now,
+        ]);
+
+        $ledgerEntries = is_array($round['ledgerEntries'] ?? null) ? $round['ledgerEntries'] : [];
+        $ledgerEntries['credit'] = $creditEntryId;
+
+        $round = array_replace($round, [
+            'roundStatus' => 'settled',
+            self::BLACKJACK_STAGED_STATE_KEY => $state,
+            'bets' => [
+                'totalWager' => $settlement['totalWager'],
+                'totalReturn' => $settlement['totalReturn'],
+                'zones' => $settlement['betBreakdown'],
+            ],
+            'result' => (string) $settlement['result'],
+            'resultType' => (string) $settlement['resultType'],
+            'totalWager' => $settlement['totalWager'],
+            'totalReturn' => $settlement['totalReturn'],
+            'profit' => $settlement['profit'],
+            'netResult' => $settlement['netResult'],
+            'playerCards' => $settlement['playerCards'],
+            'dealerCards' => $settlement['dealerCards'],
+            'balanceAfter' => $balanceAfterCredit,
+            'availableBalanceAfter' => $this->availableCredit($balanceAfterCredit, $this->num($round['pendingBalanceSnapshot'] ?? 0), $lockedUser),
+            'ledgerEntries' => $ledgerEntries,
+            'blackjackRoundMeta' => $settlement['roundMeta'],
+            'betDetails' => $settlement['betDetails'],
+            'roundData' => $settlement['roundMeta'],
+            'integrityHash' => $integrityHash,
+            'serverDecisionAt' => $now,
+            'latencyMs' => $latencyMs,
+            'updatedAt' => $now,
+        ]);
+
+        // The audit row is where the committed randomness is finally
+        // revealed — seed + full action log, never exposed before settle.
+        $this->db->insertOne('casino_round_audit', [
+            'id' => $roundId,
+            'roundId' => $roundId,
+            'requestId' => $requestId,
+            'userId' => $userId,
+            'game' => self::BLACKJACK_GAME_SLUG,
+            'rngVersion' => self::BLACKJACK_STAGED_RNG_VERSION,
+            'outcomeSource' => 'server_dealt_staged',
+            'bets' => $round['bets'],
+            'result' => (string) $settlement['result'],
+            'resultType' => (string) $settlement['resultType'],
+            'playerCards' => $settlement['playerCards'],
+            'dealerCards' => $settlement['dealerCards'],
+            'blackjackRoundMeta' => $settlement['roundMeta'],
+            'betDetails' => $settlement['betDetails'],
+            'seed' => (string) ($state['seed'] ?? ''),
+            'deckHash' => (string) ($round['deckHash'] ?? ''),
+            'integrityHash' => $integrityHash,
+            'createdAt' => $now,
+            'updatedAt' => $now,
+        ]);
+
+        $this->writeCasinoAuditLog('blackjack_round_settled', [
+            'requestId' => $requestId,
+            'roundId' => $roundId,
+            'userId' => $userId,
+            'username' => (string) ($lockedUser['username'] ?? ''),
+            'wager' => $settlement['totalWager'],
+            'totalReturn' => $settlement['totalReturn'],
+            'netResult' => $settlement['netResult'],
+            'balanceBefore' => $this->num($round['balanceBefore'] ?? 0),
+            'balanceAfter' => $balanceAfterCredit,
+            'outcomeSource' => 'server_dealt_staged',
+            'resultType' => (string) $settlement['resultType'],
+        ]);
+
+        return $round;
+    }
+
+    /**
+     * Player-neutral completion of an abandoned round: decline any pending
+     * insurance/even-money decision, stand every open hand (the legacy
+     * auto_stand policy, byte-equivalent economics), let the dealer play.
+     * Never draws a player card, never adds a stake.
+     */
+    private function blackjackRoundForceResolve(array &$state): void
+    {
+        $guard = 0;
+        while (($state['phase'] ?? '') !== 'complete' && $guard < 64) {
+            $legal = $this->blackjackRoundLegalActions($state);
+            $zone = $legal['zone'] ?? null;
+            $actions = is_array($legal['actions'] ?? null) ? $legal['actions'] : [];
+            if ($zone === null || $actions === []) {
+                throw new RuntimeException('Blackjack force-resolve found no legal action for a live round');
+            }
+            $action = in_array('decline_insurance', $actions, true)
+                ? 'decline_insurance'
+                : (in_array('decline_even_money', $actions, true) ? 'decline_even_money' : 'stand');
+            $this->blackjackRoundApplyAction($state, $action, $zone, 0.0, SqlRepository::nowUtc());
+            $lastIdx = count($state['actionLog']) - 1;
+            if ($lastIdx >= 0) {
+                $state['actionLog'][$lastIdx]['sweep'] = true;
+            }
+            $guard++;
+        }
+        if (($state['phase'] ?? '') !== 'complete') {
+            throw new RuntimeException('Blackjack force-resolve exceeded the action guard');
+        }
+    }
+
+    /**
+     * Force-settle abandoned 'playing' rounds through the SAME settle path
+     * as a live action (credit + audit + one-way status), each in its own
+     * transaction under the user-row lock. Runs inline on every staged
+     * request and from the CLI janitor as the backstop.
+     */
+    public function sweepExpiredBlackjackRounds(?string $userId = null, int $limit = 200): array
+    {
+        $cutoff = gmdate(DATE_ATOM, time() - self::BLACKJACK_ROUND_ABANDON_SECONDS);
+        $query = [
+            'game' => self::BLACKJACK_GAME_SLUG,
+            'roundStatus' => 'playing',
+            'createdAt' => ['$lt' => $cutoff],
+        ];
+        if ($userId !== null && $userId !== '') {
+            $query['userId'] = $userId;
+        }
+
+        $stale = $this->db->findMany('casino_bets', $query, [
+            'sort' => ['createdAt' => 1],
+            'limit' => max(1, min(1000, $limit)),
+        ]);
+
+        $swept = 0;
+        $errors = 0;
+        foreach ($stale as $staleRound) {
+            $roundId = (string) ($staleRound['roundId'] ?? $staleRound['id'] ?? '');
+            $roundUserId = (string) ($staleRound['userId'] ?? '');
+            if ($roundId === '' || $roundUserId === '') {
+                continue;
+            }
+
+            $this->db->beginTransaction();
+            try {
+                $lockedUser = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id($roundUserId)]);
+                if ($lockedUser === null) {
+                    $this->db->rollback();
+                    $errors++;
+                    continue;
+                }
+                $round = $this->db->findOneForUpdate('casino_bets', [
+                    'roundId' => $roundId,
+                    'userId' => $roundUserId,
+                    'game' => self::BLACKJACK_GAME_SLUG,
+                ]);
+                // Re-check under the lock: a concurrent action may have
+                // settled it — settling twice is impossible from here.
+                if ($round === null || (string) ($round['roundStatus'] ?? '') !== 'playing') {
+                    $this->db->rollback();
+                    continue;
+                }
+                $state = is_array($round[self::BLACKJACK_STAGED_STATE_KEY] ?? null)
+                    ? $round[self::BLACKJACK_STAGED_STATE_KEY]
+                    : null;
+                if ($state === null) {
+                    $this->db->rollback();
+                    $errors++;
+                    continue;
+                }
+
+                $this->blackjackRoundForceResolve($state);
+                $round[self::BLACKJACK_STAGED_STATE_KEY] = $state;
+                $round = $this->blackjackStagedSettleRound($round, $state, $lockedUser, microtime(true));
+                $this->db->updateOne('casino_bets', ['id' => (string) $round['id']], $round);
+
+                $this->writeCasinoAuditLog('blackjack_round_swept', [
+                    'roundId' => $roundId,
+                    'userId' => $roundUserId,
+                    'requestId' => (string) ($round['requestId'] ?? ''),
+                    'totalWager' => $this->num($round['totalWager'] ?? 0),
+                    'totalReturn' => $this->num($round['totalReturn'] ?? 0),
+                    'resultType' => (string) ($round['resultType'] ?? ''),
+                ]);
+                $this->db->commit();
+                $swept++;
+            } catch (Throwable $e) {
+                $this->db->rollback();
+                $errors++;
+                $this->writeCasinoAuditLog('blackjack_round_sweep_error', [
+                    'roundId' => $roundId,
+                    'userId' => $roundUserId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return ['swept' => $swept, 'errors' => $errors];
+    }
+
+    /**
+     * Main-hand bets + insurance stakes currently at risk. Used ONLY for
+     * per-action stake DELTAS, so the (constant) side-bet stakes cancel out
+     * and are deliberately excluded.
+     */
+    private function blackjackStagedTotalStaked(array $state): float
+    {
+        $total = 0.0;
+        foreach (($state['hands'] ?? []) as $hand) {
+            if (is_array($hand)) {
+                $total += $this->num($hand['bet'] ?? 0);
+            }
+        }
+        foreach (($state['insuranceStakes'] ?? []) as $stake) {
+            $total += $this->num($stake);
+        }
+        return round($total);
+    }
+
+    /** Per-zone stake summary for the history-facing bets field. */
+    private function blackjackStagedZoneBreakdown(array $state): array
+    {
+        $rows = [];
+        foreach (self::BLACKJACK_ROUND_BASE_ZONES as $zoneName) {
+            $zoneStakes = is_array($state['zones'][$zoneName] ?? null) ? $state['zones'][$zoneName] : [];
+            $row = ['zone' => $zoneName];
+            $any = false;
+            foreach (['main', 'pairs', 'plus21', 'royal'] as $key) {
+                $row[$key] = $this->num($zoneStakes[$key] ?? 0);
+                $any = $any || $row[$key] > 0;
+            }
+            $row['insurance'] = $this->num($state['insuranceStakes'][$zoneName] ?? 0);
+            if ($any || $row['insurance'] > 0) {
+                $rows[] = $row;
+            }
+        }
+        return $rows;
+    }
+
+    /** Card codes the player can currently see (their own hands only). */
+    private function blackjackStagedVisiblePlayerCards(array $state): array
+    {
+        $codes = [];
+        foreach (($state['playOrder'] ?? []) as $zoneName) {
+            $hand = $state['hands'][(string) $zoneName] ?? null;
+            if (!is_array($hand)) {
+                continue;
+            }
+            foreach ((is_array($hand['cards'] ?? null) ? $hand['cards'] : []) as $card) {
+                $codes[] = (string) ($card['code'] ?? '');
+            }
+        }
+        return $codes;
+    }
+
+    private function blackjackStagedRoundResponse(array $round, array $lockedUser, bool $idempotent, bool $resumed): array
+    {
+        $state = is_array($round[self::BLACKJACK_STAGED_STATE_KEY] ?? null)
+            ? $round[self::BLACKJACK_STAGED_STATE_KEY]
+            : null;
+        $settled = (string) ($round['roundStatus'] ?? '') === 'settled';
+
+        $response = [
+            'roundId' => (string) ($round['roundId'] ?? $round['id'] ?? ''),
+            'requestId' => (string) ($round['requestId'] ?? ''),
+            'roundStatus' => (string) ($round['roundStatus'] ?? ''),
+            'state' => $state !== null ? $this->blackjackRoundPublicState($state) : null,
+            'totalWager' => $this->num($round['totalWager'] ?? 0),
+            'deckHash' => (string) ($round['deckHash'] ?? ''),
+            'rngVersion' => (string) ($round['rngVersion'] ?? ''),
+            'balanceAfter' => $this->num($round['balanceAfter'] ?? 0),
+            'newBalance' => $this->num($round['balanceAfter'] ?? 0),
+            'availableBalanceAfter' => $this->num($round['availableBalanceAfter'] ?? 0),
+            'idempotent' => $idempotent,
+            'resumed' => $resumed,
+        ];
+
+        if ($settled) {
+            $response['result'] = (string) ($round['result'] ?? '');
+            $response['resultType'] = (string) ($round['resultType'] ?? '');
+            $response['totalReturn'] = $this->num($round['totalReturn'] ?? 0);
+            $response['netResult'] = $this->num($round['netResult'] ?? 0);
+            $response['profit'] = $this->num($round['profit'] ?? 0);
+            $response['playerCards'] = is_array($round['playerCards'] ?? null) ? $round['playerCards'] : [];
+            $response['dealerCards'] = is_array($round['dealerCards'] ?? null) ? $round['dealerCards'] : [];
+            $response['betDetails'] = is_array($round['betDetails'] ?? null) ? $round['betDetails'] : [];
+        }
+
+        return $response;
     }
 
     private function placeCrapsBet(array $actor, array $body, string $requestId, float $startedAt): void
@@ -11643,58 +12227,6 @@ final class CasinoController
             'updatedAt' => $now,
         ];
     }
-
-    private function blackjackNormalizeBaseZone(string $raw): string
-    {
-        $value = strtolower(trim($raw));
-        if ($value === '') {
-            return '';
-        }
-        if (preg_match('/^betzone([1-3])$/', $value, $m) === 1) {
-            return 'betZone' . $m[1];
-        }
-        if (preg_match('/^[1-3]$/', $value) === 1) {
-            return 'betZone' . $value;
-        }
-
-        return '';
-    }
-
-    private function blackjackNormalizeHandZone(string $raw): string
-    {
-        $value = strtolower(trim($raw));
-        if ($value === '') {
-            return '';
-        }
-        if (preg_match('/^betzone([1-3])$/', $value, $m) === 1) {
-            return 'betZone' . $m[1];
-        }
-        if (preg_match('/^splitzone([1-6])$/', $value, $m) === 1) {
-            return 'splitZone' . $m[1];
-        }
-        if (preg_match('/^[1-3]$/', $value) === 1) {
-            return 'betZone' . $value;
-        }
-
-        return '';
-    }
-
-    private function blackjackBaseZoneForHand(string $handZone): string
-    {
-        if ($handZone === '') {
-            return '';
-        }
-        if (str_starts_with($handZone, 'betZone')) {
-            return $handZone;
-        }
-        if (preg_match('/^splitZone([1-6])$/', $handZone, $m) === 1) {
-            $splitNum = (int) $m[1];
-            return 'betZone' . (string) max(1, min(3, (int) ceil($splitNum / 2)));
-        }
-
-        return '';
-    }
-
     private function blackjackNormalizeRankToken(string $raw): ?string
     {
         $token = strtoupper(trim($raw));
@@ -12023,27 +12555,47 @@ final class CasinoController
 
         return $deck;
     }
+    private const BLACKJACK_ROUND_STATE_VERSION = 'bj_round_v1';
+    private const BLACKJACK_ROUND_BASE_ZONES = ['betZone1', 'betZone2', 'betZone3'];
+    private const BLACKJACK_ROUND_SIDE_BET_KEYS = ['pairs', 'plus21', 'royal'];
 
-    private function blackjackDrawDeckCard(array &$deck): array
+    /**
+     * Create a freshly dealt round. $zones carries the placement stakes per
+     * base zone (main + side bets). Insurance can NOT be staked at deal — it
+     * is a mid-round action gated on the dealer up card.
+     */
+    private function blackjackRoundCreate(array $zones, string $seed, int $deckCount): array
     {
-        if ($deck === []) {
-            throw new InvalidArgumentException('Blackjack deck exhausted while replaying action flow');
+        if (trim($seed) === '') {
+            throw new InvalidArgumentException('Blackjack round seed is required');
         }
+        $resolvedDeckCount = max(self::BLACKJACK_MIN_DECK_COUNT, min(self::BLACKJACK_MAX_DECK_COUNT, $deckCount));
 
-        $card = array_shift($deck);
-        if (!is_array($card)) {
-            throw new InvalidArgumentException('Invalid blackjack deck card encountered');
-        }
-
-        return $card;
-    }
-
-    private function simulateBlackjackRound(array $zones, array $actions, string $userId, string $requestId, int $deckCount): array
-    {
+        $normalizedZones = [];
         $mainStakes = [];
-        foreach (['betZone1', 'betZone2', 'betZone3'] as $zoneName) {
+        foreach (self::BLACKJACK_ROUND_BASE_ZONES as $zoneName) {
             $zoneData = is_array($zones[$zoneName] ?? null) ? $zones[$zoneName] : [];
             $mainStake = $this->parseMoneyValue($zoneData['main'] ?? 0, 'bets.zones.' . $zoneName . '.main');
+            $entry = ['main' => $mainStake];
+            $sideTotal = 0.0;
+            foreach (self::BLACKJACK_ROUND_SIDE_BET_KEYS as $sideKey) {
+                $sideStake = $this->parseMoneyValue($zoneData[$sideKey] ?? 0, 'bets.zones.' . $zoneName . '.' . $sideKey);
+                if ($sideStake > 100.0) {
+                    throw new InvalidArgumentException('Side bets cannot exceed $100.00 per zone');
+                }
+                $entry[$sideKey] = $sideStake;
+                $sideTotal += $sideStake;
+            }
+            if ($this->parseMoneyValue($zoneData['superSeven'] ?? 0, 'bets.zones.' . $zoneName . '.superSeven') > 0) {
+                throw new InvalidArgumentException('Super Sevens side bet is no longer offered');
+            }
+            if ($this->parseMoneyValue($zoneData['insurance'] ?? 0, 'bets.zones.' . $zoneName . '.insurance') > 0) {
+                throw new InvalidArgumentException('Insurance cannot be staked at deal — it is offered in-round');
+            }
+            if ($mainStake <= 0 && $sideTotal > 0) {
+                throw new InvalidArgumentException('Side bets require a main bet in the same zone');
+            }
+            $normalizedZones[$zoneName] = $entry;
             if ($mainStake > 0) {
                 $mainStakes[$zoneName] = $mainStake;
             }
@@ -12053,41 +12605,26 @@ final class CasinoController
             throw new InvalidArgumentException('At least one blackjack main bet is required');
         }
 
-        if ($actions === []) {
-            throw new InvalidArgumentException('Blackjack deal action is required');
-        }
-
-        $dealCount = 0;
-        foreach ($actions as $entry) {
-            $action = strtolower(trim((string) ($entry['action'] ?? '')));
-            if ($action === 'deal') {
-                $dealCount++;
-            }
-        }
-        if ($dealCount !== 1 || strtolower(trim((string) ($actions[0]['action'] ?? ''))) !== 'deal') {
-            throw new InvalidArgumentException('Blackjack action log must begin with exactly one deal action');
-        }
-
-        $allowedActions = [
-            'deal',
-            'hit',
-            'stand',
-            'double',
-            'split',
-            'surrender',
-            'insurance',
-            'decline_insurance',
-            'even_money',
-            'decline_even_money',
+        $state = [
+            'version' => self::BLACKJACK_ROUND_STATE_VERSION,
+            'seed' => $seed,
+            'deckCount' => $resolvedDeckCount,
+            'drawn' => 0,
+            'zones' => $normalizedZones,
+            'insuranceStakes' => ['betZone1' => 0.0, 'betZone2' => 0.0, 'betZone3' => 0.0],
+            'insuranceTaken' => ['betZone1' => false, 'betZone2' => false, 'betZone3' => false],
+            'insuranceDecided' => ['betZone1' => false, 'betZone2' => false, 'betZone3' => false],
+            'splitUsed' => ['betZone1' => false, 'betZone2' => false, 'betZone3' => false],
+            'hands' => [],
+            'playOrder' => array_values(array_keys($mainStakes)),
+            'currentIndex' => 0,
+            'dealerCards' => [],
+            'phase' => 'actions',
+            'actionLog' => [],
         ];
 
-        $secret = (string) Env::get('CASINO_BLACKJACK_ROUND_SECRET', Env::get('CASINO_INTEGRITY_SECRET', $this->jwtSecret));
-        $seed = hash_hmac('sha256', 'blackjack_round|' . $userId . '|' . $requestId, $secret);
-        $deck = $this->blackjackShuffleDeck($this->blackjackBuildDeck($deckCount), $seed);
-
-        $handsByZone = [];
         foreach ($mainStakes as $zoneName => $mainStake) {
-            $handsByZone[$zoneName] = [
+            $state['hands'][$zoneName] = [
                 'zone' => $zoneName,
                 'baseZone' => $zoneName,
                 'cards' => [],
@@ -12101,292 +12638,442 @@ final class CasinoController
             ];
         }
 
-        $dealerCards = [];
+        // Deal order mirrors the retired legacy simulator exactly: two passes of
+        // (each active zone, then dealer).
+        $deck = $this->blackjackRoundDeck($state);
         for ($round = 0; $round < 2; $round++) {
             foreach (array_keys($mainStakes) as $zoneName) {
-                $handsByZone[$zoneName]['cards'][] = $this->blackjackDrawDeckCard($deck);
+                $state['hands'][$zoneName]['cards'][] = $this->blackjackRoundDrawCard($state, $deck);
             }
-            $dealerCards[] = $this->blackjackDrawDeckCard($deck);
+            $state['dealerCards'][] = $this->blackjackRoundDrawCard($state, $deck);
         }
 
-        $playOrder = array_values(array_keys($mainStakes));
-        $currentIndex = 0;
-        $insuranceTaken = ['betZone1' => false, 'betZone2' => false, 'betZone3' => false];
-        $splitUsed = ['betZone1' => false, 'betZone2' => false, 'betZone3' => false];
+        // Two-card 21s have no further decisions; mark them done up front so
+        // the action phase auto-advances past them (economically identical to
+        // the legacy auto_stand at settlement).
+        foreach ($state['hands'] as $zoneName => $hand) {
+            if ($this->blackjackHandScore($hand['cards']) === 21) {
+                $state['hands'][$zoneName]['completed'] = true;
+                $state['hands'][$zoneName]['standingReason'] = 'natural';
+            }
+        }
 
-        $resolvedActions = [[
-            'action' => 'deal',
-            'zone' => null,
-            'at' => trim((string) ($actions[0]['at'] ?? '')),
-        ]];
+        $dealerUpRank = strtoupper((string) ($state['dealerCards'][0]['rank'] ?? ''));
+        if ($dealerUpRank === 'A') {
+            $state['phase'] = 'insurance';
+        }
 
-        for ($i = 1; $i < count($actions); $i++) {
-            $entry = is_array($actions[$i] ?? null) ? $actions[$i] : [];
-            $action = strtolower(trim((string) ($entry['action'] ?? '')));
-            if ($action === '') {
+        $state['actionLog'][] = ['action' => 'deal', 'zone' => null, 'at' => ''];
+        $this->blackjackRoundMaybeFinish($state);
+
+        return $state;
+    }
+
+    /** Full deterministic deck order for this round's seed. */
+    private function blackjackRoundDeck(array $state): array
+    {
+        return $this->blackjackShuffleDeck(
+            $this->blackjackBuildDeck((int) ($state['deckCount'] ?? self::BLACKJACK_DEFAULT_DECK_COUNT)),
+            (string) ($state['seed'] ?? '')
+        );
+    }
+
+    /** SHA-256 commitment over the full deck order, publishable at deal. */
+    private function blackjackRoundDeckHash(array $state): string
+    {
+        $codes = array_map(
+            static fn(array $card): string => (string) ($card['code'] ?? ''),
+            $this->blackjackRoundDeck($state)
+        );
+        return hash('sha256', implode('|', $codes));
+    }
+
+    private function blackjackRoundDrawCard(array &$state, array $deck): array
+    {
+        $drawn = (int) ($state['drawn'] ?? 0);
+        if (!isset($deck[$drawn]) || !is_array($deck[$drawn])) {
+            throw new InvalidArgumentException('Blackjack deck exhausted while drawing');
+        }
+        $state['drawn'] = $drawn + 1;
+        return $deck[$drawn];
+    }
+
+    /** First base zone still owing an insurance-phase decision, if any. */
+    private function blackjackRoundInsurancePendingZone(array $state): ?string
+    {
+        if (($state['phase'] ?? '') !== 'insurance') {
+            return null;
+        }
+        foreach ($state['playOrder'] as $zoneName) {
+            $zone = (string) $zoneName;
+            if (!isset($state['hands'][$zone])) {
                 continue;
             }
-            if (!in_array($action, $allowedActions, true)) {
-                throw new InvalidArgumentException('Unsupported blackjack action: ' . $action);
+            if (!(bool) ($state['insuranceDecided'][$zone] ?? false)) {
+                return $zone;
             }
-            if ($action === 'deal') {
-                throw new InvalidArgumentException('Duplicate blackjack deal action is not allowed');
+        }
+        return null;
+    }
+
+    /** Zone whose player decision the round is waiting on (actions phase). */
+    private function blackjackRoundCurrentZone(array $state): ?string
+    {
+        if (($state['phase'] ?? '') !== 'actions') {
+            return null;
+        }
+        $idx = $this->blackjackAdvanceToNextOpenHand(
+            $state['playOrder'],
+            $state['hands'],
+            (int) ($state['currentIndex'] ?? 0)
+        );
+        return $idx < count($state['playOrder']) ? (string) $state['playOrder'][$idx] : null;
+    }
+
+    /**
+     * The awaiting hint: which zone must act and what it may legally do.
+     * Returns ['zone' => string|null, 'actions' => string[]].
+     */
+    private function blackjackRoundLegalActions(array $state): array
+    {
+        $phase = (string) ($state['phase'] ?? '');
+        if ($phase === 'insurance') {
+            $zone = $this->blackjackRoundInsurancePendingZone($state);
+            if ($zone === null) {
+                return ['zone' => null, 'actions' => []];
             }
-
-            $currentIndex = $this->blackjackAdvanceToNextOpenHand($playOrder, $handsByZone, $currentIndex);
-            $currentZone = $currentIndex < count($playOrder) ? (string) $playOrder[$currentIndex] : null;
-
-            $requestedZone = null;
-            if (array_key_exists('zone', $entry) && is_string($entry['zone']) && trim($entry['zone']) !== '') {
-                $requestedZone = trim((string) $entry['zone']);
-            }
-            $targetZone = $requestedZone !== null ? $requestedZone : $currentZone;
-            if ($targetZone === null || !isset($handsByZone[$targetZone])) {
-                throw new InvalidArgumentException('Blackjack action references an unknown or inactive hand');
-            }
-
-            $targetCompleted = (bool) ($handsByZone[$targetZone]['completed'] ?? false);
-            if ($action === 'stand' && $targetCompleted) {
-                $resolvedActions[] = [
-                    'action' => $action,
-                    'zone' => $targetZone,
-                    'at' => trim((string) ($entry['at'] ?? '')),
-                    'noop' => true,
-                ];
-                continue;
-            }
-
-            if ($currentZone === null || $targetZone !== $currentZone) {
-                throw new InvalidArgumentException('Blackjack action order is invalid for hand sequencing');
-            }
-
-            $dealerUpRank = strtoupper((string) ($dealerCards[0]['rank'] ?? ''));
-            $hand = is_array($handsByZone[$targetZone] ?? null) ? $handsByZone[$targetZone] : [];
-            $cards = is_array($hand['cards'] ?? null) ? $hand['cards'] : [];
-            $isSplitHand = (bool) ($hand['isSplit'] ?? false);
-            $baseZone = (string) ($hand['baseZone'] ?? '');
-
-            switch ($action) {
-                case 'insurance':
-                    if ($baseZone !== $targetZone) {
-                        throw new InvalidArgumentException('Insurance is allowed only on base blackjack hands');
-                    }
-                    if ($dealerUpRank !== 'A') {
-                        throw new InvalidArgumentException('Insurance is allowed only when dealer up card is an Ace');
-                    }
-                    if ($this->blackjackIsNatural($cards, $isSplitHand)) {
-                        throw new InvalidArgumentException('Insurance is not allowed when player has natural blackjack');
-                    }
-                    if (($insuranceTaken[$baseZone] ?? false) === true) {
-                        throw new InvalidArgumentException('Insurance action can only be taken once per zone');
-                    }
-                    $insuranceTaken[$baseZone] = true;
-                    break;
-
-                case 'decline_insurance':
-                    if ($baseZone !== $targetZone) {
-                        throw new InvalidArgumentException('Insurance decline is allowed only on base blackjack hands');
-                    }
-                    if ($dealerUpRank !== 'A') {
-                        throw new InvalidArgumentException('Insurance decline requires dealer up card Ace');
-                    }
-                    if ($this->blackjackIsNatural($cards, $isSplitHand)) {
-                        throw new InvalidArgumentException('Use even money decision when player has natural blackjack');
-                    }
-                    break;
-
-                case 'even_money':
-                    if ($baseZone !== $targetZone) {
-                        throw new InvalidArgumentException('Even money is allowed only on base blackjack hands');
-                    }
-                    if ($dealerUpRank !== 'A') {
-                        throw new InvalidArgumentException('Even money requires dealer up card Ace');
-                    }
-                    if (!$this->blackjackIsNatural($cards, $isSplitHand)) {
-                        throw new InvalidArgumentException('Even money requires player natural blackjack');
-                    }
-                    $hand['evenMoney'] = true;
-                    $hand['completed'] = true;
-                    $hand['standingReason'] = 'even_money';
-                    $handsByZone[$targetZone] = $hand;
-                    $currentIndex++;
-                    break;
-
-                case 'decline_even_money':
-                    if ($baseZone !== $targetZone) {
-                        throw new InvalidArgumentException('Even money decline is allowed only on base blackjack hands');
-                    }
-                    if ($dealerUpRank !== 'A') {
-                        throw new InvalidArgumentException('Even money decline requires dealer up card Ace');
-                    }
-                    if (!$this->blackjackIsNatural($cards, $isSplitHand)) {
-                        throw new InvalidArgumentException('Even money decline requires player natural blackjack');
-                    }
-                    break;
-
-                case 'split':
-                    if ($isSplitHand || !str_starts_with($targetZone, 'betZone')) {
-                        throw new InvalidArgumentException('Split action is allowed only on base blackjack hands');
-                    }
-                    if (($splitUsed[$targetZone] ?? false) === true) {
-                        throw new InvalidArgumentException('Each blackjack base hand can be split only once');
-                    }
-                    if (count($cards) !== 2) {
-                        throw new InvalidArgumentException('Split requires exactly two cards');
-                    }
-                    $rankA = strtoupper((string) ($cards[0]['rank'] ?? ''));
-                    $rankB = strtoupper((string) ($cards[1]['rank'] ?? ''));
-                    if ($rankA === '' || $rankA !== $rankB) {
-                        throw new InvalidArgumentException('Split requires a pair of equal-ranked cards');
-                    }
-                    $splitZones = $this->blackjackSplitZonesForBase($targetZone);
-                    if ($splitZones === []) {
-                        throw new InvalidArgumentException('Invalid split zone mapping');
-                    }
-                    $stake = $this->parseMoneyValue($hand['bet'] ?? 0, 'bets.hands.' . $targetZone . '.bet');
-                    if ($stake <= 0) {
-                        throw new InvalidArgumentException('Split requires a positive hand stake');
-                    }
-
-                    $first = [
-                        'zone' => $splitZones[0],
-                        'baseZone' => $targetZone,
-                        'cards' => [$cards[0], $this->blackjackDrawDeckCard($deck)],
-                        'bet' => $stake,
-                        'isSplit' => true,
-                        'surrendered' => false,
-                        'evenMoney' => false,
-                        'doubled' => false,
-                        'completed' => false,
-                        'standingReason' => null,
-                    ];
-                    $second = [
-                        'zone' => $splitZones[1],
-                        'baseZone' => $targetZone,
-                        'cards' => [$cards[1], $this->blackjackDrawDeckCard($deck)],
-                        'bet' => $stake,
-                        'isSplit' => true,
-                        'surrendered' => false,
-                        'evenMoney' => false,
-                        'doubled' => false,
-                        'completed' => false,
-                        'standingReason' => null,
-                    ];
-
-                    $splitUsed[$targetZone] = true;
-                    $isAceSplit = $rankA === 'A';
-                    if ($isAceSplit) {
-                        $first['completed'] = true;
-                        $first['standingReason'] = 'split_aces_auto_stand';
-                        $second['completed'] = true;
-                        $second['standingReason'] = 'split_aces_auto_stand';
-                    }
-
-                    unset($handsByZone[$targetZone]);
-                    array_splice($playOrder, $currentIndex, 1, [$splitZones[0], $splitZones[1]]);
-                    $handsByZone[$splitZones[0]] = $first;
-                    $handsByZone[$splitZones[1]] = $second;
-
-                    if ($isAceSplit) {
-                        $currentIndex += 2;
-                    }
-                    break;
-
-                case 'double':
-                    if ((bool) ($hand['completed'] ?? false)) {
-                        throw new InvalidArgumentException('Cannot double a completed blackjack hand');
-                    }
-                    if ((bool) ($hand['surrendered'] ?? false)) {
-                        throw new InvalidArgumentException('Cannot double a surrendered blackjack hand');
-                    }
-                    if ((bool) ($hand['evenMoney'] ?? false)) {
-                        throw new InvalidArgumentException('Cannot double an even-money blackjack hand');
-                    }
-                    if (count($cards) !== 2) {
-                        throw new InvalidArgumentException('Double down requires exactly two cards');
-                    }
-                    if ((bool) ($hand['doubled'] ?? false)) {
-                        throw new InvalidArgumentException('Blackjack hand has already been doubled');
-                    }
-                    $hand['doubled'] = true;
-                    $hand['bet'] = round($this->parseMoneyValue($hand['bet'] ?? 0, 'bets.hands.' . $targetZone . '.bet') * 2);
-                    $hand['cards'][] = $this->blackjackDrawDeckCard($deck);
-                    $hand['completed'] = true;
-                    $hand['standingReason'] = 'double_down';
-                    $handsByZone[$targetZone] = $hand;
-                    $currentIndex++;
-                    break;
-
-                case 'hit':
-                    if ((bool) ($hand['completed'] ?? false)) {
-                        throw new InvalidArgumentException('Cannot hit a completed blackjack hand');
-                    }
-                    if ((bool) ($hand['surrendered'] ?? false)) {
-                        throw new InvalidArgumentException('Cannot hit a surrendered blackjack hand');
-                    }
-                    if ((bool) ($hand['evenMoney'] ?? false)) {
-                        throw new InvalidArgumentException('Cannot hit an even-money blackjack hand');
-                    }
-                    $hand['cards'][] = $this->blackjackDrawDeckCard($deck);
-                    $scoreAfterHit = $this->blackjackHandScore($hand['cards']);
-                    if ($scoreAfterHit >= 21) {
-                        $hand['completed'] = true;
-                        $hand['standingReason'] = $scoreAfterHit > 21 ? 'bust' : 'twenty_one';
-                        $currentIndex++;
-                    }
-                    $handsByZone[$targetZone] = $hand;
-                    break;
-
-                case 'surrender':
-                    if ((bool) ($hand['completed'] ?? false)) {
-                        throw new InvalidArgumentException('Cannot surrender a completed blackjack hand');
-                    }
-                    if (count($cards) !== 2) {
-                        throw new InvalidArgumentException('Surrender requires exactly two cards');
-                    }
-                    if ((bool) ($hand['doubled'] ?? false)) {
-                        throw new InvalidArgumentException('Cannot surrender after double down');
-                    }
-                    $hand['surrendered'] = true;
-                    $hand['completed'] = true;
-                    $hand['standingReason'] = 'surrender';
-                    $handsByZone[$targetZone] = $hand;
-                    $currentIndex++;
-                    break;
-
-                case 'stand':
-                    if (!(bool) ($hand['completed'] ?? false)) {
-                        $hand['completed'] = true;
-                        $hand['standingReason'] = 'stand';
-                        $handsByZone[$targetZone] = $hand;
-                        $currentIndex++;
-                    }
-                    break;
-            }
-
-            $resolvedActions[] = [
-                'action' => $action,
-                'zone' => $targetZone,
-                'at' => trim((string) ($entry['at'] ?? '')),
+            $hand = $state['hands'][$zone] ?? [];
+            $natural = $this->blackjackIsNatural(
+                is_array($hand['cards'] ?? null) ? $hand['cards'] : [],
+                (bool) ($hand['isSplit'] ?? false)
+            );
+            return [
+                'zone' => $zone,
+                'actions' => $natural
+                    ? ['even_money', 'decline_even_money']
+                    : ['insurance', 'decline_insurance'],
             ];
         }
 
-        $currentIndex = $this->blackjackAdvanceToNextOpenHand($playOrder, $handsByZone, $currentIndex);
-        for ($i = $currentIndex; $i < count($playOrder); $i++) {
-            $zone = (string) ($playOrder[$i] ?? '');
-            if ($zone === '' || !isset($handsByZone[$zone])) {
-                continue;
+        if ($phase !== 'actions') {
+            return ['zone' => null, 'actions' => []];
+        }
+        $zone = $this->blackjackRoundCurrentZone($state);
+        if ($zone === null) {
+            return ['zone' => null, 'actions' => []];
+        }
+        $hand = is_array($state['hands'][$zone] ?? null) ? $state['hands'][$zone] : [];
+        $cards = is_array($hand['cards'] ?? null) ? $hand['cards'] : [];
+        $actions = ['hit', 'stand'];
+        if (count($cards) === 2 && !(bool) ($hand['doubled'] ?? false)) {
+            $actions[] = 'double';
+            $actions[] = 'surrender';
+            $baseZone = (string) ($hand['baseZone'] ?? '');
+            $rankA = strtoupper((string) ($cards[0]['rank'] ?? ''));
+            $rankB = strtoupper((string) ($cards[1]['rank'] ?? ''));
+            if (
+                !(bool) ($hand['isSplit'] ?? false)
+                && $rankA !== ''
+                && $rankA === $rankB
+                && !(bool) ($state['splitUsed'][$baseZone] ?? false)
+            ) {
+                $actions[] = 'split';
             }
-            if (!(bool) ($handsByZone[$zone]['completed'] ?? false)) {
-                $handsByZone[$zone]['completed'] = true;
-                $handsByZone[$zone]['standingReason'] = 'auto_stand';
+        }
+        return ['zone' => $zone, 'actions' => $actions];
+    }
+
+    /**
+     * Apply one player action. Validation messages are ported verbatim from
+     * the retired legacy simulator so behaviour carries over.
+     * $insuranceStake is consumed ONLY by the 'insurance' action; the caller
+     * (C1c) debits it — the engine just validates and records it.
+     */
+    private function blackjackRoundApplyAction(array &$state, string $action, ?string $requestedZone = null, float $insuranceStake = 0.0, string $at = ''): void
+    {
+        $action = strtolower(trim($action));
+        if ($action === '' || $action === 'deal') {
+            throw new InvalidArgumentException('Unsupported blackjack action: ' . ($action === '' ? '(empty)' : $action));
+        }
+        if (($state['phase'] ?? '') === 'complete') {
+            throw new InvalidArgumentException('Blackjack round is already settled');
+        }
+
+        $insuranceActions = ['insurance', 'decline_insurance', 'even_money', 'decline_even_money'];
+        $dealerUpRank = strtoupper((string) ($state['dealerCards'][0]['rank'] ?? ''));
+
+        if (in_array($action, $insuranceActions, true)) {
+            $pendingZone = $this->blackjackRoundInsurancePendingZone($state);
+            if ($pendingZone === null) {
+                throw new InvalidArgumentException(
+                    $dealerUpRank === 'A'
+                        ? 'Insurance decisions are already complete for this round'
+                        : 'Insurance is allowed only when dealer up card is an Ace'
+                );
             }
+            $targetZone = $requestedZone !== null && trim($requestedZone) !== '' ? trim($requestedZone) : $pendingZone;
+            if ($targetZone !== $pendingZone) {
+                throw new InvalidArgumentException('Blackjack action order is invalid for hand sequencing');
+            }
+            $hand = $state['hands'][$targetZone] ?? [];
+            $natural = $this->blackjackIsNatural(
+                is_array($hand['cards'] ?? null) ? $hand['cards'] : [],
+                (bool) ($hand['isSplit'] ?? false)
+            );
+
+            switch ($action) {
+                case 'insurance':
+                    if ($natural) {
+                        throw new InvalidArgumentException('Insurance is not allowed when player has natural blackjack');
+                    }
+                    $stake = $this->parseMoneyValue($insuranceStake, 'bets.insuranceStake');
+                    if ($stake <= 0) {
+                        throw new InvalidArgumentException('Insurance action requires an insurance stake');
+                    }
+                    $mainStake = $this->parseMoneyValue($state['zones'][$targetZone]['main'] ?? 0, 'bets.zones.' . $targetZone . '.main');
+                    if ($stake > floor($mainStake / 2)) {
+                        throw new InvalidArgumentException('Insurance bet cannot exceed half of the main bet');
+                    }
+                    $state['insuranceTaken'][$targetZone] = true;
+                    $state['insuranceStakes'][$targetZone] = $stake;
+                    break;
+                case 'decline_insurance':
+                    if ($natural) {
+                        throw new InvalidArgumentException('Use even money decision when player has natural blackjack');
+                    }
+                    break;
+                case 'even_money':
+                    if (!$natural) {
+                        throw new InvalidArgumentException('Even money requires player natural blackjack');
+                    }
+                    $state['hands'][$targetZone]['evenMoney'] = true;
+                    $state['hands'][$targetZone]['completed'] = true;
+                    $state['hands'][$targetZone]['standingReason'] = 'even_money';
+                    break;
+                case 'decline_even_money':
+                    if (!$natural) {
+                        throw new InvalidArgumentException('Even money decline requires player natural blackjack');
+                    }
+                    break;
+            }
+
+            $state['insuranceDecided'][$targetZone] = true;
+            $state['actionLog'][] = ['action' => $action, 'zone' => $targetZone, 'at' => $at];
+            if ($this->blackjackRoundInsurancePendingZone($state) === null) {
+                $state['phase'] = 'actions';
+                $this->blackjackRoundMaybeFinish($state);
+            }
+            return;
+        }
+
+        if (($state['phase'] ?? '') !== 'actions') {
+            throw new InvalidArgumentException('Insurance decisions must be completed before player actions');
+        }
+
+        $allowedActions = ['hit', 'stand', 'double', 'split', 'surrender'];
+        if (!in_array($action, $allowedActions, true)) {
+            throw new InvalidArgumentException('Unsupported blackjack action: ' . $action);
+        }
+
+        $state['currentIndex'] = $this->blackjackAdvanceToNextOpenHand(
+            $state['playOrder'],
+            $state['hands'],
+            (int) ($state['currentIndex'] ?? 0)
+        );
+        $currentZone = $state['currentIndex'] < count($state['playOrder'])
+            ? (string) $state['playOrder'][$state['currentIndex']]
+            : null;
+
+        $targetZone = $requestedZone !== null && trim($requestedZone) !== '' ? trim($requestedZone) : $currentZone;
+        if ($targetZone === null || !isset($state['hands'][$targetZone])) {
+            throw new InvalidArgumentException('Blackjack action references an unknown or inactive hand');
+        }
+
+        // Legacy leniency, ported: standing a hand that is already complete
+        // is a no-op, never an error.
+        if ($action === 'stand' && (bool) ($state['hands'][$targetZone]['completed'] ?? false)) {
+            $state['actionLog'][] = ['action' => $action, 'zone' => $targetZone, 'at' => $at, 'noop' => true];
+            return;
+        }
+
+        if ($currentZone === null || $targetZone !== $currentZone) {
+            throw new InvalidArgumentException('Blackjack action order is invalid for hand sequencing');
+        }
+
+        $hand = is_array($state['hands'][$targetZone] ?? null) ? $state['hands'][$targetZone] : [];
+        $cards = is_array($hand['cards'] ?? null) ? $hand['cards'] : [];
+        $isSplitHand = (bool) ($hand['isSplit'] ?? false);
+        $deck = $this->blackjackRoundDeck($state);
+
+        switch ($action) {
+            case 'split':
+                if ($isSplitHand || !str_starts_with($targetZone, 'betZone')) {
+                    throw new InvalidArgumentException('Split action is allowed only on base blackjack hands');
+                }
+                if ((bool) ($state['splitUsed'][$targetZone] ?? false)) {
+                    throw new InvalidArgumentException('Each blackjack base hand can be split only once');
+                }
+                if (count($cards) !== 2) {
+                    throw new InvalidArgumentException('Split requires exactly two cards');
+                }
+                $rankA = strtoupper((string) ($cards[0]['rank'] ?? ''));
+                $rankB = strtoupper((string) ($cards[1]['rank'] ?? ''));
+                if ($rankA === '' || $rankA !== $rankB) {
+                    throw new InvalidArgumentException('Split requires a pair of equal-ranked cards');
+                }
+                $splitZones = $this->blackjackSplitZonesForBase($targetZone);
+                if ($splitZones === []) {
+                    throw new InvalidArgumentException('Invalid split zone mapping');
+                }
+                $stake = $this->parseMoneyValue($hand['bet'] ?? 0, 'bets.hands.' . $targetZone . '.bet');
+                if ($stake <= 0) {
+                    throw new InvalidArgumentException('Split requires a positive hand stake');
+                }
+
+                $first = [
+                    'zone' => $splitZones[0],
+                    'baseZone' => $targetZone,
+                    'cards' => [$cards[0], $this->blackjackRoundDrawCard($state, $deck)],
+                    'bet' => $stake,
+                    'isSplit' => true,
+                    'surrendered' => false,
+                    'evenMoney' => false,
+                    'doubled' => false,
+                    'completed' => false,
+                    'standingReason' => null,
+                ];
+                $second = [
+                    'zone' => $splitZones[1],
+                    'baseZone' => $targetZone,
+                    'cards' => [$cards[1], $this->blackjackRoundDrawCard($state, $deck)],
+                    'bet' => $stake,
+                    'isSplit' => true,
+                    'surrendered' => false,
+                    'evenMoney' => false,
+                    'doubled' => false,
+                    'completed' => false,
+                    'standingReason' => null,
+                ];
+
+                $state['splitUsed'][$targetZone] = true;
+                $isAceSplit = $rankA === 'A';
+                if ($isAceSplit) {
+                    $first['completed'] = true;
+                    $first['standingReason'] = 'split_aces_auto_stand';
+                    $second['completed'] = true;
+                    $second['standingReason'] = 'split_aces_auto_stand';
+                }
+
+                unset($state['hands'][$targetZone]);
+                array_splice($state['playOrder'], (int) $state['currentIndex'], 1, [$splitZones[0], $splitZones[1]]);
+                $state['hands'][$splitZones[0]] = $first;
+                $state['hands'][$splitZones[1]] = $second;
+
+                if ($isAceSplit) {
+                    $state['currentIndex'] = (int) $state['currentIndex'] + 2;
+                }
+                break;
+
+            case 'double':
+                if ((bool) ($hand['completed'] ?? false)) {
+                    throw new InvalidArgumentException('Cannot double a completed blackjack hand');
+                }
+                if ((bool) ($hand['surrendered'] ?? false)) {
+                    throw new InvalidArgumentException('Cannot double a surrendered blackjack hand');
+                }
+                if ((bool) ($hand['evenMoney'] ?? false)) {
+                    throw new InvalidArgumentException('Cannot double an even-money blackjack hand');
+                }
+                if (count($cards) !== 2) {
+                    throw new InvalidArgumentException('Double down requires exactly two cards');
+                }
+                if ((bool) ($hand['doubled'] ?? false)) {
+                    throw new InvalidArgumentException('Blackjack hand has already been doubled');
+                }
+                $hand['doubled'] = true;
+                $hand['bet'] = round($this->parseMoneyValue($hand['bet'] ?? 0, 'bets.hands.' . $targetZone . '.bet') * 2);
+                $hand['cards'][] = $this->blackjackRoundDrawCard($state, $deck);
+                $hand['completed'] = true;
+                $hand['standingReason'] = 'double_down';
+                $state['hands'][$targetZone] = $hand;
+                $state['currentIndex'] = (int) $state['currentIndex'] + 1;
+                break;
+
+            case 'hit':
+                if ((bool) ($hand['completed'] ?? false)) {
+                    throw new InvalidArgumentException('Cannot hit a completed blackjack hand');
+                }
+                if ((bool) ($hand['surrendered'] ?? false)) {
+                    throw new InvalidArgumentException('Cannot hit a surrendered blackjack hand');
+                }
+                if ((bool) ($hand['evenMoney'] ?? false)) {
+                    throw new InvalidArgumentException('Cannot hit an even-money blackjack hand');
+                }
+                $hand['cards'][] = $this->blackjackRoundDrawCard($state, $deck);
+                $scoreAfterHit = $this->blackjackHandScore($hand['cards']);
+                if ($scoreAfterHit >= 21) {
+                    $hand['completed'] = true;
+                    $hand['standingReason'] = $scoreAfterHit > 21 ? 'bust' : 'twenty_one';
+                    $state['currentIndex'] = (int) $state['currentIndex'] + 1;
+                }
+                $state['hands'][$targetZone] = $hand;
+                break;
+
+            case 'surrender':
+                if ((bool) ($hand['completed'] ?? false)) {
+                    throw new InvalidArgumentException('Cannot surrender a completed blackjack hand');
+                }
+                if (count($cards) !== 2) {
+                    throw new InvalidArgumentException('Surrender requires exactly two cards');
+                }
+                if ((bool) ($hand['doubled'] ?? false)) {
+                    throw new InvalidArgumentException('Cannot surrender after double down');
+                }
+                $hand['surrendered'] = true;
+                $hand['completed'] = true;
+                $hand['standingReason'] = 'surrender';
+                $state['hands'][$targetZone] = $hand;
+                $state['currentIndex'] = (int) $state['currentIndex'] + 1;
+                break;
+
+            case 'stand':
+                $hand['completed'] = true;
+                $hand['standingReason'] = 'stand';
+                $state['hands'][$targetZone] = $hand;
+                $state['currentIndex'] = (int) $state['currentIndex'] + 1;
+                break;
+        }
+
+        $state['actionLog'][] = ['action' => $action, 'zone' => $targetZone, 'at' => $at];
+        $this->blackjackRoundMaybeFinish($state);
+    }
+
+    private function blackjackRoundAllHandsComplete(array $state): bool
+    {
+        foreach ($state['playOrder'] as $zoneName) {
+            $hand = $state['hands'][(string) $zoneName] ?? null;
+            if (is_array($hand) && !(bool) ($hand['completed'] ?? false)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * When every hand is complete (and no insurance decision is pending),
+     * play the dealer and mark the round terminal. Dealer draw rule and the
+     * all-bust / all-blackjack-or-bust skip are ported verbatim.
+     */
+    private function blackjackRoundMaybeFinish(array &$state): void
+    {
+        if (($state['phase'] ?? '') !== 'actions' || !$this->blackjackRoundAllHandsComplete($state)) {
+            return;
         }
 
         $allBust = true;
         $allBlackjackOrBust = true;
-        foreach ($playOrder as $zone) {
-            $hand = is_array($handsByZone[$zone] ?? null) ? $handsByZone[$zone] : [];
+        foreach ($state['playOrder'] as $zoneName) {
+            $hand = is_array($state['hands'][(string) $zoneName] ?? null) ? $state['hands'][(string) $zoneName] : [];
             if ($hand === []) {
                 continue;
             }
@@ -12407,145 +13094,31 @@ final class CasinoController
         }
 
         if (!$allBust && !$allBlackjackOrBust) {
-            while ($this->blackjackHandScore($dealerCards) < 17) {
-                $dealerCards[] = $this->blackjackDrawDeckCard($deck);
+            $deck = $this->blackjackRoundDeck($state);
+            while ($this->blackjackHandScore($state['dealerCards']) < 17) {
+                $state['dealerCards'][] = $this->blackjackRoundDrawCard($state, $deck);
             }
         }
 
-        $resolvedHands = [];
-        foreach ($playOrder as $zone) {
-            $hand = is_array($handsByZone[$zone] ?? null) ? $handsByZone[$zone] : [];
-            if ($hand === []) {
-                continue;
-            }
-            $resolvedHands[] = [
-                'zone' => (string) ($hand['zone'] ?? $zone),
-                'baseZone' => (string) ($hand['baseZone'] ?? ''),
-                'cards' => is_array($hand['cards'] ?? null) ? $hand['cards'] : [],
-                'bet' => $this->parseMoneyValue($hand['bet'] ?? 0, 'bets.hands.' . $zone . '.bet'),
-                'isSplit' => (bool) ($hand['isSplit'] ?? false),
-                'surrendered' => (bool) ($hand['surrendered'] ?? false),
-                'evenMoney' => (bool) ($hand['evenMoney'] ?? false),
-                'doubled' => (bool) ($hand['doubled'] ?? false),
-                'standingReason' => $hand['standingReason'] ?? null,
-            ];
-        }
-
-        usort($resolvedHands, function (array $a, array $b): int {
-            $orderA = $this->blackjackHandOrderIndex((string) ($a['zone'] ?? ''));
-            $orderB = $this->blackjackHandOrderIndex((string) ($b['zone'] ?? ''));
-            if ($orderA !== $orderB) {
-                return $orderA <=> $orderB;
-            }
-            return strcmp((string) ($a['zone'] ?? ''), (string) ($b['zone'] ?? ''));
-        });
-
-        return [
-            'hands' => $resolvedHands,
-            'dealerCards' => $dealerCards,
-            'actions' => $resolvedActions,
-            'insuranceTaken' => $insuranceTaken,
-            'simulationMeta' => [
-                'deckCount' => $deckCount,
-                'seedHash' => hash('sha256', $seed),
-                'cardsUsed' => ($deckCount * 52) - count($deck),
-                'cardsRemaining' => count($deck),
-            ],
-        ];
+        $state['phase'] = 'complete';
     }
 
-    private function normalizeBlackjackRoundPayload(array $clientPayload): array
+    /**
+     * Settlement math over a terminal state. Ported from the retired legacy
+     * settlement evaluator (deleted with the one-shot protocol), then
+     * re-economized: Royal 5:2, Super Sevens removed, floor() on every
+     * payout return per the house-safe whole-dollar policy.
+     */
+    private function blackjackRoundSettleFromState(array $state): array
     {
-        $zones = [
-            'betZone1' => ['zone' => 'betZone1', 'main' => 0.0, 'pairs' => 0.0, 'plus21' => 0.0, 'royal' => 0.0, 'superSeven' => 0.0, 'insurance' => 0.0],
-            'betZone2' => ['zone' => 'betZone2', 'main' => 0.0, 'pairs' => 0.0, 'plus21' => 0.0, 'royal' => 0.0, 'superSeven' => 0.0, 'insurance' => 0.0],
-            'betZone3' => ['zone' => 'betZone3', 'main' => 0.0, 'pairs' => 0.0, 'plus21' => 0.0, 'royal' => 0.0, 'superSeven' => 0.0, 'insurance' => 0.0],
-        ];
-
-        $betBreakdown = is_array($clientPayload['betBreakdown'] ?? null) ? $clientPayload['betBreakdown'] : [];
-        foreach ($betBreakdown as $idx => $entry) {
-            if (!is_array($entry)) {
-                continue;
-            }
-
-            $zoneName = $this->blackjackNormalizeBaseZone((string) ($entry['zone'] ?? ''));
-            if ($zoneName === '') {
-                continue;
-            }
-
-            $zones[$zoneName]['main'] = $this->parseMoneyValue($entry['main'] ?? ($entry['bet'] ?? 0), 'bets.betBreakdown[' . $idx . '].main');
-            $zones[$zoneName]['pairs'] = $this->parseMoneyValue($entry['pairs'] ?? 0, 'bets.betBreakdown[' . $idx . '].pairs');
-            $zones[$zoneName]['plus21'] = $this->parseMoneyValue($entry['plus21'] ?? 0, 'bets.betBreakdown[' . $idx . '].plus21');
-            $zones[$zoneName]['royal'] = $this->parseMoneyValue($entry['royal'] ?? 0, 'bets.betBreakdown[' . $idx . '].royal');
-            $zones[$zoneName]['superSeven'] = $this->parseMoneyValue($entry['superSeven'] ?? 0, 'bets.betBreakdown[' . $idx . '].superSeven');
-            $zones[$zoneName]['insurance'] = $this->parseMoneyValue($entry['insurance'] ?? 0, 'bets.betBreakdown[' . $idx . '].insurance');
+        if (($state['phase'] ?? '') !== 'complete') {
+            throw new InvalidArgumentException('Blackjack round is not complete');
         }
 
-        $actions = [];
-        $rawActions = is_array($clientPayload['actions'] ?? null) ? $clientPayload['actions'] : [];
-        foreach ($rawActions as $entry) {
-            if (!is_array($entry)) {
-                continue;
-            }
-            $action = strtolower(trim((string) ($entry['action'] ?? ($entry['type'] ?? ''))));
-            if ($action === '') {
-                continue;
-            }
-            $zone = $this->blackjackNormalizeHandZone((string) ($entry['zone'] ?? ($entry['hand'] ?? '')));
-            $actions[] = [
-                'action' => $action,
-                'zone' => $zone !== '' ? $zone : null,
-                'at' => trim((string) ($entry['at'] ?? ($entry['ts'] ?? ''))),
-            ];
-            if (count($actions) >= 256) {
-                break;
-            }
-        }
-
-        $rawMeta = is_array($clientPayload['roundMeta'] ?? null) ? $clientPayload['roundMeta'] : [];
-        $deckCount = $this->safeNumber($rawMeta['deckCount'] ?? ($clientPayload['deckCount'] ?? null), null);
-        $resolvedDeckCount = $deckCount !== null
-            ? max(self::BLACKJACK_MIN_DECK_COUNT, min(self::BLACKJACK_MAX_DECK_COUNT, (int) round($deckCount)))
-            : self::BLACKJACK_DEFAULT_DECK_COUNT;
-
-        return [
-            'zones' => $zones,
-            'actions' => $actions,
-            'clientMeta' => [
-                'deckCount' => $resolvedDeckCount,
-                'clientResult' => trim((string) ($clientPayload['result'] ?? '')),
-                'clientNetResult' => $this->safeNumber($clientPayload['netResult'] ?? null, null),
-                'submittedAt' => SqlRepository::nowUtc(),
-            ],
-            'rawMeta' => $rawMeta,
-        ];
-    }
-
-    private function evaluateBlackjackRoundSettlement(array $normalizedPayload, string $userId, string $requestId): array
-    {
-        $zones = is_array($normalizedPayload['zones'] ?? null) ? $normalizedPayload['zones'] : [];
-        $actions = is_array($normalizedPayload['actions'] ?? null) ? $normalizedPayload['actions'] : [];
-        $clientMeta = is_array($normalizedPayload['clientMeta'] ?? null) ? $normalizedPayload['clientMeta'] : [];
-
-        $deckCount = (int) ($clientMeta['deckCount'] ?? self::BLACKJACK_DEFAULT_DECK_COUNT);
-        if ($deckCount < self::BLACKJACK_MIN_DECK_COUNT || $deckCount > self::BLACKJACK_MAX_DECK_COUNT) {
-            $deckCount = self::BLACKJACK_DEFAULT_DECK_COUNT;
-        }
-
-        $simulation = $this->simulateBlackjackRound($zones, $actions, $userId, $requestId, $deckCount);
-        $hands = is_array($simulation['hands'] ?? null) ? $simulation['hands'] : [];
-        $dealerCards = is_array($simulation['dealerCards'] ?? null) ? $simulation['dealerCards'] : [];
-        $resolvedActions = is_array($simulation['actions'] ?? null) ? $simulation['actions'] : [];
-        $insuranceTaken = is_array($simulation['insuranceTaken'] ?? null) ? $simulation['insuranceTaken'] : [];
-        $simulationMeta = is_array($simulation['simulationMeta'] ?? null) ? $simulation['simulationMeta'] : [];
-
-        if ($hands === []) {
-            throw new InvalidArgumentException('Blackjack hand data is required');
-        }
+        $dealerCards = is_array($state['dealerCards'] ?? null) ? $state['dealerCards'] : [];
         if ($dealerCards === []) {
             throw new InvalidArgumentException('Dealer cards are required to settle blackjack');
         }
-
         $dealerScore = $this->blackjackHandScore($dealerCards);
         $dealerBlackjack = count($dealerCards) === 2 && $dealerScore === 21;
         $dealerBust = $dealerScore > 21;
@@ -12555,23 +13128,18 @@ final class CasinoController
         $handResults = [];
         $handsByBaseZone = ['betZone1' => [], 'betZone2' => [], 'betZone3' => []];
 
-        foreach ($hands as $idx => $hand) {
-            if (!is_array($hand)) {
+        foreach ($state['playOrder'] as $zoneName) {
+            $hand = is_array($state['hands'][(string) $zoneName] ?? null) ? $state['hands'][(string) $zoneName] : [];
+            if ($hand === []) {
                 continue;
             }
-
-            $zone = (string) ($hand['zone'] ?? '');
+            $zone = (string) ($hand['zone'] ?? $zoneName);
             $baseZone = (string) ($hand['baseZone'] ?? '');
-            if ($zone === '' || $baseZone === '') {
-                throw new InvalidArgumentException('Invalid blackjack hand zone data');
-            }
-
             $cards = is_array($hand['cards'] ?? null) ? $hand['cards'] : [];
             if (count($cards) < 2 || count($cards) > 12) {
                 throw new InvalidArgumentException('Blackjack hands must contain between 2 and 12 cards');
             }
-
-            $bet = $this->parseMoneyValue($hand['bet'] ?? 0, 'bets.hands[' . $idx . '].bet');
+            $bet = $this->parseMoneyValue($hand['bet'] ?? 0, 'bets.hands.' . $zone . '.bet');
             if ($bet <= 0) {
                 continue;
             }
@@ -12579,19 +13147,17 @@ final class CasinoController
             $isSplit = (bool) ($hand['isSplit'] ?? false);
             $isSurrendered = (bool) ($hand['surrendered'] ?? false);
             $isEvenMoney = (bool) ($hand['evenMoney'] ?? false);
-
             $playerScore = $this->blackjackHandScore($cards);
             $playerBust = $playerScore > 21;
             $playerBlackjack = $this->blackjackIsNatural($cards, $isSplit);
 
             $handReturn = 0.0;
             $resultType = 'lose';
-
             if ($isSurrendered) {
-                $handReturn = round($bet * 0.5);
+                $handReturn = floor($bet * 0.5);
                 $resultType = 'surrender';
             } elseif ($isEvenMoney && $playerBlackjack) {
-                $handReturn = round($bet * 2);
+                $handReturn = floor($bet * 2);
                 $resultType = 'even_money';
             } elseif ($playerBust) {
                 $handReturn = 0.0;
@@ -12605,10 +13171,10 @@ final class CasinoController
                     $resultType = 'dealer_blackjack';
                 }
             } elseif ($playerBlackjack) {
-                $handReturn = round($bet * 2.5);
+                $handReturn = floor($bet * 2.5);
                 $resultType = 'blackjack';
             } elseif ($dealerBust || $playerScore > $dealerScore) {
-                $handReturn = round($bet * 2);
+                $handReturn = floor($bet * 2);
                 $resultType = 'win';
             } elseif ($playerScore === $dealerScore) {
                 $handReturn = $bet;
@@ -12620,7 +13186,7 @@ final class CasinoController
 
             $mainWager = round($mainWager + $bet);
             $mainReturn = round($mainReturn + $handReturn);
-            $handResult = [
+            $handResults[] = [
                 'zone' => $zone,
                 'baseZone' => $baseZone,
                 'cards' => array_values(array_map(static fn(array $card): string => (string) ($card['code'] ?? ''), $cards)),
@@ -12631,8 +13197,9 @@ final class CasinoController
                 'isSplit' => $isSplit,
                 'resultType' => $resultType,
             ];
-            $handResults[] = $handResult;
-            $handsByBaseZone[$baseZone][] = array_merge($hand, ['resultType' => $resultType, 'score' => $playerScore]);
+            if (isset($handsByBaseZone[$baseZone])) {
+                $handsByBaseZone[$baseZone][] = array_merge($hand, ['resultType' => $resultType, 'score' => $playerScore]);
+            }
         }
 
         if ($mainWager <= 0) {
@@ -12644,62 +13211,15 @@ final class CasinoController
         $sideBetResults = [];
         $betBreakdown = [];
 
-        foreach (['betZone1', 'betZone2', 'betZone3'] as $zoneName) {
-            $zoneBets = is_array($zones[$zoneName] ?? null) ? $zones[$zoneName] : [
-                'zone' => $zoneName,
-                'main' => 0.0,
-                'pairs' => 0.0,
-                'plus21' => 0.0,
-                'royal' => 0.0,
-                'superSeven' => 0.0,
-                'insurance' => 0.0,
-            ];
+        foreach (self::BLACKJACK_ROUND_BASE_ZONES as $zoneName) {
+            $zoneBets = is_array($state['zones'][$zoneName] ?? null) ? $state['zones'][$zoneName] : [];
+            $zoneHands = $handsByBaseZone[$zoneName];
 
-            $zoneHands = is_array($handsByBaseZone[$zoneName] ?? null) ? $handsByBaseZone[$zoneName] : [];
-            $fallbackMainStake = 0.0;
-            if ($zoneHands !== []) {
-                foreach ($zoneHands as $zoneHand) {
-                    if ((bool) ($zoneHand['isSplit'] ?? false)) {
-                        continue;
-                    }
-                    $fallbackMainStake = $this->parseMoneyValue($zoneHand['bet'] ?? 0, 'bets.hands.mainFallback');
-                    break;
-                }
-                if ($fallbackMainStake <= 0) {
-                    $fallbackMainStake = $this->parseMoneyValue($zoneHands[0]['bet'] ?? 0, 'bets.hands.mainFallback');
-                }
-            }
-
-            $mainStake = $this->parseMoneyValue($zoneBets['main'] ?? $fallbackMainStake, 'bets.zones.' . $zoneName . '.main');
-            if ($mainStake <= 0 && $fallbackMainStake > 0) {
-                $mainStake = $fallbackMainStake;
-            }
+            $mainStake = $this->parseMoneyValue($zoneBets['main'] ?? 0, 'bets.zones.' . $zoneName . '.main');
             $pairsStake = $this->parseMoneyValue($zoneBets['pairs'] ?? 0, 'bets.zones.' . $zoneName . '.pairs');
             $plusStake = $this->parseMoneyValue($zoneBets['plus21'] ?? 0, 'bets.zones.' . $zoneName . '.plus21');
             $royalStake = $this->parseMoneyValue($zoneBets['royal'] ?? 0, 'bets.zones.' . $zoneName . '.royal');
-            $superStake = $this->parseMoneyValue($zoneBets['superSeven'] ?? 0, 'bets.zones.' . $zoneName . '.superSeven');
-            $insuranceStake = $this->parseMoneyValue($zoneBets['insurance'] ?? 0, 'bets.zones.' . $zoneName . '.insurance');
-
-            foreach ([$pairsStake, $plusStake, $royalStake, $superStake] as $stake) {
-                if ($stake > 100.0) {
-                    throw new InvalidArgumentException('Side bets cannot exceed $100.00 per zone');
-                }
-            }
-            if ($insuranceStake > 0 && $insuranceStake > round($mainStake / 2)) {
-                throw new InvalidArgumentException('Insurance bet cannot exceed half of the main bet');
-            }
-
-            $insuranceAccepted = (bool) ($insuranceTaken[$zoneName] ?? false);
-            if ($insuranceStake > 0 && !$insuranceAccepted) {
-                throw new InvalidArgumentException('Insurance wager requires a matching insurance action');
-            }
-            if ($insuranceAccepted && $insuranceStake <= 0) {
-                throw new InvalidArgumentException('Insurance action requires an insurance stake');
-            }
-
-            if ($mainStake <= 0 && ($pairsStake > 0 || $plusStake > 0 || $royalStake > 0 || $superStake > 0 || $insuranceStake > 0)) {
-                throw new InvalidArgumentException('Side bets require a main bet in the same zone');
-            }
+            $insuranceStake = $this->parseMoneyValue($state['insuranceStakes'][$zoneName] ?? 0, 'bets.zones.' . $zoneName . '.insurance');
 
             $referenceHand = null;
             foreach ($zoneHands as $zoneHand) {
@@ -12744,13 +13264,13 @@ final class CasinoController
                         $suitA = (string) ($firstTwo[0]['suit'] ?? '');
                         $suitB = (string) ($firstTwo[1]['suit'] ?? '');
                         if ($suitA !== '' && $suitA === $suitB) {
-                            $pairReturn = round($pairsStake * 26);
+                            $pairReturn = floor($pairsStake * 26);
                             $pairOutcome = 'perfect_pair';
                         } elseif ($this->blackjackCardColor($firstTwo[0]) === $this->blackjackCardColor($firstTwo[1])) {
-                            $pairReturn = round($pairsStake * 13);
+                            $pairReturn = floor($pairsStake * 13);
                             $pairOutcome = 'colored_pair';
                         } else {
-                            $pairReturn = round($pairsStake * 6);
+                            $pairReturn = floor($pairsStake * 6);
                             $pairOutcome = 'mixed_pair';
                         }
                     }
@@ -12779,19 +13299,19 @@ final class CasinoController
                     $isStraight = $this->blackjackIsThreeCardStraight($three);
 
                     if ($isTrips && $isFlush) {
-                        $plusReturn = round($plusStake * 101);
+                        $plusReturn = floor($plusStake * 101);
                         $plusOutcome = 'suited_trips';
                     } elseif ($isTrips) {
-                        $plusReturn = round($plusStake * 31);
+                        $plusReturn = floor($plusStake * 31);
                         $plusOutcome = 'trips';
                     } elseif ($isStraight && $isFlush) {
-                        $plusReturn = round($plusStake * 41);
+                        $plusReturn = floor($plusStake * 41);
                         $plusOutcome = 'straight_flush';
                     } elseif ($isStraight) {
-                        $plusReturn = round($plusStake * 11);
+                        $plusReturn = floor($plusStake * 11);
                         $plusOutcome = 'straight';
                     } elseif ($isFlush) {
-                        $plusReturn = round($plusStake * 6);
+                        $plusReturn = floor($plusStake * 6);
                         $plusOutcome = 'flush';
                     }
                 }
@@ -12819,10 +13339,13 @@ final class CasinoController
                         && (string) ($firstTwo[0]['suit'] ?? '') === (string) ($firstTwo[1]['suit'] ?? '');
                     $hasKQ = in_array('K', $ranks, true) && in_array('Q', $ranks, true);
                     if ($hasKQ && $isSuited) {
-                        $royalReturn = round($royalStake * 26);
+                        $royalReturn = floor($royalStake * 26);
                         $royalOutcome = 'royal_match';
                     } elseif ($isSuited) {
-                        $royalReturn = round($royalStake * 6);
+                        // 5:2 — the audited-standard paytable (~93.3% RTP); the
+                        // legacy 5:1 paid the player 154% long-run. floor()
+                        // per the house-safe whole-dollar payout policy (C3).
+                        $royalReturn = floor($royalStake * 3.5);
                         $royalOutcome = 'suited';
                     }
                 }
@@ -12837,60 +13360,12 @@ final class CasinoController
                 ];
             }
 
-            if ($superStake > 0) {
-                $zoneSideWager += $superStake;
-                $superReturn = 0.0;
-                $superOutcome = 'lose';
-                $cardsForSuper = $zoneCombinedCards;
-                if ($dealerUpCard !== null) {
-                    $cardsForSuper[] = $dealerUpCard;
-                }
-                $sevens = array_values(array_filter(
-                    $cardsForSuper,
-                    static fn(array $card): bool => strtoupper((string) ($card['rank'] ?? '')) === '7'
-                ));
-                $sevenCount = count($sevens);
-                if ($sevenCount === 1) {
-                    $superReturn = round($superStake * 4);
-                    $superOutcome = 'one_seven';
-                } elseif ($sevenCount === 2) {
-                    $sameSuit = (string) ($sevens[0]['suit'] ?? '') !== ''
-                        && (string) ($sevens[0]['suit'] ?? '') === (string) ($sevens[1]['suit'] ?? '');
-                    if ($sameSuit) {
-                        $superReturn = round($superStake * 101);
-                        $superOutcome = 'two_sevens_suited';
-                    } else {
-                        $superReturn = round($superStake * 51);
-                        $superOutcome = 'two_sevens_unsuited';
-                    }
-                } elseif ($sevenCount >= 3) {
-                    $suits = array_values(array_map(static fn(array $card): string => (string) ($card['suit'] ?? ''), $sevens));
-                    $allSameSuit = count(array_unique($suits)) === 1;
-                    if ($allSameSuit) {
-                        $superReturn = round($superStake * 5001);
-                        $superOutcome = 'three_sevens_suited';
-                    } else {
-                        $superReturn = round($superStake * 501);
-                        $superOutcome = 'three_sevens_unsuited';
-                    }
-                }
-                $zoneSideReturn += $superReturn;
-                $sideBetResults[] = [
-                    'zone' => $zoneName,
-                    'type' => 'superSeven',
-                    'stake' => $superStake,
-                    'return' => $superReturn,
-                    'net' => round($superReturn - $superStake),
-                    'outcome' => $superOutcome,
-                ];
-            }
-
             if ($insuranceStake > 0) {
                 $zoneSideWager += $insuranceStake;
                 $insuranceReturn = 0.0;
                 $insuranceOutcome = 'lose';
                 if ($dealerBlackjack && !$baseNatural) {
-                    $insuranceReturn = round($insuranceStake * 3);
+                    $insuranceReturn = floor($insuranceStake * 3);
                     $insuranceOutcome = 'win';
                 }
                 $zoneSideReturn += $insuranceReturn;
@@ -12913,7 +13388,6 @@ final class CasinoController
                 'pairs' => $pairsStake,
                 'plus21' => $plusStake,
                 'royal' => $royalStake,
-                'superSeven' => $superStake,
                 'insurance' => $insuranceStake,
                 'hands' => count($zoneHands),
             ];
@@ -12943,8 +13417,8 @@ final class CasinoController
                 $playerCards[] = (string) $cardCode;
             }
         }
-
         $dealerCardCodes = array_values(array_map(static fn(array $card): string => (string) ($card['code'] ?? ''), $dealerCards));
+
         $betDetails = [
             'hands' => $handResults,
             'sideBets' => $sideBetResults,
@@ -12954,17 +13428,7 @@ final class CasinoController
                 'blackjack' => $dealerBlackjack,
                 'bust' => $dealerBust,
             ],
-            'actions' => $resolvedActions,
-        ];
-
-        $roundMeta = [
-            'version' => 'blackjack_settlement_v3',
-            'dealer' => $betDetails['dealer'],
-            'hands' => $handResults,
-            'sideBets' => $sideBetResults,
-            'actions' => $resolvedActions,
-            'simulation' => $simulationMeta,
-            'clientMeta' => $clientMeta,
+            'actions' => array_values($state['actionLog'] ?? []),
         ];
 
         return [
@@ -12976,12 +13440,78 @@ final class CasinoController
             'resultType' => $resultType,
             'betBreakdown' => $betBreakdown,
             'betDetails' => $betDetails,
-            'roundMeta' => $roundMeta,
+            'roundMeta' => [
+                'version' => 'blackjack_settlement_v4_staged',
+                'dealer' => $betDetails['dealer'],
+                'hands' => $handResults,
+                'sideBets' => $sideBetResults,
+                'actions' => $betDetails['actions'],
+                'simulation' => [
+                    'deckCount' => (int) ($state['deckCount'] ?? self::BLACKJACK_DEFAULT_DECK_COUNT),
+                    'seedHash' => hash('sha256', (string) ($state['seed'] ?? '')),
+                    'deckHash' => $this->blackjackRoundDeckHash($state),
+                    'cardsUsed' => (int) ($state['drawn'] ?? 0),
+                ],
+            ],
             'playerCards' => $playerCards,
             'dealerCards' => $dealerCardCodes,
         ];
     }
 
+    /**
+     * Response shaping. While the round is live this is the ONLY view of the
+     * state that may leave the server: the dealer hole card, the seed and the
+     * deck stay hidden until the terminal response.
+     */
+    private function blackjackRoundPublicState(array $state): array
+    {
+        $terminal = ($state['phase'] ?? '') === 'complete';
+
+        $hands = [];
+        foreach ($state['playOrder'] as $zoneName) {
+            $hand = is_array($state['hands'][(string) $zoneName] ?? null) ? $state['hands'][(string) $zoneName] : null;
+            if ($hand === null) {
+                continue;
+            }
+            $cards = is_array($hand['cards'] ?? null) ? $hand['cards'] : [];
+            $hands[] = [
+                'zone' => (string) ($hand['zone'] ?? $zoneName),
+                'baseZone' => (string) ($hand['baseZone'] ?? ''),
+                'cards' => array_values(array_map(static fn(array $card): string => (string) ($card['code'] ?? ''), $cards)),
+                'score' => $this->blackjackHandScore($cards),
+                'bet' => $this->parseMoneyValue($hand['bet'] ?? 0, 'state.hands.bet'),
+                'isSplit' => (bool) ($hand['isSplit'] ?? false),
+                'surrendered' => (bool) ($hand['surrendered'] ?? false),
+                'evenMoney' => (bool) ($hand['evenMoney'] ?? false),
+                'doubled' => (bool) ($hand['doubled'] ?? false),
+                'completed' => (bool) ($hand['completed'] ?? false),
+                'standingReason' => $hand['standingReason'] ?? null,
+            ];
+        }
+
+        $dealerCards = is_array($state['dealerCards'] ?? null) ? $state['dealerCards'] : [];
+        $dealer = $terminal
+            ? [
+                'cards' => array_values(array_map(static fn(array $card): string => (string) ($card['code'] ?? ''), $dealerCards)),
+                'score' => $this->blackjackHandScore($dealerCards),
+                'holeHidden' => false,
+            ]
+            : [
+                'upCard' => (string) ($dealerCards[0]['code'] ?? ''),
+                'holeHidden' => true,
+            ];
+
+        return [
+            'phase' => (string) ($state['phase'] ?? ''),
+            'deckCount' => (int) ($state['deckCount'] ?? self::BLACKJACK_DEFAULT_DECK_COUNT),
+            'hands' => $hands,
+            'dealer' => $dealer,
+            'insuranceStakes' => $state['insuranceStakes'] ?? [],
+            'insuranceTaken' => $state['insuranceTaken'] ?? [],
+            'awaiting' => $terminal ? null : $this->blackjackRoundLegalActions($state),
+            'deckHash' => $this->blackjackRoundDeckHash($state),
+        ];
+    }
     private function parseRouletteBets(array $rawBets): array
     {
         $entries = [];
@@ -14767,7 +15297,7 @@ final class CasinoController
                 'metadata' => is_array($game['metadata'] ?? null) ? $game['metadata'] : new stdClass(),
                 'tags' => is_array($game['tags'] ?? null) ? $game['tags'] : [str_replace('_', ' ', (string) ($game['category'] ?? 'lobby')), 'live casino'],
                 'isFeatured' => (bool) ($game['isFeatured'] ?? false),
-                'status' => 'active',
+                'status' => (string) ($game['status'] ?? 'active'),
                 'supportsDemo' => true,
                 'createdAt' => $now,
                 'updatedAt' => $now,
