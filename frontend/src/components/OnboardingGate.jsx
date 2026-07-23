@@ -150,16 +150,14 @@ const OnboardingGate = ({ user, onDismiss }) => {
     });
     const [straightAmount, setStraightAmount] = React.useState(seedAmount(stored?.straightDefault));
     const [parlayAmount, setParlayAmount] = React.useState(seedAmount(stored?.parlayDefault));
-    const [midStakes, setMidStakes] = React.useState(() => {
-        const saved = stored?.quickStakes;
-        if (Array.isArray(saved) && saved.length === 5) {
-            const mids = [saved[1], saved[2], saved[3]].map(Number);
-            if (mids.every((n) => Number.isFinite(n) && n > 0)) return mids.map(String);
-        }
-        // First login: empty on purpose (Fida 2026-07-22) — picking their own
-        // quick stakes is part of the step, so no computed sample values.
-        return ['', '', ''];
-    });
+    // ALWAYS empty on this step (Fida 2026-07-23, extending the 2026-07-22
+    // first-login rule): no hydration from stored quickStakes either — an
+    // account that already carries a saved row (auto-computed 25/50/75%
+    // ladder written by the Account card / pre-07-22 gate, e.g. 70/115/155
+    // at $25–$200 limits) must still pick its own values here. canSave keeps
+    // the CTA disabled until all three are typed; the Account settings card
+    // still hydrates from the saved row as before.
+    const [midStakes, setMidStakes] = React.useState(['', '', '']);
     // Display timezone (Nicky/Fida 2026-07-22: pick it at signup). Seeded
     // from the server-saved preference, else this device's site timezone
     // (localStorage, ET default). Always has a value — never blocks the step.
