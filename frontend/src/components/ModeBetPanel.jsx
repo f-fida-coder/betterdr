@@ -2777,9 +2777,19 @@ const ModeBetPanel = ({
             // defaults + rules acknowledgment are complete. Re-open the gate
             // right here instead of leaving them stuck on an error toast.
             if (String(error?.code || '') === 'ONBOARDING_REQUIRED') {
+                // BOTH events, refresh first (live-stuck bug 2026-07-23): the
+                // shell renders the gate off the CLIENT's user snapshot
+                // (user.onboarding.required), which can predate the server
+                // flipping required=true (latch stamped / policy deployed
+                // mid-session, 15s me-cache). onboarding:show alone only
+                // clears the dismissed flag — with a stale snapshot NOTHING
+                // opened and the player was stuck on the toast with no way
+                // into the gate. user:refresh refetches /auth/me; when the
+                // fresh required=true lands, the (un-dismissed) gate mounts.
+                window.dispatchEvent(new Event('user:refresh'));
                 window.dispatchEvent(new Event('onboarding:show'));
                 const gateText = error.message || 'Finish your account setup to place bets.';
-                setMessage({ type: 'error', text: gateText });
+                setMessage({ type: 'error', text: gateText, opensGate: true });
                 showToast(gateText, 'warning');
                 return;
             }
@@ -4439,18 +4449,33 @@ const ModeBetPanel = ({
                     </div>
                 ))}
                 {message && (
-                    <div style={{
-                        color: message.type === 'error' ? palette.danger : palette.success,
-                        background: message.type === 'error' ? palette.dangerSoft : palette.successSoft,
-                        padding: '8px 12px',
-                        borderRadius: 8,
-                        fontSize: 12,
-                        marginTop: 10,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                    }}>
+                    <div
+                        onClick={message.opensGate ? () => {
+                            // ONBOARDING_REQUIRED inline error doubles as the
+                            // way back into the gate: the modal is dismissible
+                            // (X), so a player who closed it mid-flow can tap
+                            // this message to reopen it instead of being stuck
+                            // until next login (live bug 2026-07-23).
+                            window.dispatchEvent(new Event('user:refresh'));
+                            window.dispatchEvent(new Event('onboarding:show'));
+                        } : undefined}
+                        style={{
+                            color: message.type === 'error' ? palette.danger : palette.success,
+                            background: message.type === 'error' ? palette.dangerSoft : palette.successSoft,
+                            padding: '8px 12px',
+                            borderRadius: 8,
+                            fontSize: 12,
+                            marginTop: 10,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            cursor: message.opensGate ? 'pointer' : 'default',
+                        }}
+                    >
                         <i className={`fa-solid ${message.type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-check'}`} /> {message.text}
+                        {message.opensGate && (
+                            <span style={{ fontWeight: 700, textDecoration: 'underline', whiteSpace: 'nowrap' }}>Complete setup</span>
+                        )}
                     </div>
                 )}
 
