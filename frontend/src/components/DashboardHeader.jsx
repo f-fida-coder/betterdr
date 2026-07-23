@@ -42,8 +42,9 @@ const mhCellLabelStyle = {
     fontSize: 10, fontWeight: 500, color: '#fff', letterSpacing: 0.2, lineHeight: 1,
 };
 const mhBalanceCellStyle = {
+    // No inset shadows (Fida 2026-07-23): the balance block reads as part of
+    // one flat nav surface — no top/bottom seam.
     gridColumn: 'span 2', minWidth: 0, background: '#595959',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.18)',
     padding: '2px 10px', display: 'flex', flexDirection: 'column',
     justifyContent: 'center', gap: 1, appearance: 'none', WebkitAppearance: 'none',
     border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
@@ -62,7 +63,9 @@ const mhBalanceValueStyle = {
 };
 const mhBalanceHeroLabelStyle = { ...mhBalanceLabelStyle, fontSize: 10, color: 'rgba(255,255,255,0.95)' };
 const mhBalanceHeroValueStyle = { ...mhBalanceValueStyle, fontSize: 11, fontWeight: 700 };
-const mhBalanceRowDividerStyle = { height: 1, background: 'rgba(255,255,255,0.12)', margin: '0 -2px' };
+// Transparent spacer (Fida 2026-07-23): the lines under Balance/Pending/
+// Available/Freeplay are removed; the 1px height is kept only as row spacing.
+const mhBalanceRowDividerStyle = { height: 1, background: 'transparent', margin: '0 -2px' };
 const mhBetslipCircleStyle = {
     width: 28, height: 28, borderRadius: '50%', background: '#fff',
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
@@ -406,16 +409,15 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                         alignItems: 'stretch',
                         padding: 0,
                         minHeight: 64,
-                        // Cell dividers are drawn by this background showing through
-                        // 1.5px grid gaps — NOT per-cell borders, which landed on
-                        // fractional device pixels and dropped (e.g. the
-                        // Betslip|Balance line vanished at some widths/DPRs).
-                        // A SOFT dark line on the #595959 cells (Fida 2026-07-23):
-                        // darker than the cells so it reads clearly, but lighter
-                        // than the #4a4a4a tab grid below so the nav row stays a
-                        // touch subtler. Was a bright white (rgba 255,255,255,.8).
-                        gap: '1.5px',
-                        background: '#3f3f3f',
+                        // No dividers between the nav cells (Fida 2026-07-23):
+                        // gap:0 + a wrapper background matching the #595959 cells
+                        // means the row renders as ONE flat dark surface with no
+                        // vertical lines (any sub-pixel seam falls back to the
+                        // cell colour, not a visible rule). The tab grid below
+                        // keeps its dark #4a4a4a dividers — only the nav row is
+                        // seamless.
+                        gap: 0,
+                        background: '#595959',
                     }}
                 >
                     {(() => {
