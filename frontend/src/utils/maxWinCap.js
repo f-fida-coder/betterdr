@@ -26,8 +26,10 @@ export const cappedWinForStake = (stake, decimalOdds, cap) => {
     return Number.isFinite(c) && c > 0 ? Math.min(rawWin, c) : rawWin;
 };
 
-// True when the cap actually binds at this stake/odds — drives the single
-// static limits note (capLimitsNote) and nothing else.
+// True when the cap actually binds at this stake/odds. Since 2026-07-23
+// (Fida: no banner while the cap binds) nothing in the UI consumes this —
+// kept for tests/future use; the truncation itself lives in
+// cappedWinForStake and the panel's displayWinAmount clamp.
 export const winTruncationActive = (stake, decimalOdds, cap) => {
     const d = Number(decimalOdds);
     const s = Number(stake);
@@ -60,13 +62,12 @@ export const minFloorApplied = (rawRisk, minBet) => {
 };
 
 // ── Centralized copy ────────────────────────────────────────────────────────
-// The ONLY cap message the UI may show, surfaced ONLY while the win
-// truncation is actually binding on the ticket (Fida 2026-07-22, revising
-// the 2026-07-20 line: the old "Min bet $X, max payout $Y" prefix made a
-// legitimate cap notice read like a stake violation even when the stake
-// was fine — min-bet breaches have their own conditional message in
-// ModeBetPanel's limitFlags). Still never a capped-stake figure or a
-// derived calculation.
+// The ONLY cap message left in the UI, and ONLY on the MAX_WIN_EXCEEDED
+// error path (a pre-reversal backend rejecting during a mismatched-deploy
+// window). Fida 2026-07-23 (revising 2026-07-22): the informational banner
+// while the cap merely binds is GONE — a capped ticket shows no cap copy
+// at all, just the truncated To-Win number. Still never a capped-stake
+// figure or a derived calculation.
 export const capLimitsNote = (cap) => {
     const c = Math.floor(Number(cap) || 0);
     return `Max payout $${c} — winnings capped at this amount`;

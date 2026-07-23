@@ -4,7 +4,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal, roundCombinedToAmericanDecimal } from '../utils/odds';
 import { resolveQuickStakes } from '../utils/money';
-import { winTruncationActive, capLimitsNote, stakeAutoRaisedNote, floorStakeToMin, minFloorApplied, stakeForMinWin, minWinBumpApplied, minWinRaisedNote, MIN_WIN_FLOOR } from '../utils/maxWinCap';
+import { capLimitsNote, stakeAutoRaisedNote, floorStakeToMin, minFloorApplied, stakeForMinWin, minWinBumpApplied, minWinRaisedNote, MIN_WIN_FLOOR } from '../utils/maxWinCap';
 import { formatSiteDateTime } from '../utils/timezone';
 import { isMlbSportKey, formatPitcherLabel } from '../utils/pitchers';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
@@ -1249,7 +1249,7 @@ const ModeBetPanel = ({
     //     limit, used to flag the offending card with a red border.
     const limitFlags = useMemo(() => {
         const violatingIds = new Set();
-        const messages = { min: null, max: null, capInfo: null };
+        const messages = { min: null, max: null };
         const minBet = Number(user?.minBet);
         const maxBet = Number(user?.maxBet);
         const hasMin = Number.isFinite(minBet) && minBet > 0;
@@ -1290,16 +1290,12 @@ const ModeBetPanel = ({
                 if (minBreach || maxBreach) violatingIds.add(sel.id);
             }
         } else if (effectiveCombinedRisk > 0) {
-            const winValue = effectiveCombinedRisk * Math.max(0, Number(ticketDecimalOdds) - 1);
             // Combined modes (parlay/teaser/if_bet/reverse) get the
             // same risk-side max-bet check as straight tickets — the
             // operator's "max bet" rule should apply to ticket stake
-            // regardless of mode. ON TOP of that there's a payout
-            // ceiling at 3× maxBet (operator policy on multi-leg
-            // long shots): payouts above the ceiling aren't rejected,
-            // they're just capped, and we surface an informational
-            // "winnings capped" note instead of a hard block.
-            const parlayPayoutCap = hasMax ? maxBet * 3 : 0;
+            // regardless of mode. The 3×-maxBet payout ceiling still
+            // clamps silently in displayWinAmount — no informational
+            // note anymore (Fida 2026-07-23: cap binding shows no copy).
             if (hasMin && effectiveCombinedRisk < minBet) {
                 messages.min = `Min bet $${minBet} — ticket risks only $${fmt(effectiveCombinedRisk)}`;
             }
@@ -1310,12 +1306,9 @@ const ModeBetPanel = ({
                     ? `This selection is unavailable at your betting limits — winning the $${MIN_WIN_FLOOR} minimum at these odds requires risking $${fmt(effectiveCombinedRisk)}, over your $${maxBet} max bet`
                     : `Max bet $${maxBet} — ticket risks $${fmt(effectiveCombinedRisk)}`;
             }
-            if (parlayPayoutCap > 0 && winValue > parlayPayoutCap) {
-                messages.capInfo = `Max parlay payout $${fmt(parlayPayoutCap)} — winnings capped (uncapped: $${fmt(winValue)})`;
-            }
         }
         return { violatingIds, messages };
-    }, [normalizedMode, selections, effectiveStakeForSelection, effectiveCombinedRisk, ticketDecimalOdds, user?.minBet, user?.maxBet, combinedMinWinBumpApplied]);
+    }, [normalizedMode, selections, effectiveStakeForSelection, effectiveCombinedRisk, user?.minBet, user?.maxBet, combinedMinWinBumpApplied]);
 
     // ── Round Robin derived state ────────────────────────────────────
     // Available "By X's" sizes given the current selection count. Round
@@ -1748,28 +1741,11 @@ const ModeBetPanel = ({
         onWagerChange(raw);
     }, [parlayWinAnchored, effectiveWinCap, onWagerChange]);
 
-    // The ONLY cap message the UI shows (max-payout-only wording since
-    // 2026-07-22 — min-bet breaches surface via limitFlags.messages.min
-    // instead), surfaced when the win truncation is actually binding on this
-    // ticket — never a capped-stake figure, never a derived calculation.
-    // Straight mode: binding when any staked leg's raw win exceeds the cap.
-    // Combined modes: binding when the ticket's raw win exceeds the cap.
-    const capTruncationActive = useMemo(() => {
-        if (!(winCapState.cap > 0)) return false;
-        if (normalizedMode === 'straight') {
-            return selections.some((sel) => {
-                const { risk } = effectiveStakeForSelection(sel);
-                return winTruncationActive(risk, Number(sel?.odds || 0), winCapState.cap);
-            });
-        }
-        if (normalizedMode === 'round_robin' || isOpenParlay) return false; // own contracts
-        // Combined modes: raw win from the ticket's own payout math (teaser
-        // table multipliers / reverse 2× aren't a plain risk×(dec−1)).
-        return Math.max(0, potentialPayout - totalRisk) > winCapState.cap;
-    }, [winCapState.cap, normalizedMode, selections, effectiveStakeForSelection, potentialPayout, totalRisk, isOpenParlay]);
-    const capNote = capTruncationActive
-        ? capLimitsNote(winCapState.cap)
-        : '';
+    // NO banner while the cap binds (Fida 2026-07-23, revising 2026-07-22):
+    // the win-truncation note is gone entirely — the capped To-Win number in
+    // the summary is the only signal. Truncation math itself is untouched
+    // (displayWinAmount clamp below + server-side snapshot); the only cap
+    // copy left is the MAX_WIN_EXCEEDED mismatched-deploy error path.
 
     // Min-bet FLOOR snap note (mirror of stakeSnapNote). Straight snaps
     // per-leg, so surface the banner when ANY leg was floored; combined modes
@@ -1875,19 +1851,14 @@ const ModeBetPanel = ({
     // the Bet Amount input. Matches the prefixes the validation builder
     // emits so the same string drives both the inline pill and the
     // disabled-button state.
-    // Cap notices ("Max parlay payout …") are informational, not blocking
-    // — they don't enter validationErrors, so the user can still place
-    // the bet. Actual settled winnings are clamped server-side at the
-    // same cap. Falls back to the cap message when no Min/Max bet error
-    // is present.
     const amountWarning = validationErrors.find((e) =>
         typeof e === 'string' && (e.startsWith('Min bet') || e.startsWith('Max bet') || e.startsWith('This selection is unavailable'))
-    ) || minWinBumpNote || stakeFloorNote || capNote || limitFlags.messages.capInfo || '';
-    // The snapped-stake messages (cap DOWN, min-bet UP, min-win bump UP) get
-    // the emphasized banner treatment — the player must see they're now
+    ) || minWinBumpNote || stakeFloorNote || '';
+    // The snapped-stake messages (min-bet UP, min-win bump UP) get the
+    // emphasized banner treatment — the player must see they're now
     // staking the adjusted amount, not what the back-solve produced.
     const amountWarningEmphasized = amountWarning !== ''
-        && (amountWarning === stakeFloorNote || amountWarning === capNote || amountWarning === minWinBumpNote);
+        && (amountWarning === stakeFloorNote || amountWarning === minWinBumpNote);
     const hasSelections = legCount > 0;
     const [isOpen, setIsOpen] = useState(false);
 
