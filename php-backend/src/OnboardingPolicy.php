@@ -71,6 +71,23 @@ final class OnboardingPolicy
     public const REACK_FLAG = 'rulesReAckPending';
 
     /**
+     * Minimum seconds a rules step must be on screen before its acceptance
+     * is accepted (Fida 2026-07-23) — in ADDITION to the scroll-to-bottom
+     * rule, per SET (House and Platform each run their own clock). MIRRORS
+     * RULES_MIN_DWELL_SECONDS in OnboardingGate.jsx — keep in lockstep.
+     */
+    public const RULES_MIN_DWELL_SECONDS = 40;
+
+    /**
+     * User-doc field: map of ruleSet => server timestamp the step was shown
+     * (stamped by /auth/rules-step-shown when the gate renders the step).
+     * acknowledge-rules refuses the acceptance until the dwell window has
+     * passed since this stamp — server clock on both ends, so a client
+     * with a skewed (or scripted) clock can't shorten the read window.
+     */
+    public const RULES_SHOWN_FIELD = 'rulesStepShownAt';
+
+    /**
      * Payment-apps onboarding step (2026-07-22). The six payout handles a
      * player must provide (or explicitly mark "N/A") before betting. Keys
      * MATCH the pre-existing `user.apps` schema that agents already read
@@ -234,6 +251,24 @@ final class OnboardingPolicy
     }
 
     /**
+     * Seconds still owed on a set's dwell clock (0 = acceptance allowed).
+     * Missing, malformed, or FUTURE stamps (clock skew) all count as
+     * "never shown" and owe the full window — acknowledgeRules plants a
+     * fresh stamp in that case, so a lost /rules-step-shown call costs the
+     * player one wait, never a lockout. Pure so it's unit-testable.
+     */
+    public static function rulesDwellRemaining(array $user, string $set, int $nowTs): int
+    {
+        $map = is_array($user[self::RULES_SHOWN_FIELD] ?? null) ? $user[self::RULES_SHOWN_FIELD] : [];
+        $raw = $map[$set] ?? null;
+        $shownTs = is_string($raw) ? strtotime($raw) : false;
+        if ($shownTs === false || $shownTs > $nowTs) {
+            return self::RULES_MIN_DWELL_SECONDS;
+        }
+        return max(0, self::RULES_MIN_DWELL_SECONDS - ($nowTs - $shownTs));
+    }
+
+    /**
      * All six payout handles present (a literal "N/A" counts — the point is
      * an explicit answer per app, not necessarily a handle). `other` and
      * `updatedAt` never affect completeness.
@@ -279,9 +314,13 @@ final class OnboardingPolicy
      * formatHandleForKey (keep in lockstep). Shapes, never rejects:
      *   venmo    → '@' + [A-Za-z0-9_-]{1,30}
      *   cashapp  → '$' + [A-Za-z0-9]{1,20}
-     *   applePay/zelle → letters/@ = email (as-is); pure digits = US phone
-     *                    formatted 3-3-4 with dashes, 11-digit leading 1
-     *                    dropped
+     *   applePay → PHONE ONLY (Fida 2026-07-23): digits formatted 3-3-4
+     *              with dashes, 11-digit leading 1 dropped. An email (or
+     *              any letters) normalizes to '' = unanswered, so the
+     *              completeness/filled checks reject it without this
+     *              normalizer ever throwing.
+     *   zelle    → letters/@ = email (as-is); pure digits = US phone
+     *              formatted 3-3-4 with dashes, 11-digit leading 1 dropped
      *   others   → whitespace-stripped as-is
      * 'N/A' passes through untouched everywhere.
      */
@@ -302,8 +341,8 @@ final class OnboardingPolicy
             return $core === '' ? '' : '$' . $core;
         }
         if ($key === 'applePay' || $key === 'zelle') {
-            if (preg_match('/[A-Za-z@]/', $v) === 1) {
-                return $v; // email mode — leave as typed (whitespace already gone)
+            if ($key === 'zelle' && preg_match('/[A-Za-z@]/', $v) === 1) {
+                return $v; // email mode (Zelle only) — leave as typed
             }
             $d = (string) preg_replace('/\D/', '', $v);
             if (strlen($d) === 11 && str_starts_with($d, '1')) {

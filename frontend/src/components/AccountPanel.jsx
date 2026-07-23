@@ -631,7 +631,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
 const PAYMENT_APP_FIELDS = [
     { key: 'venmo', label: 'Venmo', prefix: '@', placeholder: 'username' },
     { key: 'cashapp', label: 'Cash App', prefix: '$', placeholder: 'cashtag' },
-    { key: 'applePay', label: 'Apple Pay', prefix: null, placeholder: 'Phone or email' },
+    { key: 'applePay', label: 'Apple Pay', prefix: null, placeholder: 'Phone number' },
     { key: 'zelle', label: 'Zelle', prefix: null, placeholder: 'Phone or email' },
     { key: 'paypal', label: 'PayPal', prefix: null, placeholder: 'Email or @username' },
     { key: 'btc', label: 'BTC Address', prefix: null, placeholder: 'Wallet address' },

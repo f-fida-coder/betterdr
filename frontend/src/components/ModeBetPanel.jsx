@@ -2772,20 +2772,17 @@ const ModeBetPanel = ({
                 showToast(capText, 'error');
                 return;
             }
-            // Server-side onboarding gate: the player dismissed (or never saw)
-            // the first-login setup, so placement is blocked until bet
-            // defaults + rules acknowledgment are complete. Re-open the gate
-            // right here instead of leaving them stuck on an error toast.
+            // Server-side onboarding gate: placement is blocked until every
+            // owed setup step is complete. Since 2026-07-23 the gate is NOT
+            // dismissible, so this path only fires on a STALE client snapshot:
+            // the shell renders the gate off user.onboarding.required, which
+            // can predate the server flipping required=true (latch stamped /
+            // policy deployed mid-session, 15s me-cache).
             if (String(error?.code || '') === 'ONBOARDING_REQUIRED') {
-                // BOTH events, refresh first (live-stuck bug 2026-07-23): the
-                // shell renders the gate off the CLIENT's user snapshot
-                // (user.onboarding.required), which can predate the server
-                // flipping required=true (latch stamped / policy deployed
-                // mid-session, 15s me-cache). onboarding:show alone only
-                // clears the dismissed flag — with a stale snapshot NOTHING
-                // opened and the player was stuck on the toast with no way
-                // into the gate. user:refresh refetches /auth/me; when the
-                // fresh required=true lands, the (un-dismissed) gate mounts.
+                // user:refresh refetches /auth/me; when the fresh
+                // required=true lands, the gate mounts. onboarding:show is a
+                // listener-less no-op since the dismissed flag was removed —
+                // kept as a harmless safety net.
                 window.dispatchEvent(new Event('user:refresh'));
                 window.dispatchEvent(new Event('onboarding:show'));
                 const gateText = error.message || 'Finish your account setup to place bets.';
@@ -4451,11 +4448,13 @@ const ModeBetPanel = ({
                 {message && (
                     <div
                         onClick={message.opensGate ? () => {
-                            // ONBOARDING_REQUIRED inline error doubles as the
-                            // way back into the gate: the modal is dismissible
-                            // (X), so a player who closed it mid-flow can tap
-                            // this message to reopen it instead of being stuck
-                            // until next login (live bug 2026-07-23).
+                            // ONBOARDING_REQUIRED inline error doubles as a
+                            // way into the gate for the stale-snapshot case
+                            // (client's user.onboarding.required not yet
+                            // refreshed): user:refresh pulls the fresh me
+                            // payload that mounts it. Manual dismissal no
+                            // longer exists (X removed 2026-07-23), so this
+                            // is a safety net, not the reopen path.
                             window.dispatchEvent(new Event('user:refresh'));
                             window.dispatchEvent(new Event('onboarding:show'));
                         } : undefined}

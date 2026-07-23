@@ -42,12 +42,23 @@ export const formatCashtag = (raw) => {
     return v === '' ? '' : `$${v}`;
 };
 
-// Phone-or-email (Apple Pay / Zelle): any letter or @ → email mode, left as
-// typed (whitespace-stripped). Pure digits/punctuation → US phone, grouped
-// 3-3-4 with dashes as they type; an 11-digit 1-prefix is dropped.
+// Phone-or-email (Zelle only since 2026-07-23): any letter or @ → email
+// mode, left as typed (whitespace-stripped). Pure digits/punctuation → US
+// phone, grouped 3-3-4 with dashes as they type; an 11-digit 1-prefix is
+// dropped.
 export const formatPhoneOrEmail = (raw) => {
     const v = sanitizeHandle(raw);
     if (v === '' || /[A-Za-z@]/.test(v)) return v;
+    return formatUsPhone(v);
+};
+
+// US-phone-only (Apple Pay, Fida 2026-07-23): Apple Pay payouts go to a
+// phone number, never an email — digits only, grouped 3-3-4 with dashes as
+// they type, 11-digit 1-prefix dropped. Letters (email attempts) never
+// land in the field; only the explicit N/A opt-out passes through.
+export const formatUsPhone = (raw) => {
+    const v = sanitizeHandle(raw);
+    if (v.toUpperCase() === 'N/A') return 'N/A';
     let d = v.replace(/\D/g, '');
     if (d.length === 11 && d.startsWith('1')) d = d.slice(1);
     d = d.slice(0, 10);
@@ -60,7 +71,8 @@ export const formatPhoneOrEmail = (raw) => {
 export const formatHandleForKey = (key, raw) => {
     if (key === 'venmo') return formatVenmoHandle(raw);
     if (key === 'cashapp') return formatCashtag(raw);
-    if (key === 'applePay' || key === 'zelle') return formatPhoneOrEmail(raw);
+    if (key === 'applePay') return formatUsPhone(raw);
+    if (key === 'zelle') return formatPhoneOrEmail(raw);
     return sanitizeHandle(raw);
 };
 

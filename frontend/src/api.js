@@ -598,7 +598,12 @@ export const acknowledgeRules = async (token, ruleSet = 'platform_rules') => {
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
-        throw new Error(error.message || 'Failed to acknowledge rules');
+        const err = new Error(error.message || 'Failed to acknowledge rules');
+        // RULES_DWELL_REQUIRED carries remainingSeconds — the gate resyncs
+        // its local countdown to the server's clock off these fields.
+        if (error.code) err.code = error.code;
+        if (Number.isFinite(Number(error.remainingSeconds))) err.remainingSeconds = Number(error.remainingSeconds);
+        throw err;
     }
     const data = await response.json();
     if (token && data?.user) {
@@ -606,6 +611,24 @@ export const acknowledgeRules = async (token, ruleSet = 'platform_rules') => {
         primeAuthBootstrapCache({ token, role: data.user.role, user: data.user, source: 'rules-ack' });
     }
     return data;
+};
+
+// Dwell-clock stamp: the gate calls this the moment a rules step renders;
+// the server refuses acknowledge-rules until RULES_MIN_DWELL_SECONDS have
+// passed since the stamp. Fire-and-forget from the gate's point of view —
+// a lost call self-heals inside acknowledge-rules (stamp planted + one
+// dwell error), so failures here must never block the step from showing.
+export const markRulesStepShown = async (token, ruleSet) => {
+    const response = await fetch(buildApiUrl('/auth/rules-step-shown'), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ ruleSet }),
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to record rules step');
+    }
+    return response.json();
 };
 
 // Player-facing house rules (admin-managed `rules` collection, active docs

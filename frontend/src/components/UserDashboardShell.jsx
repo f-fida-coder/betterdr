@@ -104,20 +104,17 @@ function UserDashboardShell({
     return () => window.removeEventListener('search:open-match', handleOpen);
   }, []);
 
-  // First-login onboarding gate (bet defaults + rules acknowledgment).
-  // `user.onboarding.required` is server-derived on every /auth/me, so the
-  // gate shows on login for any player who hasn't completed both steps —
-  // new AND existing accounts. Dismissal is SESSION-SCOPED React state
-  // (deliberately not persisted): closing lets the player browse, but the
-  // gate returns on the next login and re-opens immediately when a bet
-  // attempt hits the server's ONBOARDING_REQUIRED block (`onboarding:show`,
-  // dispatched by ModeBetPanel's placement error handler).
-  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
-  useEffect(() => {
-    const handleShow = () => setOnboardingDismissed(false);
-    window.addEventListener('onboarding:show', handleShow);
-    return () => window.removeEventListener('onboarding:show', handleShow);
-  }, []);
+  // First-login onboarding gate (bet defaults + rules acknowledgment +
+  // payment apps where owed). `user.onboarding.required` is server-derived
+  // on every /auth/me, so the gate shows on login for any player who hasn't
+  // completed every owed step — new AND existing accounts. NOT dismissible
+  // (product decision 2026-07-23): the old X/dismissed-flag machinery is
+  // gone; the gate stays mounted until the server flips required=false.
+  // Mid-session stale snapshots (latch stamped / policy deployed while the
+  // player is logged in) are covered by ModeBetPanel's ONBOARDING_REQUIRED
+  // handler dispatching `user:refresh` — the fresh me payload mounts the
+  // gate. (Its `onboarding:show` dispatch is now a listener-less no-op,
+  // kept as a safety net.)
   const onboardingRequired = user?.role === 'user' && user?.onboarding?.required === true;
 
   // Mobile parity with DashboardMain: when the selection contains a futures
@@ -290,12 +287,9 @@ function UserDashboardShell({
           onClose={() => setSearchOpenMatch(null)}
         />
       )}
-      {onboardingRequired && !onboardingDismissed && (
+      {onboardingRequired && (
         <Suspense fallback={null}>
-          <OnboardingGate
-            user={user}
-            onDismiss={() => setOnboardingDismissed(true)}
-          />
+          <OnboardingGate user={user} />
         </Suspense>
       )}
     </div>

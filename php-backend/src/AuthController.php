@@ -138,6 +138,10 @@ final class AuthController
             $this->acknowledgeRules();
             return true;
         }
+        if ($path === '/api/auth/rules-step-shown' && $method === 'POST') {
+            $this->markRulesStepShown();
+            return true;
+        }
         if ($path === '/api/auth/gambling-limits' && $method === 'GET') {
             $this->getGamblingLimits();
             return true;
@@ -912,9 +916,37 @@ final class AuthController
                 return;
             }
 
+            $now = SqlRepository::nowUtc();
+
+            // Dwell-time re-validation (Fida 2026-07-23): the gate unlocks
+            // Accept only after RULES_MIN_DWELL_SECONDS on screen (the
+            // scroll-to-bottom rule stays as well) — re-check here against
+            // the server-side shown stamp, same defensive pattern as the
+            // scroll re-check in the gate's confirmRules, so a scripted
+            // POST can't accept faster than a human could read. A missing
+            // stamp (older bundle, lost call) is planted NOW and refused —
+            // self-healing: the player waits one window, never locks out.
+            $dwellRemaining = OnboardingPolicy::rulesDwellRemaining($user, $set, time());
+            if ($dwellRemaining > 0) {
+                $shownMap = is_array($user[OnboardingPolicy::RULES_SHOWN_FIELD] ?? null)
+                    ? $user[OnboardingPolicy::RULES_SHOWN_FIELD] : [];
+                if (!isset($shownMap[$set])) {
+                    $shownMap[$set] = $now;
+                    $this->db->updateOne('users', ['id' => SqlRepository::id((string) $user['id'])], [
+                        OnboardingPolicy::RULES_SHOWN_FIELD => $shownMap,
+                        'updatedAt' => $now,
+                    ]);
+                }
+                Response::json([
+                    'message' => "Please take time to read the rules — you can accept in {$dwellRemaining}s.",
+                    'code' => 'RULES_DWELL_REQUIRED',
+                    'remainingSeconds' => $dwellRemaining,
+                ], 400);
+                return;
+            }
+
             $field = OnboardingPolicy::ACK_FIELDS[$set];
             $version = OnboardingPolicy::RULES_VERSIONS[$set];
-            $now = SqlRepository::nowUtc();
             $ack = [
                 'acknowledgedAt' => $now,
                 'version' => $version,
@@ -976,6 +1008,59 @@ final class AuthController
                 'error' => $e->getMessage(),
             ], 'auth');
             Response::json(['message' => 'Server error acknowledging rules'], 500);
+        }
+    }
+
+    /**
+     * POST /api/auth/rules-step-shown — dwell-clock stamp (body: {ruleSet},
+     * blank defaults to platform_rules like acknowledge-rules). The gate
+     * calls this the moment a rules step renders; acknowledge-rules then
+     * refuses the acceptance until RULES_MIN_DWELL_SECONDS have passed
+     * since the stamp. Re-stamping restarts the clock — that only ever
+     * DELAYS acceptance, so a hostile client gains nothing by calling it
+     * (or by not calling it: acknowledge-rules self-heals a missing stamp).
+     * Both ends read the server clock; the client's clock never matters.
+     */
+    private function markRulesStepShown(): void
+    {
+        try {
+            $user = $this->protect();
+            if ($user === null) {
+                return;
+            }
+
+            $body = Http::jsonBody();
+            $set = strtolower(trim((string) ($body['ruleSet'] ?? '')));
+            if ($set === '') {
+                $set = OnboardingPolicy::SET_PLATFORM;
+            }
+            if (!OnboardingPolicy::isKnownSet($set)) {
+                Response::json(['message' => 'Unknown rule set'], 400);
+                return;
+            }
+
+            $ok = ['message' => 'ok', 'dwellSeconds' => OnboardingPolicy::RULES_MIN_DWELL_SECONDS];
+            // Non-player roles never see the gate — respond OK so a stray
+            // call can't error-loop a shared frontend surface.
+            if (!OnboardingPolicy::isPlayer($user)) {
+                Response::json($ok);
+                return;
+            }
+
+            $now = SqlRepository::nowUtc();
+            $shownMap = is_array($user[OnboardingPolicy::RULES_SHOWN_FIELD] ?? null)
+                ? $user[OnboardingPolicy::RULES_SHOWN_FIELD] : [];
+            $shownMap[$set] = $now;
+            $this->db->updateOne('users', ['id' => SqlRepository::id((string) $user['id'])], [
+                OnboardingPolicy::RULES_SHOWN_FIELD => $shownMap,
+                'updatedAt' => $now,
+            ]);
+            Response::json($ok);
+        } catch (Throwable $e) {
+            Logger::error('Rules step-shown stamp failed', [
+                'error' => $e->getMessage(),
+            ], 'auth');
+            Response::json(['message' => 'Server error recording rules step'], 500);
         }
     }
 

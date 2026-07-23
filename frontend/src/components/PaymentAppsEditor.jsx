@@ -40,7 +40,8 @@ const FIELD_META = {
     // decorative prefix overlay for these two.
     venmo: { prefix: null, placeholder: '@username' },
     cashapp: { prefix: null, placeholder: '$cashtag' },
-    applePay: { prefix: null, placeholder: 'Phone or email' },
+    // Phone-only since 2026-07-23 (formatUsPhone strips letters as typed).
+    applePay: { prefix: null, placeholder: 'Phone number' },
     zelle: { prefix: null, placeholder: 'Phone or email' },
     paypal: { prefix: null, placeholder: 'Email or @username' },
     btc: { prefix: null, placeholder: 'Wallet address' },

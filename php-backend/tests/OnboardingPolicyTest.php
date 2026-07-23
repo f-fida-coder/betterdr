@@ -323,6 +323,56 @@ TestRunner::run('normalizePaymentHandle — server mirrors the FE formatters', f
     TestRunner::assertEquals('bc1qxyz', OnboardingPolicy::normalizePaymentHandle('btc', 'bc1 qxyz'), 'btc whitespace-strip only');
 });
 
+// ── Apple Pay is PHONE-ONLY (Fida 2026-07-23) — email-format input must not
+// survive as a payable handle; Zelle keeps its phone-or-email dual mode. ──────
+TestRunner::run('normalizePaymentHandle — applePay accepts phone, rejects email', function (): void {
+    TestRunner::assertEquals('310-721-2084', OnboardingPolicy::normalizePaymentHandle('applePay', '3107212084'), 'applePay bare phone auto-dash');
+    TestRunner::assertEquals('310-721-2084', OnboardingPolicy::normalizePaymentHandle('applePay', '(310) 721-2084'), 'applePay punctuation stripped');
+    TestRunner::assertEquals('310-721-2084', OnboardingPolicy::normalizePaymentHandle('applePay', '310-721-2084'), 'applePay idempotent on formatted phone');
+    TestRunner::assertEquals('', OnboardingPolicy::normalizePaymentHandle('applePay', 'nick@icloud.com'), 'applePay email → empty (unanswered)');
+    TestRunner::assertEquals('', OnboardingPolicy::normalizePaymentHandle('applePay', 'nickyg'), 'applePay bare letters → empty');
+    TestRunner::assertTrue(!OnboardingPolicy::paymentHandleFilled(OnboardingPolicy::normalizePaymentHandle('applePay', 'a@b.com')), 'normalized email never counts as filled');
+    TestRunner::assertEquals('N/A', OnboardingPolicy::normalizePaymentHandle('applePay', 'n/a'), 'applePay N/A opt-out passes through');
+    TestRunner::assertEquals('nick@icloud.com', OnboardingPolicy::normalizePaymentHandle('zelle', 'nick@icloud.com'), 'zelle email mode UNCHANGED');
+});
+
+// ── Rules dwell clock (Fida 2026-07-23) — acceptance refused until
+// RULES_MIN_DWELL_SECONDS after the server-side step-shown stamp. ─────────────
+TestRunner::run('rulesDwellRemaining — dwell window per set off the shown stamp', function () use ($player): void {
+    $full = OnboardingPolicy::RULES_MIN_DWELL_SECONDS;
+    $house = OnboardingPolicy::SET_HOUSE;
+    $platform = OnboardingPolicy::SET_PLATFORM;
+    $now = 1_800_000_000; // fixed epoch — the helper is pure, no wall clock
+    $stampAt = static fn (int $ts): string => gmdate(DATE_ATOM, $ts);
+
+    $noStamp = $player();
+    TestRunner::assertEquals($full, OnboardingPolicy::rulesDwellRemaining($noStamp, $house, $now), 'no stamp → full window owed');
+
+    $justShown = $player([OnboardingPolicy::RULES_SHOWN_FIELD => [$house => $stampAt($now)]]);
+    TestRunner::assertEquals($full, OnboardingPolicy::rulesDwellRemaining($justShown, $house, $now), 'shown this second → full window');
+
+    $tenIn = $player([OnboardingPolicy::RULES_SHOWN_FIELD => [$house => $stampAt($now - 10)]]);
+    TestRunner::assertEquals($full - 10, OnboardingPolicy::rulesDwellRemaining($tenIn, $house, $now), '10s elapsed → partial remaining');
+
+    $exactly = $player([OnboardingPolicy::RULES_SHOWN_FIELD => [$house => $stampAt($now - $full)]]);
+    TestRunner::assertEquals(0, OnboardingPolicy::rulesDwellRemaining($exactly, $house, $now), 'exactly the window → satisfied');
+
+    $longAgo = $player([OnboardingPolicy::RULES_SHOWN_FIELD => [$house => $stampAt($now - 3600)]]);
+    TestRunner::assertEquals(0, OnboardingPolicy::rulesDwellRemaining($longAgo, $house, $now), 'old stamp → satisfied, never negative');
+
+    // Per-SET independence: House satisfied must not unlock Platform.
+    TestRunner::assertEquals($full, OnboardingPolicy::rulesDwellRemaining($longAgo, $platform, $now), 'other set still owes its own window');
+
+    $future = $player([OnboardingPolicy::RULES_SHOWN_FIELD => [$house => $stampAt($now + 300)]]);
+    TestRunner::assertEquals($full, OnboardingPolicy::rulesDwellRemaining($future, $house, $now), 'future stamp (skew) → treated as unshown');
+
+    $malformed = $player([OnboardingPolicy::RULES_SHOWN_FIELD => [$house => ['nested' => 'junk']]]);
+    TestRunner::assertEquals($full, OnboardingPolicy::rulesDwellRemaining($malformed, $house, $now), 'malformed stamp → full window, no crash');
+
+    $garbage = $player([OnboardingPolicy::RULES_SHOWN_FIELD => 'not-a-map']);
+    TestRunner::assertEquals($full, OnboardingPolicy::rulesDwellRemaining($garbage, $house, $now), 'non-array field → full window, no crash');
+});
+
 // ── Role / account-type exemptions ──────────────────────────────────────────────
 TestRunner::run('exemptions — only real player accounts are gated', function () use ($player): void {
     foreach (['admin', 'agent', 'super_agent', 'master_agent'] as $role) {

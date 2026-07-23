@@ -1,5 +1,5 @@
 import React from 'react';
-import { updateProfile, acknowledgeRules, getContentRules, getStoredAuthToken } from '../api';
+import { updateProfile, acknowledgeRules, getContentRules, markRulesStepShown, getStoredAuthToken } from '../api';
 import { hasReachedScrollBottom } from '../utils/scroll';
 import { normalizePreferenceOrder, isFilledHandle, formatHandleForKey } from '../utils/paymentApps';
 import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/timezone';
@@ -17,12 +17,13 @@ import { useToast } from '../contexts/ToastContext';
  * stamp); the step plan is frozen at mount from server-derived per-set
  * flags, so players only see the steps they still owe.
  *
- * Behavior contract (product decision 2026-07-17):
- *  - DISMISSIBLE (X): closing lets the player browse the board — but does
- *    NOT complete onboarding. The gate re-opens on next login and whenever
- *    a bet attempt hits the server's ONBOARDING_REQUIRED block (the shell
- *    listens for `onboarding:show`). There is NO skip inside the flow —
- *    the only way through is completing both steps.
+ * Behavior contract (product decision 2026-07-23, supersedes the 07-17
+ * dismissible-to-browse rule):
+ *  - NOT DISMISSIBLE: no X button, and the overlay/backdrop carries no
+ *    close handler and no ESC handler ON PURPOSE — the only way out is
+ *    completing every step in the plan. Don't "fix" this by wiring a
+ *    click-away or keydown close; the server's ONBOARDING_REQUIRED block
+ *    remains the real enforcement, this is the matching UX.
  *  - State is SERVER-derived (`user.onboarding` on /auth/me): each step
  *    commits on completion, so closing mid-flow resumes at the remaining
  *    step next time. Nothing is persisted client-side.
@@ -53,6 +54,13 @@ const MODE_EXAMPLES = {
 };
 const FALLBACK_MIN = 10;
 const FALLBACK_MAX = 100;
+
+// Minimum seconds a rules step must be on screen before its checkbox +
+// Accept unlock (Fida 2026-07-23) — in ADDITION to scroll-to-bottom, per
+// SET: House and Platform each run their own clock from their own render.
+// MIRRORS OnboardingPolicy::RULES_MIN_DWELL_SECONDS (server re-validates
+// against its own shown stamp) — keep in lockstep.
+const RULES_MIN_DWELL_SECONDS = 40;
 
 const label = {
     fontSize: 11,
@@ -89,13 +97,13 @@ const RULES_STEPS = {
 const PAYMENT_APP_FIELDS = [
     { key: 'venmo', label: 'Venmo', prefix: '@', placeholder: 'username' },
     { key: 'cashapp', label: 'Cash App', prefix: '$', placeholder: 'cashtag' },
-    { key: 'applePay', label: 'Apple Pay', prefix: null, placeholder: 'Phone or email' },
+    { key: 'applePay', label: 'Apple Pay', prefix: null, placeholder: 'Phone number' },
     { key: 'zelle', label: 'Zelle', prefix: null, placeholder: 'Phone or email' },
     { key: 'paypal', label: 'PayPal', prefix: null, placeholder: 'Email or @username' },
     { key: 'btc', label: 'BTC Address', prefix: null, placeholder: 'Wallet address' },
 ];
 
-const OnboardingGate = ({ user, onDismiss }) => {
+const OnboardingGate = ({ user }) => {
     const { showToast } = useToast();
     const onboarding = user?.onboarding || {};
     // The step plan is FROZEN at mount from the server-derived onboarding
@@ -256,10 +264,43 @@ const OnboardingGate = ({ user, onDismiss }) => {
     const [scrolledSets, setScrolledSets] = React.useState({});
     const rulesBoxRef = React.useRef(null);
     const [acking, setAcking] = React.useState(false);
+    // Dwell-time enforcement (Fida 2026-07-23): PER SET — epoch-ms the set's
+    // step first rendered. Checkbox + Accept stay locked until BOTH scroll
+    // AND RULES_MIN_DWELL_SECONDS are satisfied. `dwellNow` ticks 1s while a
+    // rules step shows so the countdown re-renders.
+    const [dwellStartSets, setDwellStartSets] = React.useState({});
+    const [dwellNow, setDwellNow] = React.useState(() => Date.now());
 
     const onRulesStep = currentStep === 'house' || currentStep === 'platform';
 
     const markScrolled = (setKey) => setScrolledSets((prev) => (prev[setKey] ? prev : { ...prev, [setKey]: true }));
+
+    // Start the set's dwell clock when its step becomes current (once per
+    // set — returning to a completed step can't happen, and a re-render
+    // mustn't restart a running clock). Also plant the SERVER's shown stamp
+    // — fire-and-forget: a lost call self-heals inside acknowledge-rules.
+    React.useEffect(() => {
+        if (!onRulesStep) return;
+        const setKey = RULES_STEPS[currentStep]?.setKey;
+        if (!setKey) return;
+        setDwellStartSets((prev) => (prev[setKey] ? prev : { ...prev, [setKey]: Date.now() }));
+        const token = getStoredAuthToken();
+        if (token) markRulesStepShown(token, setKey).catch(() => {});
+    }, [onRulesStep, currentStep]);
+
+    React.useEffect(() => {
+        if (!onRulesStep) return;
+        const id = setInterval(() => setDwellNow(Date.now()), 1000);
+        return () => clearInterval(id);
+    }, [onRulesStep]);
+
+    // Seconds still owed on a set's dwell clock (0 = satisfied). No start
+    // yet (first render tick) = the full window.
+    const dwellRemainingFor = (setKey, nowMs) => {
+        const start = dwellStartSets[setKey];
+        if (typeof start !== 'number') return RULES_MIN_DWELL_SECONDS;
+        return Math.max(0, RULES_MIN_DWELL_SECONDS - Math.floor((nowMs - start) / 1000));
+    };
 
     React.useEffect(() => {
         if (!onRulesStep || rules !== null) return;
@@ -337,9 +378,11 @@ const OnboardingGate = ({ user, onDismiss }) => {
 
     const confirmRules = async (stepKey) => {
         const setKey = RULES_STEPS[stepKey]?.setKey;
-        // Scroll + checkbox both required — mirrors the button's disabled
-        // condition so a programmatic click can't skip the read requirement.
+        // Scroll + checkbox + dwell all required — mirrors the button's
+        // disabled condition so a programmatic click can't skip the read
+        // requirement (the server re-validates the dwell independently).
         if (!setKey || !acceptedSets[setKey] || !scrolledSets[setKey] || acking) return;
+        if (dwellRemainingFor(setKey, Date.now()) > 0) return;
         const token = getStoredAuthToken();
         if (!token) return;
         setAcking(true);
@@ -354,6 +397,18 @@ const OnboardingGate = ({ user, onDismiss }) => {
                 showToast?.('You are all set — good luck!', 'success');
             }
         } catch (err) {
+            if (err?.code === 'RULES_DWELL_REQUIRED') {
+                // Server's dwell clock disagrees with ours (stamp call was
+                // lost, or the client clock is off) — resync the local
+                // countdown to the server's remaining seconds so the button
+                // re-locks and unlocks exactly when the server will accept.
+                const remaining = Number.isFinite(err.remainingSeconds)
+                    ? err.remainingSeconds : RULES_MIN_DWELL_SECONDS;
+                setDwellStartSets((prev) => ({
+                    ...prev,
+                    [setKey]: Date.now() - (RULES_MIN_DWELL_SECONDS - remaining) * 1000,
+                }));
+            }
             showToast?.(err?.message || 'Failed to acknowledge rules', 'error');
         } finally {
             setAcking(false);
@@ -376,6 +431,10 @@ const OnboardingGate = ({ user, onDismiss }) => {
     const rulesUnavailable = rulesError || (rules !== null && rulesSections.length === 0);
     const rulesAccepted = rulesStep ? !!acceptedSets[rulesStep.setKey] : false;
     const rulesScrolled = rulesStep ? !!scrolledSets[rulesStep.setKey] : false;
+    const rulesDwellRemaining = rulesStep ? dwellRemainingFor(rulesStep.setKey, dwellNow) : 0;
+    const rulesDwelled = rulesDwellRemaining <= 0;
+    // Both read-proofs together gate the checkbox and Accept.
+    const rulesReadProven = rulesScrolled && rulesDwelled;
 
     return (
         <div style={{
@@ -400,29 +459,17 @@ const OnboardingGate = ({ user, onDismiss }) => {
                 flexDirection: 'column',
                 overflow: 'hidden',
             }}>
-                {/* Header */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 10px' }}>
-                    <div>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>
-                            {currentStep === 'defaults' ? 'Set Your Bet Defaults'
-                                : currentStep === 'payapps' ? 'Payment Apps'
-                                : rulesStep?.title}
-                        </div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginTop: 2 }}>
-                            Step {stepNumber} of {totalSteps} — required before you can place bets
-                        </div>
+                {/* Header — deliberately no close affordance (see behavior
+                    contract above): the gate cannot be dismissed. */}
+                <div style={{ padding: '14px 16px 10px' }}>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>
+                        {currentStep === 'defaults' ? 'Set Your Bet Defaults'
+                            : currentStep === 'payapps' ? 'Payment Apps'
+                            : rulesStep?.title}
                     </div>
-                    {/* Dismiss = browse without betting. NOT a skip: the gate
-                        returns on next login / next bet attempt. */}
-                    <button
-                        type="button"
-                        onClick={onDismiss}
-                        aria-label="Close — you can browse, but betting stays locked until setup is complete"
-                        title="Close — you can browse, but betting stays locked until setup is complete"
-                        style={{ background: 'none', border: 'none', fontSize: 18, color: '#64748b', cursor: 'pointer', padding: 6, lineHeight: 1 }}
-                    >
-                        <i className="fa-solid fa-xmark" />
-                    </button>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginTop: 2 }}>
+                        Step {stepNumber} of {totalSteps} — required before you can place bets
+                    </div>
                 </div>
 
                 <div style={{ padding: '4px 16px 16px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
@@ -623,12 +670,18 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                     Scroll to the bottom of the rules to unlock Accept
                                 </div>
                             )}
+                            {rules !== null && !rulesUnavailable && !rulesDwelled && (
+                                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textAlign: 'center' }}>
+                                    <i className="fa-regular fa-clock" style={{ marginRight: 6 }} />
+                                    Take your time reading — Accept unlocks in {rulesDwellRemaining}s
+                                </div>
+                            )}
 
-                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: rulesScrolled ? 'pointer' : 'not-allowed', fontSize: 13, color: '#0f172a', fontWeight: 600, lineHeight: 1.4, opacity: rulesScrolled ? 1 : 0.5 }}>
+                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: rulesReadProven ? 'pointer' : 'not-allowed', fontSize: 13, color: '#0f172a', fontWeight: 600, lineHeight: 1.4, opacity: rulesReadProven ? 1 : 0.5 }}>
                                 <input
                                     type="checkbox"
                                     checked={rulesAccepted}
-                                    disabled={!rulesScrolled}
+                                    disabled={!rulesReadProven}
                                     onChange={(e) => {
                                         const checked = e.target.checked;
                                         setAcceptedSets((prev) => ({ ...prev, [rulesStep.setKey]: checked }));
@@ -641,9 +694,9 @@ const OnboardingGate = ({ user, onDismiss }) => {
                             <button
                                 type="button"
                                 onClick={() => confirmRules(currentStep)}
-                                disabled={!rulesAccepted || !rulesScrolled || acking || rules === null || rulesUnavailable}
+                                disabled={!rulesAccepted || !rulesReadProven || acking || rules === null || rulesUnavailable}
                                 style={{
-                                    background: (!rulesAccepted || !rulesScrolled || rules === null || rulesUnavailable) ? '#cbd5e1' : '#16a34a',
+                                    background: (!rulesAccepted || !rulesReadProven || rules === null || rulesUnavailable) ? '#cbd5e1' : '#16a34a',
                                     color: '#fff',
                                     border: 'none',
                                     borderRadius: 8,
@@ -651,7 +704,7 @@ const OnboardingGate = ({ user, onDismiss }) => {
                                     fontWeight: 800,
                                     fontSize: 13,
                                     letterSpacing: 0.4,
-                                    cursor: (!rulesAccepted || !rulesScrolled || acking || rules === null || rulesUnavailable) ? 'not-allowed' : 'pointer',
+                                    cursor: (!rulesAccepted || !rulesReadProven || acking || rules === null || rulesUnavailable) ? 'not-allowed' : 'pointer',
                                     opacity: acking ? 0.7 : 1,
                                     textTransform: 'uppercase',
                                 }}
