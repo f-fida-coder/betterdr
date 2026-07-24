@@ -37,6 +37,7 @@ require_once $phpBackendDir . '/src/RundownMarketMap.php';
 require_once $phpBackendDir . '/src/RundownEventMapper.php';
 require_once $phpBackendDir . '/src/RundownDeltaCursor.php';
 require_once $phpBackendDir . '/src/RundownSyncService.php';
+require_once $phpBackendDir . '/src/PrematchProbe.php';
 
 Env::load($projectRoot, $phpBackendDir);
 Logger::init($phpBackendDir . '/logs');
@@ -205,8 +206,58 @@ function activeSportsForPrematchRotation(SqlRepository $db, int $minSports = 4):
     $active = array_keys($keys);
     sort($active);
 
-    if (count($active) < $minSports) {
-        return resolveAllConfiguredSports();
+    if (count($active) >= $minSports) {
+        return $active;
     }
-    return $active;
+    // Short active list — do NOT blast every configured sport at full prematch
+    // cadence (the old datapoint waste, 2026-07-24). Cheaply probe which
+    // configured sports actually have upcoming games (dates-only, ~0 odds
+    // points) and promote just those. A sport with no games in the window has
+    // no bettable market, so skipping it is not a stale-line/exploit risk —
+    // only a discovery question, which the probe answers. Belt-and-suspenders:
+    // if the merged list is still empty (cold start / probe failure), fall
+    // back to the full catalog so the board can never go dark.
+    $probed = probeUpcomingConfiguredSports($db, $active);
+    $merged = array_values(array_unique(array_merge($active, $probed)));
+    return $merged !== [] ? $merged : resolveAllConfiguredSports();
+}
+
+/**
+ * Cheap upcoming-games probe for configured sports missing from the active
+ * rotation (2026-07-24). Uses the dates-only endpoint (~0 odds datapoints) so
+ * a quiet period no longer triggers a full-catalog prematch blast; a sport is
+ * promoted only once it actually has a game inside the lookahead window.
+ * Cached (PREMATCH_PROBE_CACHE_SECONDS, default 300s) to bound request volume.
+ *
+ * @param list<string> $alreadyActive
+ * @return list<string>
+ */
+function probeUpcomingConfiguredSports(SqlRepository $db, array $alreadyActive): array
+{
+    $ttl = max(60, (int) Env::get('PREMATCH_PROBE_CACHE_SECONDS', '300'));
+    $cached = SharedFileCache::get('prematch-probe', 'upcoming', $ttl);
+    if (is_array($cached['sports'] ?? null)) {
+        return $cached['sports'];
+    }
+    $horizonDays = max(1, (int) Env::get('RUNDOWN_PREMATCH_DAYS_AHEAD', '4'));
+    $today  = gmdate('Y-m-d');
+    $cutoff = gmdate('Y-m-d', time() + $horizonDays * 86400);
+    $missing = array_values(array_diff(resolveAllConfiguredSports(), $alreadyActive));
+    $found = [];
+    foreach ($missing as $sportKey) {
+        $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+        if ($sportId === null) {
+            continue;
+        }
+        try {
+            $resp = RundownClient::getDatesForSports([$sportId], ['format' => 'date']);
+            if (PrematchProbe::hasUpcomingWithin(PrematchProbe::datesFromResponse($resp, $sportId), $today, $cutoff)) {
+                $found[] = $sportKey;
+            }
+        } catch (Throwable $e) {
+            Logger::warning('prematch probe error', ['sportKey' => $sportKey, 'error' => $e->getMessage()], 'sportsbook');
+        }
+    }
+    SharedFileCache::put('prematch-probe', 'upcoming', ['sports' => $found, 'at' => time()]);
+    return $found;
 }

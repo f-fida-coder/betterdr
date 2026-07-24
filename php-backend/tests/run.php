@@ -42,6 +42,7 @@ const ISOLATED_SUITES = [
     'TerminalLegDisplayTest.php',   // in-memory SqlRepository double for the display-only terminal-leg backfill
     'FarLineStaleGateTest.php',     // loads REAL Env + SportsbookHealth (would fatal-redeclare vs the shared-process Env stub)
     'PinnacleWatchTest.php',        // loads REAL Env + RundownEventMapper + RundownSyncService + SportsbookBetSupport
+    'PrematchProbeTest.php',        // loads REAL PrematchProbe (pure), isolated for consistency with the other prematch suites
 ];
 
 $testFiles = glob(__DIR__ . '/*Test.php') ?: [];

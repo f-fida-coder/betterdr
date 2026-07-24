@@ -51,6 +51,7 @@ require_once $phpBackendDir . '/src/RundownMarketMap.php';
 require_once $phpBackendDir . '/src/RundownEventMapper.php';
 require_once $phpBackendDir . '/src/RundownDeltaCursor.php';
 require_once $phpBackendDir . '/src/RundownSyncService.php';
+require_once $phpBackendDir . '/src/PrematchProbe.php';
 require_once $phpBackendDir . '/src/MatchesController.php';
 
 Env::load($projectRoot, $phpBackendDir);
@@ -703,8 +704,53 @@ function activeSportsForPrematchRotation(SqlRepository $db, int $minSports = 4):
     $active = array_keys($keys);
     sort($active);
 
-    if (count($active) < $minSports) {
-        return resolveAllConfiguredSports();
+    if (count($active) >= $minSports) {
+        return $active;
     }
-    return $active;
+    // Short active list — cheap upcoming-games probe instead of blasting the
+    // full catalog at prematch cadence (2026-07-24 waste fix). Mirrors the
+    // prematch-worker copy; kept in lockstep. A sport with no games in the
+    // window has no bettable market, so skipping it carries no exploit risk.
+    $probed = probeUpcomingConfiguredSports($db, $active);
+    $merged = array_values(array_unique(array_merge($active, $probed)));
+    return $merged !== [] ? $merged : resolveAllConfiguredSports();
+}
+
+/**
+ * Cheap upcoming-games probe (2026-07-24) — dates-only endpoint (~0 odds
+ * datapoints), cached (PREMATCH_PROBE_CACHE_SECONDS, default 300s). Promotes a
+ * missing configured sport into rotation only once it has a game inside the
+ * lookahead window. Kept in lockstep with the prematch-worker copy.
+ *
+ * @param list<string> $alreadyActive
+ * @return list<string>
+ */
+function probeUpcomingConfiguredSports(SqlRepository $db, array $alreadyActive): array
+{
+    $ttl = max(60, (int) Env::get('PREMATCH_PROBE_CACHE_SECONDS', '300'));
+    $cached = SharedFileCache::get('prematch-probe', 'upcoming', $ttl);
+    if (is_array($cached['sports'] ?? null)) {
+        return $cached['sports'];
+    }
+    $horizonDays = max(1, (int) Env::get('RUNDOWN_PREMATCH_DAYS_AHEAD', '4'));
+    $today  = gmdate('Y-m-d');
+    $cutoff = gmdate('Y-m-d', time() + $horizonDays * 86400);
+    $missing = array_values(array_diff(resolveAllConfiguredSports(), $alreadyActive));
+    $found = [];
+    foreach ($missing as $sportKey) {
+        $sportId = RundownSportMap::sportKeyToSportId($sportKey);
+        if ($sportId === null) {
+            continue;
+        }
+        try {
+            $resp = RundownClient::getDatesForSports([$sportId], ['format' => 'date']);
+            if (PrematchProbe::hasUpcomingWithin(PrematchProbe::datesFromResponse($resp, $sportId), $today, $cutoff)) {
+                $found[] = $sportKey;
+            }
+        } catch (Throwable $e) {
+            Logger::warning('prematch probe error', ['sportKey' => $sportKey, 'error' => $e->getMessage()], 'sportsbook');
+        }
+    }
+    SharedFileCache::put('prematch-probe', 'upcoming', ['sports' => $found, 'at' => time()]);
+    return $found;
 }
