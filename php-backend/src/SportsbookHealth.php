@@ -588,6 +588,69 @@ final class SportsbookHealth
     }
 
     /**
+     * FAR-LINE STALENESS SAFEGUARD (2026-07-24) — the money-side backstop for
+     * the tiered prematch cadence. Games 2+ days out ("far tier") only get a
+     * full all-books refresh every PREMATCH_FAR_FULL_SECONDS; between those,
+     * only Pinnacle is watched and a threshold move triggers an immediate full
+     * refresh. If that watch/refresh machinery ever stalls (worker hiccup,
+     * feed gap), a far game could quietly serve a line older than we intend to
+     * stand behind — a sharp bettor could pick it off. This is the hard
+     * ceiling: once a far game's full line is older than
+     * PREMATCH_FAR_STALE_CEILING_SECONDS, we SUSPEND new bets on it until the
+     * next full refresh, exactly like any other unbettable state.
+     *
+     * PURE + testable: returns the block reason, or null when the game is
+     * fine. Only ever produces a reason for FUTURE, far-tier games — near
+     * games (refreshed every 75s) and started/live games (their own live gate)
+     * are never touched, so this can only flip isBettable true→false and never
+     * loosens any other rule. Fails OPEN only when there is genuinely no
+     * timestamp to judge by (never in practice — the full-sync paths always
+     * stamp linesRefreshedAt / lastOddsSyncAt).
+     *
+     * @param array<string,mixed> $match
+     */
+    public static function farLineStaleReason(array $match, ?int $nowTs = null): ?string
+    {
+        $now = $nowTs ?? time();
+        $nearDays = max(0, (int) Env::get('PREMATCH_NEAR_DAYS', '2'));
+        $ceiling  = max(60, (int) Env::get('PREMATCH_FAR_STALE_CEILING_SECONDS', '600'));
+
+        // Only prematch/upcoming games. A game that has started (or is live/
+        // finished) is out of scope — the live-staleness gate and status gate
+        // own those. startTime must parse and be in the future by more than
+        // the near-tier window for the game to count as "far".
+        $startRaw = (string) ($match['startTime'] ?? '');
+        $startTs  = $startRaw !== '' ? strtotime($startRaw) : false;
+        if ($startTs === false) {
+            return null; // no schedule anchor — not our call
+        }
+        $status = strtolower((string) ($match['status'] ?? ''));
+        if (in_array($status, ['live', 'in_progress', 'finished', 'final', 'canceled', 'cancelled'], true)) {
+            return null;
+        }
+        // Far tier = kickoff is more than nearDays*24h out. Near games are
+        // refreshed on the fast cadence, so they can never be far-stale.
+        if ($startTs <= $now + ($nearDays * 86400)) {
+            return null;
+        }
+
+        // Age of the last FULL (all-books) line write. The Pinnacle-only watch
+        // deliberately does NOT stamp these, so this measures trustworthy-line
+        // age, not watch age. Fall back through the older stamps so far games
+        // written before linesRefreshedAt existed are judged, not falsely
+        // suspended.
+        $stampRaw = (string) ($match['linesRefreshedAt'] ?? $match['lastOddsSyncAt'] ?? $match['lastUpdated'] ?? '');
+        $stampTs  = $stampRaw !== '' ? strtotime($stampRaw) : false;
+        if ($stampTs === false) {
+            return null; // nothing to measure — fail open (never happens in prod)
+        }
+        if (($now - $stampTs) > $ceiling) {
+            return 'Odds for this game are being refreshed. Please try again in a moment.';
+        }
+        return null;
+    }
+
+    /**
      * @param array<string, mixed> $match
      * @return array<string, mixed>
      */
@@ -610,6 +673,20 @@ final class SportsbookHealth
             $annotated['isBettable'] = false;
             $annotated['isStale'] = true;
             $annotated['bettingBlockedReason'] = $staleState['reason'];
+        }
+
+        // Far-line staleness ceiling (tiered-prematch safeguard, 2026-07-24):
+        // a far-tier game whose full line has aged past the ceiling is
+        // suspended until the next full refresh. Same true→false-only shape as
+        // the rules below; only touches future far games (see farLineStaleReason).
+        if (($annotated['isBettable'] ?? false) === true) {
+            $farReason = self::farLineStaleReason($annotated);
+            if ($farReason !== null) {
+                $annotated['isBettable'] = false;
+                $annotated['isStale'] = true;
+                $annotated['farLineStale'] = true;
+                $annotated['bettingBlockedReason'] = $farReason;
+            }
         }
 
         // Hard feed limit (datapoint quota exhausted OR account hard-budget /

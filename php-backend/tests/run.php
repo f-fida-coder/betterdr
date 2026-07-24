@@ -40,6 +40,8 @@ const ISOLATED_SUITES = [
     'OddsApiCardMarketsTest.php',   // needs an INSTANCE-method SqlRepository double (shared-process stub is static-only)
     'SqlRepositoryMergeTest.php',   // loads the REAL SqlRepository (would fatal-redeclare against shared-process stubs)
     'TerminalLegDisplayTest.php',   // in-memory SqlRepository double for the display-only terminal-leg backfill
+    'FarLineStaleGateTest.php',     // loads REAL Env + SportsbookHealth (would fatal-redeclare vs the shared-process Env stub)
+    'PinnacleWatchTest.php',        // loads REAL Env + RundownEventMapper + RundownSyncService + SportsbookBetSupport
 ];
 
 $testFiles = glob(__DIR__ . '/*Test.php') ?: [];

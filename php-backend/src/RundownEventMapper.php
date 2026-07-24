@@ -225,6 +225,18 @@ final class RundownEventMapper
             'lastUpdated'       => $now,
             'lastOddsSyncAt'    => $now,
             'lastScoreSyncAt'   => $now,
+            // Full all-books line write stamp (tiered-prematch safeguard,
+            // 2026-07-24). Set on every FULL mapper write (prematch/live/
+            // syncEventFull) — NOT by the Pinnacle-only far watch, which does a
+            // narrow updateOne. SportsbookHealth::farLineStaleReason measures
+            // trustworthy-line age off this; the sharp-move watch compares
+            // against `pinnacleWatch` below.
+            'linesRefreshedAt'  => $now,
+            'pinnacleWatch'     => self::pinnacleMainline(
+                $partitioned['bookmakers'],
+                (string) ($home['name'] ?? ''),
+                (string) ($away['name'] ?? '')
+            ) + ['at' => $now],
             // When homePitcher/awayPitcher were last written from a FULL event
             // sync. The live score tick (scoreUpdate) refreshes the score and
             // bumps lastUpdated WITHOUT touching pitchers, so lastUpdated cannot
@@ -235,6 +247,94 @@ final class RundownEventMapper
             'updatedAt'         => $now,
             'createdAt'         => $now,
         ];
+    }
+
+    /**
+     * Extract Pinnacle's main-line numbers for the sharp-move watch
+     * (tiered-prematch safeguard, 2026-07-24). Pinnacle is the reference
+     * book; when its line for a far game moves past threshold we trigger an
+     * immediate full refresh. PURE — no I/O.
+     *
+     * Returns the four watched dimensions, each null when Pinnacle isn't
+     * present or that market isn't quoted:
+     *   spread  — home-side spread point (favourite fallback keeps it stable
+     *             regardless of outcome ordering)
+     *   total   — game total point (over/under share it)
+     *   mlHome  — home moneyline price (DECIMAL, as stored)
+     *   mlAway  — away moneyline price (DECIMAL)
+     *
+     * @param list<array<string,mixed>> $bookmakers  odds.bookmakers array
+     * @return array{spread:?float,total:?float,mlHome:?float,mlAway:?float}
+     */
+    public static function pinnacleMainline(array $bookmakers, string $homeTeam, string $awayTeam): array
+    {
+        $out = ['spread' => null, 'total' => null, 'mlHome' => null, 'mlAway' => null];
+
+        $pin = null;
+        foreach ($bookmakers as $bm) {
+            if (is_array($bm) && strtolower((string) ($bm['key'] ?? '')) === 'pinnacle') {
+                $pin = $bm;
+                break;
+            }
+        }
+        if ($pin === null) {
+            return $out;
+        }
+        $markets = is_array($pin['markets'] ?? null) ? $pin['markets'] : [];
+        $rows = static function (string $key) use ($markets): array {
+            $m = is_array($markets[$key] ?? null) ? $markets[$key] : [];
+            $pre = is_array($m['prematch'] ?? null) ? $m['prematch'] : [];
+            return array_values(array_filter($pre, 'is_array'));
+        };
+        $homeNorm = self::normTeam($homeTeam);
+        $awayNorm = self::normTeam($awayTeam);
+
+        // Spread — home-side point; if the name doesn't resolve, use the most
+        // negative point (the favourite), which is order-independent.
+        $spreadRows = $rows('spreads');
+        if ($spreadRows !== []) {
+            $homePoint = null;
+            $favPoint = null;
+            foreach ($spreadRows as $o) {
+                if (!array_key_exists('point', $o) || !is_numeric($o['point'])) continue;
+                $p = (float) $o['point'];
+                if (self::normTeam((string) ($o['name'] ?? '')) === $homeNorm && $homeNorm !== '') {
+                    $homePoint = $p;
+                }
+                if ($favPoint === null || $p < $favPoint) {
+                    $favPoint = $p;
+                }
+            }
+            $out['spread'] = $homePoint ?? $favPoint;
+        }
+
+        // Total — any totals outcome carries the shared game total point.
+        $totalRows = $rows('totals');
+        foreach ($totalRows as $o) {
+            if (array_key_exists('point', $o) && is_numeric($o['point'])) {
+                $out['total'] = (float) $o['point'];
+                break;
+            }
+        }
+
+        // Moneyline — resolve home/away by team name (DECIMAL prices as stored).
+        foreach ($rows('h2h') as $o) {
+            if (!array_key_exists('price', $o) || !is_numeric($o['price'])) continue;
+            $n = self::normTeam((string) ($o['name'] ?? ''));
+            if ($n === $homeNorm && $homeNorm !== '') {
+                $out['mlHome'] = (float) $o['price'];
+            } elseif ($n === $awayNorm && $awayNorm !== '') {
+                $out['mlAway'] = (float) $o['price'];
+            }
+        }
+
+        return $out;
+    }
+
+    /** Loose team-name key for outcome matching (case/space/punct-insensitive). */
+    private static function normTeam(string $name): string
+    {
+        return strtolower((string) preg_replace('/[^a-z0-9]/i', '', $name));
     }
 
     /**

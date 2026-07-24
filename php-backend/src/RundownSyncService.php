@@ -101,12 +101,18 @@ final class RundownSyncService
      *     daysCovered:int
      * }
      */
-    public static function syncSportPrematch(SqlRepository $db, string $sportKey, int $sportId, ?int $daysAhead = null): array
+    public static function syncSportPrematch(SqlRepository $db, string $sportKey, int $sportId, ?int $daysAhead = null, ?int $dayFrom = null, ?int $dayTo = null): array
     {
         if (!RundownClient::isConfigured()) {
             return self::skippedResult('not_configured') + ['bookmakersAvg' => 0.0, 'daysCovered' => 0];
         }
         $days = max(1, $daysAhead ?? (int) Env::get('RUNDOWN_PREMATCH_DAYS_AHEAD', '4'));
+        // Tiered cadence (2026-07-24): the worker drives near (day 0..NEAR-1)
+        // and far (day NEAR..days-1) ranges separately so each can refresh on
+        // its own schedule. Defaults cover the whole 0..days window (unchanged
+        // behaviour when called without a range).
+        $from = max(0, $dayFrom ?? 0);
+        $to   = min($days, $dayTo ?? $days);
         $base = self::baseQueryParams();
         $offsetSeconds = self::offsetSeconds();
         $eventsSeen = $created = $updated = $errors = $bookmakersTotal = 0;
@@ -115,7 +121,7 @@ final class RundownSyncService
         $dbgRaw = $dbgUnmapped = $dbgNoOdds = $dbgWithOdds = 0;
         $dbg = self::debugSyncEnabled();
 
-        for ($i = 0; $i < $days; $i++) {
+        for ($i = $from; $i < $to; $i++) {
             $date = gmdate('Y-m-d', time() - $offsetSeconds + ($i * 86400));
             try {
                 $resp = RundownClient::getEventsForSport($sportId, $date, $base);
@@ -434,6 +440,136 @@ final class RundownSyncService
             ], 'sportsbook');
             return ['ok' => false, 'error' => $e->getMessage()];
         }
+    }
+
+    /**
+     * Threshold test for the far-game sharp-move watch (PURE, 2026-07-24).
+     * True when Pinnacle's line has moved past any configured threshold since
+     * the last watch snapshot — the trigger for an immediate full refresh.
+     * A dimension absent from either snapshot is skipped (no baseline = no
+     * trigger), so the first watch pass only establishes a baseline.
+     *
+     * Thresholds (env): PREMATCH_PINNACLE_SPREAD_THRESHOLD (pts, 1.0),
+     * PREMATCH_PINNACLE_TOTAL_THRESHOLD (pts, 1.0),
+     * PREMATCH_PINNACLE_ML_THRESHOLD_CENTS (American cents, 15). ML is stored
+     * DECIMAL, so we convert to American for the cents compare. Near even
+     * money the American scale is intentionally twitchy — that only makes the
+     * watch MORE eager to refresh (safe direction), never less.
+     *
+     * @param array<string,mixed> $prev
+     * @param array<string,mixed> $curr
+     */
+    public static function pinnacleMoveExceeds(array $prev, array $curr): bool
+    {
+        $spreadT = (float) Env::get('PREMATCH_PINNACLE_SPREAD_THRESHOLD', '1.0');
+        $totalT  = (float) Env::get('PREMATCH_PINNACLE_TOTAL_THRESHOLD', '1.0');
+        $mlT     = max(1, (int) Env::get('PREMATCH_PINNACLE_ML_THRESHOLD_CENTS', '15'));
+        $num = static fn ($v): ?float => is_numeric($v) ? (float) $v : null;
+
+        $ps = $num($prev['spread'] ?? null); $cs = $num($curr['spread'] ?? null);
+        if ($ps !== null && $cs !== null && abs($cs - $ps) >= $spreadT) {
+            return true;
+        }
+        $pt = $num($prev['total'] ?? null); $ct = $num($curr['total'] ?? null);
+        if ($pt !== null && $ct !== null && abs($ct - $pt) >= $totalT) {
+            return true;
+        }
+        foreach (['mlHome', 'mlAway'] as $side) {
+            $pd = $num($prev[$side] ?? null); $cd = $num($curr[$side] ?? null);
+            if ($pd === null || $cd === null || $pd <= 1.0 || $cd <= 1.0) {
+                continue;
+            }
+            $pa = SportsbookBetSupport::decimalToAmericanInt($pd);
+            $ca = SportsbookBetSupport::decimalToAmericanInt($cd);
+            if (abs($ca - $pa) >= $mlT) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Far-tier Pinnacle watch (tiered-prematch safeguard, 2026-07-24).
+     * Fetches Pinnacle ONLY (affiliate_ids=3 → ~1/7 the datapoints) for the
+     * far day range and, per event, compares Pinnacle's main line to the last
+     * watch snapshot. A threshold move triggers an immediate full all-books
+     * refresh of that one game (syncEventFull) — catching real market-moving
+     * news between the slow far full refreshes.
+     *
+     * The watch does a NARROW update of `pinnacleWatch` only — it never
+     * rewrites the full odds (so the multi-book board is untouched) and never
+     * stamps `linesRefreshedAt` (so the staleness ceiling keeps measuring
+     * trustworthy full-line age, not watch age).
+     *
+     * @return array<string,mixed>
+     */
+    public static function pinnacleWatchFarDays(SqlRepository $db, string $sportKey, int $sportId, int $dayFrom, int $dayTo): array
+    {
+        if (!RundownClient::isConfigured()) {
+            return self::skippedResult('not_configured');
+        }
+        $pinId = trim((string) Env::get('PREMATCH_PINNACLE_AFFILIATE_ID', '3'));
+        $base = self::baseQueryParams();
+        $base['affiliate_ids'] = $pinId; // Pinnacle only — the cheap watch feed
+        $offsetSeconds = self::offsetSeconds();
+        $watched = $triggered = $errors = 0;
+
+        for ($i = max(0, $dayFrom); $i < $dayTo; $i++) {
+            $date = gmdate('Y-m-d', time() - $offsetSeconds + ($i * 86400));
+            try {
+                $resp = RundownClient::getEventsForSport($sportId, $date, $base);
+                if (!is_array($resp)) {
+                    continue;
+                }
+                $events = is_array($resp['events'] ?? null) ? $resp['events'] : [];
+                foreach ($events as $event) {
+                    if (!is_array($event)) {
+                        continue;
+                    }
+                    $uuid = (string) ($event['event_uuid'] ?? '');
+                    $doc = RundownEventMapper::toMatchDoc($event, $sportKey);
+                    if ($doc === null || $uuid === '') {
+                        continue;
+                    }
+                    $matchId = (string) $doc['id'];
+                    $curr = RundownEventMapper::pinnacleMainline(
+                        is_array($doc['odds']['bookmakers'] ?? null) ? $doc['odds']['bookmakers'] : [],
+                        (string) ($doc['homeTeam'] ?? ''),
+                        (string) ($doc['awayTeam'] ?? '')
+                    );
+                    $existing = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
+                    // No existing row yet → the full prematch path hasn't seeded
+                    // this game; skip (don't create a Pinnacle-only shell).
+                    if ($existing === null) {
+                        continue;
+                    }
+                    $prev = is_array($existing['pinnacleWatch'] ?? null) ? $existing['pinnacleWatch'] : [];
+                    $watched++;
+                    $now = SqlRepository::nowUtc();
+                    $db->updateOne('matches', ['id' => SqlRepository::id($matchId)], [
+                        'pinnacleWatch' => $curr + ['at' => $now],
+                    ]);
+                    if (self::pinnacleMoveExceeds($prev, $curr)) {
+                        $triggered++;
+                        Logger::info('rundown.pinnacleWatch triggered full refresh', [
+                            'matchId'  => $matchId,
+                            'sportKey' => $sportKey,
+                            'prev'     => $prev,
+                            'curr'     => $curr,
+                        ], 'sportsbook');
+                        self::syncEventFull($db, $uuid, $sportKey);
+                    }
+                }
+            } catch (Throwable $e) {
+                $errors++;
+                Logger::warning('rundown.pinnacleWatchFarDays error', [
+                    'sportKey' => $sportKey,
+                    'date'     => $date,
+                    'error'    => $e->getMessage(),
+                ], 'sportsbook');
+            }
+        }
+        return ['ok' => $errors === 0, 'watched' => $watched, 'triggered' => $triggered, 'errors' => $errors];
     }
 
     /**
